@@ -19,6 +19,9 @@ func _initialize() -> void:
     profile.capture(0.1, 90000, 82000, 5000, 4)
     info = profile.summary()
     if info["last_frame_ticks"] != 4 or info["ticks"] != 124 or (
+            float(info["frame_window_max_ms"]) < 99.9) or (
+            float(info["frame_p95_ms"]) < 15.9) or (
+            float(info["ticks_per_frame_window"]) <= 1.0) or (
             float(info["worst_frame_ms"]) < 99.9) or (
             float(info["worst_process_ms"]) < 89.9) or (
             float(info["process_p95_ms"]) < 14.9):
