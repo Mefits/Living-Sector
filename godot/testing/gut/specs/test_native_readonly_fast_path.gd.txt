@@ -1,0 +1,42 @@
+extends GutTest
+## Pure read-only N39 presence projections, no second World owner.
+## Their values must match the real original-Galaxy N39 source before
+## and after caller mutation of the returned (detached) summary.
+const Data = preload("res://scripts/native_data.gd")
+const Adapter = preload("res://scripts/sim/phase2/n158_galaxy_production_seed.gd")
+const N39 = preload("res://scripts/sim/phase1/n39_native_world_production.gd")
+
+func test_unstarted_world_has_no_fake_queue_or_planner() -> void:
+    var world = N39.new()
+    assert_eq(world.native_dock_queue_presence(), {
+        "has_ships": false, "queued": false})
+    assert_eq(world.native_planner_mode(), "legacy")
+
+func test_native_queue_presence_matches_original_canonical_seed() -> void:
+    var frozen: Dictionary = Data.load_current_world()
+    assert_false(frozen.has("error"))
+    if frozen.has("error"):
+        return
+    var prepared: Dictionary = Adapter.from_seed(frozen)
+    assert_true(prepared.get("ok", false))
+    if not prepared.get("ok", false):
+        return
+    var source = N39.new()
+    assert_true(source.initialize(prepared["world"]))
+    var before: Dictionary = source.world_snapshot()
+    var has_fifo: bool = false
+    for fac in before.get("facilities", {}).values():
+        if fac is Dictionary and fac.get("dock_queue", []) is Array and (
+                not fac.get("dock_queue", []).is_empty()):
+            has_fifo = true
+            break
+    var presence: Dictionary = source.native_dock_queue_presence()
+    assert_eq(bool(presence.get("has_ships", false)),
+        before.has("ships"))
+    assert_eq(bool(presence.get("queued", false)), has_fifo)
+    assert_eq(source.native_planner_mode(),
+        str(before.get("native_planner_mode", "legacy")))
+    presence["queued"] = not has_fifo
+    assert_eq(source.native_dock_queue_presence()["queued"], has_fifo)
+    assert_eq(source.world_snapshot(), before,
+        "Read-only native presence must not alter any N39 field or receipt")
