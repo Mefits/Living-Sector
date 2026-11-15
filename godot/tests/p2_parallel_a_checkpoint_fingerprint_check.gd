@@ -76,16 +76,18 @@ func _initialize() -> void:
             var costs: Dictionary = sim.production.native_schema_profile()
             var timed: Array = []
             for site in costs.get("schema", {}):
-                var stats: Dictionary = costs["schema"][site]
-                timed.append({"site": str(site), "calls": int(stats["calls"]),
-                    "total_usec": int(stats["total_usec"]),
-                    "max_usec": int(stats["max_usec"])})
+                var schema_cost: Dictionary = costs["schema"][site]
+                timed.append({"site": str(site), "calls": int(schema_cost["calls"]),
+                    "total_usec": int(schema_cost["total_usec"]),
+                    "max_usec": int(schema_cost["max_usec"]),
+                    "p95_usec": int(schema_cost.get("p95_usec", 0))})
             for site in costs.get("copies", {}):
-                var stats: Dictionary = costs["copies"][site]
+                var copy_cost: Dictionary = costs["copies"][site]
                 timed.append({"site": "copy:" + str(site),
-                    "calls": int(stats["calls"]),
-                    "total_usec": int(stats["total_usec"]),
-                    "max_usec": int(stats["max_usec"])})
+                    "calls": int(copy_cost["calls"]),
+                    "total_usec": int(copy_cost["total_usec"]),
+                    "max_usec": int(copy_cost["max_usec"]),
+                    "p95_usec": int(copy_cost.get("p95_usec", 0))})
             timed.sort_custom(func(a, b): return int(
                 a["total_usec"]) > int(b["total_usec"]))
             var costly: Array = timed.slice(0, mini(12, timed.size()))
