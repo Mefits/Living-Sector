@@ -160,6 +160,16 @@ func _advance_one_tick() -> void:
 
 ## The original N150 market phase runs AFTER paid facilities, in the
 ## SAME N39 world and one clock. N131 reprice produces NO stock or cash.
+## Opt-in native ship-phase source probe. Prints only from tick 320,
+## when the clean original 360-tick stress run last became pathological.
+## Does not edit ShipState, GOAP, commands, ledger or N38 checkpoint.
+func _profile_ship_stage(tick: int, stage: String) -> void:
+    if not _profile_enabled or tick < 320:
+        return
+    print("LS_SHIP_SUBPHASE tick=", tick, " stage=", stage,
+        " usec=", Time.get_ticks_usec())
+
+
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
     # Frozen Rust engine.rs orders MARKETS -> CRISIS -> APPLY2. N150 has
     # already persisted market hysteresis; this is the ONLY N39 writer of
@@ -741,9 +751,11 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # new ship state through N39. Previously each stage copied the
         # entire growing ledger/history even when NO decision changed.
         var planning_world: Dictionary = production.world_snapshot()
+        _profile_ship_stage(tick, "n83_trade_begin")
         var trade_source: Dictionary = NativeTradeRoute.stage(
             planning_world, _fleet_roster.registry.graph(),
             tick, n140_fired)
+        _profile_ship_stage(tick, "n83_trade_end")
         if not trade_source.get("ok", false):
             _last_ship_result = {"ok": false,
                 "reason": "n83_native_source_plan_" +
@@ -762,10 +774,12 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # fired by the SAME N140 source LOD gate and STILL idle qualify.
         # Proposals mutate neither bodies nor Market nor ship wallets;
         # N39 admits their serialized N84 plan before single N146 Apply.
+        _profile_ship_stage(tick, "n103_mine_begin")
         var native_ice: Dictionary = NativeIceMining.stage(
             planning_world, _fleet_roster.registry.graph(),
             _fleet_resolver, tick, n140_fired,
             locations["positions"], clock.tick_scale())
+        _profile_ship_stage(tick, "n103_mine_end")
         if not native_ice.get("ok", false):
             _last_ship_result = {"ok": false, "reason": "n103_native_source_" +
                 str(native_ice.get("reason", "rejected"))}
@@ -779,10 +793,12 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             "accepted", []).duplicate(true)
         _last_ship_result["n103_native_mining_blocked"] = native_ice.get(
             "blocked", []).duplicate(true)
+        _profile_ship_stage(tick, "n80_explore_begin")
         var native_explore: Dictionary = NativeGateExploration.stage(
             planning_world, _fleet_roster.registry.graph(),
             _fleet_resolver, tick, n140_fired,
             locations["positions"], clock.tick_scale())
+        _profile_ship_stage(tick, "n80_explore_end")
         if not native_explore.get("ok", false):
             _last_ship_result = {"ok": false, "reason": "n80_native_source_" +
                 str(native_explore.get("reason", "rejected"))}
@@ -800,9 +816,11 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # N146 commands, checked against N14 physical transit and applied
         # ONCE through N39 World. No hand-written contract-to-route loop.
         var scheduled: Dictionary = planning_world
+        _profile_ship_stage(tick, "n84_bt_begin")
         var planned: Dictionary = NativeLodShipAI.propose(scheduled,
             _fleet_roster.registry.graph(), locations["positions"], tick,
             clock.tick_scale(), n140_fired, _tick_multiplier)
+        _profile_ship_stage(tick, "n84_bt_end")
         if not planned.get("ok", false):
             _last_ship_result = planned
             return false
@@ -836,6 +854,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 "reason": "n148_canonical_lifecycle_" +
                     str(lifecycle.get("reason", "invalid"))}
             return false
+        _profile_ship_stage(tick, "n146_apply_begin")
         var source_command_ordinal: int = 0
         for command in planned.get("commands", []):
             source_command_ordinal += 1
