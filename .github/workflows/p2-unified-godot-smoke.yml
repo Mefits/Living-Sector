@@ -6,6 +6,7 @@ on:
       - integration/godot-phase2-unified-20261113
       - feature/n84-ship-only-copy-20261115
       - feature/godot-phase2-world-copy-boundaries-20261115
+      - feature/n39-operating-world-copy-20261115
     paths:
       - .github/workflows/p2-unified-godot-smoke.yml
       - godot/docs/phase2/P2_CI_TRIGGER.txt
@@ -179,7 +180,8 @@ jobs:
           # N38 restart + paid source acceptance past the N129 tick825
           # regression, without altering the default integration gate.
           if test "$GITHUB_REF_NAME" = "feature/n84-ship-only-copy-20261115" || \
-                  test "$GITHUB_REF_NAME" = "feature/godot-phase2-world-copy-boundaries-20261115"; then
+                  test "$GITHUB_REF_NAME" = "feature/godot-phase2-world-copy-boundaries-20261115" || \
+                  test "$GITHUB_REF_NAME" = "feature/n39-operating-world-copy-20261115"; then
             LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
               timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
                 --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
