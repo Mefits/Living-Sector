@@ -17,6 +17,12 @@ const ORDER_CHUNK_SIZE: int = 64
 var _receipt_partitions: Array = []
 var _receipt_order_chunks: Array = []
 var _receipt_count: int = 0
+## Only trusted private receipt records live in this flattened read cache.
+## It is NEVER exposed to callers; snapshot() returns a detached deep copy.
+## The flattened map is rebuilt once per changed receipt generation, and
+## otherwise reused across repeated N39 proofs/saves (many per tick).
+var _flat_receipt_cache: Dictionary = {}
+var _flat_cache_count: int = -1
 
 func _init() -> void:
 	_receipt_partitions.resize(RECEIPT_PARTITIONS)
@@ -48,13 +54,22 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 		order.append(id)
 		_receipt_order_chunks[last] = order
 	_receipt_count += 1
+	# Rebuilding is delayed until a real full N38/provenance snapshot.
+	# A fork that still sees older immutable shards retains its own cache.
+	_flat_receipt_cache = {}
+	_flat_cache_count = -1
 
 func _snapshot_receipts() -> Dictionary:
-	var result: Dictionary = {}
-	for chunk in _receipt_order_chunks:
-		for id in chunk:
-			result[id] = _receipt_at(str(id)).duplicate(true)
-	return result
+	if _flat_cache_count != _receipt_count:
+		var ordered: Dictionary = {}
+		for chunk in _receipt_order_chunks:
+			for id in chunk:
+				# Private original rows never escape this cache. No per-row
+				# deep duplication in GDScript: one native deep copy below.
+				ordered[id] = _receipt_at(str(id))
+		_flat_receipt_cache = ordered
+		_flat_cache_count = _receipt_count
+	return _flat_receipt_cache.duplicate(true)
 
 func import_accounts(accounts: Dictionary) -> bool:
 	if not _balances.is_empty() or _receipt_count != 0:
@@ -214,6 +229,8 @@ func fork() -> RefCounted:
 	child.set("_receipt_partitions", _receipt_partitions.duplicate())
 	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
 	child.set("_receipt_count", _receipt_count)
+	child.set("_flat_receipt_cache", _flat_receipt_cache)
+	child.set("_flat_cache_count", _flat_cache_count)
 	return child
 
 ## Validate old immutable N9 receipt provenance by scanning the existing
@@ -272,6 +289,8 @@ func restore(data: Dictionary) -> bool:
 	_receipt_partitions = partitions
 	_receipt_order_chunks = order_chunks
 	_receipt_count = next_count
+	_flat_receipt_cache = {}
+	_flat_cache_count = -1
 	return true
 
 func _valid_account(value: Variant) -> bool:
