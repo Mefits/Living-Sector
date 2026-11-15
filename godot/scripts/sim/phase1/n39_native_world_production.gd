@@ -117,6 +117,7 @@ var _profile_copy_sites: Dictionary = {}
 ## This generation covers ONLY N150 observation writes, NOT physical markets.
 ## No cache may rely on it to validate mutable stocks or money.
 var _market_observation_version: int = 0
+var _market_observation_restored: bool = false
 ## N21 proposal-generation contract, with a separate negative namespace for
 ## N38-restored owners. No new persisted field or financial authority.
 var _n21_commit_generation: int = 0
@@ -135,13 +136,14 @@ func n21_shadow_profile() -> Dictionary:
         "write_version": n21_write_version()}
 
 func market_observation_version() -> int:
-    return _market_observation_version
+    return (-1 - _market_observation_version if _market_observation_restored
+        else _market_observation_version)
 
 func native_schema_profile() -> Dictionary:
     return {"enabled": _profile_copy_enabled,
         "schema": _cost_percentiles(_profile_schema_sites),
         "copies": _cost_percentiles(_profile_copy_sites),
-        "market_observation_version": _market_observation_version}
+        "market_observation_version": market_observation_version()}
 
 func _cost_percentiles(measured: Dictionary) -> Dictionary:
     var published: Dictionary = {}
@@ -4221,7 +4223,7 @@ func apply_market_phase(tick: int, updates: Dictionary,
     # mandatory final oracle before publishing any successful proposal.
     if MarketObservationValidator.validate_observation_proposal(
             _world, updates, expected_version,
-            _market_observation_version) != "":
+            market_observation_version()) != "":
         return false
     if updates.size() != _world["markets"].size():
         return false
@@ -5338,7 +5340,10 @@ func restore(saved: Dictionary) -> bool:
             return false
     _world = staged_world
     _ledger = staged_ledger
-    _market_observation_version += 1
+    # Distinct deterministic negative generation namespace after N38:
+    # an in-flight pre-restart observation can never alias a new owner.
+    _market_observation_version = 0
+    _market_observation_restored = true
     _n21_restored = true
     _n21_commit_generation = 0
     _last_tick = int(saved["tick"])
