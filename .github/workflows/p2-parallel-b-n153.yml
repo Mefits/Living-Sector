@@ -38,7 +38,7 @@ jobs:
           set -euo pipefail
           godot --version | tee godot/logs/p2-parallel-b/version.log
           timeout 90s godot --headless --path godot --editor --import --quit > godot/logs/p2-parallel-b/import.log 2>&1 || { tail -n 100 godot/logs/p2-parallel-b/import.log; exit 1; }
-          for test in p2_parallel_b_n153_parity_check p2_parallel_b_n153_scale_check p2_n153_live_contract_dispatch_check p2_n153_route_cache_parity_check; do
+          for test in p2_parallel_b_n153_parity_check p2_parallel_b_n153_scale_check p2_parallel_b_n18_eventqueue_probe p2_n153_live_contract_dispatch_check p2_n153_route_cache_parity_check; do
             echo "N153_RUNNING_TEST $test"
             timeout 260s godot --headless --path godot --script "res://tests/$test.gd" > "godot/logs/p2-parallel-b/$test.log" 2>&1 || { tail -n 100 "godot/logs/p2-parallel-b/$test.log"; exit 1; }
             grep -E '(PASS|FAIL)' "godot/logs/p2-parallel-b/$test.log" | tail -n 10 || true

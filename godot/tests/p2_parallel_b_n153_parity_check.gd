@@ -77,7 +77,10 @@ func _initialize() -> void:
         "owner_missing", "faction_unknown", "quote_missing",
         "ship_busy", "ship_cargo", "ship_capacity", "ship_fuel_zero",
         "ship_no_location", "ship_reputation", "payer_empty",
-        "no_positions", "source_endpoint_unmapped", "source_reversed"]
+        "no_positions", "source_endpoint_unmapped", "source_reversed",
+        "knowledge_nested", "knowledge_at_source", "knowledge_price_missing",
+        "invalid_sensor", "bad_comms_bonus", "duplicate_offer",
+        "ship_credits_zero"]
     for name in variants:
         var w: Dictionary = live.duplicate(true)
         var f: Dictionary = factions.duplicate(true)
@@ -133,6 +136,36 @@ func _initialize() -> void:
             "source_reversed":
                 contract["source_location"] = dest
                 contract["destination_location"] = source
+            "knowledge_nested":
+                for id in ids:
+                    w["ships"][id]["price_knowledge"] = {
+                        "earth-station": {"food": {"price": 999.0},
+                            "fuel": {"price": 13.5}},
+                        "alpha-station": {"food": {"price": 1.0}},
+                        "unrelated-source": {"food": {"price": 42.0}}}
+            "knowledge_at_source":
+                for id in ids:
+                    w["ships"][id]["location"] = source
+                    w["ships"][id]["docked_at"] = ""
+                    w["ships"][id]["price_knowledge"] = {
+                        source: {commodity: {"price": 987654.0},
+                            "fuel": {"price": 31.0}}}
+            "knowledge_price_missing":
+                for id in ids:
+                    w["ships"][id]["price_knowledge"] = {}
+            "invalid_sensor":
+                for id in ids:
+                    w["ships"][id]["sensor_range_au"] = -1.0
+            "bad_comms_bonus":
+                for id in ids:
+                    w["ships"][id]["comms_bonus"] = 0.11
+            "duplicate_offer":
+                var duplicate: Dictionary = contract.duplicate(true)
+                duplicate["id"] = "n153-parity-another-offer"
+                w["contract_board"]["contracts"][duplicate["id"]] = duplicate
+            "ship_credits_zero":
+                for id in ids:
+                    w["ships"][id]["credits"] = 0
         if not _parity(w, graph, points, resolver, 0, scale, f, name):
             return
     # Test no persistent cache even if the same source dictionary is mutated
@@ -142,6 +175,14 @@ func _initialize() -> void:
         return
     changed["contract_board"]["contracts"][cid]["expires_at_tick"] = -1
     if not _parity(changed, graph, positions, resolver, 0, scale, factions, "after_invalidation"):
+        return
+    # New independent calls must observe in-place knowledge changes, too.
+    var memories: Dictionary = live.duplicate(true)
+    if not _parity(memories, graph, positions, resolver, 0, scale, factions, "before_knowledge_change"):
+        return
+    for id in memories["ships"]:
+        memories["ships"][id]["price_knowledge"] = { "earth-station": {"food": {"price": 7.0}}}
+    if not _parity(memories, graph, positions, resolver, 0, scale, factions, "after_knowledge_change"):
         return
     print("P2_PARALLEL_B_N153_ORACLE_PARITY_PASS checks=" + str(checks) +
         " baseline=fb8dc0c3a9df3fbdb722a13d214be72ab67bf9df")

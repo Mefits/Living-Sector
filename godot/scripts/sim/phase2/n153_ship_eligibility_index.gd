@@ -60,3 +60,10 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
                 "outbound": outbound["locations"], "steps": steps}
     cache[here] = result
     return result
+
+## N80's location resolver is read-only within one dispatch. Never
+## persist the mapping across new World positions or an N38 restore.
+static func system_for(cache: Dictionary, location: String, resolver: RefCounted) -> String:
+    if not cache.has(location):
+        cache[location] = resolver.system_for_location(location)
+    return str(cache[location])
