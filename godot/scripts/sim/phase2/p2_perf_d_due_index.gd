@@ -5,11 +5,13 @@ extends RefCounted
 
 var _buckets: Dictionary = {}
 var _event_keys: Dictionary = {}
+var _positions: Dictionary = {} # event id -> position in its bucket
 var _count: int = 0
 
 func rebuild(events: Array) -> bool:
     var buckets: Dictionary = {}
     var keys: Dictionary = {}
+    var positions: Dictionary = {}
     for value in events:
         if not (value is Dictionary):
             return false
@@ -23,10 +25,12 @@ func rebuild(events: Array) -> bool:
         if not buckets.has(key):
             buckets[key] = []
         var bucket: Array = buckets[key]
+        positions[id] = bucket.size()
         bucket.append(event.duplicate(true))
         keys[id] = key
     _buckets = buckets
     _event_keys = keys
+    _positions = positions
     _count = events.size()
     return true
 
@@ -40,6 +44,7 @@ func add(event: Dictionary) -> bool:
     if not _buckets.has(key):
         _buckets[key] = []
     var bucket: Array = _buckets[key]
+    _positions[id] = bucket.size()
     bucket.append(event.duplicate(true))
     _event_keys[id] = key
     _count += 1
@@ -50,15 +55,21 @@ func remove(event_id: String) -> bool:
         return false
     var key: String = _event_keys[event_id]
     var bucket: Array = _buckets[key]
-    for i in range(bucket.size()):
-        if bucket[i]["id"] == event_id:
-            bucket.remove_at(i)
-            if bucket.is_empty():
-                _buckets.erase(key)
-            _event_keys.erase(event_id)
-            _count -= 1
-            return true
-    return false
+    # Swap-with-last is safe: take_due sorts by the original stable comparator.
+    # Avoid a linear scan and Array.remove_at shifts on each cancellation.
+    var index: int = int(_positions[event_id])
+    var last: int = bucket.size() - 1
+    if index != last:
+        var moved: Dictionary = bucket[last]
+        bucket[index] = moved
+        _positions[moved["id"]] = index
+    bucket.pop_back()
+    if bucket.is_empty():
+        _buckets.erase(key)
+    _positions.erase(event_id)
+    _event_keys.erase(event_id)
+    _count -= 1
+    return true
 
 func take_due(tick: int, phase: int) -> Array[Dictionary]:
     var result: Array[Dictionary] = []
@@ -70,6 +81,7 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
         var event: Dictionary = item
         result.append(event.duplicate(true))
         _event_keys.erase(event["id"])
+        _positions.erase(event["id"])
     _count -= bucket.size()
     _buckets.erase(key)
     result.sort_custom(Callable(self, "_less"))
