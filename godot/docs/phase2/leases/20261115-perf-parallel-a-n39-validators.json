@@ -1,6 +1,6 @@
 {
   "worker": "perf-parallel-chat-1",
-  "status": "IN_PROGRESS",
+  "status": "DONE_TESTED_AWAITING_COORDINATOR",
   "branch": "feature/perf-parallel-a-n39-validators-20261115",
   "base_head": "823f32379b10bfefae5a5cebb1c0c0e622509f72",
   "task": "II-A.2.2 / II-B: N39 measured local validators, owned write-set versions, original Schema oracle equivalence",
@@ -20,7 +20,7 @@
     ".github/workflows/p2-unified-godot-smoke.yml"
   ],
   "coordination_doc": "godot/docs/phase2/handoffs/20261115-performance-parallel-two-chats.md",
-  "verification": "Godot 4.7.2 targeted A4/A5/A7 PASS run 43732867924; 420/900 A/B running",
+  "verification": "CI 43733851184 SUCCESS Godot4.7.2 9 targeted + full exact-state A/B 420 restart360 + 900 N129 tick825, 2.91% paired gain",
   "merge_permission": "COORDINATOR_ONLY",
   "board_page": "Оптимизация",
   "update_policy": "Own PR and own handoff; status orange until integrator confirms verified merge.",
@@ -39,15 +39,30 @@
     "A1",
     "A2",
     "A3",
-    "A4_TARGETED",
-    "A5_TARGETED",
+    "A4",
+    "A5",
     "A6",
-    "A7_TARGETED"
+    "A7",
+    "A8"
   ],
   "continuation_rule": "On each active turn or Продолжай: read own queue and leases; resume first unfinished block; do real work and tests, update handoff and commits; do not stop after the first successful subtask. Do not claim background execution.",
   "pending_blocks": [
-    "A8_FINAL_AB_420_900",
-    "COORDINATOR_REVIEW_MERGE"
+    "COORDINATOR_REVIEW_MERGE",
+    "POST_MERGE_COMBINED_SMOKE",
+    "N158_UI_WORLD_SNAPSHOT_OWNER_FOLLOWUP"
   ],
-  "last_tested_commit": "de2c4976083a421d75287833e6a3dd75f76bf30f"
+  "last_tested_commit": "3ab75fd7732fcb0aef79eb623812e4156b994dcc",
+  "final_workflow_run": "https://github.com/Mefits/Living-Sector/actions/runs/43733851184",
+  "a_b_420": {
+    "baseline_ms": 80326,
+    "candidate_ms": 77990,
+    "delta_pct": -2.91,
+    "checkpoint_parity": true
+  },
+  "long_900": {
+    "passed": true,
+    "n38_restart": 360,
+    "n129_regression_tick": 825,
+    "n21_shadow_false_rejections": 0
+  }
 }
