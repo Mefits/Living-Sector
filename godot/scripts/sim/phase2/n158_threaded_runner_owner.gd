@@ -70,6 +70,9 @@ func shutdown() -> void:
     _mutex.unlock()
     if was_live:
         _wake.post()
+    # Also join a thread that already returned after a boot failure.
+    # An ended Thread still requires wait_to_finish() before destruction.
+    if _thread.is_started():
         _thread.wait_to_finish()
     _mutex.lock()
     _live = false
