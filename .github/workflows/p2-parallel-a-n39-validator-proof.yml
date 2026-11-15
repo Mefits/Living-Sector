@@ -1,4 +1,5 @@
 name: P2 Parallel A N39 validator proof and paired 420/900
+# Parser fix: guard replacement strictly matches _world; per-callsite p95 enabled.
 
 on:
   push:
