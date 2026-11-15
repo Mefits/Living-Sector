@@ -148,6 +148,14 @@ func pay_native_ship_crew(operation_id: String, ship_account: String,
 func snapshot() -> Dictionary:
 	return {"version": 1, "balances": _balances.duplicate(true), "receipts": _receipts.duplicate(true)}
 
+## Read-only N39 verification of wallet balances for operations that can
+## mutate only the detached ship domain (not the authoritative ledger).
+## Return a detached copy: callers cannot edit our live private accounts.
+## Full snapshot() remains mandatory for money changes, N9 receipt proofs
+## and N38 persistence.
+func balances_snapshot() -> Dictionary:
+	return _balances.duplicate(true)
+
 func restore(data: Dictionary) -> bool:
 	if data.get("version") != 1 or not (data.get("balances") is Dictionary) or not (data.get("receipts") is Dictionary):
 		return false
