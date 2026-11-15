@@ -36,6 +36,16 @@
 - Третий run: https://github.com/Mefits/Living-Sector/actions/runs/43728402372 — **SUCCESS** Godot parser, шесть targeted tests, 420 тиков A/B + N38 restart360, все полные SHA256-контрольные снимки совпали. Исходник N39: 99,640 ms; новая версия N39: 96,069 ms, improvement ~3,58%, один paired run. 900 реальных тиков с N38 restart360 и N129 tick825: **PASS**. Profiling `LS_PROFILE_NATIVE_PHASES=1` включён только в 900-кандидате, поэтому не сравнивать его elapsed с nonprofiled A/B. Один `ubuntu-24.04` runner, один Godot 4.7.2, оригинальный seed, полные hashes `JSON.stringify(checkpoint).sha256_text()`, не только summary; baseline N39 берётся ровно из `823f323...`.
 - Исходный полный `Schema.validate`, N9 journal, N38 save/restore, dispatch, route_graph, N158, ticks, money and balance не ослаблены/не менялись.
 
+## Расширенная приёмка A4–A8 (15 ноября, CI)
+
+[CI #43732867924](https://github.com/Mefits/Living-Sector/actions/runs/43732867924) **SUCCESS**:
+- 9 целевых тестов Godot 4.7.2 PASS, включая `P2_PARALLEL_A_N21_SOURCE_PAID_PASS fee=50`, отказ forged N9 invoice/fractional fee/replay, версионирование после N38, полный 24/100/500 ship-wallet fixture.
+- 420 тиков / N38 restart360: все полные SHA256 snapshots old/new совпали.
+- 900 тиков / N38 restart360 / tick825 N129: PASS. N21 shadow checks после restore: **185**, false rejections **0**. `Schema.accounts` по инструментированным N39 callsites: **4715 вызовов / 0,540332 с** за участок после N38.
+- A/B old/new **84,857 → 87,655 с (+3,30% медленнее)** на одном runner. Это показывает, что дополнительная проверка N21 в общем no-change пути могла съесть ранний выигрыш. Два отдельных runner-запуска (прежние 99,64→96,07 и новые 84,86→87,66) нельзя смешивать.
+
+**A6 corrective change:** `8b722a9` исключает повторный проход `DockDeltaValidator` для обычных N21 стадий **без добавления новых `dock_receipts`**. Старый `Schema.validate` по-прежнему проверяет весь World; N9.restore, все старые receipt proof, account totals и новые paid-receipt proof при появлении квитанции остаются. Публикации/формулы/AI/баланс/схема N38 неизменны. Новый одинарный paired A/B + 900 gate запущен в [CI #43733851184](https://github.com/Mefits/Living-Sector/actions/runs/43733851184); численное ускорение после изменения **ещё не подтверждено**.
+
 ## Измеренные горячие места — 900 ticks / opt-in profile
 
 Замеры относятся к **N39 owner callsites**, а не суммарной стоимости всей игры; повторные вызовы включены.
@@ -55,7 +65,7 @@
 | `validate:L1049` | 540 | 2.816 | 5.935 | full schema в ship memory |
 | `copy:deep:L3098` | 540 | 1.721 | 4.047 | research stage deep World |
 
-`Schema.accounts` точно инструментирован, но не входит в топ-12 по total в финальном профиле; суммарное численное значение всех account callsites текущий сокращённый лог не публикует. Нельзя заявлять долю без полного отчёта.
+`Schema.accounts`: расширенный CI измерил 4715 вызовов / 0,540332 с за post-N38 участок; дорогостоящие callsites остаются у полного Schema и глубоких World copies.
 
 **Основное следующее ускорение требует контракта read-only snapshot на стороне вызывающего N158/UI, который запрещён к редактированию этой ветке.** Не использовать невалидируемый cache `World.duplicate(true)` по mutable Dictionary. Открыть отдельный интеграционный блок координатору.
 
