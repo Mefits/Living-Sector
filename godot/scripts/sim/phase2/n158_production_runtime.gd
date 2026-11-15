@@ -104,6 +104,8 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_native_crew_result = {}
     _fleet_roster = null
     _fleet_resolver = null
+    _profile_ship_starts.clear()
+    _profile_ship_samples.clear()
     var projected: Dictionary = GalaxySeedAdapter.from_seed(seed)
     if not projected.get("ok", false):
         _boot_error = str(projected.get("reason", "source_projection_failed"))
@@ -163,11 +165,57 @@ func _advance_one_tick() -> void:
 ## Opt-in native ship-phase source probe. Prints only from tick 320,
 ## when the clean original 360-tick stress run last became pathological.
 ## Does not edit ShipState, GOAP, commands, ledger or N38 checkpoint.
+## Local A/B knob: turn OFF only for verification; never changes phase cadence.
+## The default remains the new call-scoped isolated faction read frame.
+var _reuse_faction_read_frame: bool = OS.get_environment(
+    "LS_PERF_NO_FACTION_FRAME_REUSE") != "1"
+
+## Runtime-only ship subphase profiler. Per-stage samples never enter
+## canonical World/N9/N38. Detailed stdout trace is opt-in separately:
+## LS_PROFILE_SHIP_TRACE=1 (avoid thousands of expensive print calls).
+var _profile_ship_starts: Dictionary = {}
+var _profile_ship_samples: Dictionary = {}
+
+func profile_native_ship_subphases() -> Dictionary:
+    var stages: Dictionary = {}
+    if _profile_enabled:
+        for stage in _profile_ship_samples:
+            var sorted: Array = _profile_ship_samples[stage].duplicate()
+            sorted.sort()
+            if sorted.is_empty():
+                continue
+            var total: int = 0
+            for us in sorted:
+                total += int(us)
+            var p95: int = clampi(ceili(float(sorted.size()) * 0.95) - 1,
+                0, sorted.size() - 1)
+            stages[stage] = {"calls": sorted.size(),
+                "total_usec": total,
+                "average_usec": float(total) / float(sorted.size()),
+                "p95_usec": int(sorted[p95]),
+                "max_usec": int(sorted.back())}
+    return {"enabled": _profile_enabled, "stages": stages}
+
 func _profile_ship_stage(tick: int, stage: String) -> void:
-    if not _profile_enabled or tick < 320:
+    if not _profile_enabled:
         return
-    print("LS_SHIP_SUBPHASE tick=", tick, " stage=", stage,
-        " usec=", Time.get_ticks_usec())
+    var now_us: int = Time.get_ticks_usec()
+    var key: String = stage
+    if stage == "ships_begin":
+        _profile_ship_starts["n14_motion"] = now_us
+    elif stage.ends_with("_begin"):
+        key = stage.trim_suffix("_begin")
+        _profile_ship_starts[key] = now_us
+    elif stage.ends_with("_end"):
+        key = stage.trim_suffix("_end")
+        if _profile_ship_starts.has(key):
+            var samples: Array = _profile_ship_samples.get(key, [])
+            samples.append(maxi(0, now_us - int(_profile_ship_starts[key])))
+            _profile_ship_samples[key] = samples
+            _profile_ship_starts.erase(key)
+    if tick >= 320 and OS.get_environment("LS_PROFILE_SHIP_TRACE") == "1":
+        print("LS_SHIP_SUBPHASE tick=", tick, " stage=", stage,
+            " usec=", now_us)
 
 
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
@@ -241,6 +289,11 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             _last_n153_result = {"ok": false, "reason": "missing_native_ship_ai_sources"}
             return false
         var canonical: Dictionary = production.world_snapshot()
+        # Reuse this isolated deep frame for pure faction proposals only
+        # while NO intervening N39 authoritative admission was attempted.
+        # Every attempted N104 admission invalidates the frame, including
+        # non-fatal rejection (do not assume failed writes are side-effect-free).
+        var faction_read_frame_stale: bool = false
         if not canonical.has("contract_board") or not canonical.has("ships"):
             return true # genuinely old save; do not fabricate a fleet or board
         var positions: Dictionary = _fleet_resolver.positions_from_world(world,
@@ -285,6 +338,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             if str(command["ship"]) != str(candidate["ship_id"]) or str(command["ship_id"]) != str(candidate["ship_id"]):
                 _last_n153_result = {"ok": false, "reason": "n146_contract_actor_mismatch"}
                 return false
+            faction_read_frame_stale = true
             var admission: Dictionary = production.accept_autonomous_delivery(tick, candidate, _faction_sources)
             if admission.get("ok", false):
                 _last_n153_result["accepted"].append(admission.duplicate(true))
@@ -299,13 +353,17 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # Native N153/N81 passenger bid: claim one existing prepaid N104
         # offer only after real routes, seats, fuel and current escrow pass.
         # N39 re-evaluates this source plan before a single atomic Apply.
+        if not _reuse_faction_read_frame or faction_read_frame_stale:
+            canonical = production.world_snapshot()
+            faction_read_frame_stale = false
         var passenger_bid: Dictionary = NativePassengers.propose_assignment(
-            production.world_snapshot(), _fleet_roster.registry.graph(),
+            canonical, _fleet_roster.registry.graph(),
             _fleet_resolver, positions["positions"], tick, clock.tick_scale())
         if not passenger_bid.get("ok", false):
             _last_native_passengers = passenger_bid
             return false
         if passenger_bid.get("assigned", false):
+            faction_read_frame_stale = true
             var passenger_admitted: Dictionary = production.accept_native_passenger(
                 tick, passenger_bid, _fleet_roster.registry.graph(),
                 _fleet_resolver, positions["positions"], clock.tick_scale())
@@ -323,8 +381,11 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # posted offer. Native N153 chooses ONE real hull with complete
         # N14 fuel/route and actual N97 source purchase funds. N39
         # independently reruns N153 before it accepts the original BT.
+        if not _reuse_faction_read_frame or faction_read_frame_stale:
+            canonical = production.world_snapshot()
+            faction_read_frame_stale = false
         var b2_bid: Dictionary = NativeColonyMetalAssignment.propose(
-            production.world_snapshot(), _fleet_roster.registry.graph(),
+            canonical, _fleet_roster.registry.graph(),
             positions["positions"], _fleet_resolver, tick,
             clock.tick_scale())
         if not b2_bid.get("ok", false):
@@ -1233,8 +1294,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     _last_ship_result = {"ok": false, "reason": "n146_unknown_contract_transaction"}
                     return false
                 var real_passenger: bool = operation in ["passenger_embark", "passenger_delivery"]
-                var moving_contract: Dictionary = production.world_snapshot().get(
-                    "contract_board", {}).get("contracts", {}).get(cid, {})
+                var moving_contract: Dictionary = production.native_contract_kind(cid)
                 var colony_metals: bool = str(moving_contract.get("contract_type", "")) == "construction" and (
                     str(moving_contract.get("mission_category", "")) == "strategy.colony.v1")
                 var receipt: Dictionary = {}
@@ -1294,12 +1354,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 return false
             requests = queued["pending"]
         _profile_ship_stage(tick, "n146_apply_end")
-        var real_ships: Dictionary = production.world_snapshot().get("ships", {})
-        var current_ids: Dictionary = {}
-        for sid in real_ships:
-            var row: Dictionary = real_ships[sid]
-            current_ids[str(sid)] = {"ship_id": str(sid),
-                "faction_id": str(row.get("faction_id", ""))}
+        # N148 needs only authoritative ship IDs/factions. A full deep
+        # World snapshot here copied N9 history on EVERY active ship tick.
+        var current_ids: Dictionary = production.native_ship_identity_snapshot()
         var drained: Dictionary = N148RetirementQueue.drain_pending_decommissions(
             requests, current_ids)
         if not drained.get("ok", false):
@@ -1330,8 +1387,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             var committed: Dictionary = N148RetirementQueue.on_authoritative_ship_removed(
                 req, {"trusted_internal_apply": true,
                     "admin_remove_succeeded": true,
-                    "ship_still_present": production.world_snapshot().get(
-                        "ships", {}).has(ship_id), "ship_id": ship_id},
+                    "ship_still_present": production.native_has_ship(ship_id),
+                    "ship_id": ship_id},
                 tick, false) # Frozen Genesis finite fleet: NO free hulls
             if not committed.get("ok", false):
                 _last_ship_result = {"ok": false,
@@ -1695,8 +1752,7 @@ func request_ship_dock(ship_id: String, operation_id: String) -> Dictionary:
     if not _native_enabled or not last_phase_failure().is_empty() or (
             operation_id.is_empty() or ship_id.is_empty()):
         return {"ok": false, "reason": "n21_manual_source_unavailable"}
-    var current: Dictionary = production.world_snapshot().get(
-        "ships", {}).get(ship_id, {})
+    var current: Dictionary = production.ships_snapshot().get(ship_id, {})
     var location: String = str(current.get("location", ""))
     if current.is_empty() or location.is_empty():
         return {"ok": false, "reason": "n21_manual_ship_not_at_real_port"}
@@ -1744,7 +1800,7 @@ func implemented_phases() -> PackedStringArray:
     if not _native_enabled:
         return super.implemented_phases()
     var phases: PackedStringArray = PackedStringArray(["bodies"])
-    if production.world_snapshot().has("ships"):
+    if production.native_has_ship_domain():
         phases.append("ships")
         phases.append("dock_queue")
     phases.append("facilities")

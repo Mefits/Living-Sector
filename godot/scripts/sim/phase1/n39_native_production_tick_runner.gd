@@ -17,11 +17,28 @@ var _phase_failure: Dictionary = {}
 var _profile_enabled: bool = false
 var _profile_phase_us: Dictionary = {}
 var _profile_phase_calls: Dictionary = {}
+var _profile_phase_samples: Dictionary = {}
 
 func profile_native_phases() -> Dictionary:
+    var phase_stats: Dictionary = {}
+    if _profile_enabled:
+        for phase in _profile_phase_samples:
+            var samples: Array = _profile_phase_samples[phase].duplicate()
+            samples.sort()
+            var count: int = samples.size()
+            if count < 1:
+                continue
+            var p95_index: int = clampi(ceili(float(count) * 0.95) - 1,
+                0, count - 1)
+            var total: int = int(_profile_phase_us.get(phase, 0))
+            phase_stats[phase] = {"calls": count, "total_usec": total,
+                "avg_usec": float(total) / float(count),
+                "p95_usec": int(samples[p95_index]),
+                "max_usec": int(samples[count - 1])}
     return {"enabled": _profile_enabled, "ticks": tick_count,
         "phase_usec": _profile_phase_us.duplicate(true),
-        "phase_calls": _profile_phase_calls.duplicate(true)}
+        "phase_calls": _profile_phase_calls.duplicate(true),
+        "phase_stats": phase_stats}
 
 func _profile_end_phase(phase: String, started_us: int) -> void:
     if not _profile_enabled:
@@ -29,6 +46,9 @@ func _profile_end_phase(phase: String, started_us: int) -> void:
     var elapsed: int = maxi(0, Time.get_ticks_usec() - started_us)
     _profile_phase_us[phase] = int(_profile_phase_us.get(phase, 0)) + elapsed
     _profile_phase_calls[phase] = int(_profile_phase_calls.get(phase, 0)) + 1
+    var samples: Array = _profile_phase_samples.get(phase, [])
+    samples.append(elapsed)
+    _profile_phase_samples[phase] = samples
 
 func start_from_seed(seed: Dictionary) -> bool:
     if not super.start_from_seed(seed):
@@ -42,6 +62,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _profile_enabled = OS.get_environment("LS_PROFILE_NATIVE_PHASES") == "1"
     _profile_phase_us = {}
     _profile_phase_calls = {}
+    _profile_phase_samples = {}
     return true
 
 func configure_native_production(physical_world: Dictionary,

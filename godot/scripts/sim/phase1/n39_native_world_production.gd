@@ -236,6 +236,36 @@ func ships_snapshot() -> Dictionary:
     _profile_ship_copy_usec += maxi(0, Time.get_ticks_usec() - start_us)
     return copy
 
+
+## Owned projections used by the hot N158 loop. Each allocates only fresh
+## scalar data: no nested Dictionary from authoritative _world escapes.
+## These are NOT cross-tick caches and need no save/N38 version.
+func native_ship_identity_snapshot() -> Dictionary:
+    if not _ready:
+        return {}
+    var identities: Dictionary = {}
+    for ship_id in _world.get("ships", {}):
+        var ship: Dictionary = _world["ships"][ship_id]
+        identities[str(ship_id)] = {"ship_id": str(ship_id),
+            "faction_id": str(ship.get("faction_id", ""))}
+    return identities
+
+func native_has_ship(ship_id: String) -> bool:
+    return _ready and _world.get("ships", {}).has(ship_id)
+
+func native_contract_kind(contract_id: String) -> Dictionary:
+    if not _ready:
+        return {}
+    var board: Dictionary = _world.get("contract_board", {}).get("contracts", {})
+    if not board.has(contract_id):
+        return {}
+    var contract: Dictionary = board[contract_id]
+    return {"contract_type": str(contract.get("contract_type", "")),
+        "mission_category": str(contract.get("mission_category", ""))}
+
+func native_has_ship_domain() -> bool:
+    return _ready and _world.has("ships")
+
 ## Read-only values needed by N158's per-tick empty-queue fast path.
 ## Reading these scalars in N39 does NOT publish _world or permit
 ## any mutation, unlike a whole World snapshot of growing N9 history.
