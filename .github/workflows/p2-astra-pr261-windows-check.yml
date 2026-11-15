@@ -1,0 +1,100 @@
+name: Astra PR261 Windows Godot checks
+
+on:
+  push:
+    branches:
+      - feature/perf-astra-reconstruction-20261115
+    paths:
+      - .github/workflows/p2-astra-pr261-windows-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-pr261:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install matching official Godot 4.7.2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'https://github.com/godotengine/godot/releases/download/4.7.2-stable'
+          $archive = Join-Path $env:RUNNER_TEMP 'godot472.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'godot472'
+          Invoke-WebRequest -Uri "$base/Godot_v4.7.2-stable_win64.exe.zip" -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath $dir -Force
+          $exe = Get-ChildItem -Path $dir -Filter '*console.exe' -Recurse | Select-Object -First 1
+          if (-not $exe) { throw 'Godot console executable not present' }
+          $exe.FullName | Set-Content -Path "$env:RUNNER_TEMP/godot-exe.txt"
+          & $exe.FullName --version
+      - name: Windows editor import and source parser check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force 'godot/logs/astra261' | Out-Null
+          $exe = Get-Content "$env:RUNNER_TEMP/godot-exe.txt" -Raw
+          $exe = $exe.Trim()
+          & $exe --headless --editor --path godot --import --quit *> godot/logs/astra261/import.log
+          if ($LASTEXITCODE -ne 0 -or (Select-String -Path godot/logs/astra261/import.log -Pattern 'SCRIPT ERROR|Parse Error|Failed to load script' -Quiet)) {
+            Get-Content godot/logs/astra261/import.log -Tail 120
+            throw 'Godot editor import/parse failed'
+          }
+          foreach ($script in @('scripts/sim/tick_runner.gd','scripts/sim/phase1/n39_native_production_tick_runner.gd','scripts/sim/phase2/n158_production_runtime.gd','scripts/main.gd')) {
+            $label = ($script -replace '[\\/]','-')
+            $log = "godot/logs/astra261/$label.log"
+            & $exe --headless --path godot --check-only --script "res://$script" *> $log
+            if ($LASTEXITCODE -ne 0 -or (Select-String -Path $log -Pattern 'SCRIPT ERROR|Parse Error|Failed to load script' -Quiet)) {
+              Get-Content $log -Tail 100
+              throw "Parser failed: $script"
+            }
+          }
+          & $exe --headless --path godot --script res://tests/p2_unified_script_compile_check.gd *> godot/logs/astra261/compile-all.log
+          if ($LASTEXITCODE -ne 0 -or (Select-String -Path godot/logs/astra261/compile-all.log -Pattern 'SCRIPT ERROR|Parse Error|Failed to load script' -Quiet)) {
+            Get-Content godot/logs/astra261/compile-all.log -Tail 150
+            throw 'Project compile check failed'
+          }
+          Write-Output 'ASTRA_PR261_WINDOWS_PARSE_PASS'
+      - name: Worker 16-tick parity before any expensive test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Get-Content "$env:RUNNER_TEMP/godot-exe.txt" -Raw).Trim()
+          $log = 'godot/logs/astra261/worker16.log'
+          & $exe --headless --path godot --script res://tests/p2_perf_astra_worker_owner_parity.gd -- --ticks=16 *> $log
+          Get-Content $log -Tail 60
+          if ($LASTEXITCODE -ne 0 -or -not (Select-String -Path $log -Pattern 'P2_PERF_ASTRA_WORKER_OWNER_PARITY_PASS ticks=16' -Quiet)) {
+            throw 'Worker 16-tick parity failed'
+          }
+      - name: N39 old vs new 420 ticks and N38 restart parity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Get-Content "$env:RUNNER_TEMP/godot-exe.txt" -Raw).Trim()
+          $log = 'godot/logs/astra261/n39-420.log'
+          & $exe --headless --path godot --script res://tests/p2_perf_astra_n39_stage_parity.gd *> $log
+          Get-Content $log -Tail 60
+          if ($LASTEXITCODE -ne 0 -or -not (Select-String -Path $log -Pattern 'P2_PERF_ASTRA_N39_STAGE_PARITY_PASS' -Quiet)) {
+            throw 'N39 420-tick parity failed'
+          }
+      - name: Worker vs direct 420 ticks and N38 restart parity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Get-Content "$env:RUNNER_TEMP/godot-exe.txt" -Raw).Trim()
+          $log = 'godot/logs/astra261/worker420.log'
+          & $exe --headless --path godot --script res://tests/p2_perf_astra_worker_owner_parity.gd -- --ticks=420 *> $log
+          Get-Content $log -Tail 60
+          if ($LASTEXITCODE -ne 0 -or -not (Select-String -Path $log -Pattern 'P2_PERF_ASTRA_WORKER_OWNER_PARITY_PASS ticks=420' -Quiet)) {
+            throw 'Worker 420-tick parity failed'
+          }
+      - name: Upload diagnostic logs even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: astra-pr261-windows-logs
+          path: godot/logs/astra261/
+          if-no-files-found: warn
+          retention-days: 7
