@@ -93,6 +93,23 @@ func _initialize() -> void:
             var costly: Array = timed.slice(0, mini(12, timed.size()))
             print("P2_PARALLEL_A_PROFILE tick=" + str(tick) +
                 " top12=" + JSON.stringify(costly, "", true, true))
+            var account_total_usec: int = 0
+            var account_calls: int = 0
+            for site in costs.get("schema", {}):
+                if not str(site).begins_with("accounts:"):
+                    continue
+                var account_cost: Dictionary = costs["schema"][site]
+                account_total_usec += int(account_cost["total_usec"])
+                account_calls += int(account_cost["calls"])
+            print("P2_PARALLEL_A_ACCOUNTS tick=" + str(tick) +
+                " calls=" + str(account_calls) +
+                " total_usec=" + str(account_total_usec))
+        if sim.production.has_method("n21_shadow_profile"):
+            var dock_shadow: Dictionary = sim.production.n21_shadow_profile()
+            print("P2_PARALLEL_A_N21_SHADOW tick=" + str(tick) +
+                " checks=" + str(dock_shadow["checks"]) +
+                " false_rejections=" + str(dock_shadow["false_rejections"]) +
+                " last_error=" + str(dock_shadow["last_error"]))
         var money_audit: Dictionary = _money_audit(money, initial_receipts, bank)
         if not money_audit.get("ok", false):
             _fail("unaccounted N9 balance mutation at tick " + str(tick) +
