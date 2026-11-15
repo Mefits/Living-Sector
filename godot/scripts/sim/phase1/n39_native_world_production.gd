@@ -94,7 +94,7 @@ func initialize(physical_world: Dictionary) -> bool:
     var money = Ledger.new()
     if not money.import_accounts(_measured_schema_accounts("L95", physical_world)):
         return false
-    _world = physical_copy_world("L97", true)
+    _world = physical_world.duplicate(true)
     _ledger = money
     _last_tick = 0
     _ready = true
@@ -1216,7 +1216,7 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
     # Crew wages settle in a separate staged Ledger, while the World
     # proposal modifies only ships. No unrelated World domain is written
     # before Schema and N9 consistency checks complete.
-    var next_world: Dictionary = before_copy_world("L1166", false)
+    var next_world: Dictionary = before_world.duplicate()
     next_world["ships"] = after_ships.duplicate(true)
     var invalid: String = _measured_schema_validate("L1168", next_world)
     if not invalid.is_empty():
