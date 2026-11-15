@@ -179,9 +179,31 @@ jobs:
           # On the dedicated performance branch continue the same real
           # N38 restart + paid source acceptance past the N129 tick825
           # regression, without altering the default integration gate.
-          if test "$GITHUB_REF_NAME" = "feature/n84-ship-only-copy-20261115" || \
-                  test "$GITHUB_REF_NAME" = "feature/godot-phase2-world-copy-boundaries-20261115" || \
-                  test "$GITHUB_REF_NAME" = "feature/n39-operating-world-copy-20261115"; then
+          if test "$GITHUB_REF_NAME" = "feature/n39-operating-world-copy-20261115"; then
+            # Exactly one controlled A/B run on the same CI host: source
+            # SHA from already accepted PR251, then this candidate.
+            # Both use the SAME Godot executable and native 420 + N38.
+            set -e
+            git fetch --no-tags --depth=1 origin f577c1c64e65e5d96fddd8f72d691020e1bd3dff
+            source_file=godot/scripts/sim/phase1/n39_native_world_production.gd
+            candidate_file="$RUNNER_TEMP/n39-candidate.gd"
+            cp "$source_file" "$candidate_file"
+            git show f577c1c64e65e5d96fddd8f72d691020e1bd3dff:"$source_file" > "$source_file"
+            timeout --signal=TERM --kill-after=5s 300s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/n39-ab-baseline.log 2>&1
+            baseline_code=$?
+            cp "$candidate_file" "$source_file"
+            timeout --signal=TERM --kill-after=5s 300s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/n39-ab-candidate.log 2>&1
+            stage2=$?
+            baseline_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/p2-unified/n39-ab-baseline.log | tail -n 1 | sed 's/.*=//')
+            candidate_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/p2-unified/n39-ab-candidate.log | tail -n 1 | sed 's/.*=//')
+            echo "N39_OPERATING_COW_AB_RESULT baseline_ms=${baseline_ms:-MISSING} candidate_ms=${candidate_ms:-MISSING}"
+            test "$baseline_code" -eq 0 -a "$stage2" -eq 0 -a -n "$baseline_ms" -a -n "$candidate_ms"
+          elif test "$GITHUB_REF_NAME" = "feature/n84-ship-only-copy-20261115" || \
+                  test "$GITHUB_REF_NAME" = "feature/godot-phase2-world-copy-boundaries-20261115"; then
             LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
               timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
                 --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
