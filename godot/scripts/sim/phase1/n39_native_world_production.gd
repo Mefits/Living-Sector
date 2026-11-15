@@ -200,9 +200,7 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     var money_phase_due: bool = not initial["repair_candidates"].is_empty() or bool(initial["due"]["restock"])
     var lifecycle_ledger: RefCounted = _ledger
     if money_phase_due:
-        lifecycle_ledger = Ledger.new()
-        if not lifecycle_ledger.restore(_ledger.snapshot()):
-            return {"ok": false, "reason": "lifecycle_ledger_clone_rejected"}
+        lifecycle_ledger = _ledger.fork()
     var committed_repairs: Dictionary = {}
     var paid_credits: Dictionary = {}
     var repairs: Array = []
@@ -408,9 +406,7 @@ func apply_native_shipyard_refit(tick: int, ship_id: String,
     var cost: int = int(next.get("cost", -1))
     if cost <= 0 or int(ship["credits"]) - int(stage["ships"][ship_id]["credits"]) != cost or int(stage["facilities"][dock_id]["credits"]) - int(original_yard["credits"]) != cost:
         return {"ok": false, "fatal": true, "reason": "n108_invalid_original_module_price"}
-    var staged_money = Ledger.new()
-    if not staged_money.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "n108_n9_ledger_unavailable"}
+    var staged_money: RefCounted = _ledger.fork()
     var receipt_id: String = "n108:refit:" + ship_id + ":" + slot + ":" + str(tick)
     var receipt: Dictionary = staged_money.transfer(receipt_id,
         Schema.ship_account(ship_id), Schema.facility_account(dock_id),
@@ -1116,7 +1112,7 @@ func apply_native_n128_crew_xp(tick: int, source_command: Dictionary,
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n128_world_" + invalid}
     var accounts: Dictionary = Schema.accounts(stage)
-    var bank: Dictionary = _ledger.snapshot().get("balances", {})
+    var bank: Dictionary = _ledger.balances_snapshot()
     if accounts.size() != bank.size():
         return {"ok": false, "fatal": true, "reason": "n128_changed_n9_wallet_roster"}
     for account in accounts:
@@ -1270,15 +1266,14 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     var checked := Ledger.new()
     if not checked.restore(money) or checked.total() != _ledger.total():
         return {"ok": false, "reason": "n21_ledger_money_not_conservative"}
-    # Preserve the full immutability check, but do not re-clone the entire
-    # growing N9 receipt history for each old receipt (quadratic cost).
-    var before_money: Dictionary = _ledger.snapshot()
+    # The external proposal is still validated by checked.restore().
+    # Compare EVERY previous immutable N9 receipt in-place instead of
+    # duplicating the old history only to inspect it for equality.
     if not (money.get("receipts") is Dictionary) or (
-            money["receipts"].size() < before_money.get("receipts", {}).size()):
+            money["receipts"].size() < _ledger.receipt_count()):
         return {"ok": false, "reason": "n21_paid_receipt_missing"}
-    for id in before_money.get("receipts", {}):
-        if money["receipts"].get(id, null) != before_money["receipts"][id]:
-            return {"ok": false, "reason": "n21_replayed_or_edited_n9_receipt"}
+    if not _ledger.retains_receipts(money["receipts"]):
+        return {"ok": false, "reason": "n21_replayed_or_edited_n9_receipt"}
     var schema_error: String = Schema.validate(future)
     if not schema_error.is_empty():
         return {"ok": false, "reason": "n21_schema_" + schema_error}
@@ -2280,9 +2275,7 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
         return approved
     var head_memory: Dictionary = approved.get("memory", {})
     var staged: Dictionary = _world.duplicate(true)
-    var ledger := Ledger.new()
-    if not ledger.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "n144_missing_single_n9"}
+    var ledger: RefCounted = _ledger.fork()
     var posted: Dictionary = {}
     if approved.get("authorized", false):
         posted = NativeColonyOrders.stage_paid_passengers(
@@ -2610,9 +2603,7 @@ func apply_native_colony_prepare_docks(tick: int, graph: RefCounted) -> Dictiona
     if int(staged["construction_next_db_id"]) != int(_world["construction_next_db_id"]) - created.size():
         return {"ok": false, "fatal": true,
             "reason": "n151_dock_allocator_not_source_monotonic"}
-    var staged_ledger := Ledger.new()
-    if not staged_ledger.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "n151_original_n9_unavailable"}
+    var staged_ledger: RefCounted = _ledger.fork()
     for made in created:
         var dock_id: String = str(made.get("facility_id", ""))
         var pop_id: String = str(made.get("population_id", ""))
@@ -2666,9 +2657,7 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
         return {"ok": true, "status": "N141_NO_ACTIVE_SITES",
             "paid": [], "blocked": []}
     var staged: Dictionary = _world.duplicate(true)
-    var ledger := Ledger.new()
-    if not ledger.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "n141_cannot_stage_n9"}
+    var ledger: RefCounted = _ledger.fork()
     var paid: Array = []
     var blocked: Array = []
     var completed_sites: Array = []
@@ -3101,9 +3090,7 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
         if not staged["research_directors"].has(fid):
             return {"ok": false, "fatal": true, "reason": "extra_native_research_head"}
         staged["research_directors"][fid] = proposed["heads"][fid].duplicate(true)
-    var staged_ledger = Ledger.new()
-    if not staged_ledger.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "research_ledger_staging_failed"}
+    var staged_ledger: RefCounted = _ledger.fork()
     var paid: Array = []
     for intent in proposed["shifts"]:
         if not (intent is Dictionary) or not intent.get("ok", false):
@@ -3331,9 +3318,7 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
     var escrow: String = "escrow:" + contract_id
     if _world["contract_board"]["contracts"].has(contract_id):
         return {"ok": false, "reason": "construction_contract_already_posted"}
-    var next_money := Ledger.new()
-    if not next_money.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "construction_ledger_restore_failed"}
+    var next_money: RefCounted = _ledger.fork()
     if not next_money.register_empty_account(escrow):
         return {"ok": false, "fatal": true, "reason": "construction_escrow_not_fresh"}
     var board := ContractBoard.new(next_money)
@@ -3851,9 +3836,7 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         return {"ok": false, "reason": "not_profitable_or_unfunded"}
     if int(proposal.get("source_purchase_cost", -1)) != cost:
         return {"ok": false, "reason": "stale_ship_purchase_quote"}
-    var staged_ledger := Ledger.new()
-    if not staged_ledger.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "canonical_ledger_corrupt"}
+    var staged_ledger: RefCounted = _ledger.fork()
     var board := ContractBoard.new(staged_ledger)
     if not board.restore(board_before):
         return {"ok": false, "fatal": true, "reason": "canonical_board_corrupt"}
@@ -4141,9 +4124,7 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
     if proposed["populations"].size() != _world["populations"].size():
         return false
     var staged: Dictionary = _world.duplicate(true)
-    var ledger_next = Ledger.new()
-    if not ledger_next.restore(_ledger.snapshot()):
-        return false
+    var ledger_next: RefCounted = _ledger.fork()
     var purchases: Array = native_result["purchases"]
     for index in range(purchases.size()):
         var ticket: Variant = purchases[index]
@@ -4448,9 +4429,7 @@ func _run_shipyard_modules(tick: int, multiplier: int,
         # The source checks stock and input prices BEFORE paying workers.
         # Never deduct goods or award a module on an unfunded wage shift.
         var staged: Dictionary = _world.duplicate(true)
-        var ledger_copy = Ledger.new()
-        if not ledger_copy.restore(_ledger.snapshot()):
-            return {"ok": false, "reason": "n154_canonical_ledger_clone_failed"}
+        var ledger_copy: RefCounted = _ledger.fork()
         var shift: Dictionary = Payroll.pay_shift(staged, ledger_copy,
             str(id), owner, tick, external_workers,
             int(plan["input_payment"]))
@@ -4541,9 +4520,7 @@ func apply_native_n121_execution(tick: int, faction: String,
         return {"ok": false, "fatal": true, "reason": "n121_mismatched_planner_faction"}
     var gate: Dictionary = NativeN98.next_gate(pending["ledger"])
     var kind: String = str(gate.get("kind", ""))
-    var ledger_next = Ledger.new()
-    if not ledger_next.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "n121_canonical_bank_missing"}
+    var ledger_next: RefCounted = _ledger.fork()
     var staged: Dictionary = _world.duplicate(true)
     var next_state: Dictionary = state.duplicate(true)
     var event: Dictionary = {"ok": true, "due": true, "tick": tick,
@@ -4933,9 +4910,7 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
     if tick <= int(_world["faction_finance_last_tick"]):
         return {"ok": false, "reason": "n129_duplicate_faction_accounting_tick"}
     var staged: Dictionary = _world.duplicate(true)
-    var wallets = Ledger.new()
-    if not wallets.restore(_ledger.snapshot()):
-        return {"ok": false, "fatal": true, "reason": "n129_original_n9_ledger_unavailable"}
+    var wallets: RefCounted = _ledger.fork()
     var records: Array = plan.get("transfers", [])
     if records.size() > 10000:
         return {"ok": false, "fatal": true, "reason": "n129_unbounded_transfers"}
