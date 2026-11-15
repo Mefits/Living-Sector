@@ -1,0 +1,85 @@
+extends RefCounted
+## UI-only frame recorder. Never accesses World, SceneTree or simulation state.
+## The process timer excludes rendering; real FPS/frame delta reveal stalls
+## outside _process. advance_frame contains simulation+signal callbacks.
+const WINDOW_SIZE: int = 120
+const DISPLAY_INTERVAL: float = 0.5
+
+var _process_us: Array[int] = []
+var _advance_us: Array[int] = []
+var _ui_us: Array[int] = []
+var _frames: int = 0
+var _ticks: int = 0
+var _elapsed: float = 0.0
+var _worst_frame_us: int = 0
+var _worst_process_us: int = 0
+var _worst_advance_us: int = 0
+var _worst_ui_us: int = 0
+var _last_frame_ticks: int = 0
+
+func capture(frame_delta: float, process_usec: int, advance_usec: int,
+        ui_usec: int, completed_ticks: int) -> void:
+    _frames += 1
+    _ticks += maxi(completed_ticks, 0)
+    _last_frame_ticks = maxi(completed_ticks, 0)
+    _elapsed += clampf(frame_delta, 0.0, 2.0)
+    var full_frame_us: int = maxi(0, roundi(frame_delta * 1000000.0))
+    _worst_frame_us = maxi(_worst_frame_us, full_frame_us)
+    _worst_process_us = maxi(_worst_process_us, process_usec)
+    _worst_advance_us = maxi(_worst_advance_us, advance_usec)
+    _worst_ui_us = maxi(_worst_ui_us, ui_usec)
+    _push(_process_us, process_usec)
+    _push(_advance_us, advance_usec)
+    _push(_ui_us, ui_usec)
+
+func _push(samples: Array[int], usec: int) -> void:
+    samples.append(maxi(0, usec))
+    if samples.size() > WINDOW_SIZE:
+        samples.pop_front()
+
+func display_due() -> bool:
+    if _elapsed < DISPLAY_INTERVAL:
+        return false
+    _elapsed = fmod(_elapsed, DISPLAY_INTERVAL)
+    return true
+
+func _average(values: Array[int]) -> float:
+    if values.is_empty():
+        return 0.0
+    var total: int = 0
+    for item in values:
+        total += item
+    return float(total) / float(values.size()) / 1000.0
+
+func _p95(values: Array[int]) -> float:
+    if values.is_empty():
+        return 0.0
+    var sorted: Array[int] = values.duplicate()
+    sorted.sort()
+    var idx: int = clampi(ceili(float(sorted.size()) * 0.95) - 1,
+        0, sorted.size() - 1)
+    return float(sorted[idx]) / 1000.0
+
+func summary() -> Dictionary:
+    return {
+        "fps": Engine.get_frames_per_second(),
+        "frames": _frames, "ticks": _ticks,
+        "last_frame_ticks": _last_frame_ticks,
+        "process_avg_ms": _average(_process_us),
+        "process_p95_ms": _p95(_process_us),
+        "advance_avg_ms": _average(_advance_us),
+        "advance_p95_ms": _p95(_advance_us),
+        "ui_avg_ms": _average(_ui_us),
+        "ui_p95_ms": _p95(_ui_us),
+        "worst_frame_ms": float(_worst_frame_us) / 1000.0,
+        "worst_process_ms": float(_worst_process_us) / 1000.0,
+        "worst_advance_ms": float(_worst_advance_us) / 1000.0,
+        "worst_ui_ms": float(_worst_ui_us) / 1000.0
+    }
+
+func compact_text() -> String:
+    var data: Dictionary = summary()
+    return "FPS %d · кадр %.1f мс · sim+signals %.1f · UI %.1f · тик +%d" % [
+        int(data["fps"]), float(data["process_p95_ms"]),
+        float(data["advance_p95_ms"]), float(data["ui_p95_ms"]),
+        int(data["last_frame_ticks"])]
