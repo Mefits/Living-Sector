@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - integration/godot-phase2-unified-20261113
+      - feature/n84-ship-only-copy-20261115
     paths:
       - .github/workflows/p2-unified-godot-smoke.yml
       - godot/docs/phase2/P2_CI_TRIGGER.txt
@@ -15,7 +16,7 @@ permissions:
 jobs:
   verify-real-godot:
     runs-on: ubuntu-24.04
-    timeout-minutes: 7
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - name: Check source preloads
@@ -104,6 +105,29 @@ jobs:
             tail -n 100 godot/logs/p2-unified/n21-history-guard.log
             exit 1
           fi
+          # Source Rust market and producer projections share exactly
+          # one N9 FacilityOperations wallet. N129 relief must never
+          # overwrite its newly paid balance with a stale alias view.
+          timeout --signal=TERM --kill-after=5s 35s godot --headless --path godot \
+            --script res://tests/p2_n129_shared_facility_wallet_check.gd \
+            > godot/logs/p2-unified/n129-shared-wallet.log 2>&1
+          n129=$?
+          if test "$n129" -ne 0; then
+            echo "P2_CI_N129_SHARED_WALLET_FAIL code=$n129"
+            tail -n 100 godot/logs/p2-unified/n129-shared-wallet.log
+            exit 1
+          fi
+          # One read-only N38 checkpoint must serve the GUI's economy,
+          # fleet and summary without mutating authoritative N39 data.
+          timeout --signal=TERM --kill-after=5s 35s godot --headless --path godot \
+            --script res://tests/p2_observer_checkpoint_projection_check.gd \
+            > godot/logs/p2-unified/observer-projection.log 2>&1
+          observer=$?
+          if test "$observer" -ne 0; then
+            echo "P2_CI_OBSERVER_PROJECTION_FAIL code=$observer"
+            tail -n 100 godot/logs/p2-unified/observer-projection.log
+            exit 1
+          fi
           # ONE Gate4 research acceptance on the original frozen Rust
           # factions, accounts, market electronics and actual N38 disk.
           timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
@@ -139,10 +163,25 @@ jobs:
           # Stage2 once per source checkpoint: original clean Galaxy,
           # real faction cycles and N38 restart at tick 360, through 361.
           # No seeded contracts, player orders, balance or World rewrites.
-          timeout --signal=TERM --kill-after=5s 300s godot --headless --path godot \
-            --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
-            > godot/logs/p2-unified/stage2-native-420.log 2>&1
-          stage2=$?
+          # On the dedicated performance branch continue the same real
+          # N38 restart + paid source acceptance past the N129 tick825
+          # regression, without altering the default integration gate.
+          if test "$GITHUB_REF_NAME" = "feature/n84-ship-only-copy-20261115"; then
+            LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
+              timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
+                --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+                > godot/logs/p2-unified/stage2-native-420.log 2>&1
+            stage2=$?
+            if ! grep -q "P2_STAGE2_LONG_NATIVE_PASS tick=900" godot/logs/p2-unified/stage2-native-420.log; then
+              echo "P2_CI_LONG_900_NOT_PROVED"
+              stage2=99
+            fi
+          else
+            timeout --signal=TERM --kill-after=5s 300s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/stage2-native-420.log 2>&1
+            stage2=$?
+          fi
           echo "P2_CI_RESULT editor=$editor parse=$parse economy=$economy research=$research stage2=$stage2 n91=$n91 n38=$n38"
           for file in godot/logs/p2-unified/*.log; do
             echo "::group::$file"
