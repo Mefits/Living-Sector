@@ -43,3 +43,29 @@ func test_original_trade_goap_yields_paid_physical_route_intents() -> void:
 	assert_eq(kinds, ["Travel", "Dock", "Buy", "Undock", "Travel",
 		"Dock", "SellAll"])
 	assert_eq(int(plan.get("cost", -1)), 7)
+
+func test_invalid_transition_never_mutates_and_valid_transition_is_detached() -> void:
+    var initial_state: Dictionary = N81.initial("Origin", 10)
+    var baseline: Dictionary = initial_state.duplicate(true)
+    assert_true(N81._apply(initial_state, "Buy", {}).is_empty())
+    assert_true(N81._apply(initial_state, "Refuel", {}).is_empty())
+    assert_eq(initial_state, baseline)
+    var docked: Dictionary = N81._apply(initial_state, "Dock", {})
+    assert_false(docked.is_empty())
+    if docked.is_empty():
+        return
+    assert_eq(docked["cost"], 1)
+    assert_true(docked["state"]["docked"])
+    assert_false(initial_state["docked"])
+    var traveling: Dictionary = N81._apply(initial_state,
+        "Travel:Source", {
+            "origin": "alpha-station", "source": "earth-station",
+            "cost_origin_to_source": 3})
+    assert_false(traveling.is_empty())
+    if traveling.is_empty():
+        return
+    assert_eq(traveling["cost"], 3)
+    assert_eq(traveling["state"]["fuel_bucket"], 7)
+    assert_eq(traveling["state"]["at"], "Source")
+    assert_eq(initial_state, baseline,
+        "Native N81 must never modify original immutable search state")
