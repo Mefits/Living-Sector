@@ -8,6 +8,7 @@ on:
       - feature/godot-phase2-world-copy-boundaries-20261115
       - feature/n9-owned-ledger-fork-20261115
       - feature/n153-route-graph-cache-20261115
+      - feature/n9-sharded-append-only-journal-20261115
     paths:
       - .github/workflows/p2-unified-godot-smoke.yml
       - godot/docs/phase2/P2_CI_TRIGGER.txt
@@ -148,6 +149,18 @@ jobs:
             tail -n 110 godot/logs/p2-unified/n153-real-dispatch.log
             exit 1
           fi
+          # II-A N9 immutable partitioned receipt archive and original
+          # N38 insertion-order compatibility; reject replay or any
+          # alias leak across paid ledgers.
+          timeout --signal=TERM --kill-after=5s 55s godot --headless --path godot \
+            --script res://tests/p2_n9_append_only_journal_check.gd \
+            > godot/logs/p2-unified/n9-append-only-check.log 2>&1
+          n9append=$?
+          if test "$n9append" -ne 0; then
+            echo "P2_CI_N9_APPEND_ONLY_FAIL code=$n9append"
+            tail -n 130 godot/logs/p2-unified/n9-append-only-check.log
+            exit 1
+          fi
           # N21 must reject loss or rewrite of old paid N9 receipts while
           # avoiding quadratic history cloning on every docking action.
           timeout --signal=TERM --kill-after=5s 45s godot --headless --path godot \
@@ -220,7 +233,41 @@ jobs:
           # On the dedicated performance branch continue the same real
           # N38 restart + paid source acceptance past the N129 tick825
           # regression, without altering the default integration gate.
-          if test "$GITHUB_REF_NAME" = "feature/n153-route-graph-cache-20261115"; then
+          if test "$GITHUB_REF_NAME" = "feature/n9-sharded-append-only-journal-20261115"; then
+            # Original seed, unmodified production economy, full N38
+            # save/restart at tick360, strict N21 and N129 paid proofs.
+            LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
+              timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
+                --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+                > godot/logs/p2-unified/stage2-native-420.log 2>&1
+            stage2=$?
+            if test "$stage2" -ne 0 || ! grep -q "P2_STAGE2_LONG_NATIVE_PASS tick=900" godot/logs/p2-unified/stage2-native-420.log; then
+              echo "P2_CI_N9_APPEND_900_FAIL code=$stage2"
+              tail -n 110 godot/logs/p2-unified/stage2-native-420.log
+              exit 1
+            fi
+            # Paired same-host benchmark. Baseline is the approved
+            # integration HEAD immediately before this PR. Only swap
+            # the N9 implementation; workload and Godot binary identical.
+            ledger_file=godot/scripts/sim/economy/credit_ledger.gd
+            cp "$ledger_file" "$RUNNER_TEMP/n9-append-candidate.gd"
+            git fetch --no-tags --depth=1 origin 814a72eb945bfd53e2018f62e71fa7981adc2d9f
+            git show 814a72eb945bfd53e2018f62e71fa7981adc2d9f:"$ledger_file" > "$ledger_file"
+            timeout --signal=TERM --kill-after=5s 120s godot --headless --path godot \
+              --script res://tests/p2_n9_fork_scaling_benchmark.gd \
+              > godot/logs/p2-unified/n9-append-base-scale.log 2>&1
+            base_code=$?
+            cp "$RUNNER_TEMP/n9-append-candidate.gd" "$ledger_file"
+            timeout --signal=TERM --kill-after=5s 120s godot --headless --path godot \
+              --script res://tests/p2_n9_fork_scaling_benchmark.gd \
+              > godot/logs/p2-unified/n9-append-candidate-scale.log 2>&1
+            cand_code=$?
+            echo "N9_APPEND_ONLY_AB_BASELINE"
+            grep 'N9_FORK_SCALE_RESULT' godot/logs/p2-unified/n9-append-base-scale.log
+            echo "N9_APPEND_ONLY_AB_CANDIDATE"
+            grep 'N9_FORK_SCALE_RESULT' godot/logs/p2-unified/n9-append-candidate-scale.log
+            test "$base_code" -eq 0 -a "$cand_code" -eq 0 || exit 1
+          elif test "$GITHUB_REF_NAME" = "feature/n153-route-graph-cache-20261115"; then
             LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
               timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
                 --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
