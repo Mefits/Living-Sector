@@ -100,7 +100,7 @@ func summary() -> Dictionary:
 
 func compact_text() -> String:
     var data: Dictionary = summary()
-    return "FPS %d · кадр %.1f мс · sim+signals %.1f · UI %.1f · тик +%d" % [
-        int(data["fps"]), float(data["process_p95_ms"]),
+    return "FPS %d · кадр p95 %.1f мс · sim+signals %.1f · UI %.1f · тик +%d" % [
+        int(data["fps"]), float(data["frame_p95_ms"]),
         float(data["advance_p95_ms"]), float(data["ui_p95_ms"]),
         int(data["last_frame_ticks"])]
