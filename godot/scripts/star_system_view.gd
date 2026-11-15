@@ -41,6 +41,9 @@ var _facilities_by_body: Dictionary = {}
 var _body_ids_by_location: Dictionary = {}
 var _ships_by_body: Dictionary = {}
 var _max_orbit_radius: float = 1.0
+## Per-draw screen projection, invalidated on EVERY draw. Includes zoom,
+## pan, viewport size and source angles; never reused across real ticks.
+var _draw_body_positions: Dictionary = {}
 var _last_draw_usec: int = 0
 var _max_draw_usec: int = 0
 var _draw_calls: int = 0
@@ -263,13 +266,22 @@ func _center() -> Vector2:
 
 
 func _body_position(body: Dictionary, scale: float) -> Vector2:
+    var bid: String = str(body.get("id", ""))
+    if not bid.is_empty() and _draw_body_positions.has(bid):
+        return _draw_body_positions[bid]
     var radians: float = deg_to_rad(float(body.get("current_angle", 0.0)))
     var parent: Dictionary = _known_moon_parent(body)
+    var position: Vector2 = Vector2.ZERO
     if not parent.is_empty():
-        var origin: Vector2 = _body_position(parent, scale)
-        return origin + Vector2(cos(radians), -sin(radians)) * _moon_visual_orbit(body, parent)
-    var orbit: float = _radius_transform(float(body.get("orbit_radius", 0.0))) * scale * _zoom
-    return _center() + Vector2(cos(radians), -sin(radians)) * orbit
+        position = _body_position(parent, scale) + Vector2(
+            cos(radians), -sin(radians)) * _moon_visual_orbit(body, parent)
+    else:
+        var orbit: float = _radius_transform(float(
+            body.get("orbit_radius", 0.0))) * scale * _zoom
+        position = _center() + Vector2(cos(radians), -sin(radians)) * orbit
+    if not bid.is_empty():
+        _draw_body_positions[bid] = position
+    return position
 
 
 func _moon_visual_orbit(body: Dictionary, parent: Dictionary) -> float:
@@ -306,6 +318,7 @@ func _live_ship_count(body_id: String) -> int:
 
 func _draw() -> void:
     var started: int = Time.get_ticks_usec()
+    _draw_body_positions.clear()
     if is_body_focused():
         _draw_body_focus()
     else:
