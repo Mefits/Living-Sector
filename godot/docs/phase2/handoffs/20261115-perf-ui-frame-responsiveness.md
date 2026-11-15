@@ -11,14 +11,14 @@ Draft PR: https://github.com/Mefits/Living-Sector/pull/259
 
 | Этап | Статус | Коммиты | Результат / что проверить |
 | --- | --- | --- | --- |
-| U1 FPS и диагностика | **IMPLEMENTED / NOT YET RUNTIME VERIFIED** | `d1c2b01`, `47c6582`, `527db47`, `46608ec`, `1c8d233`, `1008855` | Постоянный Engine FPS; **реальный frame delta p95**, process/advance/UI avg+p95, локальный и all-time worst frame, тик +N / total; метрики не создают World snapshot; вывод в tooltip и опциональный JSON каждые 5 секунд |
-| U2 реальный источник UI блокировок | **INSTRUMENTED / WINDOWS DATA PENDING** | `47c6582`, `49f0d80` | Исходный `_process→advance_frame` синхронен; теперь отдельно measured `advance_frame`, post-tick UI и draw CPU. `advance_frame` включает N158+любые чужие callbacks; вне процесса GPU/VSYNC не измеряются |
+| U1 FPS и диагностика | **IMPLEMENTED / NOT YET RUNTIME VERIFIED** | `d1c2b01`, `47c6582`, `527db47`, `46608ec`, `1c8d233`, `1008855`, `e0ece3f`, `cba4027` | Постоянный Engine FPS; **реальный frame delta p95**, process/advance/UI avg+p95, локальный и all-time worst frame, тик +N / total; метрики не создают World snapshot; вывод в tooltip и опциональный JSON каждые 5 секунд |
+| U2 реальный источник UI блокировок | **INSTRUMENTED / WINDOWS DATA PENDING** | `47c6582`, `49f0d80`, `e0ece3f`, `cba4027` | Исходный `_process→advance_frame` синхронен; теперь отдельно measured `advance_frame`, post-tick UI и draw CPU. `advance_frame` включает N158+любые чужие callbacks; вне процесса GPU/VSYNC не измеряются |
 | U3 Observer | **IMPLEMENTED / NOT YET RUNTIME VERIFIED** | `9a21f9d`, `49f0d80`, `d65f958`, `4e460f6` | При открытом Observer используются одни данные завершённого N38 checkpoint для экономики, кораблей, inspector/status; основная вкладка «Сводка» не собирает скрытые длинные разделы; выбор подробного раздела запрашивает новый canonical checkpoint |
-| U4 star_system_view | **IMPLEMENTED / NOT YET RUNTIME VERIFIED** | `f89784b` | Body ID→body, body→facility count, location→body IDs, body→live ship count, max orbit radius; deep clone только изменённого визуального домена, а не всего World; арки/углы native unchanged, планеты и N14 transits не интерполируются |
+| U4 star_system_view | **IMPLEMENTED / NOT YET RUNTIME VERIFIED** | `f89784b`, `306fd51`, `bd88a9f` | Body ID→body, body→facility count, location→body IDs, body→live ship count, max orbit radius; deep clone только изменённого визуального домена, а не всего World; арки/углы native unchanged, планеты и N14 transits не интерполируются |
 | U5 system_map | **IMPLEMENTED / NOT YET RUNTIME VERIFIED** | `5e61d26` | Единожды source native coordinates + bounds; fit recompute только на explicit set_worlds или resize; redraw selected only when changed; оригинальные universe_offset и routes неизменны |
 | U6 UI update frequency | **IMPLEMENTED / NOT YET RUNTIME VERIFIED** | `47c6582`, `9a21f9d`, `49f0d80` | `tick_completed` **только** ставит pending tick; после `advance_frame` за один render-frame одна sample свежего орбитального состояния, fleet каждые минимум 4 завершённых тика; тяжёлые панели раз в 0,45 wall second **и только если tick изменился** |
 | U7 worker / responsiveness | **DESIGN COMPLETE / IMPLEMENTATION BLOCKED BY N158 OWNERSHIP** | этот handoff | Не внедрял Thread/unsafe shared mutable Dictionary. Нужен отдельный N158/TickRunner интерфейс атомарной фоновой транзакции — ниже |
-| U8 проверка и Windows | **TESTS AUTHORED / WINDOWS FPS PENDING** | `032e279`, `fb834ec`, `0b1d5ac`, `09ff1ba`, этот handoff | Два изолированных Godot SceneTree теста и матрица 16 профилей. Локального Godot 4.x в среде исполнителя нет. Никаких фиктивных цифр FPS. |
+| U8 проверка и Windows | **TESTS AUTHORED / WINDOWS FPS PENDING** | `032e279`, `fb834ec`, `0b1d5ac`, `09ff1ba`, `89fef75`, этот handoff | Два изолированных Godot SceneTree теста и матрица 16 профилей. Локального Godot 4.x в среде исполнителя нет. Никаких фиктивных цифр FPS. |
 
 ## A. Что действительно происходило в исходном UI
 
@@ -35,8 +35,8 @@ Draft PR: https://github.com/Mefits/Living-Sector/pull/259
 - `fps`: **реальный Engine.get_frames_per_second()**, а не 1 / стоимости N39 тика;
 - `frame_p95_ms`, `frame_window_max_ms`: монотонное wall-time между вызовами `_process` (включает предыдущую отрисовку и возможный блокирующий тик; окно последних 120 GUI кадров). `worst_frame_ms` — худший за весь запуск;
 - `process_avg_ms`, `process_p95_ms`, `worst_process_ms`: собственный замер CPU времени внутри `main._process`;
-- `advance_avg_ms`, `advance_p95_ms`: всё время внутри N158 `advance_frame` (симуляция + возможные посторонние signal handlers), **не называйте это строго чистой симуляцией**;
-- `ui_avg_ms`, `ui_p95_ms`: только наша `_flush_finished_tick_views` ПОСЛЕ advance;
+- `advance_avg_ms`, `advance_p95_ms`: всё время внутри N158 `advance_frame` (симуляция + возможные посторонние signal handlers), **не называйте это строго чистой симуляцией**; также `advance_share_of_process_pct`, `advance_over_16_7ms_window` и `frame_over_16_7ms_window` показывают число нарушений бюджета 60 FPS в последних 120 кадрах;
+- `ui_avg_ms`, `ui_p95_ms`: только наша `_flush_finished_tick_views` ПОСЛЕ advance; `ui_share_of_process_pct`, `ui_over_16_7ms_window` помогают отличить UI от симуляции;
 - `draw_cpu`: время выполнения `_draw` видимой карты/системы, last/max/calls; **не GPU и не стоимость VSYNC**;
 - `ticks`, `last_frame_ticks`, `ticks_per_frame_window`: реальное количество завершённых N158 тиков, никаких дополнительных `tick()`.
 
