@@ -16,3 +16,18 @@
 - 900 ticks including tick825: **IN PROGRESS** at reporting time. No speedup claim until numerical logs are available; 420 is a single paired wall-time observation, not a statistically established gain.
 - The scaled fixture reuses original class, faction, market, directed graph, fuel and paid source offer; unique synthetic ship IDs exist only inside selector test data, not in canonical N39 ledger/World.
 - Read-only world, source winner, BT, blocked reasons/counts, and deterministic order tested by exact oracle equality. N39/N9/N4 production interfaces untouched.
+
+## Second (final for this iteration) A/B on `fe8b7808b9ab615db0213c78107b20711b4cf734`
+
+CI: https://github.com/Mefits/Living-Sector/actions/runs/43729181807 — **PASS, Godot 4.7.2**.
+- Exact frozen source-oracle output parity, **21 scenarios**, including original actually funded N104 offer, stock/funds/reputation/fuel/route/busy/cargo, expiry, order and all published rejection counters/BT: PASS.
+- N153 selector-only scale with original directed N4 positions, N104 offer and prototype of the real hauler; the clone IDs stay test-local (not canonical World insertions):
+  - 24 ships: baseline `1424 us` → candidate `1139 us` (1.25x).
+  - 100 ships: baseline `51389 us` → candidate `3795 us` (13.54x).
+  - 500 ships: baseline `344383 us` → candidate `19993 us` (17.23x).
+  - One measurement per arm; only N153 propose, NOT entire game TPS.
+- Original unmodified seed 420 ticks + N38 disk restart at 360: candidate `69416 ms`, baseline `68415 ms`; all `P2_STAGE2_CLEAN_CHECK` snapshots equal after removing wall time, no proven whole-sim speedup (candidate ~1.5% slower in this single noisy run).
+- Original unmodified seed 900 ticks with N38 restart360 and tick825 regression: `P2_STAGE2_LONG_NATIVE_PASS tick=900`, `235919 ms`, 24 real ships, 4 contracts, 4035 N9 receipts at tick900.
+- Core optimization `fe8b780`: after N153.select_contract returns *actual exact profit*, skip N81 GOAP/BT only when an existing winner has >= profit. Frozen winner comparator is strict `>`; no skipped bid could ever change winner. When no winner exists ALL N81 gates/rejection accounting still runs. When a winner exists the `ship_blockers` dictionary is never published, so losing N81 results cannot change observable counters/reasons. Real funding/stock/treaties/knowledge/route/fuel checks before N153 are unchanged.
+- First index-only candidate `87d16f6` on same host (CI 43728288327): whole sim baseline `71666 ms`, candidate `78860 ms`; this motivated dominated-BT optimization, not claims of faster whole game.
+- **Risk:** 420 original fleet size is only 24 with few posted offers; N39/ledger dominate whole-simulation time. No meaningful whole-game FPS/TPS win established; a 10k-tick soak and multi-seed/replicated benchmark remain unverified. N18/EventQueue untouched. PR remains Draft; green only coordinator after merge.
