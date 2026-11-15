@@ -71,6 +71,17 @@ jobs:
             --script res://tests/p2_n158_live_production_check.gd \
             > godot/logs/p2-unified/n158-paid-production.log 2>&1
           economy=$?
+          # N140 must preserve native N84/N146 decisions, source World
+          # and sleeping ships while avoiding one full ledger/history copy.
+          timeout --signal=TERM --kill-after=5s 30s godot --headless --path godot \
+            --script res://tests/p2_n140_source_copy_equivalence_check.gd \
+            > godot/logs/p2-unified/n140-copy-parity.log 2>&1
+          n140=$?
+          if test "$n140" -ne 0; then
+            echo "P2_CI_N140_COPY_PARITY_FAIL code=$n140"
+            tail -n 100 godot/logs/p2-unified/n140-copy-parity.log
+            exit 1
+          fi
           # ONE Gate4 research acceptance on the original frozen Rust
           # factions, accounts, market electronics and actual N38 disk.
           timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
