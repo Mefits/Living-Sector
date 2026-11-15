@@ -30,3 +30,49 @@ static func validate_owned_write(before: Dictionary, after: Dictionary) -> Strin
     # shapes and prices; this guard enforces the complementary write-set.
     return Observation.validate_observation_proposal(
         {"markets": before}, after, -1, 0)
+
+## Capture only protected market fields before N150 executes. This detached
+## boundary detects in-place writes even when before/after World aliases point
+## to the same dictionaries. Observation fields remain N150-owned.
+static func capture_protected_fields(markets: Dictionary) -> Dictionary:
+    var snapshot: Dictionary = {}
+    for location in markets:
+        if not (markets[location] is Dictionary):
+            return {}
+        var protected: Dictionary = {}
+        var row: Dictionary = markets[location]
+        for field in row:
+            if field not in Observation.OBSERVATION_FIELDS:
+                protected[field] = row[field].duplicate(true) if (
+                    row[field] is Dictionary or row[field] is Array) else row[field]
+        snapshot[location] = protected
+    return snapshot
+
+
+## Use this after a live N150 phase when its before World cannot safely be
+## retained as a detached snapshot. No full World or receipts are copied.
+## The caller must also run the existing observation proposal validator and
+## full Schema oracle; this method only enforces protected ownership.
+static func validate_protected_snapshot(snapshot: Dictionary,
+        markets: Dictionary) -> String:
+    if snapshot.size() != markets.size():
+        return "market_write_cardinality_changed"
+    for location in snapshot:
+        if not markets.has(location):
+            return "market_write_removed_location"
+        if not (markets[location] is Dictionary):
+            return "market_write_invalid_row"
+        var row: Dictionary = markets[location]
+        var protected: Dictionary = snapshot[location]
+        var protected_count: int = 0
+        for field in row:
+            if field in Observation.OBSERVATION_FIELDS:
+                continue
+            protected_count += 1
+            if not protected.has(field):
+                return "market_write_added_protected_field"
+            if row[field] != protected[field]:
+                return "market_write_outside_observation"
+        if protected_count != protected.size():
+            return "market_write_removed_protected_field"
+    return ""
