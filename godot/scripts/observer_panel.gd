@@ -1,5 +1,7 @@
 extends PanelContainer
 ## N20 observational UI: no command buttons until real executor is wired.
+## UI selection only: request a fresh detached checkpoint on tab change.
+signal section_changed
 const ObserverProjection = preload("res://scripts/sim/observer/observer_projection.gd")
 const NativeCrisis = preload("res://scripts/sim/phase2/unified_native_crisis_events.gd")
 const SECTIONS := ["Сводка", "Заказы", "Исследования", "Строительство",
@@ -32,6 +34,7 @@ func _ready() -> void:
     show_observation(0, "unselected", {})
 
 func _on_section_selected(_index: int) -> void:
+    section_changed.emit()
     _show_selected(true)
 
 func _show_selected(reset_scroll: bool = false) -> void:
@@ -67,6 +70,18 @@ func show_live_economy(tick: int, economy: Dictionary, summary: Dictionary,
         _label.text = "Живая экономика недоступна: нет единого N39 World"
         return
     var warnings: Dictionary = NativeCrisis.current_warning_state(economy)
+    # U3: the ordinary selected "Сводка" is a compact read-only
+    # projection. Do not render/sort every station, ship, market, receipt,
+    # historic order and all eight hidden RichText pages each refresh.
+    # Selecting any detailed tab requests one fresh completed checkpoint
+    # via section_changed and follows the existing full proof path below.
+    if _section_choice != null and _section_choice.selected == 0:
+        var active_board: Dictionary = economy.get("contract_board", {})
+        var active_contracts: Dictionary = active_board.get("contracts", {})
+        _section_texts["Сводка"] = _compact_summary(
+            tick, economy, summary, ships, active_contracts, warnings)
+        _show_selected()
+        return
     var lines: Array[String] = ["ЖИВАЯ ЭКОНОМИКА · ТИК %d" % tick]
     lines.append("АВТОНОМИЯ: производство / потребление / рынок — исполняются по тикам")
     lines.append("АВТОНОМИЯ N135/N104: оплаченные заявки публикуются в едином N39 World")
