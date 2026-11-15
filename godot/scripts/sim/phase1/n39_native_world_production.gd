@@ -107,13 +107,17 @@ var _profile_world_copy_calls: int = 0
 var _profile_world_copy_usec: int = 0
 var _profile_ship_copy_calls: int = 0
 var _profile_ship_copy_usec: int = 0
+var _profile_n21_commit_calls: int = 0
+var _profile_n21_commit_usec: int = 0
 
 func world_copy_profile() -> Dictionary:
     return {"enabled": _profile_copy_enabled,
         "world_copy_calls": _profile_world_copy_calls,
         "world_copy_usec": _profile_world_copy_usec,
         "ship_copy_calls": _profile_ship_copy_calls,
-        "ship_copy_usec": _profile_ship_copy_usec}
+        "ship_copy_usec": _profile_ship_copy_usec,
+        "n21_commit_calls": _profile_n21_commit_calls,
+        "n21_commit_usec": _profile_n21_commit_usec}
 
 func world_snapshot() -> Dictionary:
     if not _ready:
@@ -1192,7 +1196,18 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
 ## Original Rust N21: source FIFO FacilityStorage dock_queue + dock fee.
 ## This is the ONLY paid N21 Apply. A source proposal cannot publish
 ## facilities, ships or N9 by itself. N38 owns snapshot of these fields.
+## Optional diagnostic only; no timing work or branching of native
+## economy when LS_PROFILE_NATIVE_PHASES is disabled.
 func _commit_native_n21(proposal: Dictionary) -> Dictionary:
+    if not _profile_copy_enabled:
+        return _commit_native_n21_unprofiled(proposal)
+    var began: int = Time.get_ticks_usec()
+    var outcome: Dictionary = _commit_native_n21_unprofiled(proposal)
+    _profile_n21_commit_calls += 1
+    _profile_n21_commit_usec += maxi(0, Time.get_ticks_usec() - began)
+    return outcome
+
+func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     if not proposal.get("ok", false) or not (proposal.get("world") is Dictionary) or (
             not (proposal.get("ledger_snapshot") is Dictionary)):
         return {"ok": false, "reason": "n21_invalid_staged_source_world"}
@@ -1242,11 +1257,14 @@ func _commit_native_n21(proposal: Dictionary) -> Dictionary:
     var checked := Ledger.new()
     if not checked.restore(money) or checked.total() != _ledger.total():
         return {"ok": false, "reason": "n21_ledger_money_not_conservative"}
+    # Preserve the full immutability check, but do not re-clone the entire
+    # growing N9 receipt history for each old receipt (quadratic cost).
+    var before_money: Dictionary = _ledger.snapshot()
     if not (money.get("receipts") is Dictionary) or (
-            money["receipts"].size() < _ledger.snapshot().get("receipts", {}).size()):
+            money["receipts"].size() < before_money.get("receipts", {}).size()):
         return {"ok": false, "reason": "n21_paid_receipt_missing"}
-    for id in _ledger.snapshot().get("receipts", {}):
-        if money["receipts"].get(id, null) != _ledger.snapshot()["receipts"][id]:
+    for id in before_money.get("receipts", {}):
+        if money["receipts"].get(id, null) != before_money["receipts"][id]:
             return {"ok": false, "reason": "n21_replayed_or_edited_n9_receipt"}
     var schema_error: String = Schema.validate(future)
     if not schema_error.is_empty():
@@ -4192,8 +4210,11 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
             return false
     if Schema.validate(staged) != "":
         return false
-    for account in Schema.accounts(staged):
-        if ledger_next.balance(str(account)) != int(Schema.accounts(staged)[account]):
+    # World is unchanged during this account audit. Rebuilding the
+    # canonical account table for every account was quadratic in wallets.
+    var expected_accounts: Dictionary = Schema.accounts(staged)
+    for account in expected_accounts:
+        if ledger_next.balance(str(account)) != int(expected_accounts[account]):
             return false
     _world = staged
     _ledger = ledger_next
@@ -4973,7 +4994,11 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
         return {"ok": false, "fatal": true, "reason": "n129_native_total_not_conserved"}
     for account in accounts:
         if int(actual.get(account, -1)) != int(accounts[account]):
-            return {"ok": false, "fatal": true, "reason": "n129_wallet_world_divergence"}
+            return {"ok": false, "fatal": true,
+                "reason": "n129_wallet_world_divergence",
+                "account": str(account), "tick": tick,
+                "ledger_credits": int(actual.get(account, -1)),
+                "world_credits": int(accounts[account])}
     _world = staged
     _ledger = wallets
     return {"ok": true, "due": true, "tick": tick,

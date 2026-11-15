@@ -464,7 +464,14 @@ static func propose(world: Dictionary, graph: RefCounted,
         multiplier: int = 1) -> Dictionary:
     if graph == null or not (world.get("ships") is Dictionary) or tick < 1:
         return {"ok": false, "reason": "missing_single_world_ai_fleet"}
-    var staged: Dictionary = world.duplicate(true)
+    # N84 mutates only its owned ship rows and scalar ship_next_token.
+    # Full World deep-copy here duplicated growing World-side receipts,
+    # markets and construction history every ship tick. N9 ledger remains
+    # a separate N39 store. Keep all other
+    # source state read-only; detach the fleet before the first BT write.
+    # N39/N146 remains the sole authoritative mutation/commit path.
+    var staged: Dictionary = world.duplicate()
+    staged["ships"] = (world["ships"] as Dictionary).duplicate(true)
     var cmd_buffer = Commands.new()
     if not cmd_buffer.begin_phase(tick, "ships"):
         return {"ok": false, "reason": "n146_phase_cannot_begin"}

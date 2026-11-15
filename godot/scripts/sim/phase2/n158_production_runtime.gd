@@ -1488,6 +1488,13 @@ func _integrated_phase_failure_reason(phase: String) -> String:
             var stage: Dictionary = item[1]
             if not stage.get("ok", true):
                 var detail: String = str(stage.get("reason", ""))
+                # N129 now provides the exact rejected account without
+                # weakening the N9 balance/schema invariant or altering
+                # the phase's canonical refusal code.
+                if str(item[0]) == "n129_faction_finance" and stage.has("account"):
+                    detail += ":account=" + str(stage["account"]) + (
+                        ":ledger=" + str(stage.get("ledger_credits", "?")) +
+                        ":world=" + str(stage.get("world_credits", "?")))
                 return str(item[0]) + ":" + (
                     detail if not detail.is_empty() else
                     "native_stage_rejected_without_reason")
@@ -1766,10 +1773,15 @@ func _research_completion_count(current: Dictionary) -> int:
             count += completed.size()
     return count
 
-func economy_summary() -> Dictionary:
+## Optional detached checkpoint World for GUI: reuse the SAME completed
+## N38 projection across observer/summary/fleet, rather than cloning the
+## entire World a second and third time on every visible refresh.
+## Never pass a live mutable N39 reference here.
+func economy_summary(checkpoint_world: Dictionary = {}) -> Dictionary:
     if not _native_enabled:
         return {}
-    var current: Dictionary = production.world_snapshot()
+    var current: Dictionary = (checkpoint_world if not checkpoint_world.is_empty()
+        else production.world_snapshot())
     var results: Dictionary = last_native_result()
     var paid: int = 0
     var recipes: int = 0
