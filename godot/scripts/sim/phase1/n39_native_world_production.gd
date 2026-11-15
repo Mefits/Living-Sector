@@ -5,6 +5,7 @@ extends RefCounted
 ## Source phase1 component. Not connected to the complete ECS until Phase2.
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
 const MarketObservationValidator = preload("res://scripts/sim/phase1/n39_market_observation_validator.gd")
+const DockDeltaValidator = preload("res://scripts/sim/phase1/n39_dock_delta_validator.gd")
 const Payroll = preload("res://scripts/sim/phase1/n39_native_paid_shift.gd")
 const Inventory = preload("res://scripts/sim/economy/inventory_store.gd")
 const Recipes = preload("res://scripts/sim/economy/native_recipes.gd")
@@ -116,6 +117,22 @@ var _profile_copy_sites: Dictionary = {}
 ## This generation covers ONLY N150 observation writes, NOT physical markets.
 ## No cache may rely on it to validate mutable stocks or money.
 var _market_observation_version: int = 0
+## N21 proposal-generation contract, with a separate negative namespace for
+## N38-restored owners. No new persisted field or financial authority.
+var _n21_commit_generation: int = 0
+var _n21_restored: bool = false
+var _n21_shadow_checks: int = 0
+var _n21_shadow_false_rejections: int = 0
+var _n21_shadow_last_error: String = ""
+
+func n21_write_version() -> int:
+    return -1 - _n21_commit_generation if _n21_restored else _n21_commit_generation
+
+func n21_shadow_profile() -> Dictionary:
+    return {"enabled": _profile_copy_enabled, "checks": _n21_shadow_checks,
+        "false_rejections": _n21_shadow_false_rejections,
+        "last_error": _n21_shadow_last_error,
+        "write_version": n21_write_version()}
 
 func market_observation_version() -> int:
     return _market_observation_version
@@ -1281,12 +1298,35 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
 ## Optional diagnostic only; no timing work or branching of native
 ## economy when LS_PROFILE_NATIVE_PHASES is disabled.
 func _commit_native_n21(proposal: Dictionary) -> Dictionary:
+    # Explicit callers may opt into stale-proposal prevention; the original
+    # Rust N21 staged apply (without expected_n21_version) is untouched.
+    if proposal.has("expected_n21_version") and (
+            typeof(proposal["expected_n21_version"]) != TYPE_INT or
+            int(proposal["expected_n21_version"]) != n21_write_version()):
+        return {"ok": false, "reason": "n21_stale_write_version"}
     if not _profile_copy_enabled:
-        return _commit_native_n21_unprofiled(proposal)
+        var original: Dictionary = _commit_native_n21_unprofiled(proposal)
+        if original.get("ok", false):
+            _n21_commit_generation += 1
+        return original
+    var shadow_error: String = ""
+    if proposal.get("ok", false) and proposal.get("world") is Dictionary and (
+            proposal.get("ledger_snapshot") is Dictionary):
+        shadow_error = DockDeltaValidator.validate_delta(
+            _world, proposal["world"], proposal["ledger_snapshot"])
+        _n21_shadow_checks += 1
     var began: int = Time.get_ticks_usec()
     var outcome: Dictionary = _commit_native_n21_unprofiled(proposal)
     _profile_n21_commit_calls += 1
     _profile_n21_commit_usec += maxi(0, Time.get_ticks_usec() - began)
+    # A local validator is never allowed to change original N21 refusal
+    # reasons. An oracle-approved stage rejected by local rules is recorded
+    # as a shadow mismatch, not refused.
+    if outcome.get("ok", false):
+        if not shadow_error.is_empty():
+            _n21_shadow_false_rejections += 1
+            _n21_shadow_last_error = shadow_error
+        _n21_commit_generation += 1
     return outcome
 
 func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
@@ -5291,6 +5331,8 @@ func restore(saved: Dictionary) -> bool:
     _world = staged_world
     _ledger = staged_ledger
     _market_observation_version += 1
+    _n21_restored = true
+    _n21_commit_generation = 0
     _last_tick = int(saved["tick"])
     _ready = true
     return true
