@@ -122,6 +122,33 @@ func _initialize() -> void:
         if not saw_oracle:
             _fail("full Schema oracle invocation not recorded")
             return
+    # A5 N38: restored owner must occupy a disjoint negative version
+    # namespace even when the old owner had accepted exactly one update.
+    var Reloaded = preload("res://scripts/sim/phase1/n39_native_world_production.gd")
+    var loaded := Reloaded.new()
+    if not loaded.restore(frozen):
+        _fail("canonical N38 N150 fixture restore rejected")
+        return
+    var fresh_version: int = loaded.market_observation_version()
+    if fresh_version >= 0 or fresh_version == version:
+        _fail("restored market proposal token reused pre-N38 generation")
+        return
+    var clean_updates: Dictionary = {}
+    for location in market_ids:
+        var row: Dictionary = world["markets"][location]
+        clean_updates[location] = {"id": row["id"]}
+        for field in ["prices", "demand", "seed_demand",
+                "consumption_window", "orders", "history"]:
+            clean_updates[location][field] = row[field].duplicate(true)
+    if loaded.apply_market_phase(1, clean_updates, version):
+        _fail("N38 owner accepted stale N150 market version")
+        return
+    if not loaded.apply_market_phase(1, clean_updates, fresh_version):
+        _fail("N38 owner rejected its own new N150 write token")
+        return
+    if loaded.snapshot() != frozen:
+        _fail("N38 no-delta market observation changed persisted World/N9")
+        return
     print("P2_PARALLEL_A_MARKET_VERSION_VALIDATOR_PASS")
     quit(0)
 
