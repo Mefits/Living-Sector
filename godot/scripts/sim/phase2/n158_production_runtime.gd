@@ -2464,6 +2464,14 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             for op in w[receipts_key]:
                 if not (w[receipts_key][op] is Dictionary) or not _normalize_row(w[receipts_key][op], ["tick"]):
                     return false
+                # The original Rust N21 docking fee is an exact integer.
+                # N151 validates its temporary dock's entire earned
+                # balance against this immutable source receipt. JSON can
+                # decode a whole fee as float; restore only that integral
+                # type, never relax N151's strict TYPE_INT provenance.
+                if receipts_key == "dock_receipts" and w[receipts_key][op].has("fee"):
+                    if not _normalize_row(w[receipts_key][op], ["fee"]):
+                        return false
                 if receipts_key == "cargo_receipts":
                     var service_kind: String = str(w[receipts_key][op].get(
                         "kind", ""))
