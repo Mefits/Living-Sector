@@ -23,5 +23,18 @@
   "verification": "NOT_RUN",
   "merge_permission": "COORDINATOR_ONLY",
   "board_page": "Оптимизация",
-  "update_policy": "Own PR and own handoff; status orange until integrator confirms verified merge."
+  "update_policy": "Own PR and own handoff; status orange until integrator confirms verified merge.",
+  "queue_file": "godot/docs/phase2/handoffs/20261115-perf-parallel-a-extended-queue.md",
+  "work_blocks": [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A5",
+    "A6",
+    "A7",
+    "A8"
+  ],
+  "completed_blocks": [],
+  "continuation_rule": "On each active turn or Продолжай: read own queue and leases; resume first unfinished block; do real work and tests, update handoff and commits; do not stop after the first successful subtask. Do not claim background execution."
 }
