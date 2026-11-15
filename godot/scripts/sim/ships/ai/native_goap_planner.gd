@@ -134,6 +134,52 @@ static func _goal(s: Dictionary, kind: String, min_fuel: int) -> bool:
 		"rest_crew": return s.rested and not s.docked and s.at == DEST and s.fuel_bucket >= min_fuel
 	return false
 
+## A real binary min-heap for native N81 Dijkstra. The old
+## implementation sorted the *whole* frontier before EVERY pop,
+## O(V^2 log V) for source 1400+ GOAP states. This heap yields the
+## identical (cost, insertion-order) tie rule at O(log V) per push/pop,
+## without changing the action catalog, predicates, fuel or receipts.
+static func _frontier_less(a: Dictionary, b: Dictionary) -> bool:
+	if int(a["cost"]) != int(b["cost"]):
+		return int(a["cost"]) < int(b["cost"])
+	return int(a["order"]) < int(b["order"])
+
+static func _frontier_push(frontier: Array, row: Dictionary) -> void:
+	frontier.append(row)
+	var i: int = frontier.size() - 1
+	while i > 0:
+		var parent: int = (i - 1) / 2
+		if not _frontier_less(frontier[i], frontier[parent]):
+			break
+		var old: Variant = frontier[parent]
+		frontier[parent] = frontier[i]
+		frontier[i] = old
+		i = parent
+
+static func _frontier_pop(frontier: Array) -> Dictionary:
+	var first: Dictionary = frontier[0]
+	var last: Dictionary = frontier.pop_back()
+	if frontier.is_empty():
+		return first
+	frontier[0] = last
+	var i: int = 0
+	while true:
+		var left: int = 2 * i + 1
+		if left >= frontier.size():
+			break
+		var right: int = left + 1
+		var smallest: int = left
+		if right < frontier.size() and _frontier_less(
+				frontier[right], frontier[left]):
+			smallest = right
+		if not _frontier_less(frontier[smallest], frontier[i]):
+			break
+		var previous: Variant = frontier[i]
+		frontier[i] = frontier[smallest]
+		frontier[smallest] = previous
+		i = smallest
+	return first
+
 static func plan(start: Dictionary, kind: String, map: Dictionary, max_depth: int = 16, min_fuel: int = 0) -> Dictionary:
 	var ops := catalog(kind)
 	if ops.is_empty() or max_depth < 0:
@@ -142,10 +188,8 @@ static func plan(start: Dictionary, kind: String, map: Dictionary, max_depth: in
 	var best: Dictionary = {_key(start): 0}
 	var order := 0
 	while not frontier.is_empty():
-		# Stable insertion-order tie-break: Rust heap compares cost only.
-		frontier.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-			return a.cost < b.cost if a.cost != b.cost else a.order < b.order)
-		var entry: Dictionary = frontier.pop_front()
+		# Same stable source cost/tie order, without re-sorting all states.
+		var entry: Dictionary = _frontier_pop(frontier)
 		var state: Dictionary = entry.state
 		if _goal(state, kind, min_fuel):
 			return {"actions": entry.actions, "final_state": state, "cost": entry.cost}
@@ -164,5 +208,6 @@ static func plan(start: Dictionary, kind: String, map: Dictionary, max_depth: in
 			var actions: Array = entry.actions.duplicate()
 			actions.append(applied.action)
 			order += 1
-			frontier.append({"state": next, "actions": actions, "cost": new_cost, "order": order})
+			_frontier_push(frontier, {"state": next, "actions": actions,
+				"cost": new_cost, "order": order})
 	return {}
