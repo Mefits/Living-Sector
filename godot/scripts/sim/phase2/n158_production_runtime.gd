@@ -169,17 +169,13 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # Original Rust advances FIFO AFTER apply1, independent of
         # N140. Do not invoke N39 full schema/ledger validation and
         # duplicate all N38 history on ticks with zero queued ships.
-        var source_queue_world: Dictionary = production.world_snapshot()
-        if not source_queue_world.has("ships"):
+        # N39 alone examines its private live facilities for a FIFO.
+        # A read-only O(facilities) presence scan replaces a deep clone
+        # of every N9 receipt/contract/ship on every empty queue tick.
+        var source_queue: Dictionary = production.native_dock_queue_presence()
+        if not source_queue.get("has_ships", false):
             return true
-        var has_native_queue: bool = false
-        for physical_port in source_queue_world.get("facilities", {}).values():
-            if physical_port is Dictionary and (
-                    physical_port.get("dock_queue", []) is Array) and (
-                    not physical_port.get("dock_queue", []).is_empty()):
-                has_native_queue = true
-                break
-        if not has_native_queue:
+        if not source_queue.get("queued", false):
             _last_n21_queue_result = {"ok": true, "tick": tick,
                 "changed": false, "status": "SOURCE_N21_FIFO_EMPTY"}
             return true
@@ -208,7 +204,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             "commissioned": [], "blocked": [], "heads": {},
             "status": "N134_COORDINATION_NOT_DUE"}
         _last_n100_result = {"ok": true, "tick": tick,
-            "mode": str(production.world_snapshot().get("native_planner_mode", "legacy")),
+            "mode": production.native_planner_mode(),
             "plans": [], "blocked": []}
         _last_n121_result = {"ok": true, "tick": tick,
             "submitted": [], "receipts": [], "blocked": []}
