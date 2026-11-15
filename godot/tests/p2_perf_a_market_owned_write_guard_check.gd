@@ -31,6 +31,31 @@ func _initialize() -> void:
     var malformed: Dictionary = observation.duplicate(true)
     malformed["earth"]["prices"]["ore"] = -1.0
     _expect(Guard.validate_owned_write(old, malformed) != "", "invalid_price")
+    # Snapshot is detached from live mutable rows, unlike a World alias.
+    var live: Dictionary = old.duplicate(true)
+    var protected_snapshot: Dictionary = Guard.capture_protected_fields(live)
+    _expect(Guard.validate_protected_snapshot(protected_snapshot, live) == "",
+        "snapshot_unchanged")
+    live["earth"]["prices"]["ore"] = 14.0
+    _expect(Guard.validate_protected_snapshot(protected_snapshot, live) == "",
+        "snapshot_allows_observation")
+    live["earth"]["stock"]["ore"] = 888.0
+    _expect(Guard.validate_protected_snapshot(protected_snapshot, live) ==
+        "market_write_outside_observation", "snapshot_catches_in_place_stock")
+    live["earth"]["stock"]["ore"] = 20.0
+    live["earth"]["credits"] = 888
+    _expect(Guard.validate_protected_snapshot(protected_snapshot, live) ==
+        "market_write_outside_observation", "snapshot_catches_in_place_credit")
+    live["earth"]["credits"] = 100
+    live["earth"]["forged_wallet"] = 1
+    _expect(Guard.validate_protected_snapshot(protected_snapshot, live) ==
+        "market_write_added_protected_field", "snapshot_rejects_extra_field")
+    live["earth"].erase("forged_wallet")
+    live["earth"].erase("stock")
+    _expect(Guard.validate_protected_snapshot(protected_snapshot, live) ==
+        "market_write_removed_protected_field", "snapshot_rejects_removed_field")
+    _expect(protected_snapshot["earth"]["stock"]["ore"] == 20.0,
+        "snapshot_deep_detached")
     # Local acceptance must NEVER stand in for the full Schema oracle:
     # this deliberately incomplete World is rejected by the original.
     _expect(Schema.validate({"markets": observation}) != "",
