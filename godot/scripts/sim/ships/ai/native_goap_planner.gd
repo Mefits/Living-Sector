@@ -46,7 +46,9 @@ static func _edge_cost(a: String, b: String, map: Dictionary) -> int:
 	return int(map.get("cost_" + pair[0] + "_to_" + pair[1], map.get("cost_" + pair[1] + "_to_" + pair[0], 0)))
 
 static func _apply(state: Dictionary, op: String, map: Dictionary) -> Dictionary:
-	var next := state.duplicate(true)
+	# Invalid N81 actions are discarded in hot-loop search; do not
+	# deep-copy the immutable state until the action is source-legal.
+	var next: Dictionary = {}
 	var at: String = state.at
 	var docked: bool = state.docked
 	var intent: Dictionary = {"type": op}
@@ -64,45 +66,54 @@ static func _apply(state: Dictionary, op: String, map: Dictionary) -> Dictionary
 			return {}
 		if state.fuel_bucket < cost:
 			return {}
+		next = state.duplicate(true)
 		next.at = to
 		next.fuel_bucket -= cost
 		intent = {"type": "Travel", "destination": dst}
 	elif op == "Dock":
 		if docked:
 			return {}
+		next = state.duplicate(true)
 		next.docked = true
 		intent.type = "DockAtShipyard" if at == SHIPYARD else "Dock"
 	elif op == "Undock":
 		if not docked:
 			return {}
+		next = state.duplicate(true)
 		next.docked = false
 	elif op == "Refuel":
 		if not docked or state.fuel_bucket >= 10:
 			return {}
+		next = state.duplicate(true)
 		next.fuel_bucket = 10
 	elif op == "Buy":
 		if not docked or at != SOURCE or state.cargo_loaded:
 			return {}
+		next = state.duplicate(true)
 		next.cargo_loaded = true
 		intent = {"type": "Buy", "commodity": map.get("commodity", ""), "qty": int(map.get("quantity", 0))}
 	elif op == "SellAll":
 		if not docked or at != DEST or not state.cargo_loaded:
 			return {}
+		next = state.duplicate(true)
 		next.cargo_loaded = false
 		next.sold = true
 	elif op == "DeliverCargo":
 		if not docked or at != DEST or not state.cargo_loaded or str(map.get("contract_id", "")).is_empty():
 			return {}
+		next = state.duplicate(true)
 		next.cargo_loaded = false
 		next.delivered = true
 		intent.contract_id = map.contract_id
 	elif op == "Rest":
 		if not docked or state.rested:
 			return {}
+		next = state.duplicate(true)
 		next.rested = true
 	elif op == "EmbarkPassengers":
 		if not docked or at != SOURCE or state.cargo_loaded or int(map.get("quantity", 0)) == 0:
 			return {}
+		next = state.duplicate(true)
 		next.cargo_loaded = true
 		intent.contract_id = map.get("contract_id", "")
 	elif op == "DeliverPassengers":
@@ -110,11 +121,13 @@ static func _apply(state: Dictionary, op: String, map: Dictionary) -> Dictionary
 			return {}
 		if int(map.get("quantity", 0)) > 0 and not state.cargo_loaded:
 			return {}
+		next = state.duplicate(true)
 		next.delivered = true
 		intent = {"type": "DeliverCargo", "contract_id": map.contract_id}
 	elif op == "Refit":
 		if not docked or at != SHIPYARD or state.retrofitted or not map.has("refit_slot") or not map.has("refit_slug"):
 			return {}
+		next = state.duplicate(true)
 		next.retrofitted = true
 		intent = {"type": "Refit", "slot": map.refit_slot, "slug": map.refit_slug}
 	else:
