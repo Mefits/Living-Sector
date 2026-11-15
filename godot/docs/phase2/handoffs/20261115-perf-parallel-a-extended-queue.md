@@ -13,13 +13,13 @@ Tldraw: https://www.tldraw.com/f/Dzo-huxLVMxka2COuru0w — вкладка **«О
 | ID | Статус | Коммит / тест | Решение |
 | --- | --- | --- | --- |
 | A1 | DONE | `063e4d6`, CI #43728402372 | 47 Schema.validate, 46 accounts, 34 World clones; top costs/p95 измерены. |
-| A2 | PARTIAL | `feb2785`, `9bf2b97` | N150 write-set/version, N21 existing domain guard; формальные dock cases ещё нужны. |
+| A2 | DONE-TESTED (targeted) | `9976c91`, `134b0b6`, CI #43732867924 | Формальные read/write sets N150/N21, отсутствие alias; N9/Schema immutable preconditions и source paid fixture PASS. |
 | A3 | DONE (N150 scope) | `a6a71f5`, `703084f` | 6 observation fields, identity/prices/crisis flags, full Schema oracle включён. |
-| A4 | TODO | Предыдущие N21 tests PASS | Нужны собственные N21 overcapacity/duplicate-paid-receipt fixtures. |
-| A5 | PARTIAL | `feb2785`, `703084f` | Runtime-only версия только N150 observation, не общая транзакционная версия World. |
+| A4 | DONE-TESTED (targeted) | `2bf8ecd`, `a7a900e`, `63f02df`, `134b0b6`, CI #43732867924 | Strict shadow + new paid N9 provenance, duplicate ID, fractional fee, FIFO, capacity, original refusal reason; 900 pending. |
+| A5 | DONE-TESTED (N150/N21 scopes) | `ba9f106`, `9503806`, `06d3195`, `63f02df`, CI #43732867924 | Opt-in generation preconditions, failed-commit unchanged, signed N38 reload namespaces; old callers unchanged. |
 | A6 | DONE (N150 narrow) | `9bf2b97`, CI #43728402372 | Без deep-copy на равных N150 observation fields; 420 A/B 99,640→96,069 ms. |
-| A7 | PARTIAL | `703084f`, `669d0b5`, CI #43728402372 | 6 tests + full checkpoint hashes identical at 420; 100/500 entities missing. |
-| A8 | DONE (real 420/900), REVIEW PENDING | CI #43728402372, `575d2ba` | N38 restart360, N129 tick825 PASS; 900 with profile, handoff; no merge. |
+| A7 | DONE-TESTED (fixtures) | `9f20cab`, `d3c7e8d`, `134b0b6`, CI #43732867924 | Schema-valid 24/100/500 ship-wallet worlds, source N21 paid, over-capacity, N38 full bytes, canonical alias isolation; new 420/900 A/B pending. |
+| A8 | IN_PROGRESS (previously PASS) | CI #43728402372 SUCCESS; new CI #43732867924 underway | Existing 420/900/ N38 PASS; expanded N21/scale suite targeted PASS; new whole-sim A/B + 900 pending. |
 
 ### A1 — baseline и профилирование N39 (обязательный первый блок)
 Определить вызовы `Schema.validate`, `Schema.accounts`, `world_snapshot`, `duplicate(true)` по фазам, на каких тик-кейсах они вызываются и кто владеет предложением. Добавить opt-in телеметрию только в собственной зоне. Измерить p50/p95/p99, количество validator calls и World copies при одинаковом seed; проверить, какие операции действительно часто исполняются. **Выход:** таблица callsites, ссылки на конкретные исходники, точный baseline SHA, измеренные горячие пути и приоритет. Нет ускорения без измерений.
