@@ -104,6 +104,8 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_native_crew_result = {}
     _fleet_roster = null
     _fleet_resolver = null
+    _profile_ship_starts.clear()
+    _profile_ship_samples.clear()
     var projected: Dictionary = GalaxySeedAdapter.from_seed(seed)
     if not projected.get("ok", false):
         _boot_error = str(projected.get("reason", "source_projection_failed"))
@@ -168,11 +170,52 @@ func _advance_one_tick() -> void:
 var _reuse_faction_read_frame: bool = OS.get_environment(
     "LS_PERF_NO_FACTION_FRAME_REUSE") != "1"
 
+## Runtime-only ship subphase profiler. Per-stage samples never enter
+## canonical World/N9/N38. Detailed stdout trace is opt-in separately:
+## LS_PROFILE_SHIP_TRACE=1 (avoid thousands of expensive print calls).
+var _profile_ship_starts: Dictionary = {}
+var _profile_ship_samples: Dictionary = {}
+
+func profile_native_ship_subphases() -> Dictionary:
+    var stages: Dictionary = {}
+    if _profile_enabled:
+        for stage in _profile_ship_samples:
+            var sorted: Array = _profile_ship_samples[stage].duplicate()
+            sorted.sort()
+            if sorted.is_empty():
+                continue
+            var total: int = 0
+            for us in sorted:
+                total += int(us)
+            var p95: int = clampi(ceili(float(sorted.size()) * 0.95) - 1,
+                0, sorted.size() - 1)
+            stages[stage] = {"calls": sorted.size(),
+                "total_usec": total,
+                "average_usec": float(total) / float(sorted.size()),
+                "p95_usec": int(sorted[p95]),
+                "max_usec": int(sorted.back())}
+    return {"enabled": _profile_enabled, "stages": stages}
+
 func _profile_ship_stage(tick: int, stage: String) -> void:
-    if not _profile_enabled or tick < 320:
+    if not _profile_enabled:
         return
-    print("LS_SHIP_SUBPHASE tick=", tick, " stage=", stage,
-        " usec=", Time.get_ticks_usec())
+    var now_us: int = Time.get_ticks_usec()
+    var key: String = stage
+    if stage == "ships_begin":
+        _profile_ship_starts["n14_motion"] = now_us
+    elif stage.ends_with("_begin"):
+        key = stage.trim_suffix("_begin")
+        _profile_ship_starts[key] = now_us
+    elif stage.ends_with("_end"):
+        key = stage.trim_suffix("_end")
+        if _profile_ship_starts.has(key):
+            var samples: Array = _profile_ship_samples.get(key, [])
+            samples.append(maxi(0, now_us - int(_profile_ship_starts[key])))
+            _profile_ship_samples[key] = samples
+            _profile_ship_starts.erase(key)
+    if tick >= 320 and OS.get_environment("LS_PROFILE_SHIP_TRACE") == "1":
+        print("LS_SHIP_SUBPHASE tick=", tick, " stage=", stage,
+            " usec=", now_us)
 
 
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
