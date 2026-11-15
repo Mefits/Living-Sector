@@ -6,6 +6,7 @@ on:
       - integration/godot-phase2-unified-20261113
       - feature/n84-ship-only-copy-20261115
       - feature/godot-phase2-world-copy-boundaries-20261115
+      - feature/n9-owned-ledger-fork-20261115
     paths:
       - .github/workflows/p2-unified-godot-smoke.yml
       - godot/docs/phase2/P2_CI_TRIGGER.txt
@@ -106,6 +107,17 @@ jobs:
             tail -n 100 godot/logs/p2-unified/n39-ship-copy-boundary.log
             exit 1
           fi
+          # A trusted staged N9 fork may only modify its OWN detached
+          # ledger, and old immutable receipt history must still be checked.
+          timeout --signal=TERM --kill-after=5s 35s godot --headless --path godot \
+            --script res://tests/p2_n9_owned_fork_history_check.gd \
+            > godot/logs/p2-unified/n9-owned-fork-history.log 2>&1
+          n9fork=$?
+          if test "$n9fork" -ne 0; then
+            echo "P2_CI_N9_FORK_FAIL code=$n9fork"
+            tail -n 110 godot/logs/p2-unified/n9-owned-fork-history.log
+            exit 1
+          fi
           # N21 must reject loss or rewrite of old paid N9 receipts while
           # avoiding quadratic history cloning on every docking action.
           timeout --signal=TERM --kill-after=5s 45s godot --headless --path godot \
@@ -178,7 +190,45 @@ jobs:
           # On the dedicated performance branch continue the same real
           # N38 restart + paid source acceptance past the N129 tick825
           # regression, without altering the default integration gate.
-          if test "$GITHUB_REF_NAME" = "feature/n84-ship-only-copy-20261115" || \
+          if test "$GITHUB_REF_NAME" = "feature/n9-owned-ledger-fork-20261115"; then
+            # New ledger branch is first proven on the real 900-tick
+            # original seed including strict N38 restart at tick360.
+            LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
+              timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
+                --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+                > godot/logs/p2-unified/stage2-native-420.log 2>&1
+            stage2=$?
+            if test "$stage2" -ne 0 || ! grep -q "P2_STAGE2_LONG_NATIVE_PASS tick=900" godot/logs/p2-unified/stage2-native-420.log; then
+              echo "P2_CI_N9_LONG_900_FAIL code=$stage2"
+              tail -n 100 godot/logs/p2-unified/stage2-native-420.log
+              exit 1
+            fi
+            # Source vs candidate on one CI machine / Godot binary.
+            # Only these two changed source files are reverted to the
+            # already accepted base commit for the source arm.
+            base_sha=f577c1c64e65e5d96fddd8f72d691020e1bd3dff
+            src_ledger=godot/scripts/sim/economy/credit_ledger.gd
+            src_world=godot/scripts/sim/phase1/n39_native_world_production.gd
+            cp "$src_ledger" "$RUNNER_TEMP/n9-candidate-ledger.gd"
+            cp "$src_world" "$RUNNER_TEMP/n9-candidate-world.gd"
+            git fetch --no-tags --depth=1 origin "$base_sha"
+            git show "$base_sha:$src_ledger" > "$src_ledger"
+            git show "$base_sha:$src_world" > "$src_world"
+            timeout --signal=TERM --kill-after=5s 300s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/n9-ab-baseline.log 2>&1
+            baseline_code=$?
+            cp "$RUNNER_TEMP/n9-candidate-ledger.gd" "$src_ledger"
+            cp "$RUNNER_TEMP/n9-candidate-world.gd" "$src_world"
+            timeout --signal=TERM --kill-after=5s 300s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/n9-ab-candidate.log 2>&1
+            candidate_code=$?
+            base_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/p2-unified/n9-ab-baseline.log | tail -n 1 | sed 's/.*=//')
+            candidate_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/p2-unified/n9-ab-candidate.log | tail -n 1 | sed 's/.*=//')
+            echo "N9_OWNED_FORK_AB_RESULT baseline_ms=${base_ms:-MISSING} candidate_ms=${candidate_ms:-MISSING}"
+            test "$baseline_code" -eq 0 -a "$candidate_code" -eq 0 -a -n "$base_ms" -a -n "$candidate_ms" || exit 1
+          elif test "$GITHUB_REF_NAME" = "feature/n84-ship-only-copy-20261115" || \
                   test "$GITHUB_REF_NAME" = "feature/godot-phase2-world-copy-boundaries-20261115"; then
             LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
               timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
