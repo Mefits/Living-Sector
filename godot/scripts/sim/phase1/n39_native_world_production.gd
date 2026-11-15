@@ -202,6 +202,22 @@ func _copy_world(site: String, deep: bool) -> Dictionary:
     return copied
 
 
+## Owned per-domain stage: keep all untouched domains read-only, copy only
+## the domains the caller is allowed to mutate. All passed domains get deep
+## detached ownership; on rejection nothing escapes to canonical _world.
+## Existing full-world Schema.validate and N9 checks remain in the callers.
+func _copy_owned_world(site: String, owned_domains: Array[String]) -> Dictionary:
+    var started_us: int = Time.get_ticks_usec() if _profile_copy_enabled else 0
+    var staged: Dictionary = _world.duplicate()
+    for domain in owned_domains:
+        if _world.has(domain):
+            staged[domain] = _world[domain].duplicate(true)
+    if _profile_copy_enabled:
+        _record_timing(_profile_copy_sites, "owned:" + site,
+            maxi(0, Time.get_ticks_usec() - started_us))
+    return staged
+
+
 func world_copy_profile() -> Dictionary:
     return {"enabled": _profile_copy_enabled,
         "world_copy_calls": _profile_world_copy_calls,
@@ -314,7 +330,8 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         _world, tick, tick_scale, tick_multiplier)
     if not initial.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(initial.get("reason", "rejected"))}
-    var lifecycle_world: Dictionary = _copy_world("L196", true)
+    var lifecycle_world: Dictionary = _copy_owned_world("L196",
+        ["facilities", "markets", "populations"])
     # Receipts accumulate indefinitely; cloning the whole N9 history on
     # every no-op orbit tick would make long-term simulation quadratic.
     # No new maintenance payments are possible unless there is a paid
@@ -2162,6 +2179,11 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         return {"ok": false, "reason": "n91_not_canonical_faction_tick"}
     if not _world.has("construction_sites"):
         return {"ok": true, "status": "N91_LEGACY_DISABLED", "assigned": []}
+    # No N91 assignment means no canonical writes, therefore there is
+    # nothing to stage, validate or copy (same success payload as before).
+    if proposals.is_empty():
+        return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
+            "tick": tick, "assigned": []}
     var staged: Dictionary = _copy_world("L2008", true)
     var updated: Array = []
     var used_sites: Dictionary = {}
@@ -3252,7 +3274,20 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
             "tick": tick, "paid": [], "blocked": []}
     if not (proposed.get("heads") is Dictionary) or not (proposed.get("shifts") is Array):
         return {"ok": false, "fatal": true, "reason": "invalid_n143_source_intents"}
-    var staged: Dictionary = _copy_world("L3098", true)
+    # The source proposer may update research heads even when no research
+    # is paid. Skip only if BOTH paid shifts and head changes are absent.
+    # Never skip a source head-state transition or a real N9 payment.
+    if proposed["shifts"].is_empty() and (
+            proposed["heads"] == _world["research_directors"]):
+        return {"ok": true, "status": "N143_PAID_CANONICAL",
+            "tick": tick, "paid": [],
+            "blocked": proposed.get("blocked", []).duplicate(true)}
+    # N143 can mutate only these domains; all other canonical graphs
+    # remain read-only. This keeps journals/ship history out of staging.
+    var staged: Dictionary = _copy_owned_world("L3098", [
+        "research_directors", "markets", "facilities", "populations",
+        "faction_treasuries", "research", "research_receipts",
+        "research_mandates", "faction_charters"])
     if proposed["heads"].size() != staged["research_directors"].size():
         return {"ok": false, "fatal": true, "reason": "missing_native_research_head"}
     for fid in proposed["heads"]:
