@@ -4,6 +4,8 @@ const ORIGIN := "Origin"
 const SOURCE := "Source"
 const DEST := "Dest"
 const SHIPYARD := "Shipyard"
+const KEY_FLAGS := ["docked", "cargo_loaded", "delivered",
+    "sold", "retrofitted", "rested"]
 
 static func initial(at: String = ORIGIN, fuel_bucket: int = 10) -> Dictionary:
 	return {"at": at, "docked": false, "fuel_bucket": clampi(fuel_bucket, 0, 10),
@@ -146,21 +148,19 @@ static func _key(s: Dictionary) -> String:
 		DEST: role = 2
 		SHIPYARD: role = 3
 	var fuel: Variant = s.get("fuel_bucket", null)
-	var flags: Array[String] = ["docked", "cargo_loaded",
-		"delivered", "sold", "retrofitted", "rested"]
 	var valid: bool = role >= 0 and typeof(fuel) == TYPE_INT and (
 		int(fuel) >= 0 and int(fuel) <= 10)
+	var bitmask: int = 0
 	if valid:
-		for name in flags:
-			if typeof(s.get(name, null)) != TYPE_BOOL:
+		for name in KEY_FLAGS:
+			var value: Variant = s.get(name, null)
+			if typeof(value) != TYPE_BOOL:
 				valid = false
 				break
+			bitmask = (bitmask << 1) | int(value)
 	if not valid:
 		return JSON.stringify([s.at, s.docked, s.fuel_bucket,
 			s.cargo_loaded, s.delivered, s.sold, s.retrofitted, s.rested])
-	var bitmask: int = 0
-	for name in flags:
-		bitmask = (bitmask << 1) | int(s[name])
 	return str(((role * 11 + int(fuel)) << 6) | bitmask)
 
 static func _goal(s: Dictionary, kind: String, min_fuel: int) -> bool:
