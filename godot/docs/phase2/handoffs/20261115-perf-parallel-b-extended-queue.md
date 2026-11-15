@@ -1,6 +1,6 @@
 # Living Sector Performance — Chat B | 8-block execution backlog
 
-**СТАТУС: ПОДГОТОВЛЕНО, БЛОКИ НЕ НАЧАТЫ.** Не путать эту очередь с готовыми исправлениями. PR: https://github.com/Mefits/Living-Sector/pull/258 (Draft). Ветка: `feature/perf-parallel-b-n153-indices-20261115`.
+**СТАТУС: В РАБОТЕ / PR #258 ORANGE.** N153 правки внесены; полный CI для последнего коммита ещё выполняется. Не считать это подтверждением интеграции. PR: https://github.com/Mefits/Living-Sector/pull/258 (Draft). Ветка: `feature/perf-parallel-b-n153-indices-20261115`.
 
 Общий регламент с закреплённым владением: https://github.com/Mefits/Living-Sector/blob/integration/godot-phase2-unified-20261113/godot/docs/phase2/handoffs/20261115-performance-parallel-two-chats.md
 
@@ -12,14 +12,14 @@
 
 | ID | Статус | Коммит / тест | Решение |
 | --- | --- | --- | --- |
-| B1 | TODO | — | N153 baseline / hot counters |
-| B2 | TODO | — | Immutable per-call eligible ship roster |
-| B3 | TODO | — | Indexed posted delivery offers, expiry |
-| B4 | TODO | — | Eligibility filters by location/faction/cargo |
-| B5 | TODO | — | DTO/knowledge/funding projections + decision parity |
-| B6 | TODO | — | N18 station admin roster indexing if measured |
-| B7 | TODO | — | EventQueue bucket/heap *only if measured* |
-| B8 | TODO | — | Valid 24/100/500 fixtures + integration 420/900, A/B |
+| B1 | PARTIAL | CI #43728288327 baseline 420; scale times | Baseline measured once; detailed per-phase counters still TODO |
+| B2 | PARTIAL | 87d16f6, 21 oracle checks | Per-call sorted roster retained, no lossy fast skip |
+| B3 | DONE-TESTED | 87d16f6, exact source oracle | Posted-delivery IDs indexed; expired reason kept |
+| B4 | PARTIAL | 87d16f6 + fe8b780, oracle step PASS | Per-contract origin legs/posture and dominated N81 skip; native gates unchanged |
+| B5 | TODO | — | Context/knowledge DTO changes not attempted without proof |
+| B6 | TODO | — | N18 untouched; owner scope beyond N153 not entered |
+| B7 | TODO | — | EventQueue untouched, no measurement yet |
+| B8 | IN_PROGRESS | 24/100/500 oracle parity PASS; 420+N38 PASS; first 900 PASS | Second same-host A/B and 900 on fe8b780 running |
 
 ### B1 — N153 source baseline and observability
 На реальном original world описать вложенный цикл `unified_n153_contract_dispatch.gd::propose()`: contract ID / ship ID sort, сколько contract×ship пар реально проверяются, какие причины отказа преобладают, сколько раз запускается `_ready_ship` / `N153.select_contract` / `NativePipeline.propose`, path-cache hits и цена вызовов. Измерить ticks, профиль, p95; получить baseline SHA. Результат: таблица с реальной трудоёмкостью, не только оценка сложности O(C×S).
