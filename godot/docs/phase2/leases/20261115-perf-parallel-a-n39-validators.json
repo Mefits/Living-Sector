@@ -1,6 +1,6 @@
 {
   "worker": "perf-parallel-chat-1",
-  "status": "RESERVED_NOT_STARTED",
+  "status": "IN_PROGRESS",
   "branch": "feature/perf-parallel-a-n39-validators-20261115",
   "base_head": "823f32379b10bfefae5a5cebb1c0c0e622509f72",
   "task": "II-A.2.2 / II-B: N39 measured local validators, owned write-set versions, original Schema oracle equivalence",
@@ -20,7 +20,7 @@
     ".github/workflows/p2-unified-godot-smoke.yml"
   ],
   "coordination_doc": "godot/docs/phase2/handoffs/20261115-performance-parallel-two-chats.md",
-  "verification": "NOT_RUN",
+  "verification": "Godot 4.7.2 targeted A4/A5/A7 PASS run 43732867924; 420/900 A/B running",
   "merge_permission": "COORDINATOR_ONLY",
   "board_page": "Оптимизация",
   "update_policy": "Own PR and own handoff; status orange until integrator confirms verified merge.",
@@ -35,6 +35,19 @@
     "A7",
     "A8"
   ],
-  "completed_blocks": [],
-  "continuation_rule": "On each active turn or Продолжай: read own queue and leases; resume first unfinished block; do real work and tests, update handoff and commits; do not stop after the first successful subtask. Do not claim background execution."
+  "completed_blocks": [
+    "A1",
+    "A2",
+    "A3",
+    "A4_TARGETED",
+    "A5_TARGETED",
+    "A6",
+    "A7_TARGETED"
+  ],
+  "continuation_rule": "On each active turn or Продолжай: read own queue and leases; resume first unfinished block; do real work and tests, update handoff and commits; do not stop after the first successful subtask. Do not claim background execution.",
+  "pending_blocks": [
+    "A8_FINAL_AB_420_900",
+    "COORDINATOR_REVIEW_MERGE"
+  ],
+  "last_tested_commit": "de2c4976083a421d75287833e6a3dd75f76bf30f"
 }
