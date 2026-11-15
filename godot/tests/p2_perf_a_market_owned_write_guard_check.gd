@@ -2,6 +2,7 @@ extends SceneTree
 ## Run with Godot --headless --path godot --script res://tests/p2_perf_a_market_owned_write_guard_check.gd
 const Guard = preload("res://scripts/sim/phase1/n39_market_owned_write_guard.gd")
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
+var _failed: bool = false
 
 func _initialize() -> void:
     var old: Dictionary = {"earth": _market()}
@@ -34,8 +35,9 @@ func _initialize() -> void:
     # this deliberately incomplete World is rejected by the original.
     _expect(Schema.validate({"markets": observation}) != "",
         "full_schema_oracle_remains_required")
-    print("P2_PERF_A_MARKET_OWNED_WRITE_GUARD_PASS")
-    quit(0)
+    if not _failed:
+        print("P2_PERF_A_MARKET_OWNED_WRITE_GUARD_PASS")
+    quit(1 if _failed else 0)
 
 func _market() -> Dictionary:
     return {"id": "earth", "credits": 100,
@@ -47,4 +49,4 @@ func _market() -> Dictionary:
 func _expect(ok: bool, label: String) -> void:
     if not ok:
         push_error("P2_PERF_A_MARKET_OWNED_WRITE_GUARD_FAIL: " + label)
-        quit(1)
+        _failed = true
