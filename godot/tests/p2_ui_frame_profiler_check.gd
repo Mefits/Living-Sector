@@ -27,6 +27,12 @@ func _initialize() -> void:
             float(info["process_p95_ms"]) < 14.9):
         _fail("real wall-frame stall lost or cumulative ticks drifted")
         return
+    if int(info["frame_over_16_7ms_window"]) != 1 or (
+            int(info["advance_over_16_7ms_window"]) != 1) or (
+            int(info["ui_over_16_7ms_window"]) != 0) or (
+            float(info["advance_share_of_process_pct"]) <= 0.0):
+        _fail("60-FPS budget stall wrongly attributed to UI instead of advance_frame")
+        return
     if profile.compact_text().is_empty():
         _fail("always-visible FPS label empty")
         return
