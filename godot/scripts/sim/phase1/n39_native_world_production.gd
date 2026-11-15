@@ -192,20 +192,26 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         _world, tick, tick_scale, tick_multiplier)
     if not initial.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(initial.get("reason", "rejected"))}
-    # N156/N130/N39 paid operating phase mutates ONLY physical facility,
-    # market and population records before committing its staged World.
-    # Detach these domains (including their nested balances, supplies,
-    # workforce state and reserves), while preserving read-only references
-    # to contracts, construction proofs, ship memory and historical receipts.
-    # Failed payments/schema checks discard the detached stage as before.
+    # Every native tick runs N156 facility decay. Only actual paid
+    # repairs or 5-tick recipe/mining shifts can change population wealth
+    # and staffing; only the 20-tick restock or 5-tick production/mining
+    # can change market stock. Preserve those exact Rust cadences and
+    # detach each mutable domain ONLY when it can be written.
+    var repairs_due: bool = not initial["repair_candidates"].is_empty()
+    var restock_due: bool = bool(initial["due"]["restock"])
+    var production_due: bool = (tick % (
+        RECIPE_INTERVAL_BASE * tick_multiplier) == 0 or tick % (
+        MINING_INTERVAL_BASE * tick_multiplier) == 0)
     var lifecycle_world: Dictionary = _world.duplicate()
-    for owned_domain in ["facilities", "markets", "populations"]:
-        lifecycle_world[owned_domain] = _world[owned_domain].duplicate(true)
-    # Receipts accumulate indefinitely; cloning the whole N9 history on
-    # every no-op orbit tick would make long-term simulation quadratic.
-    # No new maintenance payments are possible unless there is a paid
-    # repair candidate or the actual Rust 20×multiplier restock cadence.
-    var money_phase_due: bool = not initial["repair_candidates"].is_empty() or bool(initial["due"]["restock"])
+    lifecycle_world["facilities"] = _world["facilities"].duplicate(true)
+    if repairs_due or production_due:
+        lifecycle_world["populations"] = _world["populations"].duplicate(true)
+    if restock_due or production_due:
+        lifecycle_world["markets"] = _world["markets"].duplicate(true)
+    # N9 remains a separate authoritative ledger and is cloned only
+    # when a real paid repair or N130 restock can occur. A failed stage
+    # cannot publish partial money, labor or physical market stock.
+    var money_phase_due: bool = repairs_due or restock_due
     var lifecycle_ledger: RefCounted = _ledger
     if money_phase_due:
         lifecycle_ledger = Ledger.new()
