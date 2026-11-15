@@ -5,6 +5,7 @@ on:
     branches:
       - integration/godot-phase2-unified-20261113
       - feature/n84-ship-only-copy-20261115
+      - feature/godot-phase2-world-copy-boundaries-20261115
     paths:
       - .github/workflows/p2-unified-godot-smoke.yml
       - godot/docs/phase2/P2_CI_TRIGGER.txt
@@ -94,6 +95,17 @@ jobs:
             tail -n 100 godot/logs/p2-unified/n38-n21-fee-codec.log
             exit 1
           fi
+          # N39 ship-domain stages must not clone all unrelated World
+          # history and must keep source N9 wallets and proposal isolation.
+          timeout --signal=TERM --kill-after=5s 45s godot --headless --path godot \
+            --script res://tests/p2_n39_ship_domain_copy_boundary_check.gd \
+            > godot/logs/p2-unified/n39-ship-copy-boundary.log 2>&1
+          n39cow=$?
+          if test "$n39cow" -ne 0; then
+            echo "P2_CI_N39_SHIP_COW_FAIL code=$n39cow"
+            tail -n 100 godot/logs/p2-unified/n39-ship-copy-boundary.log
+            exit 1
+          fi
           # N21 must reject loss or rewrite of old paid N9 receipts while
           # avoiding quadratic history cloning on every docking action.
           timeout --signal=TERM --kill-after=5s 45s godot --headless --path godot \
@@ -166,7 +178,8 @@ jobs:
           # On the dedicated performance branch continue the same real
           # N38 restart + paid source acceptance past the N129 tick825
           # regression, without altering the default integration gate.
-          if test "$GITHUB_REF_NAME" = "feature/n84-ship-only-copy-20261115"; then
+          if test "$GITHUB_REF_NAME" = "feature/n84-ship-only-copy-20261115" || \
+                  test "$GITHUB_REF_NAME" = "feature/godot-phase2-world-copy-boundaries-20261115"; then
             LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
               timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
                 --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
