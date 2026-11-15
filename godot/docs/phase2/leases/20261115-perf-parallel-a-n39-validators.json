@@ -1,0 +1,27 @@
+{
+  "worker": "perf-parallel-chat-1",
+  "status": "RESERVED_NOT_STARTED",
+  "branch": "feature/perf-parallel-a-n39-validators-20261115",
+  "base_head": "823f32379b10bfefae5a5cebb1c0c0e622509f72",
+  "task": "II-A.2.2 / II-B: N39 measured local validators, owned write-set versions, original Schema oracle equivalence",
+  "owner_files": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase1/n39_*validator*.gd",
+    "godot/tests/p2_parallel_a_*.gd",
+    "godot/docs/phase2/handoffs/*parallel-a*.md",
+    ".github/workflows/p2-parallel-a-*.yml"
+  ],
+  "readonly_files": [
+    "godot/scripts/sim/phase2/unified_n153_contract_dispatch.gd",
+    "godot/scripts/sim/route_graph.gd",
+    "godot/scripts/sim/economy/credit_ledger.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    ".github/workflows/p2-unified-godot-smoke.yml"
+  ],
+  "coordination_doc": "godot/docs/phase2/handoffs/20261115-performance-parallel-two-chats.md",
+  "verification": "NOT_RUN",
+  "merge_permission": "COORDINATOR_ONLY",
+  "board_page": "Оптимизация",
+  "update_policy": "Own PR and own handoff; status orange until integrator confirms verified merge."
+}
