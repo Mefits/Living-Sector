@@ -1242,11 +1242,14 @@ func _commit_native_n21(proposal: Dictionary) -> Dictionary:
     var checked := Ledger.new()
     if not checked.restore(money) or checked.total() != _ledger.total():
         return {"ok": false, "reason": "n21_ledger_money_not_conservative"}
+    # Preserve the full immutability check, but do not re-clone the entire
+    # growing N9 receipt history for each old receipt (quadratic cost).
+    var before_money: Dictionary = _ledger.snapshot()
     if not (money.get("receipts") is Dictionary) or (
-            money["receipts"].size() < _ledger.snapshot().get("receipts", {}).size()):
+            money["receipts"].size() < before_money.get("receipts", {}).size()):
         return {"ok": false, "reason": "n21_paid_receipt_missing"}
-    for id in _ledger.snapshot().get("receipts", {}):
-        if money["receipts"].get(id, null) != _ledger.snapshot()["receipts"][id]:
+    for id in before_money.get("receipts", {}):
+        if money["receipts"].get(id, null) != before_money["receipts"][id]:
             return {"ok": false, "reason": "n21_replayed_or_edited_n9_receipt"}
     var schema_error: String = Schema.validate(future)
     if not schema_error.is_empty():
@@ -4192,8 +4195,11 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
             return false
     if Schema.validate(staged) != "":
         return false
-    for account in Schema.accounts(staged):
-        if ledger_next.balance(str(account)) != int(Schema.accounts(staged)[account]):
+    # World is unchanged during this account audit. Rebuilding the
+    # canonical account table for every account was quadratic in wallets.
+    var expected_accounts: Dictionary = Schema.accounts(staged)
+    for account in expected_accounts:
+        if ledger_next.balance(str(account)) != int(expected_accounts[account]):
             return false
     _world = staged
     _ledger = ledger_next
