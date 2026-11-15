@@ -16,7 +16,9 @@ static func propose(world: Dictionary, graph: RefCounted,
     for sid in fired:
         if not ships.has(sid) or typeof(fired[sid]) != TYPE_INT or int(fired[sid]) < 1:
             return {"ok": false, "reason": "n140_n84_foreign_fired_ship"}
-        active[str(sid)] = ships[sid].duplicate(true)
+        # Keep source actor references read-only here: NativeAI.propose
+        # deep-copies the isolated active fleet before its first mutation.
+        active[str(sid)] = ships[sid]
     if active.is_empty():
         return {"ok": true, "changed": false,
             "ships": ships.duplicate(true),
@@ -26,7 +28,10 @@ static func propose(world: Dictionary, graph: RefCounted,
     # NativeAI::propose only iterates World.ships and reads original
     # Market/ContractBoard/site state. A ship that didn't fire may
     # not advance its persistent BT cursor or emit an N146 command.
-    var candidate: Dictionary = world.duplicate(true)
+    # Copy only the outer map. N84 immediately deep-copies this isolated
+    # view, so cloning growing markets/history/receipts here was wasted.
+    # No reference below is mutated before NativeAI.propose owns its copy.
+    var candidate: Dictionary = world.duplicate()
     candidate["ships"] = active
     var result: Dictionary = NativeAI.propose(
         candidate, graph, positions, tick, tick_scale, multiplier)
