@@ -1,6 +1,6 @@
 # Living Sector Performance — Chat B | 8-block execution backlog
 
-**СТАТУС: В РАБОТЕ / PR #258 ORANGE.** N153 правки внесены; полный CI для последнего коммита ещё выполняется. Не считать это подтверждением интеграции. PR: https://github.com/Mefits/Living-Sector/pull/258 (Draft). Ветка: `feature/perf-parallel-b-n153-indices-20261115`.
+**СТАТУС: N153 II-C CI PASS, PR #258 ORANGE / НЕ СМЕРЖЕН.** B1/B2/B4/B5 и условные B6/B7 — остаются для дальнейшей работы, не выдавать за готовые. Зеленый ставит только интегратор после ревью/merge. PR: https://github.com/Mefits/Living-Sector/pull/258 (Draft). Ветка: `feature/perf-parallel-b-n153-indices-20261115`.
 
 Общий регламент с закреплённым владением: https://github.com/Mefits/Living-Sector/blob/integration/godot-phase2-unified-20261113/godot/docs/phase2/handoffs/20261115-performance-parallel-two-chats.md
 
@@ -19,7 +19,7 @@
 | B5 | TODO | — | Context/knowledge DTO changes not attempted without proof |
 | B6 | TODO | — | N18 untouched; owner scope beyond N153 not entered |
 | B7 | TODO | — | EventQueue untouched, no measurement yet |
-| B8 | IN_PROGRESS | 24/100/500 oracle parity PASS; 420+N38 PASS; first 900 PASS | Second same-host A/B and 900 on fe8b780 running |
+| B8 | DONE-TESTED | CI #43729181807 PASS: exact 21-case oracle, 24/100/500, paired 420+N38, 900 tick825 | Performance measured; whole-game speedup not proven |
 
 ### B1 — N153 source baseline and observability
 На реальном original world описать вложенный цикл `unified_n153_contract_dispatch.gd::propose()`: contract ID / ship ID sort, сколько contract×ship пар реально проверяются, какие причины отказа преобладают, сколько раз запускается `_ready_ship` / `N153.select_contract` / `NativePipeline.propose`, path-cache hits и цена вызовов. Измерить ticks, профиль, p95; получить baseline SHA. Результат: таблица с реальной трудоёмкостью, не только оценка сложности O(C×S).
