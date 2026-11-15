@@ -1,6 +1,6 @@
 # Living Sector Performance — Chat A | 8-block execution backlog
 
-**СТАТУС: ПОДГОТОВЛЕНО, ВСЕ БЛОКИ НЕ НАЧАТЫ.** Это не отчёт о выполненной оптимизации. Текущий PR: https://github.com/Mefits/Living-Sector/pull/257 (Draft), ветка `feature/perf-parallel-a-n39-validators-20261115`.
+**СТАТУС: ЧАСТИЧНО ВЫПОЛНЕНО, CI 420/900 PASS, ОРАНЖЕВЫЙ ДО REVIEW/MERGE.** Подробности: [implementation handoff](./20261115-perf-parallel-a-implementation.md). Текущий PR: https://github.com/Mefits/Living-Sector/pull/257 (Draft), ветка `feature/perf-parallel-a-n39-validators-20261115`.
 
 Координация: https://github.com/Mefits/Living-Sector/blob/integration/godot-phase2-unified-20261113/godot/docs/phase2/handoffs/20261115-performance-parallel-two-chats.md
 
@@ -12,14 +12,14 @@ Tldraw: https://www.tldraw.com/f/Dzo-huxLVMxka2COuru0w — вкладка **«О
 
 | ID | Статус | Коммит / тест | Решение |
 | --- | --- | --- | --- |
-| A1 | TODO | — | Baseline / измерения |
-| A2 | TODO | — | Формальные write/read ownership bounds |
-| A3 | TODO | — | N150 market local validators shadow |
-| A4 | TODO | — | N21 ship/dock/facility local validators shadow |
-| A5 | TODO | — | Версии / preconditions без N38 ABI |
-| A6 | TODO | — | Удаление только доказанной избыточной работы |
-| A7 | TODO | — | Negative / scale / full-state parity |
-| A8 | TODO | — | А/B, 420/900 и handoff, последующий N39 обзор |
+| A1 | DONE | `063e4d6`, CI #43728402372 | 47 Schema.validate, 46 accounts, 34 World clones; top costs/p95 измерены. |
+| A2 | PARTIAL | `feb2785`, `9bf2b97` | N150 write-set/version, N21 existing domain guard; формальные dock cases ещё нужны. |
+| A3 | DONE (N150 scope) | `a6a71f5`, `703084f` | 6 observation fields, identity/prices/crisis flags, full Schema oracle включён. |
+| A4 | TODO | Предыдущие N21 tests PASS | Нужны собственные N21 overcapacity/duplicate-paid-receipt fixtures. |
+| A5 | PARTIAL | `feb2785`, `703084f` | Runtime-only версия только N150 observation, не общая транзакционная версия World. |
+| A6 | DONE (N150 narrow) | `9bf2b97`, CI #43728402372 | Без deep-copy на равных N150 observation fields; 420 A/B 99,640→96,069 ms. |
+| A7 | PARTIAL | `703084f`, `669d0b5`, CI #43728402372 | 6 tests + full checkpoint hashes identical at 420; 100/500 entities missing. |
+| A8 | DONE (real 420/900), REVIEW PENDING | CI #43728402372, `575d2ba` | N38 restart360, N129 tick825 PASS; 900 with profile, handoff; no merge. |
 
 ### A1 — baseline и профилирование N39 (обязательный первый блок)
 Определить вызовы `Schema.validate`, `Schema.accounts`, `world_snapshot`, `duplicate(true)` по фазам, на каких тик-кейсах они вызываются и кто владеет предложением. Добавить opt-in телеметрию только в собственной зоне. Измерить p50/p95/p99, количество validator calls и World copies при одинаковом seed; проверить, какие операции действительно часто исполняются. **Выход:** таблица callsites, ссылки на конкретные исходники, точный baseline SHA, измеренные горячие пути и приоритет. Нет ускорения без измерений.
