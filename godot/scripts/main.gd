@@ -565,7 +565,7 @@ func _process(delta: float) -> void:
             "CPU _process: avg %.2f / p95 %.2f / max %.2f мс\n" +
             "advance_frame (симуляция + callbacks): avg %.2f / p95 %.2f / max %.2f мс\n" +
             "UI после расчёта: avg %.2f / p95 %.2f / max %.2f мс\n" +
-            "Худший полный кадр (delta): %.2f мс; тиков всего: %d\n" +
+            "Кадр delta p95: %.2f мс; худший окно/с запуска: %.2f/%.2f мс; тиков всего: %d\n" +
             "draw CPU (последний / max): %.2f / %.2f мс, вызовов: %d\n" +
             "GPU-компоновка и VSYNC вне CPU-таймеров; проверяйте FPS."
         ) % [
@@ -575,6 +575,8 @@ func _process(delta: float) -> void:
             float(report["worst_advance_ms"]),
             float(report["ui_avg_ms"]), float(report["ui_p95_ms"]),
             float(report["worst_ui_ms"]),
+            float(report["frame_p95_ms"]),
+            float(report["frame_window_max_ms"]),
             float(report["worst_frame_ms"]), int(report["ticks"]),
             float(drawing.get("last_usec", 0)) / 1000.0,
             float(drawing.get("max_usec", 0)) / 1000.0,
