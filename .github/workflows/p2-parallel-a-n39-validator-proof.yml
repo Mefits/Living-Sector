@@ -1,0 +1,112 @@
+name: P2 Parallel A N39 validator proof and paired 420/900
+
+on:
+  push:
+    branches:
+      - feature/perf-parallel-a-n39-validators-20261115
+    paths:
+      - .github/workflows/p2-parallel-a-n39-validator-proof.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  n39-validation-a-b:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Godot 4.7.2 exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot"
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            --output "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+
+      - name: Parser, original negative tests and Parallel A proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/parallel-a
+          godot --version
+          timeout 90s godot --headless --path godot --editor --import --quit \
+            > godot/logs/parallel-a/editor.log 2>&1 || { tail -100 godot/logs/parallel-a/editor.log; exit 1; }
+          timeout 90s godot --headless --path godot \
+            --script res://tests/p2_unified_script_compile_check.gd \
+            > godot/logs/parallel-a/compile.log 2>&1 || { tail -100 godot/logs/parallel-a/compile.log; exit 1; }
+          for test_script in \
+            p2_n39_owned_market_dock_write_set_check \
+            p2_n21_ledger_history_guard_check \
+            p2_n9_append_only_journal_check \
+            p2_n9_owned_fork_history_check \
+            p2_n39_ship_domain_copy_boundary_check \
+            p2_parallel_a_market_version_validator_check; do
+            echo "PROVING $test_script"
+            LS_PROFILE_NATIVE_PHASES=1 timeout 100s godot --headless --path godot \
+              --script "res://tests/${test_script}.gd" \
+              > "godot/logs/parallel-a/${test_script}.log" 2>&1 || {
+              tail -100 "godot/logs/parallel-a/${test_script}.log"
+              exit 1
+            }
+            grep 'PASS' "godot/logs/parallel-a/${test_script}.log" | tail -1
+          done
+
+      - name: Same-runner old/new exact checkpoint A/B 420 ticks, restart360
+        shell: bash
+        run: |
+          set -euo pipefail
+          path=godot/scripts/sim/phase1/n39_native_world_production.gd
+          cp "$path" "$RUNNER_TEMP/n39-parallel-a-candidate.gd"
+          git show 823f32379b10bfefae5a5cebb1c0c0e622509f72:"$path" > "$path"
+          LS_PROFILE_NATIVE_PHASES=0 timeout 360s godot --headless --path godot \
+            --script res://tests/p2_parallel_a_checkpoint_fingerprint_check.gd \
+            > godot/logs/parallel-a/old-420.log 2>&1 || {
+            tail -100 godot/logs/parallel-a/old-420.log
+            exit 1
+          }
+          cp "$RUNNER_TEMP/n39-parallel-a-candidate.gd" "$path"
+          LS_PROFILE_NATIVE_PHASES=0 timeout 360s godot --headless --path godot \
+            --script res://tests/p2_parallel_a_checkpoint_fingerprint_check.gd \
+            > godot/logs/parallel-a/new-420.log 2>&1 || {
+            tail -100 godot/logs/parallel-a/new-420.log
+            exit 1
+          }
+          grep '^P2_PARALLEL_A_FRAME tick=' godot/logs/parallel-a/old-420.log > godot/logs/parallel-a/old-frames.txt
+          grep '^P2_PARALLEL_A_FRAME tick=' godot/logs/parallel-a/new-420.log > godot/logs/parallel-a/new-frames.txt
+          diff -u godot/logs/parallel-a/old-frames.txt godot/logs/parallel-a/new-frames.txt
+          old_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/parallel-a/old-420.log | tail -1 | cut -d= -f2)
+          new_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/parallel-a/new-420.log | tail -1 | cut -d= -f2)
+          test -n "$old_ms" -a -n "$new_ms"
+          echo "P2_PARALLEL_A_SAME_RUNNER_AB_PASS baseline_ms=$old_ms candidate_ms=$new_ms exact_checkpoints=true"
+
+      - name: Candidate original source 900 ticks, N38 restart360, N129 tick825 and profiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          LS_PROFILE_NATIVE_PHASES=1 LS_STAGE2_LONG_TICKS=900 timeout 600s \
+            godot --headless --path godot \
+            --script res://tests/p2_parallel_a_checkpoint_fingerprint_check.gd \
+            > godot/logs/parallel-a/new-900-profile.log 2>&1 || {
+            tail -140 godot/logs/parallel-a/new-900-profile.log
+            exit 1
+          }
+          grep -q 'P2_STAGE2_LONG_NATIVE_PASS tick=900' godot/logs/parallel-a/new-900-profile.log
+          grep 'P2_PARALLEL_A_PROFILE tick=' godot/logs/parallel-a/new-900-profile.log | tail -4
+          echo "P2_PARALLEL_A_900_PASS"
+
+      - name: Upload complete logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parallel-a-n39-validator-proof
+          path: godot/logs/parallel-a/
+          retention-days: 7
