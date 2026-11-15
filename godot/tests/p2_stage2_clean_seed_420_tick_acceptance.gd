@@ -41,8 +41,15 @@ func _initialize() -> void:
     if not sim.clock.paused or sim.clock.tick_multiplier() != 1:
         _fail("source clock did not apply x8 while paused")
         return
+    # The default acceptance remains the official 420-tick gate. Longer
+    # runs are explicit, bounded diagnostics of the same real seed and
+    # checkpoint: e.g. LS_STAGE2_LONG_TICKS=900 for the N129 tick825 case.
+    var limit: int = LAST_TICK
+    var requested: String = OS.get_environment("LS_STAGE2_LONG_TICKS")
+    if requested.is_valid_int():
+        limit = clampi(int(requested), LAST_TICK, 1000)
     var restarted: bool = false
-    for tick in range(1, LAST_TICK + 1):
+    for tick in range(1, limit + 1):
         if not sim.queue_control("step", 1):
             _fail("tick step rejected at " + str(tick))
             return
@@ -52,7 +59,7 @@ func _initialize() -> void:
             _fail("factions/runtime failed tick=" + str(tick) +
                 " actual=" + str(sim.tick_count) + " reason=" + str(failure))
             return
-        if not CHECK_TICKS.has(tick):
+        if not CHECK_TICKS.has(tick) and tick != limit and tick != 825:
             continue
         var checkpoint: Dictionary = sim.checkpoint()
         if checkpoint.is_empty() or not checkpoint.has("native_production"):
@@ -173,11 +180,16 @@ func _initialize() -> void:
         sim = resumed
         restarted = true
     _cleanup(path)
-    if not restarted or sim.tick_count != LAST_TICK:
-        _fail("N38 continuity through user tick361 not proven")
+    if not restarted or sim.tick_count != limit:
+        _fail("N38 continuity beyond saved tick360 not proven")
         return
-    print("P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=" +
-        str(Time.get_ticks_msec() - started))
+    if limit == LAST_TICK:
+        print("P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=" +
+            str(Time.get_ticks_msec() - started))
+    else:
+        print("P2_STAGE2_LONG_NATIVE_PASS tick=" + str(limit) +
+            " N38_restart_tick=360 elapsed_ms=" +
+            str(Time.get_ticks_msec() - started))
     quit(0)
 
 
