@@ -184,12 +184,16 @@ func _initialize() -> void:
         if transit_count > 0:
             _observed_transit = true
         var status_totals: Dictionary = {}
+        var status_types: Dictionary = {}
         for contract in world.get("contract_board", {}).get(
                 "contracts", {}).values():
             if not (contract is Dictionary):
                 continue
             var status: String = str(contract.get("status", ""))
             status_totals[status] = int(status_totals.get(status, 0)) + 1
+            var kind: String = str(contract.get("contract_type", "unknown"))
+            var key: String = status + ":" + kind
+            status_types[key] = int(status_types.get(key, 0)) + 1
             _observed_contract = true
             if status in ["picked_up", "paid", "completed"]:
                 _observed_picked_up = true
@@ -208,6 +212,7 @@ func _initialize() -> void:
             "research_receipts": world.get("research_receipts", {}).size(),
             "n9_receipts": count,
             "n104_contract_statuses": status_totals,
+            "n104_contract_status_types": status_types,
             "money_remaining": _account_total(expected),
             "market_supply": supplies,
             "static_memory_bytes": int(Performance.get_monitor(
