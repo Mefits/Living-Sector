@@ -214,6 +214,13 @@ func _shortest_path_uncached(start: String, destination: String) -> Dictionary:
             if visited.has(target):
                 continue
             var candidate: float = smallest + float(edge["distance"])
+            # Most relaxations lose on distance. Avoid allocating a full
+            # lexicographic path string unless the distance can still win.
+            # Keep is_equal_approx for the original Rust-port tie semantics.
+            if best.has(target):
+                var incumbent: float = float(best[target])
+                if candidate > incumbent and not is_equal_approx(candidate, incumbent):
+                    continue
             var candidate_path: String = path_key + "/" + target
             if not best.has(target) or candidate < float(best[target]) or (is_equal_approx(candidate, float(best[target])) and candidate_path < str(paths[target])):
                 best[target] = candidate
