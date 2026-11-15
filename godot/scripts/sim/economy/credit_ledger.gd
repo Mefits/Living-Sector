@@ -5,10 +5,74 @@ extends RefCounted
 const MAX_CREDITS: int = 9223372036854775807
 
 var _balances: Dictionary = {}
-var _receipts: Dictionary = {}
+
+## Persistent append-only receipt index, split into bounded deterministic
+## hash partitions. Forks share OLD immutable partitions and order chunks,
+## cloning only an outer index header. Writing one new receipt detaches the
+## affected partition and the final at-most-64-ID order chunk, preserving
+## all previous snapshots and the original insertion order on N38 export.
+## No receipt data is shared with untrusted caller dictionaries.
+const RECEIPT_PARTITIONS: int = 256
+const ORDER_CHUNK_SIZE: int = 64
+var _receipt_partitions: Array = []
+var _receipt_order_chunks: Array = []
+var _receipt_count: int = 0
+## Only trusted private receipt records live in this flattened read cache.
+## It is NEVER exposed to callers; snapshot() returns a detached deep copy.
+## The flattened map is rebuilt once per changed receipt generation, and
+## otherwise reused across repeated N39 proofs/saves (many per tick).
+var _flat_receipt_cache: Dictionary = {}
+var _flat_cache_count: int = -1
+
+func _init() -> void:
+	_receipt_partitions.resize(RECEIPT_PARTITIONS)
+	for i in range(RECEIPT_PARTITIONS):
+		_receipt_partitions[i] = {}
+
+func _bucket_index(id: String) -> int:
+	return int(id.hash()) & (RECEIPT_PARTITIONS - 1)
+
+func _has_receipt_id(id: String) -> bool:
+	return (_receipt_partitions[_bucket_index(id)] as Dictionary).has(id)
+
+func _receipt_at(id: String) -> Dictionary:
+	return (_receipt_partitions[_bucket_index(id)] as Dictionary).get(id, {})
+
+func _append_receipt(id: String, record: Dictionary) -> void:
+	# Strictly new immutable record. Every existing shard and order chunk
+	# is treated read-only across independent owned Ledger forks.
+	var bucket: int = _bucket_index(id)
+	var detached: Dictionary = (
+		_receipt_partitions[bucket] as Dictionary).duplicate()
+	detached[id] = record.duplicate(true)
+	_receipt_partitions[bucket] = detached
+	var last: int = _receipt_order_chunks.size() - 1
+	if last < 0 or (_receipt_order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
+		_receipt_order_chunks.append([id])
+	else:
+		var order: Array = (_receipt_order_chunks[last] as Array).duplicate()
+		order.append(id)
+		_receipt_order_chunks[last] = order
+	_receipt_count += 1
+	# Rebuilding is delayed until a real full N38/provenance snapshot.
+	# A fork that still sees older immutable shards retains its own cache.
+	_flat_receipt_cache = {}
+	_flat_cache_count = -1
+
+func _snapshot_receipts() -> Dictionary:
+	if _flat_cache_count != _receipt_count:
+		var ordered: Dictionary = {}
+		for chunk in _receipt_order_chunks:
+			for id in chunk:
+				# Private original rows never escape this cache. No per-row
+				# deep duplication in GDScript: one native deep copy below.
+				ordered[id] = _receipt_at(str(id))
+		_flat_receipt_cache = ordered
+		_flat_cache_count = _receipt_count
+	return _flat_receipt_cache.duplicate(true)
 
 func import_accounts(accounts: Dictionary) -> bool:
-	if not _balances.is_empty() or not _receipts.is_empty():
+	if not _balances.is_empty() or _receipt_count != 0:
 		return false
 	for account in accounts:
 		if not _valid_account(account) or not _valid_amount(accounts[account]):
@@ -36,14 +100,14 @@ func total() -> int:
 	return result
 
 func has_receipt(operation_id: String) -> bool:
-	return _receipts.has(operation_id)
+	return _has_receipt_id(operation_id)
 
 ## All legs are committed together; sum must be zero. Duplicate IDs never reapply.
 ## legs: [{account: String, delta: int}]. Negative delta is a debit.
 func commit(operation_id: String, legs: Array, tick: int, kind: String) -> Dictionary:
 	if operation_id.is_empty() or tick < 0 or kind.is_empty():
 		return {"ok": false, "reason": "invalid_operation"}
-	if _receipts.has(operation_id):
+	if _has_receipt_id(operation_id):
 		return {"ok": false, "reason": "duplicate_operation"}
 	if legs.size() < 2:
 		return {"ok": false, "reason": "missing_counterparty"}
@@ -85,7 +149,7 @@ func commit(operation_id: String, legs: Array, tick: int, kind: String) -> Dicti
 	for account in changes:
 		_balances[account] = int(_balances[account]) + int(changes[account])
 	var receipt = {"id": operation_id, "tick": tick, "kind": kind, "legs": legs.duplicate(true)}
-	_receipts[operation_id] = receipt
+	_append_receipt(operation_id, receipt)
 	return {"ok": true, "receipt": receipt.duplicate(true)}
 
 func transfer(operation_id: String, source: String, destination: String, amount: int, tick: int, kind: String) -> Dictionary:
@@ -104,7 +168,7 @@ func close_removed_entity_account(operation_id: String,
 		return {"ok": false, "reason": "invalid_admin_account_removal"}
 	if kind not in ["ship_decommissioned", "facility_removed"]:
 		return {"ok": false, "reason": "invalid_admin_writeoff_kind"}
-	if not _balances.has(account) or _receipts.has(operation_id):
+	if not _balances.has(account) or _has_receipt_id(operation_id):
 		return {"ok": false, "reason": "account_missing_or_previously_removed"}
 	if kind == "ship_decommissioned" and not account.begins_with("ship:"):
 		return {"ok": false, "reason": "not_a_ship_wallet"}
@@ -117,7 +181,7 @@ func close_removed_entity_account(operation_id: String,
 	var record: Dictionary = {"id": operation_id, "tick": tick,
 		"kind": kind, "account_closed": account, "credits_lost": lost,
 		"legs": [{"account": account, "delta": -lost}]}
-	_receipts[operation_id] = record
+	_append_receipt(operation_id, record)
 	return {"ok": true, "receipt": record.duplicate(true),
 		"credits_lost": lost}
 
@@ -132,7 +196,7 @@ func pay_native_ship_crew(operation_id: String, ship_account: String,
 		return {"ok": false, "reason": "invalid_native_crew_wage"}
 	if ship_account != "ship:" + ship_id or not _balances.has(ship_account):
 		return {"ok": false, "reason": "missing_native_ship_wallet"}
-	if _receipts.has(operation_id):
+	if _has_receipt_id(operation_id):
 		return {"ok": false, "reason": "native_crew_wage_replay"}
 	if int(_balances[ship_account]) < amount:
 		return {"ok": false, "reason": "unfunded_native_crew_wage"}
@@ -141,36 +205,45 @@ func pay_native_ship_crew(operation_id: String, ship_account: String,
 		"kind": "native_ship_crew_wages", "ship_id": ship_id,
 		"wages_credits_accrued": amount,
 		"legs": [{"account": ship_account, "delta": -amount}]}
-	_receipts[operation_id] = receipt
+	_append_receipt(operation_id, receipt)
 	return {"ok": true, "receipt": receipt.duplicate(true), "amount": amount}
 
 
 func snapshot() -> Dictionary:
-	return {"version": 1, "balances": _balances.duplicate(true), "receipts": _receipts.duplicate(true)}
+	# The N38 version-1 envelope and ORIGINAL insertion order are retained.
+	# Export is intentionally full and detached at a real save/proof boundary.
+	return {"version": 1, "balances": _balances.duplicate(true),
+		"receipts": _snapshot_receipts()}
 
 ## A trusted, owned N9 transaction branch. The source ledger has already
 ## validated each receipt on its original creation or untrusted N38 restore.
 ## Snapshot() followed by restore() deep-copied the growing journal twice
 ## AND rechecked all old receipts on every ordinary paid operation.
-## Copy both private domains ONCE without exposing either to the caller.
-## Keep restore(data) unchanged and strict for untrusted serialized/staged
-## dictionaries; failed branch transactions cannot touch source accounts.
+## Historical receipts now use persistent copy-on-write partitions:
+## fork cost is proportional to active account count + fixed shard count,
+## NOT historical receipt count. No old receipt map is writable by child.
+## External N38 restore remains strict and re-validates all history.
 func fork() -> RefCounted:
 	var child: RefCounted = get_script().new()
 	child.set("_balances", _balances.duplicate(true))
-	child.set("_receipts", _receipts.duplicate(true))
+	child.set("_receipt_partitions", _receipt_partitions.duplicate())
+	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
+	child.set("_receipt_count", _receipt_count)
+	child.set("_flat_receipt_cache", _flat_receipt_cache)
+	child.set("_flat_cache_count", _flat_cache_count)
 	return child
 
 ## Validate old immutable N9 receipt provenance by scanning the existing
 ## internal receipts, without materializing a complete duplicate history.
 ## No live receipt row or collection is returned to the caller.
 func receipt_count() -> int:
-	return _receipts.size()
+	return _receipt_count
 
 func retains_receipts(candidate: Dictionary) -> bool:
-	for id in _receipts:
-		if candidate.get(id, null) != _receipts[id]:
-			return false
+	for chunk in _receipt_order_chunks:
+		for id in chunk:
+			if candidate.get(id, null) != _receipt_at(str(id)):
+				return false
 	return true
 
 ## Read-only N39 verification of wallet balances for operations that can
@@ -194,8 +267,30 @@ func restore(data: Dictionary) -> bool:
 			return false
 		if receipts[key].get("id") != key or not (receipts[key].get("legs") is Array):
 			return false
+	# Build the complete immutable index locally before publishing ANY
+	# imported account/receipt. This is an untrusted N38/staged boundary.
+	var partitions: Array = []
+	partitions.resize(RECEIPT_PARTITIONS)
+	for i in range(RECEIPT_PARTITIONS):
+		partitions[i] = {}
+	var order_chunks: Array = []
+	var next_count: int = 0
+	for id in receipts:
+		var bucket: int = _bucket_index(str(id))
+		var target: Dictionary = partitions[bucket]
+		target[id] = (receipts[id] as Dictionary).duplicate(true)
+		var last: int = order_chunks.size() - 1
+		if last < 0 or (order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
+			order_chunks.append([id])
+		else:
+			(order_chunks[last] as Array).append(id)
+		next_count += 1
 	_balances = candidate.duplicate(true)
-	_receipts = receipts.duplicate(true)
+	_receipt_partitions = partitions
+	_receipt_order_chunks = order_chunks
+	_receipt_count = next_count
+	_flat_receipt_cache = {}
+	_flat_cache_count = -1
 	return true
 
 func _valid_account(value: Variant) -> bool:
