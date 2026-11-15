@@ -468,7 +468,11 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
         for field in frozen_fields:
             if candidate.get(field, null) != old.get(field, null):
                 return false
-    var staged: Dictionary = _world.duplicate(true)
+    # This authority only replaces ships and a scalar transit cursor.
+    # Stage a detached top-level map plus a deep copied ship domain:
+    # copying all markets, contracts and historical receipts here made
+    # N14 transit cost proportional to unrelated World history.
+    var staged: Dictionary = _world.duplicate()
     staged["ships"] = new_ships.duplicate(true)
     staged["ship_next_token"] = int(proposal["next_token"])
     if Schema.validate(staged) != "":
@@ -987,17 +991,19 @@ func apply_native_n148_ship_lifecycle(tick: int, multiplier: int,
         if copy != next:
             return {"ok": false, "fatal": true, "reason": "n148_changed_non_lifecycle_field"}
         allowed[sid] = copy
-    var updated: Dictionary = _world.duplicate(true)
+    # Lifecycle preview rebuilt each ship independently, so the owned
+    # fleet is detached; copy the World header, not unrelated histories.
+    var updated: Dictionary = _world.duplicate()
     updated["ships"] = allowed
     var validation: String = Schema.validate(updated)
     if not validation.is_empty():
         return {"ok": false, "fatal": true, "reason": "n148_world_" + validation}
     var balances: Dictionary = Schema.accounts(updated)
-    var old_bank: Dictionary = _ledger.snapshot()
-    if balances.size() != old_bank.get("balances", {}).size():
+    var old_bank: Dictionary = _ledger.balances_snapshot()
+    if balances.size() != old_bank.size():
         return {"ok": false, "fatal": true, "reason": "n148_changed_wallet_count"}
     for account in balances:
-        if old_bank.get("balances", {}).get(account, null) != balances[account]:
+        if old_bank.get(account, null) != balances[account]:
             return {"ok": false, "fatal": true, "reason": "n148_changed_source_money"}
     # Mutating exactly one physical ship domain, with immutable N9
     # balances and unchanged native BT, respects one World authority.
@@ -1039,17 +1045,21 @@ func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
         return {"ok": true, "tick": tick, "changed": false,
             "observed": candidate.get("observed", []).duplicate(true),
             "active_count": int(candidate.get("active_count", 0))}
-    var next_world: Dictionary = _world.duplicate(true)
+    # N150 touches only ShipMemory; other domains are read-only and the
+    # proposed fleet is detached before the authoritative validation.
+    var next_world: Dictionary = _world.duplicate()
     next_world["ships"] = updated_ships.duplicate(true)
     var invalid: String = Schema.validate(next_world)
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n150_invalid_native_memory_" + invalid}
-    var bank: Dictionary = _ledger.snapshot()
+    # Price observation cannot add a receipt or change N9. Inspect only
+    # detached wallet balances, not the entire growing immutable journal.
+    var bank: Dictionary = _ledger.balances_snapshot()
     var accounts: Dictionary = Schema.accounts(next_world)
-    if accounts.size() != bank.get("balances", {}).size():
+    if accounts.size() != bank.size():
         return {"ok": false, "fatal": true, "reason": "n150_modified_n9_wallet_roster"}
     for account in accounts:
-        if bank["balances"].get(account, null) != accounts[account]:
+        if bank.get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true, "reason": "n150_modified_actual_credit_balance"}
     _world = next_world
     return {"ok": true, "tick": tick, "changed": true,
@@ -1153,7 +1163,10 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
                 compare.erase(field)
         if compare != updated:
             return {"ok": false, "fatal": true, "reason": "n149_changed_unrelated_ship_field"}
-    var next_world: Dictionary = before_world.duplicate(true)
+    # Crew wages settle in a separate staged Ledger, while the World
+    # proposal modifies only ships. No unrelated World domain is written
+    # before Schema and N9 consistency checks complete.
+    var next_world: Dictionary = before_world.duplicate()
     next_world["ships"] = after_ships.duplicate(true)
     var invalid: String = Schema.validate(next_world)
     if not invalid.is_empty():
