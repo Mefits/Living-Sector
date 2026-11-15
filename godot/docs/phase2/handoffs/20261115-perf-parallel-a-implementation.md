@@ -1,6 +1,6 @@
 # Living Sector · PERF Parallel A / N39 · handoff 2026-11-15
 
-Статус: **IN PROGRESS, ОРАНЖЕВЫЙ**. Только PR #257, НЕ объединять самостоятельно.
+Статус: **A1–A8 DONE-TESTED, ОРАНЖЕВЫЙ ДО REVIEW/MERGE КООРДИНАТОРОМ**. Только PR #257; самим не объединять.
 
 - Репозиторий: https://github.com/Mefits/Living-Sector
 - Ветка: `feature/perf-parallel-a-n39-validators-20261115`
@@ -11,11 +11,11 @@
 
 ## Выполненные блоки
 
-- **A1 — измерительная инфраструктура:** отмечены 47 прямых вызовов `Schema.validate`, 46 `Schema.accounts`, 28 глубоких + 6 поверхностных копий `_world`; wrap per-callsite только для сбора времени. Актуальная `native_schema_profile()` при `LS_PROFILE_NATIVE_PHASES=1` показывает calls/total/max/min/p50/p95/p99 и отдельные поля копий; эти значения не сериализуются и не влияют на игровое решение. Профиль 900 тиков ниже; 6243 полных World snapshots дают ~38,68 с только в диагностике их копирования.
+- **A1 — измерительная инфраструктура:** отмечены 47 прямых вызовов `Schema.validate`, 46 `Schema.accounts`, 28 глубоких + 6 поверхностных копий `_world`; wrap per-callsite только для сбора времени. Актуальная `native_schema_profile()` при `LS_PROFILE_NATIVE_PHASES=1` показывает calls/total/max/min/p50/p95/p99 и отдельные поля копий; эти значения не сериализуются и не влияют на игровое решение. Первый профиль 900 тиков: 6243 копии World за ~38,68 с; в финальном CI 6243 / 33,67 с. Единый аппаратный baseline для сравнения не переносить между разными runs.
 - **A2/A3 — N150 ownership и локальный validator:** новый `n39_market_observation_validator.gd` отвергает неверное количество рынков, ID, отсутствующие шесть observation dictionaries, отрицательные/нечисловые цены, неверные crisis_notified flags; полный `Schema.validate` по-прежнему проверяет весь World до каждого удачного publish.
-- **A5 — ограниченное versioning:** runtime-only `market_observation_version()` и опциональный `apply_market_phase(tick, updates, expected_version=-1)` дают отклонение stale N150 observation proposal. Версия увеличивается только после успешной публикации; при восстановлении N38 новый экземпляр её инвалидирует (не является версией физического stock/ledger/доков).
-- **A6 — реальная локальная оптимизация:** `apply_market_phase` не делает `duplicate(true)` для **неизменённых** вложенных observation dictionaries; меняющиеся значения по-прежнему глубоко копируются до публикации. Один paired A/B на одном runner подтвердил 99,640 → 96,069 с (~3,58% ускорения); это наблюдение, а не гарантированный FPS в 10k-tick режиме.
-- **A7 частично:** новый тест `p2_parallel_a_market_version_validator_check.gd` доказывает цену -1, forged identity/owner oracle, stale generation, no proposal aliases, missing/extra N9 accounts, duplicate FIFO waiter. Пять исходных N39/N21/N9 тестов также прошли. Полные 100/500 actor fixtures и отдельные сценарии занятости дока НЕ завершены.
+- **A5 — завершённые N150/N21 поколения:** runtime-only `market_observation_version()` и `n21_write_version()`; опциональные `expected_version` и `expected_n21_version` отклоняют stale предложения. После N38 restore оба owner выдают отрицательный диапазон поколений; схема World/ledger/N38 не меняется, старые вызывающие APIs остаются совместимыми.
+- **A6 — реальная локальная оптимизация:** `apply_market_phase` не делает `duplicate(true)` для **неизменённых** вложенных observation dictionaries; меняющиеся значения по-прежнему глубоко копируются до публикации. Окончательный scoped N150+N21 код даёт 80,326→77,990 с (−2,91%) в **последнем одном paired A/B**; предыдущая пара 99,640→96,069 с была на иной версии и не должна смешиваться с финальной.
+- **A7 DONE-TESTED:** 9 целевых тестов включают `p2_parallel_a_market_version_validator_check.gd`, N21 источник реального платёжного transfer fee=50, forged paid receipt/fee/fifo/stale denial, exact N9 ledger receipts, переполненные доки, isolated Schema-valid 24/100/500 ship-wallet fixtures, полный N38 `var_to_bytes` parity, отсутствие алиасов. Synthetic fixtures не означают полноценную игровую экономику на 500 кораблях.
 
 ## A2/A4/A5 — read/write границы (новый пакет N39)
 
@@ -45,6 +45,22 @@
 - A/B old/new **84,857 → 87,655 с (+3,30% медленнее)** на одном runner. Это показывает, что дополнительная проверка N21 в общем no-change пути могла съесть ранний выигрыш. Два отдельных runner-запуска (прежние 99,64→96,07 и новые 84,86→87,66) нельзя смешивать.
 
 **A6 corrective change:** `8b722a9` исключает повторный проход `DockDeltaValidator` для обычных N21 стадий **без добавления новых `dock_receipts`**. Старый `Schema.validate` по-прежнему проверяет весь World; N9.restore, все старые receipt proof, account totals и новые paid-receipt proof при появлении квитанции остаются. Публикации/формулы/AI/баланс/схема N38 неизменны. Новый одинарный paired A/B + 900 gate запущен в [CI #43733851184](https://github.com/Mefits/Living-Sector/actions/runs/43733851184); численное ускорение после изменения **ещё не подтверждено**.
+
+## A8 — окончательный код и приёмка (авторитетное состояние)
+
+**Финальный код:** `8b722a948ffa65a0761177d0c187d5f31c93608d` для безопасного N21 conditional paid-proof; CI workflow commit `3ab75fd7732fcb0aef79eb623812e4156b994dcc`; последующие docs-only коммиты код не меняют.
+
+[Godot 4.7.2 CI #43733851184](https://github.com/Mefits/Living-Sector/actions/runs/43733851184) — **SUCCESS**. Девять целевых тестов PASS; парный old/new A/B на **одном** Ubuntu 24.04 runner, 420 реальных тиков, **N38 restart360**: baseline **80 326 ms**, candidate **77 990 ms**, delta **−2,91%**, все полные SHA256 checkpoint summaries идентичны. Дополнительно candidate прошёл 900 реальных тиков с N38 restart360 и исходным N129 tick825, без создания фальшивых корабельных движений и экономических операций.
+
+**Финальный профиль (post-restart, 900):**
+- `copy:deep:L129` `world_snapshot` — **6243** calls, **33 670 557 μs**, p95 **14 484 μs**;
+- `validate:L475` ship-phase — **787** calls, **4 284 207 μs**, p95 **6415 μs**;
+- `Schema.accounts` (все instrumented N39 callsites) — **4715** calls, **508 850 μs**;
+- N21 shadow: **185** checks, **0** false rejections. Точный N9 original paid transfer/fee=50 проверен новым focused test.
+
+**Решение A6:** расширенный proof сначала вызвал +3,30% замедление (CI #43732867924). Исправление `8b722a9` выполняет **дополнительную** N21 проверку только если появилось новое `dock_receipts`; исходные full Schema, N9.restore, старые immutable receipt сравнения и account invariants всегда выполняются. Тесты доказывают сохранение отказов и N9 оплаты. Последний одинарный A/B подтвердил умеренное улучшение, но не гарантирует FPS после 10k тиков.
+
+**Все блоки A1–A8 DONE-TESTED В РАМКАХ OWNED N39 FILES.** Применение/merge, интеграция двух PR и combined smoke — работа координатора. Только он может менять tldraw header на зелёный после подтверждённого merge. Наибольший расход `world_snapshot` требует согласованного read-only N158/UI API, не входит в lease A. Отдельный postmerge 10k tick профиль не проводился.
 
 ## Измеренные горячие места — 900 ticks / opt-in profile
 
@@ -80,9 +96,9 @@
 `.github/workflows/p2-parallel-a-n39-validator-proof.yml`,
 `godot/docs/phase2/handoffs/*parallel-a*.md` (этот handoff), и ранее зарезервированный lease. Запрещённые файлы не затронуты.
 
-## Следующая итерация
+## Координатору после этого PR
 
-1. Доделать **A4** N21 dock bounded local proof / overcapacity and duplicate receipts, не трогая внешние N21/N9 файлы. Обязателен старый Schema oracle и проверка unchanged failure reason. Не путать очередь ожидающих с фактически занятыми доками.
-2. Доделать **A7** строго валидные 100/500 actor fixtures и негативные alias/exact-reason cases; не клонировать корабли без корректных IDs/accounts и маршрутов.
-3. **A8:** CI SUCCESS для real 420/900 + N38, один paired A/B; дополнить quantitative accounts rollup/более широкий нагрузочный замер только если полезно. Ускорение World snapshots требует координации с владельцем N158 — не править его здесь.
-4. Tldraw: в собственном блоке заголовок уже стал «В РАБОТЕ», цвет оранжевый. Попытки обновить карточку позже вернули «That board is not open»; повторять, когда view доступен. Зеленеть карточку только после review и merge интегратором.
+1. Проверить Diff PR #257, SHA исправления `8b722a9`, CI #43733851184 и ограничения N9/Schema/N38. Слить **только координатором**.
+2. После последовательного merge PR #257/#258 провести **общий** smoke на обновлённом integration HEAD — отдельные зелёные CI на старых SHA не доказывают объединённую корректность.
+3. Для следующего самостоятельного этапа отдельно закрепить владельца N158/UI read-only World projection: 6243 полных снимка World / 33,67 с в профиле 900; не вносить bypass без строгой инвалидации и тестов.
+4. 10k тиков и FPS по реальному экрану не тестировались; 24/100/500 были валидными синтетическими данными только для load/alias/schema/ledger/dock prove. До merge tldraw остаётся оранжевым.
