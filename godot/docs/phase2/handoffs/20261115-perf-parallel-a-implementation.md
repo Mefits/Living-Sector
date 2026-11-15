@@ -17,6 +17,18 @@
 - **A6 — реальная локальная оптимизация:** `apply_market_phase` не делает `duplicate(true)` для **неизменённых** вложенных observation dictionaries; меняющиеся значения по-прежнему глубоко копируются до публикации. Один paired A/B на одном runner подтвердил 99,640 → 96,069 с (~3,58% ускорения); это наблюдение, а не гарантированный FPS в 10k-tick режиме.
 - **A7 частично:** новый тест `p2_parallel_a_market_version_validator_check.gd` доказывает цену -1, forged identity/owner oracle, stale generation, no proposal aliases, missing/extra N9 accounts, duplicate FIFO waiter. Пять исходных N39/N21/N9 тестов также прошли. Полные 100/500 actor fixtures и отдельные сценарии занятости дока НЕ завершены.
 
+## A2/A4/A5 — read/write границы (новый пакет N39)
+
+| Операция | Читать / original preconditions | Единственный write-set | Дополнительная защита |
+| --- | --- | --- | --- |
+| `apply_market_phase` N150 | `_last_tick`, размер и идентичность рынка, шесть observation Dictionary, конечные неотрицательные prices, original `Schema.validate` | `markets[location].{prices,demand,seed_demand,consumption_window,orders,history}`; физический `supply`, деньги, facility/ship untouched | `expected_version` опционален; stale reject до staging; изменённые dictionaries `duplicate(true)`; одинаковые поля используют canonical owned reference |
+| `_commit_native_n21` | canonical World domains, old receipts N21/N9, `Ledger.restore`, `Ledger.total`, all old N9 receipts via `retains_receipts`, `Schema.validate`, exact `Schema.accounts` | Только `ships`, `facilities`, `dock_receipts` плюс единая атомарная публикация N9; **не изменять** N153/UI/contracts/BT/cargo policy | `expected_n21_version` опционален; source-legal transitions test shadow; новый paid dock receipt теперь дополнительно обязан иметь точный immutable N9 transfer |
+| `restore` N38 | Полная существующая Schema, journals, time cursors и original N38 ABI | existing `_world` / `_ledger`; поколения только runtime-only, вне save | N150/N21 после restore получают отрицательный namespace, чтобы предложенный до N38 positive-token не мог совпасть |
+
+В N21 `dock_queue` — упорядоченная **очередь ожидания**, а `docked_at` — единственный признак занятого слота: `queue.size()` не считается occupancy. Локальный validator отклоняет `dock_capacity_exceeded`, повторный FIFO waiter, fractional fee, missing N9 payment, изменённые legs/kind/tick. Старое правило owner-коммита сначала сохраняет все прежние refusal reasons; новый `n21_local_...` появляется только на ранее незащищённом платёжном provenance после полного oracle. При `LS_PROFILE_NATIVE_PHASES=1` дополнительно измеряется `n21_shadow_false_rejections`, приемка требует ноль.
+
+**Новые коммиты и target checks:** `2bf8ecd` (N21 local oracle), `ba9f106` (N21 generations + shadow), `a7a900e` (paid receipt gate), `63f02df` (stale/fractional/FIFO negatives), `9503806` (N38 N150 epochs), `06d3195` (market epoch negative), `9f20cab` + `d3c7e8d` (valid 24/100/500 and real occupancy), `134b0b6` (source N21 paid, N9 receipt, duplicate ID, alias), `de2c497` (dedicated CI). Nine targeted Godot 4.7.2 tests PASS in [CI #43732867924](https://github.com/Mefits/Living-Sector/actions/runs/43732867924); 420/900 A/B ещё выполнялся на момент записи.
+
 ## Godot 4.7.2 / CI
 
 - Первый run: https://github.com/Mefits/Living-Sector/actions/runs/43727865302 — **FAIL parser**, случайная замена подстроки `physical_world.duplicate`/`before_world.duplicate`; исправлено в `340d156`. До simulation не дошёл.
