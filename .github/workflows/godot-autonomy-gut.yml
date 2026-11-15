@@ -58,6 +58,7 @@ jobs:
           test -f godot/tests/gut/test_n21_paid_wallet.gd
           test -f godot/tests/gut/test_n81_native_goap_heap.gd
           test -f godot/tests/gut/test_native_readonly_fast_path.gd
+          test -f godot/tests/gut/test_native_n151_dock_fee_integrity.gd
       - name: Import project and third-party plugin once
         shell: bash
         run: |
@@ -85,17 +86,18 @@ jobs:
       - name: Clean N158 world — NO player, no patched market demand
         shell: bash
         env:
-          # End-to-end N146 apply was 10–12s per tick at tick 327–334,
-          # while N81/GOAP and N83 planning took only milliseconds.
-          # One combined diagnostics run: exact N146 command boundaries,
-          # N39 FIFO short-circuit, N81 lazy state/packed key GUT.
-          # Stop at 334 or 205s; do not claim an unproven soak PASS.
-          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '334' || inputs.ticks || '420' }}
+          # Native Rust commit_dock transfers paid N21 fees even to
+          # N151 temporary construction docks. Previously N39 schema
+          # illegally required permanent ZERO credits and re-ran a
+          # 7.6-second failing full-World dock Apply at ticks 327+.
+          # Verify the fixed receipt-backed fee, 420 real source ticks,
+          # strict N9, GUT and no-player authentic fleet. Max 340s.
+          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '420' || inputs.ticks || '420' }}
           LS_PROFILE_NATIVE_PHASES: "1"
         run: |
           set -euo pipefail
           export LS_AUTONOMY_REPORT="$GITHUB_WORKSPACE/godot/logs/autonomy/report.json"
-          timeout --signal=TERM --kill-after=5s 205s \
+          timeout --signal=TERM --kill-after=5s 340s \
             godot --headless --path godot \
             --script res://tests/p2_autonomous_world_observer_check.gd \
             > godot/logs/autonomy/clean-world.log 2>&1 || {
