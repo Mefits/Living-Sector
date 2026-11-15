@@ -1766,10 +1766,15 @@ func _research_completion_count(current: Dictionary) -> int:
             count += completed.size()
     return count
 
-func economy_summary() -> Dictionary:
+## Optional detached checkpoint World for GUI: reuse the SAME completed
+## N38 projection across observer/summary/fleet, rather than cloning the
+## entire World a second and third time on every visible refresh.
+## Never pass a live mutable N39 reference here.
+func economy_summary(checkpoint_world: Dictionary = {}) -> Dictionary:
     if not _native_enabled:
         return {}
-    var current: Dictionary = production.world_snapshot()
+    var current: Dictionary = (checkpoint_world if not checkpoint_world.is_empty()
+        else production.world_snapshot())
     var results: Dictionary = last_native_result()
     var paid: int = 0
     var recipes: int = 0
