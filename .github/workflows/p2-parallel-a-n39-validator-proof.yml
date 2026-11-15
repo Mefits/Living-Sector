@@ -44,6 +44,14 @@ jobs:
           timeout 90s godot --headless --path godot \
             --script res://tests/p2_unified_script_compile_check.gd \
             > godot/logs/parallel-a/compile.log 2>&1 || { tail -100 godot/logs/parallel-a/compile.log; exit 1; }
+          # --check-only prevents a 420-tick script syntax error from
+          # being discovered after the quick negative-case suite.
+          timeout 30s godot --headless --path godot --check-only \
+            --script res://tests/p2_parallel_a_checkpoint_fingerprint_check.gd \
+            > godot/logs/parallel-a/fingerprint-parse.log 2>&1 || {
+            tail -60 godot/logs/parallel-a/fingerprint-parse.log
+            exit 1
+          }
           for test_script in \
             p2_n39_owned_market_dock_write_set_check \
             p2_n21_ledger_history_guard_check \
