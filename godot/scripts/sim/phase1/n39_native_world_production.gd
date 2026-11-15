@@ -563,7 +563,7 @@ func apply_native_shipyard_refit(tick: int, ship_id: String,
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n108_invalid_native_ship_after_refit:" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L423", stage)
-    var balances: Dictionary = staged_money.snapshot().get("balances", {})
+    var balances: Dictionary = staged_money.balances_snapshot()
     if accounts.size() != balances.size() or staged_money.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n108_native_money_was_created"}
     for account in accounts:
@@ -2263,7 +2263,7 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
     if not issue.is_empty():
         return {"ok": false, "fatal": true, "reason": "n91_invalid_world_" + issue}
     var balances: Dictionary = _measured_schema_accounts("L2082", staged)
-    if balances.size() != _ledger.snapshot().get("balances", {}).size():
+    if balances.size() != _ledger.balances_snapshot().size():
         return {"ok": false, "fatal": true, "reason": "n91_wallet_count_changed"}
     for account in balances:
         if _ledger.balance(str(account)) != int(balances[account]):
@@ -2556,7 +2556,7 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
         if new_receipts.get(receipt_id, null) != prior_receipts[receipt_id]:
             return {"ok": false, "fatal": true, "reason": "n144_modified_existing_payment"}
     var expected: Dictionary = _measured_schema_accounts("L2375", staged)
-    var actual: Dictionary = ledger.snapshot().get("balances", {})
+    var actual: Dictionary = ledger.balances_snapshot()
     if expected.size() != actual.size():
         return {"ok": false, "fatal": true, "reason": "n144_n9_wrong_wallet_count"}
     for wallet in expected:
@@ -2819,7 +2819,7 @@ func apply_native_colony_prepare_docks(tick: int, graph: RefCounted) -> Dictiona
         return {"ok": false, "fatal": true,
             "reason": "n151_dock_changed_real_economy"}
     var accounts: Dictionary = _measured_schema_accounts("L2638", staged)
-    var balances: Dictionary = staged_ledger.snapshot().get("balances", {})
+    var balances: Dictionary = staged_ledger.balances_snapshot()
     if accounts.size() != balances.size():
         return {"ok": false, "fatal": true,
             "reason": "n151_dock_money_account_cardinality"}
@@ -3124,7 +3124,7 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "n141_invalid_world_" + error}
     var expected: Dictionary = _measured_schema_accounts("L2943", staged)
-    var wallet_values: Dictionary = ledger.snapshot()["balances"]
+    var wallet_values: Dictionary = ledger.balances_snapshot()
     if wallet_values.size() != expected.size() or ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n141_money_supply_modified"}
     for id in expected:
@@ -3418,7 +3418,7 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "research_world_" + error}
     var expected: Dictionary = _measured_schema_accounts("L3222", staged)
-    var actual: Dictionary = staged_ledger.snapshot().get("balances", {})
+    var actual: Dictionary = staged_ledger.balances_snapshot()
     if expected.size() != actual.size() or staged_ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "research_money_not_conserved"}
     for account in expected:
@@ -3562,7 +3562,7 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
     if not reason.is_empty():
         return {"ok": false, "fatal": true, "reason": "construction_world_" + reason}
     var expected: Dictionary = _measured_schema_accounts("L3366", after)
-    var balances: Dictionary = next_money.snapshot()["balances"]
+    var balances: Dictionary = next_money.balances_snapshot()
     if expected.size() != balances.size() or next_money.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "construction_money_not_conserved"}
     for acc in expected:
@@ -4200,7 +4200,7 @@ func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary
     if next_ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n151_unbalanced_migration_money"}
     var accounts: Dictionary = _measured_schema_accounts("L4004", next_world)
-    if accounts.size() != next_ledger.snapshot()["balances"].size():
+    if accounts.size() != next_ledger.balances_snapshot().size():
         return {"ok": false, "fatal": true, "reason": "n151_new_or_missing_migration_accounts"}
     for account in accounts:
         if int(accounts[account]) != next_ledger.balance(str(account)):
@@ -4690,7 +4690,7 @@ func _run_shipyard_modules(tick: int, multiplier: int,
         if not error.is_empty():
             return {"ok": false, "reason": "n154_paid_module_invalid_world:" + error}
         var accounts: Dictionary = _measured_schema_accounts("L4479", staged)
-        var balances: Dictionary = ledger_copy.snapshot().get("balances", {})
+        var balances: Dictionary = ledger_copy.balances_snapshot()
         if balances.size() != accounts.size() or ledger_copy.total() != _ledger.total():
             return {"ok": false, "reason": "n154_module_wages_destroyed_money"}
         for account in accounts:
@@ -4979,7 +4979,7 @@ func apply_native_n121_execution(tick: int, faction: String,
         return {"ok": false, "fatal": true,
             "reason": "n121_canonical_n39_schema_" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L4768", staged)
-    var balances: Dictionary = ledger_next.snapshot().get("balances", {})
+    var balances: Dictionary = ledger_next.balances_snapshot()
     if accounts.size() != balances.size() or ledger_next.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n121_fabricated_n9_wallet"}
     for account in accounts:
@@ -5208,7 +5208,7 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n129_world_schema:" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L4997", staged)
-    var actual: Dictionary = wallets.snapshot().get("balances", {})
+    var actual: Dictionary = wallets.balances_snapshot()
     if accounts.size() != actual.size() or wallets.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n129_native_total_not_conserved"}
     for account in accounts:
@@ -5408,7 +5408,7 @@ func restore(saved: Dictionary) -> bool:
                 {"account": Schema.household_account(to), "delta": quantity}]
             if str(receipt.get("id", "")) != transfer_id or int(receipt.get("tick", -1)) != int(last_migration["tick"]) or str(receipt.get("kind", "")) != "native_population_migration" or receipt.get("legs", []) != expected_legs:
                 return false
-    if staged_ledger.snapshot()["balances"].size() != expected.size():
+    if staged_ledger.balances_snapshot().size() != expected.size():
         return false
     for id in staged_world["facilities"]:
         var shift: Dictionary = staged_world["facilities"][id].get("work_shift", {})
