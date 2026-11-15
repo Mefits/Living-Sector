@@ -38,7 +38,7 @@ func _initialize() -> void:
 
 # Copied control algorithm from the unoptimized route_graph.gd, using only
 # detached outgoing() data; deliberately no early dominated-edge filter.
-func _original_dijkstra(graph: RefCounted, start: String, destination: String) -> Dictionary:
+func _original_dijkstra(graph, start: String, destination: String) -> Dictionary:
     if not graph.has_location(start) or not graph.has_location(destination):
         return {"reachable": false, "reason": "unknown_location"}
     if start == destination:
