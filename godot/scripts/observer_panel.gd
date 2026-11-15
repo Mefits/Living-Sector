@@ -34,8 +34,10 @@ func _ready() -> void:
     show_observation(0, "unselected", {})
 
 func _on_section_selected(_index: int) -> void:
-    section_changed.emit()
+    # Preserve the original scroll-to-top behavior; then refresh the
+    # newly selected page using a single up-to-date detached checkpoint.
     _show_selected(true)
+    section_changed.emit()
 
 func _show_selected(reset_scroll: bool = false) -> void:
     if _label == null or _section_choice == null:
