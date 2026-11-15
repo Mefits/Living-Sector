@@ -23,5 +23,23 @@
   "verification": "NOT_RUN",
   "merge_permission": "COORDINATOR_ONLY",
   "board_page": "Оптимизация",
-  "update_policy": "Own PR and own handoff; status orange until integrator confirms verified merge."
+  "update_policy": "Own PR and own handoff; status orange until integrator confirms verified merge.",
+  "queue_file": "godot/docs/phase2/handoffs/20261115-perf-parallel-b-extended-queue.md",
+  "work_blocks": [
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "B6",
+    "B7",
+    "B8"
+  ],
+  "completed_blocks": [],
+  "continuation_rule": "On each active turn or Продолжай: read own queue and leases; resume first unfinished block; do real work and tests, update handoff and commits; do not stop after the first successful subtask. Do not claim background execution.",
+  "conditional_owner_files": [
+    "godot/scripts/sim/phase2/unified_native_station_administration_phase.gd",
+    "godot/scripts/sim/event_queue.gd"
+  ],
+  "conditional_ownership_rule": "Only after live lease check; if another worker occupies file mark BLOCKED; no modification in A or shared CI."
 }
