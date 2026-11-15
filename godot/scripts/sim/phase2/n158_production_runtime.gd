@@ -683,6 +683,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # An unqualified N147 offer is NOT a paid passenger contract.
         return true
     if phase == "ships":
+        _profile_ship_stage(tick, "ships_begin")
         # The base TickRunner has ALREADY advanced real body orbits. Ship
         # targets move with that same World and original native calendar.
         var current: Dictionary = production.world_snapshot()
@@ -705,6 +706,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         if not production.apply_ship_phase(tick, proposal):
             _last_ship_result = {"ok": false, "reason": "single_world_ship_commit_rejected"}
             return false
+        _profile_ship_stage(tick, "n14_motion_end")
         var n140_fired: Dictionary = proposal.get("fired", {})
         _last_ship_result = {"ok": true, "tick": tick,
             "outcomes": proposal.get("outcomes", {}).duplicate(true),
@@ -1284,6 +1286,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     "reason": str(queued.get("reason", "n148_queue_failed"))}
                 return false
             requests = queued["pending"]
+        _profile_ship_stage(tick, "n146_apply_end")
         var real_ships: Dictionary = production.world_snapshot().get("ships", {})
         var current_ids: Dictionary = {}
         for sid in real_ships:
