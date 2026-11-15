@@ -69,3 +69,30 @@ func test_invalid_transition_never_mutates_and_valid_transition_is_detached() ->
     assert_eq(traveling["state"]["at"], "Source")
     assert_eq(initial_state, baseline,
         "Native N81 must never modify original immutable search state")
+
+func test_packed_keys_preserve_all_canonical_n81_distinctions() -> void:
+    var keys: Dictionary = {}
+    var collisions: int = 0
+    var flags: Array[String] = [
+        "docked", "cargo_loaded", "delivered",
+        "sold", "retrofitted", "rested"]
+    for role in ["Origin", "Source", "Dest", "Shipyard"]:
+        for fuel in range(11):
+            for mask in range(64):
+                var state: Dictionary = N81.initial(role, fuel)
+                for bit in range(flags.size()):
+                    state[flags[bit]] = (mask & (1 << bit)) != 0
+                var key: String = N81._key(state)
+                if keys.has(key):
+                    collisions += 1
+                else:
+                    keys[key] = true
+    assert_eq(collisions, 0, "Distinct native GOAP states must never alias")
+    assert_eq(keys.size(), 4 * 11 * 64,
+        "N81 min-cost source search must retain 2,816 unique states")
+    var exotic: Dictionary = N81.initial("unknown-role", 10)
+    assert_eq(N81._key(exotic), JSON.stringify([
+        exotic.at, exotic.docked, exotic.fuel_bucket,
+        exotic.cargo_loaded, exotic.delivered, exotic.sold,
+        exotic.retrofitted, exotic.rested]),
+        "Unknown source role still uses its original JSON state identity")
