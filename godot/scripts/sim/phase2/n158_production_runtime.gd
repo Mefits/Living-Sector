@@ -862,6 +862,9 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             source_command_ordinal += 1
             var kind: String = str(command.get("kind", ""))
             var ship_id: String = str(command.get("ship", ""))
+            _profile_ship_stage(tick, "n146_cmd_" +
+                str(source_command_ordinal) + "_" + kind + "_" +
+                str(command.get("operation", "")) + "_" + ship_id)
             if kind == "ReleaseContract":
                 # Rust N146 SimCommand::ReleaseContract only changes the
                 # guarded current N104 Accepted fulfiller. N39 commits
@@ -967,6 +970,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     var trade_dock: Dictionary = production.apply_native_n21_request(
                         tick, ship_id, trading_loc, operation, "",
                         str(snapshot["markets"][trading_loc].get("owner", "")) if operation == "dock" else "")
+                    _profile_ship_stage(tick, "n146_trade_dock_return_" + ship_id)
                     if not trade_dock.get("ok", false):
                         _last_ship_result["autonomous_blocked"].append({
                             "ship_id": ship_id,
@@ -1132,6 +1136,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 var dock_proposal: Dictionary = production.apply_native_n21_request(
                     tick, ship_id, expected_loc, operation,
                     expected_type if operation == "dock" else "")
+                _profile_ship_stage(tick, "n146_n104_dock_return_" + ship_id)
                 if not dock_proposal.get("ok", false):
                     _last_ship_result["autonomous_blocked"].append({
                         "ship_id": ship_id, "contract_id": cid,
@@ -1187,6 +1192,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     var service: Dictionary = production.apply_native_n97_ship_service(
                         tick, ship_id, int(command.get("request_id", -1)),
                         _fleet_resolver)
+                    _profile_ship_stage(tick, "n146_service_return_" + ship_id)
                     if service.get("ok", false):
                         if str(service.get("status", "")) == "applied":
                             _last_ship_result["n97_ship_services"].append(
@@ -1208,6 +1214,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                     # and the same actual N9 money with immutable receipts.
                     var free_paid: Dictionary = production.apply_native_n83_free_trade(
                         tick, ship_id, int(command.get("request_id", -1)))
+                    _profile_ship_stage(tick, "n146_trade_return_" + ship_id)
                     if free_paid.get("ok", false):
                         if str(free_paid.get("status", "")) == "applied":
                             _last_ship_result["n83_free_trades"].append(
