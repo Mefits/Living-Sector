@@ -44,6 +44,7 @@ var _frame_profiler = UIFrameProfiler.new()
 var _perf_label: Label
 var _ui_profile_log: bool = false
 var _ui_profile_log_elapsed: float = 0.0
+var _previous_process_start_usec: int = -1
 ## U6: all tick_completed signals are coalesced into the latest finished
 ## authoritative tick. SceneTree UI never runs inside advance_frame().
 var _pending_ui_tick: int = -1
@@ -544,6 +545,14 @@ func _refresh_observer() -> Dictionary:
 
 func _process(delta: float) -> void:
     var began: int = Time.get_ticks_usec()
+    # True monotonic time between GUI callbacks (including compositor and
+    # previous blocking tick), rather than a possibly smoothed Engine delta.
+    # N158 still receives ORIGINAL delta, preserving its time semantics.
+    var wall_frame_delta: float = delta
+    if _previous_process_start_usec >= 0:
+        wall_frame_delta = float(maxi(0,
+            began - _previous_process_start_usec)) / 1000000.0
+    _previous_process_start_usec = began
     var ticks_before: int = _runner.tick_count if _runner != null else 0
     var advance_usec: int = 0
     if _runner and _fatal_restore_error.is_empty():
@@ -551,12 +560,12 @@ func _process(delta: float) -> void:
         _runner.advance_frame(delta)
         advance_usec = maxi(0, Time.get_ticks_usec() - advance_start)
     var ui_start: int = Time.get_ticks_usec()
-    _flush_finished_tick_views(delta)
+    _flush_finished_tick_views(wall_frame_delta)
     var ui_usec: int = maxi(0, Time.get_ticks_usec() - ui_start)
     var process_usec: int = maxi(0, Time.get_ticks_usec() - began)
     var new_ticks: int = maxi(0, _runner.tick_count - ticks_before) if (
         _runner != null) else 0
-    _frame_profiler.capture(delta, process_usec, advance_usec, ui_usec, new_ticks)
+    _frame_profiler.capture(wall_frame_delta, process_usec, advance_usec, ui_usec, new_ticks)
     if _frame_profiler.display_due() and _perf_label != null:
         var report: Dictionary = _frame_profiler.summary()
         var drawing: Dictionary = _active_draw_profile()
@@ -582,7 +591,7 @@ func _process(delta: float) -> void:
             float(drawing.get("max_usec", 0)) / 1000.0,
             int(drawing.get("calls", 0))]
     if _ui_profile_log:
-        _ui_profile_log_elapsed += maxf(delta, 0.0)
+        _ui_profile_log_elapsed += maxf(wall_frame_delta, 0.0)
         if _ui_profile_log_elapsed >= 5.0:
             _ui_profile_log_elapsed = 0.0
             var output: Dictionary = _frame_profiler.summary()
