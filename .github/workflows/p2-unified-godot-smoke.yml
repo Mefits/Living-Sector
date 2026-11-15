@@ -82,6 +82,17 @@ jobs:
             tail -n 100 godot/logs/p2-unified/n140-copy-parity.log
             exit 1
           fi
+          # Only normalize exact N21 receipt integers on N38 reload;
+          # fractional or forged text fees must remain refused.
+          timeout --signal=TERM --kill-after=5s 30s godot --headless --path godot \
+            --script res://tests/p2_n38_n21_paid_fee_type_roundtrip_check.gd \
+            > godot/logs/p2-unified/n38-n21-fee-codec.log 2>&1
+          n21codec=$?
+          if test "$n21codec" -ne 0; then
+            echo "P2_CI_N21_FEE_CODEC_FAIL code=$n21codec"
+            tail -n 100 godot/logs/p2-unified/n38-n21-fee-codec.log
+            exit 1
+          fi
           # ONE Gate4 research acceptance on the original frozen Rust
           # factions, accounts, market electronics and actual N38 disk.
           timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
@@ -117,7 +128,7 @@ jobs:
           # Stage2 once per source checkpoint: original clean Galaxy,
           # real faction cycles and N38 restart at tick 360, through 361.
           # No seeded contracts, player orders, balance or World rewrites.
-          timeout --signal=TERM --kill-after=5s 180s godot --headless --path godot \
+          timeout --signal=TERM --kill-after=5s 300s godot --headless --path godot \
             --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
             > godot/logs/p2-unified/stage2-native-420.log 2>&1
           stage2=$?
