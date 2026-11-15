@@ -57,6 +57,7 @@ jobs:
           test -f godot/tests/gut/test_n80_n21_source_guards.gd
           test -f godot/tests/gut/test_n21_paid_wallet.gd
           test -f godot/tests/gut/test_n81_native_goap_heap.gd
+          test -f godot/tests/gut/test_native_readonly_fast_path.gd
       - name: Import project and third-party plugin once
         shell: bash
         run: |
@@ -84,17 +85,17 @@ jobs:
       - name: Clean N158 world — NO player, no patched market demand
         shell: bash
         env:
-          # Verify the source-preserving N81 stable min-heap on the
-          # original paid-trade/ship world. Previous 360 run hit a
-          # catastrophic ships-phase spike at native tick ~325-350.
-          # Keep it bounded at 360 ticks; do not hide timeouts.
-          # Workflow-dispatch still accepts explicit tick count.
-          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '360' || inputs.ticks || '420' }}
+          # Original N81 heap reduced sorting cost but did NOT end
+          # the ship-phase spike after tick 325. Native N158 now traces
+          # N14/N83/N103/N80/N84/N146 stage begin/end from tick 320.
+          # Keep this one diagnostic run to 350 ticks and cap at 220s.
+          # Manual dispatch still accepts explicit tick count.
+          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '350' || inputs.ticks || '420' }}
           LS_PROFILE_NATIVE_PHASES: "1"
         run: |
           set -euo pipefail
           export LS_AUTONOMY_REPORT="$GITHUB_WORKSPACE/godot/logs/autonomy/report.json"
-          timeout --signal=TERM --kill-after=5s 360s \
+          timeout --signal=TERM --kill-after=5s 220s \
             godot --headless --path godot \
             --script res://tests/p2_autonomous_world_observer_check.gd \
             > godot/logs/autonomy/clean-world.log 2>&1 || {
