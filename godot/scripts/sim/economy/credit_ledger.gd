@@ -148,6 +148,31 @@ func pay_native_ship_crew(operation_id: String, ship_account: String,
 func snapshot() -> Dictionary:
 	return {"version": 1, "balances": _balances.duplicate(true), "receipts": _receipts.duplicate(true)}
 
+## A trusted, owned N9 transaction branch. The source ledger has already
+## validated each receipt on its original creation or untrusted N38 restore.
+## Snapshot() followed by restore() deep-copied the growing journal twice
+## AND rechecked all old receipts on every ordinary paid operation.
+## Copy both private domains ONCE without exposing either to the caller.
+## Keep restore(data) unchanged and strict for untrusted serialized/staged
+## dictionaries; failed branch transactions cannot touch source accounts.
+func fork() -> RefCounted:
+	var child: RefCounted = get_script().new()
+	child.set("_balances", _balances.duplicate(true))
+	child.set("_receipts", _receipts.duplicate(true))
+	return child
+
+## Validate old immutable N9 receipt provenance by scanning the existing
+## internal receipts, without materializing a complete duplicate history.
+## No live receipt row or collection is returned to the caller.
+func receipt_count() -> int:
+	return _receipts.size()
+
+func retains_receipts(candidate: Dictionary) -> bool:
+	for id in _receipts:
+		if candidate.get(id, null) != _receipts[id]:
+			return false
+	return true
+
 ## Read-only N39 verification of wallet balances for operations that can
 ## mutate only the detached ship domain (not the authoritative ledger).
 ## Return a detached copy: callers cannot edit our live private accounts.
