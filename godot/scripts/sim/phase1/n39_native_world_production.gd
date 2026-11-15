@@ -140,6 +140,23 @@ func ships_snapshot() -> Dictionary:
     _profile_ship_copy_usec += maxi(0, Time.get_ticks_usec() - start_us)
     return copy
 
+## Read-only values needed by N158's per-tick empty-queue fast path.
+## Reading these scalars in N39 does NOT publish _world or permit
+## any mutation, unlike a whole World snapshot of growing N9 history.
+func native_dock_queue_presence() -> Dictionary:
+    if not _ready or not _world.has("ships"):
+        return {"has_ships": false, "queued": false}
+    for physical_port in _world.get("facilities", {}).values():
+        if physical_port is Dictionary and (
+                physical_port.get("dock_queue", []) is Array) and (
+                not physical_port.get("dock_queue", []).is_empty()):
+            return {"has_ships": true, "queued": true}
+    return {"has_ships": true, "queued": false}
+
+func native_planner_mode() -> String:
+    return str(_world.get("native_planner_mode", "legacy")) if _ready else "legacy"
+
+
 func balance_of_facility(facility_id: String) -> int:
     return _ledger.balance(Schema.facility_account(facility_id)) if _ready else -1
 
