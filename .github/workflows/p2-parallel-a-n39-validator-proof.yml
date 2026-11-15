@@ -58,7 +58,10 @@ jobs:
             p2_n9_append_only_journal_check \
             p2_n9_owned_fork_history_check \
             p2_n39_ship_domain_copy_boundary_check \
-            p2_parallel_a_market_version_validator_check; do
+            p2_parallel_a_market_version_validator_check \
+            p2_parallel_a_n21_shadow_version_check \
+            p2_parallel_a_n21_source_paid_check \
+            p2_parallel_a_valid_scaled_worlds_check; do
             echo "PROVING $test_script"
             LS_PROFILE_NATIVE_PHASES=1 timeout 100s godot --headless --path godot \
               --script "res://tests/${test_script}.gd" \
@@ -109,6 +112,9 @@ jobs:
             exit 1
           }
           grep -q 'P2_STAGE2_LONG_NATIVE_PASS tick=900' godot/logs/parallel-a/new-900-profile.log
+          grep -q '^P2_PARALLEL_A_N21_SHADOW tick=900 .*false_rejections=0' godot/logs/parallel-a/new-900-profile.log
+          grep 'P2_PARALLEL_A_ACCOUNTS tick=' godot/logs/parallel-a/new-900-profile.log | tail -2
+          grep 'P2_PARALLEL_A_N21_SHADOW tick=' godot/logs/parallel-a/new-900-profile.log | tail -2
           grep 'P2_PARALLEL_A_PROFILE tick=' godot/logs/parallel-a/new-900-profile.log | tail -4
           echo "P2_PARALLEL_A_900_PASS"
 
