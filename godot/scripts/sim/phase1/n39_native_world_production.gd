@@ -192,7 +192,15 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         _world, tick, tick_scale, tick_multiplier)
     if not initial.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(initial.get("reason", "rejected"))}
-    var lifecycle_world: Dictionary = _world.duplicate(true)
+    # N156/N130/N39 paid operating phase mutates ONLY physical facility,
+    # market and population records before committing its staged World.
+    # Detach these domains (including their nested balances, supplies,
+    # workforce state and reserves), while preserving read-only references
+    # to contracts, construction proofs, ship memory and historical receipts.
+    # Failed payments/schema checks discard the detached stage as before.
+    var lifecycle_world: Dictionary = _world.duplicate()
+    for owned_domain in ["facilities", "markets", "populations"]:
+        lifecycle_world[owned_domain] = _world[owned_domain].duplicate(true)
     # Receipts accumulate indefinitely; cloning the whole N9 history on
     # every no-op orbit tick would make long-term simulation quadratic.
     # No new maintenance payments are possible unless there is a paid
@@ -275,7 +283,10 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             return {"ok": false, "reason": "n18_station_administration_" +
                 str(station_admin.get("reason", "rejected"))}
         if station_admin.get("due", false):
-            var staffed: Dictionary = _world.duplicate(true)
+            # N18 only writes assignments and detached planner memory.
+            # Avoid cloning history again on each five-tick staff cycle.
+            var staffed: Dictionary = _world.duplicate()
+            staffed["facilities"] = _world["facilities"].duplicate(true)
             for facility_id in staffed["facilities"]:
                 if not station_admin["assignments"].has(facility_id):
                     return {"ok": false, "reason": "n18_incomplete_station_staffing"}
