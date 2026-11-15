@@ -1488,6 +1488,13 @@ func _integrated_phase_failure_reason(phase: String) -> String:
             var stage: Dictionary = item[1]
             if not stage.get("ok", true):
                 var detail: String = str(stage.get("reason", ""))
+                # N129 now provides the exact rejected account without
+                # weakening the N9 balance/schema invariant or altering
+                # the phase's canonical refusal code.
+                if str(item[0]) == "n129_faction_finance" and stage.has("account"):
+                    detail += ":account=" + str(stage["account"]) + (
+                        ":ledger=" + str(stage.get("ledger_credits", "?")) +
+                        ":world=" + str(stage.get("world_credits", "?")))
                 return str(item[0]) + ":" + (
                     detail if not detail.is_empty() else
                     "native_stage_rejected_without_reason")
