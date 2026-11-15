@@ -4,7 +4,7 @@ extends RefCounted
 ## This adapter only supplies verifiable N104/N150/N9/route observations.
 ## NO fake treaties, ship sensors, market knowledge, fuel or contract success.
 const N153 = preload("res://scripts/sim/phase1/n153_native_ship_contract_selection.gd")
-const MarketRules = preload("res://scripts/port/n97_ship_market_rules.gd")
+const EligibilityIndex = preload("res://scripts/sim/phase2/n153_ship_eligibility_index.gd")
 const NativePipeline = preload("res://scripts/sim/phase2/unified_ship_ai_planner.gd")
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
@@ -18,7 +18,7 @@ static func _blocked_ship(reasons: Dictionary, name: String) -> void:
 
 static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary,
         graph: RefCounted, positions: Dictionary, resolver: RefCounted,
-        tick_scale: float) -> Dictionary:
+        tick_scale: float, route_index: Dictionary = {}) -> Dictionary:
     var ship: Dictionary = world["ships"][ship_id]
     if str(ship.get("active_contract_id", "")) != "" or not (ship.get("transit", {}) as Dictionary).is_empty():
         return {"ok": false, "reason": "ship_busy"}
@@ -38,14 +38,9 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     var source: String = str(contract.get("source_location", ""))
     var dest: String = str(contract.get("destination_location", ""))
     var here: String = str(ship.get("location", ""))
-    if not graph.has_location(source) or not graph.has_location(dest) or not graph.has_location(here):
-        return {"ok": false, "reason": "native_route_endpoint_unmapped"}
-    var inbound: Dictionary = graph.shortest_path(here, source)
-    var outbound: Dictionary = graph.shortest_path(source, dest)
-    if not inbound.get("reachable", false) or not outbound.get("reachable", false):
-        return {"ok": false, "reason": "unreachable_directed_route"}
-    if not positions.has(here) or not positions.has(source) or not positions.has(dest):
-        return {"ok": false, "reason": "missing_real_world_position"}
+    var route: Dictionary = EligibilityIndex.legs(route_index, here, source, dest, graph, positions)
+    if route.has("error"):
+        return {"ok": false, "reason": str(route["error"])}
     var spec: Dictionary = Catalog.spec(str(ship.get("class", "")))
     var speed: float = float(ship.get("speed_modifier",
             Catalog.effective_speed(str(ship.get("class", "")),
@@ -57,23 +52,18 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     # source+destination trip from real moving world positions before an AI
     # accepts an obligation; otherwise we could strand a ship with cargo.
     var flight_cost: float = 0.0
-    for path in [inbound["locations"], outbound["locations"]]:
-        for i in range(1, path.size()):
-            var from_id: String = str(path[i - 1])
-            var to_id: String = str(path[i])
-            if not positions.has(from_id) or not positions.has(to_id):
-                return {"ok": false, "reason": "missing_leg_world_position"}
-            var a: Vector2 = positions[from_id]
-            var b: Vector2 = positions[to_id]
-            var distance: float = a.distance_to(b)
-            var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
-            if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
-                return {"ok": false, "reason": "invalid_flight_geometry"}
-            flight_cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
+    for leg in route["steps"]:
+        if not bool(leg["present"]):
+            return {"ok": false, "reason": "missing_leg_world_position"}
+        var distance: float = float(leg["distance"])
+        var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
+        if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
+            return {"ok": false, "reason": "invalid_flight_geometry"}
+        flight_cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
     if float(ship["fuel"]) + 0.0001 < flight_cost:
         return {"ok": false, "reason": "insufficient_native_full_route_fuel"}
-    return {"ok": true, "path_to_source": inbound["locations"],
-        "source_to_destination": outbound["locations"]}
+    return {"ok": true, "path_to_source": route["inbound"],
+        "source_to_destination": route["outbound"]}
 
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
@@ -85,10 +75,10 @@ static func propose(world: Dictionary, graph: RefCounted,
     var contracts: Dictionary = world["contract_board"].get("contracts", {})
     if not (world.get("markets") is Dictionary) or not (world.get("facilities") is Dictionary):
         return {"ok": false, "reason": "missing_actual_markets"}
-    var ships: Array = world["ships"].keys()
-    ships.sort()
-    var ids: Array = contracts.keys()
-    ids.sort()
+    var ships: Array = EligibilityIndex.ship_ids(world)
+    var ids: Array = EligibilityIndex.offer_ids(contracts)
+    var posture_cache: Dictionary = {} # Call-scoped; never survives N38 restore.
+    var system_cache: Dictionary = {} # Resolver IDs for one proposal only.
     var candidates: Array = []
     var blocked: Array = []
     var already_assigned: Dictionary = {}
@@ -135,6 +125,9 @@ static func propose(world: Dictionary, graph: RefCounted,
             continue
         var winner: Dictionary = {}
         var ship_blockers: Dictionary = {}
+        var route_index: Dictionary = {} # This offer only.
+        var fixed_offer: Dictionary = {}
+        var fixed_controllers: Dictionary = {}
         for ship_id in ships:
             var ship: Dictionary = world["ships"][ship_id]
             var ship_faction: String = str(ship.get("faction_id", ""))
@@ -145,8 +138,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                 _blocked_ship(ship_blockers, "outlaw_source_commerce_restricted")
                 continue
             var reputation: Dictionary = ship.get("faction_reputation", {})
-            var posture: Dictionary = MarketRules.posture({},
-                ship_faction, seller_faction,
+            var posture: Dictionary = EligibilityIndex.posture(
+                posture_cache, ship_faction, seller_faction,
                 int(reputation.get(seller_faction, 0)))
             if not posture.get("ok", false):
                 _blocked_ship(ship_blockers, "source_reputation_posture_rejected")
@@ -156,7 +149,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                 _blocked_ship(ship_blockers, "invalid_source_purchase_quote")
                 continue
             var source_purchase: int = int(quoted_cost)
-            var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver, tick_scale)
+            var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver,
+                tick_scale, route_index)
             if not readiness.get("ok", false):
                 _blocked_ship(ship_blockers, "n14_" + str(
                     readiness.get("reason", "unavailable")))
@@ -165,17 +159,19 @@ static func propose(world: Dictionary, graph: RefCounted,
             # Source-market quote is genuinely available ONLY to ships at
             # that market. No fabricated omniscient price_knowledge in AI.
             var observations: Dictionary = {}
-            # N80 persists a ship's genuinely observed market knowledge.
-            # We never silently copy every world market into every ship.
+            # Original N153 only reads its passed memory; pass the real
+            # N80 knowledge without deep-copying every known market.
+            # At the source override ONLY a shallow top-level copy, so
+            # the native ship memory (including its nested rows) is safe.
             if ship.get("price_knowledge") is Dictionary:
-                observations = ship["price_knowledge"].duplicate(true)
+                observations = ship["price_knowledge"]
             if here == source:
-                observations[source] = {}
-                observations[source][good] = {"price": float(source_price)}
+                observations = observations.duplicate()
+                observations[source] = {good: {"price": float(source_price)}}
             var systems: Dictionary = {}
-            systems[here] = resolver.system_for_location(here)
-            systems[source] = resolver.system_for_location(source)
-            systems[dest] = resolver.system_for_location(dest)
+            systems[here] = EligibilityIndex.system_for(system_cache, here, resolver)
+            systems[source] = EligibilityIndex.system_for(system_cache, source, resolver)
+            systems[dest] = EligibilityIndex.system_for(system_cache, dest, resolver)
             if systems.values().has(""):
                 _blocked_ship(ship_blockers, "missing_system_for_market")
                 continue
@@ -185,14 +181,16 @@ static func propose(world: Dictionary, graph: RefCounted,
                 # (2.0 AU), Tiny/Small/Medium T1 (1.0 AU). Large has
                 # a source-hash 50% T2 roll not yet ported; use T1.
                 sensor = 2.0 if str(ship.get("size", "")) in ["huge", "massive"] else 1.0
-            var offer: Dictionary = {
-                "id": str(contract_id), "status": "Posted", "contract_type": "Delivery",
-                "faction_id": buyer_faction, "requestor_id": str(c.get("requestor_id", "")),
-                "source_location": source, "destination_location": dest,
-                "commodity": good, "quantity": qty, "may_accept": true}
-            var controllers: Dictionary = {}
-            controllers[source] = seller_faction
-            controllers[dest] = buyer_faction
+            # The selector does not mutate the offer or controller DTO.
+            # Reuse them only within this contract, after a real ready ship.
+            if fixed_offer.is_empty():
+                fixed_offer = {
+                    "id": str(contract_id), "status": "Posted", "contract_type": "Delivery",
+                    "faction_id": buyer_faction, "requestor_id": str(c.get("requestor_id", "")),
+                    "source_location": source, "destination_location": dest,
+                    "commodity": good, "quantity": qty, "may_accept": true}
+                fixed_controllers[source] = seller_faction
+                fixed_controllers[dest] = buyer_faction
             var bonus: float = float(ship.get("comms_bonus", 0.0))
             if not is_finite(bonus) or bonus < 0.0 or bonus > 0.10:
                 _blocked_ship(ship_blockers, "invalid_native_comms_bonus")
@@ -224,17 +222,26 @@ static func propose(world: Dictionary, graph: RefCounted,
             commerce[seller_faction] = true
             commerce[ship_faction] = true
             var context: Dictionary = {
-                "offers": [offer], "ship_id": str(ship_id),
+                "offers": [fixed_offer], "ship_id": str(ship_id),
                 "ship_faction": ship_faction, "ship_location": here,
                 "cargo_capacity": int(ship["cargo_capacity"]), "credits": int(ship.get("credits", 0)),
                 "sensor_range_au": float(sensor), "system_by_location": systems,
-                "controllers": controllers,
+                "controllers": fixed_controllers,
                 "commerce_allowed": commerce,
                 "quotes": quotes,
                 "memory": {"price_knowledge": observations},
                 "tick": tick}
             var choice: Dictionary = N153.select_contract(context)
             if str(choice.get("id", "")) == str(contract_id):
+                # Source winner tie-break is strictly profit > (not >=).
+                # N81 cannot change the profit selected by N153; building
+                # a full GOAP/BT for a weaker/equal bid cannot replace the
+                # existing winner. In this branch a winner is already
+                # nonempty, so ship_blockers is never published; when no
+                # winner exists every N81 rejection is still counted.
+                # N153 and all real gates above still execute unchanged.
+                if not winner.is_empty() and int(choice["profit"]) <= int(winner["profit"]):
+                    continue
                 var origin_owner: bool = ship_faction == seller_faction
                 var candidate_plan: Dictionary = NativePipeline.propose(ship, {
                     "contract_id": str(contract_id),
