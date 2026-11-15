@@ -18,6 +18,18 @@ var _bounds_center: Vector2 = Vector2.ZERO
 var _fit_scale: float = 1.0
 var _dragging: bool = false
 var _drag_distance: float = 0.0
+## Sector geometry is immutable between explicit set_worlds / N38 reloads.
+## Cache source coordinates but never change physical positions/routes.
+var _source_positions: Array[Vector2] = []
+var _bounds_extent: Vector2 = Vector2.ZERO
+var _fit_dirty: bool = true
+var _last_draw_usec: int = 0
+var _max_draw_usec: int = 0
+var _draw_calls: int = 0
+
+func draw_profile() -> Dictionary:
+    return {"calls": _draw_calls, "last_usec": _last_draw_usec,
+        "max_usec": _max_draw_usec}
 
 func _ready() -> void:
     mouse_filter = Control.MOUSE_FILTER_STOP
@@ -28,19 +40,25 @@ func set_worlds(new_worlds: Array) -> void:
     _zoom = 1.0
     _pan = Vector2.ZERO
     _recompute_bounds()
+    _fit_dirty = true
     queue_redraw()
 
 func select_system(system_id: String) -> void:
+    if _selected_id == system_id:
+        return
     _selected_id = system_id
     queue_redraw()
 
 func reset_view() -> void:
+    if is_equal_approx(_zoom, 1.0) and _pan == Vector2.ZERO:
+        return
     _zoom = 1.0
     _pan = Vector2.ZERO
     queue_redraw()
 
 func _notification(what: int) -> void:
     if what == NOTIFICATION_RESIZED:
+        _fit_dirty = true
         queue_redraw()
 
 func _native_position(item: Dictionary) -> Vector2:
@@ -52,42 +70,52 @@ func _native_position(item: Dictionary) -> Vector2:
     return Vector2(float(coordinates[0]), -float(coordinates[1]))
 
 func _recompute_bounds() -> void:
-    if worlds.is_empty():
-        _bounds_center = Vector2.ZERO
-        return
-    var first: Vector2 = _native_position(worlds[0])
-    var min_pos: Vector2 = first
-    var max_pos: Vector2 = first
+    _source_positions.clear()
     for item in worlds:
-        var p: Vector2 = _native_position(item)
-        min_pos = min_pos.min(p)
-        max_pos = max_pos.max(p)
+        _source_positions.append(_native_position(item))
+    if _source_positions.is_empty():
+        _bounds_center = Vector2.ZERO
+        _bounds_extent = Vector2.ZERO
+        return
+    var min_pos: Vector2 = _source_positions[0]
+    var max_pos: Vector2 = min_pos
+    for point in _source_positions:
+        min_pos = min_pos.min(point)
+        max_pos = max_pos.max(point)
     _bounds_center = (min_pos + max_pos) * 0.5
+    _bounds_extent = (max_pos - min_pos) * 0.5
 
 func _update_fit() -> void:
-    var spread: Vector2 = Vector2.ZERO
-    for item in worlds:
-        var point: Vector2 = _native_position(item)
-        spread.x = maxf(spread.x, absf(point.x - _bounds_center.x))
-        spread.y = maxf(spread.y, absf(point.y - _bounds_center.y))
+    if not _fit_dirty:
+        return
+    _fit_dirty = false
     var avail: Vector2 = Vector2(maxf(size.x - 150.0, 80.0),
         maxf(size.y - 105.0, 80.0))
-    _fit_scale = minf(avail.x / maxf(spread.x * 2.0, 1.0),
-        avail.y / maxf(spread.y * 2.0, 1.0))
+    _fit_scale = minf(avail.x / maxf(_bounds_extent.x * 2.0, 1.0),
+        avail.y / maxf(_bounds_extent.y * 2.0, 1.0))
 
-func _screen_point(item: Dictionary) -> Vector2:
-    return size * 0.5 + (_native_position(item) - _bounds_center) * _fit_scale * _zoom + _pan
+func _screen_point(source_position: Vector2) -> Vector2:
+    return size * 0.5 + (source_position - _bounds_center) * (
+        _fit_scale * _zoom) + _pan
 
 func _draw() -> void:
+    var started: int = Time.get_ticks_usec()
+    _draw_map()
+    _last_draw_usec = maxi(0, Time.get_ticks_usec() - started)
+    _max_draw_usec = maxi(_max_draw_usec, _last_draw_usec)
+    _draw_calls += 1
+
+func _draw_map() -> void:
     draw_rect(Rect2(Vector2.ZERO, size), Color("#0b1421"), true)
     _pins.clear()
     if worlds.is_empty():
         return
     _update_fit()
     var font: Font = get_theme_default_font()
-    for item in worlds:
+    for index in range(worlds.size()):
+        var item: Dictionary = worlds[index]
         var system: Dictionary = item.get("system", {})
-        var pos: Vector2 = _screen_point(item)
+        var pos: Vector2 = _screen_point(_source_positions[index])
         var selected: bool = str(system.get("id", "")) == _selected_id
         var orbit_color: Color = Color("#81c8d8") if selected else Color("#344c63")
         # Symbols grow mildly with map zoom; they remain pickable even

@@ -14,10 +14,12 @@ const ENABLE_DEBUG_MANUAL_FLEET_UI: bool = false
 const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
+const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 
 var _model
 var _runner
 var _seed: Dictionary = {}
+var _cached_seed_stats: Dictionary = {}
 var _selected_system: String = "system-sol"
 var _selected_body_id: String = ""
 var _in_system: bool = false
@@ -38,8 +40,25 @@ var _ship_choice: OptionButton
 var _ship_destination: LineEdit
 var _cargo_commodity: LineEdit
 var _cargo_quantity: SpinBox
+## U1/U2: real FPS and UI-only timing, no extra World snapshots.
+var _frame_profiler = UIFrameProfiler.new()
+var _perf_label: Label
+var _ui_profile_log: bool = false
+var _ui_profile_log_elapsed: float = 0.0
+var _previous_process_start_usec: int = -1
+## U6: all tick_completed signals are coalesced into the latest finished
+## authoritative tick. SceneTree UI never runs inside advance_frame().
+var _pending_ui_tick: int = -1
+var _last_orbit_presentation_tick: int = -1
+var _last_fleet_presentation_tick: int = -1
+var _presentation_elapsed: float = 0.0
+var _last_full_presentation_tick: int = -1
+const UI_DETAIL_INTERVAL: float = 0.45
+const UI_FLEET_MIN_TICKS: int = 4
 
 func _ready() -> void:
+    _ui_profile_log = OS.get_cmdline_user_args().has("--p2-ui-profile") or (
+        OS.get_environment("LS_PROFILE_UI_FRAMES") == "1")
     var background := ColorRect.new()
     background.color = Color("#08101a")
     background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -63,6 +82,18 @@ func _ready() -> void:
     title.add_theme_font_size_override("font_size", 23)
     title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     heading.add_child(title)
+    # Always-on counter. Engine FPS includes compositor stalls; the three
+    # CPU timers below only measure code, not GPU presentation.
+    _perf_label = Label.new()
+    _perf_label.text = "FPS — · process — · sim — · UI —"
+    _perf_label.add_theme_font_size_override("font_size", 11)
+    _perf_label.add_theme_color_override("font_color", Color("#8fc6d9"))
+    _perf_label.custom_minimum_size = Vector2.ZERO
+    _perf_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _perf_label.clip_text = true
+    _perf_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+    _perf_label.tooltip_text = "FPS из Engine; p95 _process, advance_frame и UI за последние 120 кадров. Худший кадр — от запуска."
+    heading.add_child(_perf_label)
     _back_button = Button.new()
     _back_button.text = "← К сектору"
     _back_button.visible = false
@@ -230,6 +261,7 @@ func _ready() -> void:
     _observer_button.pressed.connect(_toggle_observer)
     toolbar.add_child(_observer_button)
     _observer_panel = ObserverPanel.new()
+    _observer_panel.connect("section_changed", Callable(self, "_refresh_observer"))
     _observer_panel.visible = false
     _observer_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
     columns.add_child(_observer_panel)
@@ -266,6 +298,7 @@ func _ready() -> void:
     _populate_ship_choices()
     _runner.tick_completed.connect(_on_tick_completed)
     var stats: Dictionary = _model.seed_stats()
+    _cached_seed_stats = stats.duplicate()
     _status.text = "Исходный Galaxy: %d систем · %d фракции · %d тел · %d объектов · %d корабля" % [
         stats.get("systems", 0), stats.get("factions", 0),
         stats.get("bodies", 0), stats.get("facilities", 0),
@@ -494,9 +527,9 @@ func _toggle_observer() -> void:
     _observer_button.text = "Скрыть наблюдение" if _observer_panel.visible else "Наблюдение"
     _refresh_observer()
 
-func _refresh_observer() -> void:
+func _refresh_observer() -> Dictionary:
     if not _observer_panel or not _observer_panel.visible or not _runner:
-        return
+        return {}
     # A read-only checkpoint projection lets the Observer distinguish a
     # planned route from durable N15/N97 cargo and N9/N104 receipts. It
     # never owns, mutates, or reconstructs a second World/Ledger/Board.
@@ -506,14 +539,85 @@ func _refresh_observer() -> void:
     # frame. Never clone growing markets/receipts a second time here.
     var economy: Dictionary = native_production.get("world", {})
     if economy.is_empty():
-        return
+        return {}
     _observer_panel.call("show_live_economy", _runner.tick_count,
         economy, _runner.economy_summary(economy),
         economy.get("ships", {}), native_production)
+    return economy
 
 func _process(delta: float) -> void:
+    var began: int = Time.get_ticks_usec()
+    # True monotonic time between GUI callbacks (including compositor and
+    # previous blocking tick), rather than a possibly smoothed Engine delta.
+    # N158 still receives ORIGINAL delta, preserving its time semantics.
+    var wall_frame_delta: float = delta
+    if _previous_process_start_usec >= 0:
+        wall_frame_delta = float(maxi(0,
+            began - _previous_process_start_usec)) / 1000000.0
+    _previous_process_start_usec = began
+    var ticks_before: int = _runner.tick_count if _runner != null else 0
+    var advance_usec: int = 0
     if _runner and _fatal_restore_error.is_empty():
+        var advance_start: int = Time.get_ticks_usec()
         _runner.advance_frame(delta)
+        advance_usec = maxi(0, Time.get_ticks_usec() - advance_start)
+    var ui_start: int = Time.get_ticks_usec()
+    _flush_finished_tick_views(wall_frame_delta)
+    var ui_usec: int = maxi(0, Time.get_ticks_usec() - ui_start)
+    var process_usec: int = maxi(0, Time.get_ticks_usec() - began)
+    var new_ticks: int = 0
+    if _runner != null:
+        new_ticks = maxi(0, _runner.tick_count - ticks_before)
+    _frame_profiler.capture(wall_frame_delta, process_usec, advance_usec, ui_usec, new_ticks)
+    if _frame_profiler.display_due() and _perf_label != null:
+        var report: Dictionary = _frame_profiler.summary()
+        var drawing: Dictionary = _active_draw_profile()
+        _perf_label.text = _frame_profiler.compact_text()
+        _perf_label.tooltip_text = (
+            "CPU _process: avg %.2f / p95 %.2f / max %.2f мс\n" +
+            "advance_frame (симуляция + callbacks): avg %.2f / p95 %.2f / max %.2f мс\n" +
+            "UI после расчёта: avg %.2f / p95 %.2f / max %.2f мс\n" +
+            "Кадр delta p95: %.2f мс; худший окно/с запуска: %.2f/%.2f мс; тиков всего: %d\n" +
+            "draw CPU (последний / max): %.2f / %.2f мс, вызовов: %d\n" +
+            "CPU доля _process: sim %.1f%% · UI %.1f%%\n" +
+            "Кадры >16.7мс (окно): total %d · advance %d · UI %d\n" +
+            "GPU-компоновка и VSYNC вне CPU-таймеров; проверяйте FPS."
+        ) % [
+            float(report["process_avg_ms"]), float(report["process_p95_ms"]),
+            float(report["worst_process_ms"]),
+            float(report["advance_avg_ms"]), float(report["advance_p95_ms"]),
+            float(report["worst_advance_ms"]),
+            float(report["ui_avg_ms"]), float(report["ui_p95_ms"]),
+            float(report["worst_ui_ms"]),
+            float(report["frame_p95_ms"]),
+            float(report["frame_window_max_ms"]),
+            float(report["worst_frame_ms"]), int(report["ticks"]),
+            float(drawing.get("last_usec", 0)) / 1000.0,
+            float(drawing.get("max_usec", 0)) / 1000.0,
+            int(drawing.get("calls", 0)),
+            float(report["advance_share_of_process_pct"]),
+            float(report["ui_share_of_process_pct"]),
+            int(report["frame_over_16_7ms_window"]),
+            int(report["advance_over_16_7ms_window"]),
+            int(report["ui_over_16_7ms_window"])]
+    if _ui_profile_log:
+        _ui_profile_log_elapsed += maxf(wall_frame_delta, 0.0)
+        if _ui_profile_log_elapsed >= 5.0:
+            _ui_profile_log_elapsed = 0.0
+            var output: Dictionary = _frame_profiler.summary()
+            output["tick"] = _runner.tick_count if _runner != null else -1
+            output["paused"] = _runner.clock.paused if _runner != null else true
+            output["speed"] = _runner.clock.world_speed if _runner != null else 0.0
+            output["view"] = "system" if _in_system else "sector"
+            output["observer"] = _observer_panel.visible if _observer_panel != null else false
+            output["draw_cpu"] = _active_draw_profile()
+            print("P2_UI_FRAME " + JSON.stringify(output))
+
+func _active_draw_profile() -> Dictionary:
+    var view: Variant = _system_view if _in_system else _map
+    if view != null and view.has_method("draw_profile"):
+        return view.draw_profile()
+    return {}
 
 func _toggle_pause() -> void:
     if not _runner or not _fatal_restore_error.is_empty():
@@ -567,8 +671,14 @@ func _load_game(save_path: String = "") -> void:
         _fatal_restore_error = ""
         _startup_error = ""
         _model = _runner.world
+        _cached_seed_stats = _model.seed_stats()
         # A loaded checkpoint replaces the authoritative world and clock. Refresh
         # all read-only projections; never keep a stale seed-era map or speed UI.
+        _pending_ui_tick = -1
+        _last_orbit_presentation_tick = -1
+        _last_fleet_presentation_tick = -1
+        _last_full_presentation_tick = -1
+        _presentation_elapsed = 0.0
         var restored_worlds: Array = _model.worlds()
         _map.call("set_worlds", restored_worlds)
         var selected: Dictionary = _model.system_by_id(_selected_system)
@@ -617,36 +727,66 @@ func _sync_speed_control() -> void:
 
 
 func _on_tick_completed(tick: int) -> void:
-    # N39 writes receipts almost every tick. Checking their existence
-    # previously forced a full rich-text inspector + World/ledger clone on
-    # EVERY tick, and on system screens drew the same view a second time.
-    # Keep the actual N158 simulation and native orbit tick unchanged;
-    # presentation can update the slower inspector on an 8-tick cadence.
-    if tick % 8 == 0:
-        if ENABLE_DEBUG_MANUAL_FLEET_UI:
-            _populate_ship_choices()
-        _refresh_observer()
-        _refresh_selection()
-        _update_status()
+    # N158 emits from WITHIN advance_frame(). It may advance several ticks
+    # in one GUI frame: do not clone N39 World, rebuild inspector text or
+    # redraw geometry inside the signal. This records only the last real
+    # completed tick; it cannot influence tick order or AI.
+    _pending_ui_tick = tick
+
+func _flush_finished_tick_views(delta: float) -> void:
+    _presentation_elapsed += maxf(delta, 0.0)
+    if _pending_ui_tick < 0 or _runner == null:
         return
-    # Native orbit angles may continue to refresh each tick. Only ship
-    # state presentation is sampled every 4 ticks; it never drives N14.
-    if _in_system and _system_view != null and _model != null:
-        var live_system: Dictionary = _model.system_by_id(_selected_system)
-        if not live_system.is_empty():
-            _system_view.update_world(live_system)
-            if tick % 4 == 0:
-                _system_view.call("set_live_fleet", _runner.fleet_snapshot())
+    var latest: int = _pending_ui_tick
+    var need_fleet: bool = false
+    # Orbit view always samples the newest completed real state, at most
+    # once per visible GUI frame. No interpolation or fictitious movement.
+    if _in_system and _system_view != null and _model != null and (
+            latest != _last_orbit_presentation_tick):
+        var current: Dictionary = _model.system_by_id(_selected_system)
+        if not current.is_empty():
+            _system_view.update_world(current)
+            _last_orbit_presentation_tick = latest
+            need_fleet = _last_fleet_presentation_tick < 0 or (
+                latest - _last_fleet_presentation_tick >= UI_FLEET_MIN_TICKS)
+    # Native ships_snapshot already clones only owned ships, so the
+    # interim frame can use it. When a full UI frame is ALSO due, reuse
+    # that one detached N39 world instead: no second fleet copy.
+    if _presentation_elapsed < UI_DETAIL_INTERVAL:
+        if need_fleet:
+            _system_view.set_live_fleet(_runner.fleet_snapshot())
+            _last_fleet_presentation_tick = latest
+        return
+    _presentation_elapsed = 0.0
+    if _last_full_presentation_tick == latest:
+        if need_fleet:
+            _system_view.set_live_fleet(_runner.fleet_snapshot())
+            _last_fleet_presentation_tick = latest
+        return
+    _last_full_presentation_tick = latest
+    if ENABLE_DEBUG_MANUAL_FLEET_UI:
+        _populate_ship_choices()
+    var shared_economy: Dictionary = _refresh_observer()
+    if shared_economy.is_empty():
+        shared_economy = _runner.economy_snapshot()
+    if need_fleet:
+        _system_view.set_live_fleet(shared_economy.get("ships", {}))
+        _last_fleet_presentation_tick = latest
+    _refresh_selection(shared_economy, false)
+    _update_status(shared_economy)
+    _pending_ui_tick = -1
 
 func _runtime_failure() -> Dictionary:
     if _runner != null and _runner.has_method("last_phase_failure"):
         return _runner.last_phase_failure()
     return {}
 
-func _update_status() -> void:
+func _update_status(shared_economy: Dictionary = {}) -> void:
     if not _runner:
         return
-    var totals: Dictionary = _model.seed_stats()
+    # Seed counts change only on explicit boot/N38 rebind, not on each
+    # paid economic tick. They are UI metadata, never a second simulation.
+    var totals: Dictionary = _cached_seed_stats
     _status.text = "%d систем · %d фракции · %d тел   |   Тик %d   |   ×%s   |   %s%s" % [
         totals.get("systems", 0), totals.get("factions", 0),
         totals.get("bodies", 0), _runner.tick_count,
@@ -656,7 +796,7 @@ func _update_status() -> void:
     ]
     _status.text += "   |   " + _runner.calendar.display_text(_runner.tick_count)
     if _runner.has_method("economy_summary"):
-        var economic: Dictionary = _runner.economy_summary()
+        var economic: Dictionary = _runner.economy_summary(shared_economy)
         _status.text += "   |   Native: %d рын. / %d предприятий" % [int(economic.get("markets", 0)), int(economic.get("facilities", 0))]
         if _runner.tick_count % 5 == 0 and _runner.tick_count > 0:
             _status.text += " · Выпуск: %d · Добыча: %d" % [int(economic.get("last_recipe_facilities", 0)), int(economic.get("last_mining_facilities", 0))]
@@ -672,17 +812,19 @@ func _update_status() -> void:
     # status bar is clipped in the embedded Godot game panel.
     _status.tooltip_text = _status.text
 
-func _refresh_selection() -> void:
+func _refresh_selection(shared_economy: Dictionary = {},
+        refresh_live_view: bool = true) -> void:
     if not _runner:
         return
     var selected: Dictionary = _model.system_by_id(_selected_system)
     if not selected.is_empty():
         if _in_system:
-            _system_view.update_world(selected)
-            _system_view.call("set_live_fleet", _runner.fleet_snapshot())
-            _show_body_details(selected)
+            if refresh_live_view:
+                _system_view.update_world(selected)
+                _system_view.set_live_fleet(_runner.fleet_snapshot())
+            _show_body_details(selected, shared_economy)
         else:
-            _select_world(selected)
+            _select_world(selected, shared_economy)
 
 func _reset_map() -> void:
     if _in_system and _system_view:
@@ -690,7 +832,7 @@ func _reset_map() -> void:
     elif _map:
         _map.call("reset_view")
 
-func _select_world(world: Dictionary) -> void:
+func _select_world(world: Dictionary, shared_economy: Dictionary = {}) -> void:
     var system: Dictionary = world.get("system", {})
     var sid: String = str(system.get("id", ""))
     _selected_system = sid
@@ -702,8 +844,8 @@ func _select_world(world: Dictionary) -> void:
     _map.call("select_system", sid)
     if _in_system:
         _system_view.update_world(world)
-        _system_view.call("set_live_fleet", _runner.fleet_snapshot())
-        _show_body_details(world)
+        _system_view.set_live_fleet(_runner.fleet_snapshot())
+        _show_body_details(world, shared_economy)
         return
     var bodies: Array = world.get("bodies", [])
     var facilities: Array = world.get("facilities", [])
@@ -756,8 +898,12 @@ func _select_world(world: Dictionary) -> void:
     lines.append("")
     # Physical runtime is separate from the read-only orbit geometry.
     # Never display seed stock as if it were current stock.
-    if _runner != null and _runner.has_method("economy_snapshot"):
-        var economy: Dictionary = _runner.economy_snapshot()
+    # Selection and Observer may use the SAME completed, detached N39
+    # snapshot. Never request another World copy within this one update.
+    var economy: Dictionary = shared_economy
+    if economy.is_empty() and _runner != null and _runner.has_method("economy_snapshot"):
+        economy = _runner.economy_snapshot()
+    if not economy.is_empty():
         lines.append("")
         lines.append("ТЕКУЩИЕ РЕАЛЬНЫЕ ЗАПАСЫ И ЗАРПЛАТЫ (N39)")
         for source_market in markets:
@@ -787,9 +933,8 @@ func _select_world(world: Dictionary) -> void:
             ])
     # Read only the authoritative N39/N151 population snapshot, not frozen
     # seed population counts. All purchases are committed by the one ledger.
-    if _runner != null and _runner.has_method("economy_snapshot"):
-        var live_economy: Dictionary = _runner.economy_snapshot()
-        var live_populations: Dictionary = live_economy.get("populations", {})
+    if not economy.is_empty():
+        var live_populations: Dictionary = economy.get("populations", {})
         var local_locations: Dictionary = {}
         for source_market in markets:
             local_locations[str(source_market.get("facility_id", ""))] = true
@@ -890,7 +1035,7 @@ func _on_body_open_requested(body: Dictionary) -> void:
         _show_body_details(current)
 
 
-func _show_body_details(world: Dictionary) -> void:
+func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> void:
     var system: Dictionary = world.get("system", {})
     var bodies: Array = world.get("bodies", [])
     var lines: Array[String] = []
@@ -950,7 +1095,9 @@ func _show_body_details(world: Dictionary) -> void:
 
     lines.append("")
     lines.append("СТАНЦИИ И ПРЕДПРИЯТИЯ НА ТЕЛЕ")
-    var economic: Dictionary = _runner.economy_snapshot() if _runner != null else {}
+    var economic: Dictionary = shared_economy
+    if economic.is_empty() and _runner != null:
+        economic = _runner.economy_snapshot()
     var live_facilities: Dictionary = economic.get("facilities", {})
     var locations: Dictionary = {}
     var count: int = 0
@@ -1011,7 +1158,9 @@ func _show_body_details(world: Dictionary) -> void:
     lines.append("")
     lines.append("КОРАБЛИ В ЛОКАЦИЯХ ЭТОГО ТЕЛА")
     var ships_by_class: Dictionary = {}
-    var active_fleet: Dictionary = _runner.fleet_snapshot()
+    # Ships already belong to the same read-only N39 economy frame.
+    # No second fleet_snapshot just to render a body inspector.
+    var active_fleet: Dictionary = economic.get("ships", {})
     for ship_id in active_fleet:
         var ship: Dictionary = active_fleet[ship_id]
         if not locations.has(str(ship.get("location", ""))):
