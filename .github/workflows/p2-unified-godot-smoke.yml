@@ -9,6 +9,7 @@ on:
       - feature/n9-owned-ledger-fork-20261115
       - feature/n153-route-graph-cache-20261115
       - feature/n9-sharded-append-only-journal-20261115
+      - feature/n39-owned-market-dock-write-set-20261115
     paths:
       - .github/workflows/p2-unified-godot-smoke.yml
       - godot/docs/phase2/P2_CI_TRIGGER.txt
@@ -161,6 +162,17 @@ jobs:
             tail -n 130 godot/logs/p2-unified/n9-append-only-check.log
             exit 1
           fi
+          # N39: exact market and N21 owned write-set negative test, no
+          # mutable alias from either rejected or accepted external stage.
+          timeout --signal=TERM --kill-after=5s 60s godot --headless --path godot \
+            --script res://tests/p2_n39_owned_market_dock_write_set_check.gd \
+            > godot/logs/p2-unified/n39-domain-write-set.log 2>&1
+          n39writes=$?
+          if test "$n39writes" -ne 0; then
+            echo "P2_CI_N39_WRITE_SET_FAIL code=$n39writes"
+            tail -n 120 godot/logs/p2-unified/n39-domain-write-set.log
+            exit 1
+          fi
           # N21 must reject loss or rewrite of old paid N9 receipts while
           # avoiding quadratic history cloning on every docking action.
           timeout --signal=TERM --kill-after=5s 45s godot --headless --path godot \
@@ -233,7 +245,42 @@ jobs:
           # On the dedicated performance branch continue the same real
           # N38 restart + paid source acceptance past the N129 tick825
           # regression, without altering the default integration gate.
-          if test "$GITHUB_REF_NAME" = "feature/n9-sharded-append-only-journal-20261115"; then
+          if test "$GITHUB_REF_NAME" = "feature/n39-owned-market-dock-write-set-20261115"; then
+            # First prove source economy/N9 with untouched full Schema
+            # oracle at every World write and N38 restart on tick360.
+            LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
+              timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
+                --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+                > godot/logs/p2-unified/stage2-native-420.log 2>&1
+            stage2=$?
+            if test "$stage2" -ne 0 || ! grep -q "P2_STAGE2_LONG_NATIVE_PASS tick=900" godot/logs/p2-unified/stage2-native-420.log; then
+              echo "P2_CI_N39_WRITES_900_FAIL code=$stage2"
+              tail -n 100 godot/logs/p2-unified/stage2-native-420.log
+              exit 1
+            fi
+            # Same host and same source seed. Compare old and new N39
+            # on complete 420-tick economy + exact N38 restart360.
+            n39file=godot/scripts/sim/phase1/n39_native_world_production.gd
+            cp "$n39file" "$RUNNER_TEMP/n39-owned-candidate.gd"
+            git fetch --no-tags --depth=1 origin e4a78afdca0b0561898f4ab679af47d768578038
+            git show e4a78afdca0b0561898f4ab679af47d768578038:"$n39file" > "$n39file"
+            timeout --signal=TERM --kill-after=5s 240s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/n39-write-base-420.log 2>&1
+            base_rc=$?
+            cp "$RUNNER_TEMP/n39-owned-candidate.gd" "$n39file"
+            timeout --signal=TERM --kill-after=5s 240s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/n39-write-new-420.log 2>&1
+            candidate_rc=$?
+            base_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/p2-unified/n39-write-base-420.log | tail -n 1 | sed 's/.*=//')
+            candidate_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/p2-unified/n39-write-new-420.log | tail -n 1 | sed 's/.*=//')
+            grep 'P2_STAGE2_CLEAN_CHECK tick=' godot/logs/p2-unified/n39-write-base-420.log | sed -E 's/ elapsed_ms=[0-9]+//' > godot/logs/p2-unified/n39-write-base-checkpoints.txt
+            grep 'P2_STAGE2_CLEAN_CHECK tick=' godot/logs/p2-unified/n39-write-new-420.log | sed -E 's/ elapsed_ms=[0-9]+//' > godot/logs/p2-unified/n39-write-new-checkpoints.txt
+            diff -u godot/logs/p2-unified/n39-write-base-checkpoints.txt godot/logs/p2-unified/n39-write-new-checkpoints.txt
+            echo "N39_DOMAIN_WRITES_AB_RESULT baseline_ms=${base_ms:-MISSING} candidate_ms=${candidate_ms:-MISSING} checkpoint_summaries_identical=true"
+            test "$base_rc" -eq 0 -a "$candidate_rc" -eq 0 -a -n "$base_ms" -a -n "$candidate_ms" || exit 1
+          elif test "$GITHUB_REF_NAME" = "feature/n9-sharded-append-only-journal-20261115"; then
             # Original seed, unmodified production economy, full N38
             # save/restart at tick360, strict N21 and N129 paid proofs.
             LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
