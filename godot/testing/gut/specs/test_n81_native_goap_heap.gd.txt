@@ -1,0 +1,45 @@
+extends GutTest
+## N81 pure source planner: the optimized heap MUST preserve the exact
+## old deterministic (cost, insertion-order) result. No simulated money.
+const N81 = preload("res://scripts/sim/ships/ai/native_goap_planner.gd")
+
+func test_min_heap_exactly_matches_original_sorted_frontier_order() -> void:
+	var heap: Array = []
+	var original: Array = []
+	for index in range(150):
+		var entry: Dictionary = {
+			"cost": (index * 17 + 9) % 13,
+			"order": index,
+			"state": {}, "actions": []}
+		original.append(entry.duplicate(true))
+		N81._frontier_push(heap, entry)
+	original.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return int(a["cost"]) < int(b["cost"]) if a["cost"] != b["cost"] else (
+			int(a["order"]) < int(b["order"])))
+	for expected in original:
+		var actual: Dictionary = N81._frontier_pop(heap)
+		assert_eq(actual["cost"], expected["cost"])
+		assert_eq(actual["order"], expected["order"])
+	assert_true(heap.is_empty())
+
+func test_original_trade_goap_yields_paid_physical_route_intents() -> void:
+	var start: Dictionary = N81.initial("Origin", 10)
+	var registry: Dictionary = {
+		"origin": "home-station",
+		"source": "source-station",
+		"dest": "destination-station",
+		"cost_origin_to_source": 1,
+		"cost_dest_to_source": 1,
+		"commodity": "food",
+		"quantity": 1
+	}
+	var plan: Dictionary = N81.plan(start, "trade", registry, 20, 2)
+	assert_false(plan.is_empty(), "Native N81 must find a real trade itinerary")
+	if plan.is_empty():
+		return
+	var kinds: Array = []
+	for action in plan["actions"]:
+		kinds.append(str(action.get("type", "")))
+	assert_eq(kinds, ["Travel", "Dock", "Buy", "Undock", "Travel",
+		"Dock", "SellAll"])
+	assert_eq(int(plan.get("cost", -1)), 7)
