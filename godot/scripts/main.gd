@@ -635,6 +635,11 @@ func _load_game(save_path: String = "") -> void:
         _model = _runner.world
         # A loaded checkpoint replaces the authoritative world and clock. Refresh
         # all read-only projections; never keep a stale seed-era map or speed UI.
+        _pending_ui_tick = -1
+        _last_orbit_presentation_tick = -1
+        _last_fleet_presentation_tick = -1
+        _last_full_presentation_tick = -1
+        _presentation_elapsed = 0.0
         var restored_worlds: Array = _model.worlds()
         _map.call("set_worlds", restored_worlds)
         var selected: Dictionary = _model.system_by_id(_selected_system)
@@ -755,17 +760,19 @@ func _update_status() -> void:
     # status bar is clipped in the embedded Godot game panel.
     _status.tooltip_text = _status.text
 
-func _refresh_selection() -> void:
+func _refresh_selection(shared_economy: Dictionary = {},
+        refresh_live_view: bool = true) -> void:
     if not _runner:
         return
     var selected: Dictionary = _model.system_by_id(_selected_system)
     if not selected.is_empty():
         if _in_system:
-            _system_view.update_world(selected)
-            _system_view.call("set_live_fleet", _runner.fleet_snapshot())
-            _show_body_details(selected)
+            if refresh_live_view:
+                _system_view.update_world(selected)
+                _system_view.set_live_fleet(_runner.fleet_snapshot())
+            _show_body_details(selected, shared_economy)
         else:
-            _select_world(selected)
+            _select_world(selected, shared_economy)
 
 func _reset_map() -> void:
     if _in_system and _system_view:
@@ -773,7 +780,7 @@ func _reset_map() -> void:
     elif _map:
         _map.call("reset_view")
 
-func _select_world(world: Dictionary) -> void:
+func _select_world(world: Dictionary, shared_economy: Dictionary = {}) -> void:
     var system: Dictionary = world.get("system", {})
     var sid: String = str(system.get("id", ""))
     _selected_system = sid
@@ -785,8 +792,8 @@ func _select_world(world: Dictionary) -> void:
     _map.call("select_system", sid)
     if _in_system:
         _system_view.update_world(world)
-        _system_view.call("set_live_fleet", _runner.fleet_snapshot())
-        _show_body_details(world)
+        _system_view.set_live_fleet(_runner.fleet_snapshot())
+        _show_body_details(world, shared_economy)
         return
     var bodies: Array = world.get("bodies", [])
     var facilities: Array = world.get("facilities", [])
@@ -839,8 +846,12 @@ func _select_world(world: Dictionary) -> void:
     lines.append("")
     # Physical runtime is separate from the read-only orbit geometry.
     # Never display seed stock as if it were current stock.
-    if _runner != null and _runner.has_method("economy_snapshot"):
-        var economy: Dictionary = _runner.economy_snapshot()
+    # Selection and Observer may use the SAME completed, detached N39
+    # snapshot. Never request another World copy within this one update.
+    var economy: Dictionary = shared_economy
+    if economy.is_empty() and _runner != null and _runner.has_method("economy_snapshot"):
+        economy = _runner.economy_snapshot()
+    if not economy.is_empty():
         lines.append("")
         lines.append("ТЕКУЩИЕ РЕАЛЬНЫЕ ЗАПАСЫ И ЗАРПЛАТЫ (N39)")
         for source_market in markets:
@@ -870,9 +881,8 @@ func _select_world(world: Dictionary) -> void:
             ])
     # Read only the authoritative N39/N151 population snapshot, not frozen
     # seed population counts. All purchases are committed by the one ledger.
-    if _runner != null and _runner.has_method("economy_snapshot"):
-        var live_economy: Dictionary = _runner.economy_snapshot()
-        var live_populations: Dictionary = live_economy.get("populations", {})
+    if not economy.is_empty():
+        var live_populations: Dictionary = economy.get("populations", {})
         var local_locations: Dictionary = {}
         for source_market in markets:
             local_locations[str(source_market.get("facility_id", ""))] = true
@@ -973,7 +983,7 @@ func _on_body_open_requested(body: Dictionary) -> void:
         _show_body_details(current)
 
 
-func _show_body_details(world: Dictionary) -> void:
+func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> void:
     var system: Dictionary = world.get("system", {})
     var bodies: Array = world.get("bodies", [])
     var lines: Array[String] = []
@@ -1033,7 +1043,9 @@ func _show_body_details(world: Dictionary) -> void:
 
     lines.append("")
     lines.append("СТАНЦИИ И ПРЕДПРИЯТИЯ НА ТЕЛЕ")
-    var economic: Dictionary = _runner.economy_snapshot() if _runner != null else {}
+    var economic: Dictionary = shared_economy
+    if economic.is_empty() and _runner != null:
+        economic = _runner.economy_snapshot()
     var live_facilities: Dictionary = economic.get("facilities", {})
     var locations: Dictionary = {}
     var count: int = 0
@@ -1094,7 +1106,9 @@ func _show_body_details(world: Dictionary) -> void:
     lines.append("")
     lines.append("КОРАБЛИ В ЛОКАЦИЯХ ЭТОГО ТЕЛА")
     var ships_by_class: Dictionary = {}
-    var active_fleet: Dictionary = _runner.fleet_snapshot()
+    # Ships already belong to the same read-only N39 economy frame.
+    # No second fleet_snapshot just to render a body inspector.
+    var active_fleet: Dictionary = economic.get("ships", {})
     for ship_id in active_fleet:
         var ship: Dictionary = active_fleet[ship_id]
         if not locations.has(str(ship.get("location", ""))):
