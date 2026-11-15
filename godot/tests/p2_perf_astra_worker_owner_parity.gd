@@ -27,8 +27,9 @@ func _run() -> void:
     if seed.has("error"):
         _fail("original Rust seed missing")
         return
-    var marks: Array[int] = [1, 8, 16] if ticks == 16 else [
-        1, 60, 120, 240, 360, 361, 420]
+    var marks: Array[int] = [1, 8, 16]
+    if ticks == 420:
+        marks = [1, 60, 120, 240, 360, 361, 420]
     var original: Dictionary = _sequential(seed, ticks, marks)
     if not original.get("ok", false):
         _fail("main-thread baseline failed " + str(original))
