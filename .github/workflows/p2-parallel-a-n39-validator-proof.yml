@@ -1,5 +1,5 @@
 name: P2 Parallel A N39 validator proof and paired 420/900
-# Parser fix: guard replacement strictly matches _world; per-callsite p95 enabled.
+# Scoped A6 iteration: paid N21 provenance scans only on NEW dock receipts.
 
 on:
   push:
@@ -98,7 +98,8 @@ jobs:
           old_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/parallel-a/old-420.log | tail -1 | cut -d= -f2)
           new_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/parallel-a/new-420.log | tail -1 | cut -d= -f2)
           test -n "$old_ms" -a -n "$new_ms"
-          echo "P2_PARALLEL_A_SAME_RUNNER_AB_PASS baseline_ms=$old_ms candidate_ms=$new_ms exact_checkpoints=true"
+          delta_pct=$(awk -v b="$old_ms" -v c="$new_ms" 'BEGIN {printf "%.2f", ((c - b) * 100.0 / b)}')
+          echo "P2_PARALLEL_A_SAME_RUNNER_AB_PASS baseline_ms=$old_ms candidate_ms=$new_ms delta_pct=$delta_pct exact_checkpoints=true"
 
       - name: Candidate original source 900 ticks, N38 restart360, N129 tick825 and profiler
         shell: bash
