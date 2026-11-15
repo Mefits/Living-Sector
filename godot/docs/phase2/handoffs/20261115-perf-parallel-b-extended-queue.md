@@ -1,6 +1,6 @@
 # Living Sector Performance — Chat B | 8-block execution backlog
 
-**СТАТУС: N153 II-C CI PASS, PR #258 ORANGE / НЕ СМЕРЖЕН.** B1/B2/B4/B5 и условные B6/B7 — остаются для дальнейшей работы, не выдавать за готовые. Зеленый ставит только интегратор после ревью/merge. PR: https://github.com/Mefits/Living-Sector/pull/258 (Draft). Ветка: `feature/perf-parallel-b-n153-indices-20261115`.
+**СТАТУС: БЛОКИ B5–B7 ЗАВЕРШЕНЫ (B5 тестирован, B6/B7 обоснованно без изменений), PR #258 ОРАНЖЕВЫЙ / НЕ СМЕРЖЕН.** B1/B2/B4 остаются частичными. Зеленый ставит только интегратор после ревью/merge. PR: https://github.com/Mefits/Living-Sector/pull/258 (Draft). Ветка: `feature/perf-parallel-b-n153-indices-20261115`.
 
 Общий регламент с закреплённым владением: https://github.com/Mefits/Living-Sector/blob/integration/godot-phase2-unified-20261113/godot/docs/phase2/handoffs/20261115-performance-parallel-two-chats.md
 
@@ -16,10 +16,10 @@
 | B2 | PARTIAL | 87d16f6, 21 oracle checks | Per-call sorted roster retained, no lossy fast skip |
 | B3 | DONE-TESTED | 87d16f6, exact source oracle | Posted-delivery IDs indexed; expired reason kept |
 | B4 | PARTIAL | 87d16f6 + fe8b780, oracle step PASS | Per-contract origin legs/posture and dominated N81 skip; native gates unchanged |
-| B5 | TODO | — | Context/knowledge DTO changes not attempted without proof |
-| B6 | TODO | — | N18 untouched; owner scope beyond N153 not entered |
-| B7 | TODO | — | EventQueue untouched, no measurement yet |
-| B8 | DONE-TESTED | CI #43729181807 PASS: exact 21-case oracle, 24/100/500, paired 420+N38, 900 tick825 | Performance measured; whole-game speedup not proven |
+| B5 | DONE-TESTED | f633baf; CI #43739624582 30 oracle tests + 420/N38 + 900 | Call-scoped DTO + system lookup, N80 observations shallow override; source output exact |
+| B6 | NO-CHANGE / MEASURED | CI #43739624582: N18 due-cycle 700 us; next 6 calls total 3705 us | Real original N39/N9: 3 markets, 15 facilities, 3 populations; no evidence that indexing 45/9 small scans improves whole-sim |
+| B7 | NO-CHANGE / NOT HOT | CI #43739624582 EventQueue fixture PASS, 1680 empty polls 706 us (synthetic) | N158/N39 do not dispatch EventQueue; no live pending work; heap/buckets unjustified |
+| B8 | DONE-TESTED | CI #43739624582 PASS: exact 30-case oracle, 24/100/500, paired 420+N38, 900 tick825 | 500-ship N153 273168→14892 us; whole sim 58805→57144 ms on one runner, not statistically established |
 
 ### B1 — N153 source baseline and observability
 На реальном original world описать вложенный цикл `unified_n153_contract_dispatch.gd::propose()`: contract ID / ship ID sort, сколько contract×ship пар реально проверяются, какие причины отказа преобладают, сколько раз запускается `_ready_ship` / `N153.select_contract` / `NativePipeline.propose`, path-cache hits и цена вызовов. Измерить ticks, профиль, p95; получить baseline SHA. Результат: таблица с реальной трудоёмкостью, не только оценка сложности O(C×S).

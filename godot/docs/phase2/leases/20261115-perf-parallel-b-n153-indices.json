@@ -1,6 +1,6 @@
 {
   "worker": "perf-parallel-chat-2",
-  "status": "RESERVED_NOT_STARTED",
+  "status": "READY_FOR_COORDINATOR_REVIEW_ORANGE_NOT_MERGED",
   "branch": "feature/perf-parallel-b-n153-indices-20261115",
   "base_head": "823f32379b10bfefae5a5cebb1c0c0e622509f72",
   "task": "II-C: N153 eligible-ship and posted-contract indexing preserving deterministic source pairing and exact rejection accounting",
@@ -20,7 +20,7 @@
     ".github/workflows/p2-unified-godot-smoke.yml"
   ],
   "coordination_doc": "godot/docs/phase2/handoffs/20261115-performance-parallel-two-chats.md",
-  "verification": "NOT_RUN",
+  "verification": "GODOT_4_7_2_CI_43739624582_PASS_30_ORACLE_420_RESTART360_900",
   "merge_permission": "COORDINATOR_ONLY",
   "board_page": "Оптимизация",
   "update_policy": "Own PR and own handoff; status orange until integrator confirms verified merge.",
@@ -35,11 +35,24 @@
     "B7",
     "B8"
   ],
-  "completed_blocks": [],
+  "completed_blocks": [
+    "B3",
+    "B5",
+    "B6_NO_CHANGE_MEASURED",
+    "B7_NO_CHANGE_UNWIRED",
+    "B8"
+  ],
   "continuation_rule": "On each active turn or Продолжай: read own queue and leases; resume first unfinished block; do real work and tests, update handoff and commits; do not stop after the first successful subtask. Do not claim background execution.",
   "conditional_owner_files": [
     "godot/scripts/sim/phase2/unified_native_station_administration_phase.gd",
     "godot/scripts/sim/event_queue.gd"
   ],
-  "conditional_ownership_rule": "Only after live lease check; if another worker occupies file mark BLOCKED; no modification in A or shared CI."
+  "conditional_ownership_rule": "Only after live lease check; if another worker occupies file mark BLOCKED; no modification in A or shared CI.",
+  "remaining_blocks": [
+    "B1_PARTIAL",
+    "B2_PARTIAL",
+    "B4_PARTIAL"
+  ],
+  "last_tested_commit": "f633baff928ff93bafe4f2648137e15834786690",
+  "last_test_run": "https://github.com/Mefits/Living-Sector/actions/runs/43739624582"
 }
