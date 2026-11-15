@@ -85,17 +85,17 @@ jobs:
       - name: Clean N158 world — NO player, no patched market demand
         shell: bash
         env:
-          # Original N81 heap reduced sorting cost but did NOT end
-          # the ship-phase spike after tick 325. Native N158 now traces
-          # N14/N83/N103/N80/N84/N146 stage begin/end from tick 320.
-          # Keep this one diagnostic run to 350 ticks and cap at 220s.
-          # Manual dispatch still accepts explicit tick count.
-          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '350' || inputs.ticks || '420' }}
+          # End-to-end N146 apply was 10–12s per tick at tick 327–334,
+          # while N81/GOAP and N83 planning took only milliseconds.
+          # One combined diagnostics run: exact N146 command boundaries,
+          # N39 FIFO short-circuit, N81 lazy state/packed key GUT.
+          # Stop at 334 or 205s; do not claim an unproven soak PASS.
+          LS_AUTONOMY_TICKS: ${{ github.event_name == 'push' && '334' || inputs.ticks || '420' }}
           LS_PROFILE_NATIVE_PHASES: "1"
         run: |
           set -euo pipefail
           export LS_AUTONOMY_REPORT="$GITHUB_WORKSPACE/godot/logs/autonomy/report.json"
-          timeout --signal=TERM --kill-after=5s 220s \
+          timeout --signal=TERM --kill-after=5s 205s \
             godot --headless --path godot \
             --script res://tests/p2_autonomous_world_observer_check.gd \
             > godot/logs/autonomy/clean-world.log 2>&1 || {
