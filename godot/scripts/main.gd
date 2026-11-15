@@ -86,6 +86,10 @@ func _ready() -> void:
     _perf_label.text = "FPS — · process — · sim — · UI —"
     _perf_label.add_theme_font_size_override("font_size", 11)
     _perf_label.add_theme_color_override("font_color", Color("#8fc6d9"))
+    _perf_label.custom_minimum_size = Vector2.ZERO
+    _perf_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _perf_label.clip_text = true
+    _perf_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
     _perf_label.tooltip_text = "FPS из Engine; p95 _process, advance_frame и UI за последние 120 кадров. Худший кадр — от запуска."
     heading.add_child(_perf_label)
     _back_button = Button.new()
@@ -255,6 +259,7 @@ func _ready() -> void:
     _observer_button.pressed.connect(_toggle_observer)
     toolbar.add_child(_observer_button)
     _observer_panel = ObserverPanel.new()
+    _observer_panel.connect("section_changed", Callable(self, "_refresh_observer"))
     _observer_panel.visible = false
     _observer_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
     columns.add_child(_observer_panel)
