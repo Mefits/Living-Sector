@@ -1236,7 +1236,9 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
         var after: Dictionary = future["ships"].get(ship_id, {})
         if after.is_empty():
             return {"ok": false, "reason": "n21_removed_original_ship"}
-        var expected: Dictionary = before.duplicate(true)
+        # Only three top-level ship fields are permitted. A shallow
+        # comparison mask is sufficient: never edit any nested component.
+        var expected: Dictionary = before.duplicate()
         for field in ["credits", "docked_at", "dock_attempt_start_tick"]:
             if after.has(field):
                 expected[field] = after[field]
@@ -1249,7 +1251,8 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
         var next: Dictionary = future["facilities"].get(fid, {})
         if next.is_empty():
             return {"ok": false, "reason": "n21_removed_original_facility"}
-        var allowed: Dictionary = previous.duplicate(true)
+        # FIFO is a replacement value, not mutated through this mask.
+        var allowed: Dictionary = previous.duplicate()
         for field in ["credits", "dirty", "dock_queue"]:
             if next.has(field):
                 allowed[field] = next[field]
@@ -1283,7 +1286,15 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     for key in expected_balances:
         if money["balances"].get(key, null) != expected_balances[key]:
             return {"ok": false, "reason": "n21_wallet_did_not_match_source_n9"}
-    _world = future.duplicate(true)
+    # Explicit N21 write set: only ships/facilities/paid dock receipts
+    # can change. The full future has already passed every old domain,
+    # FIFO/receipt and N39/N9 guard above. Retain canonical references
+    # for unrelated domains, and deep-detach every changed domain from
+    # the external proposal before atomic World + Ledger publication.
+    var committed: Dictionary = _world.duplicate()
+    for domain in ["ships", "facilities", "dock_receipts"]:
+        committed[domain] = future[domain].duplicate(true)
+    _world = committed
     _ledger = checked
     return {"ok": true, "status": str(proposal.get("status", "")),
         "changed": bool(proposal.get("changed", false)),
@@ -4085,11 +4096,17 @@ func apply_market_phase(tick: int, updates: Dictionary) -> bool:
         return false
     if updates.size() != _world["markets"].size():
         return false
-    var staged: Dictionary = _world.duplicate(true)
+    # N150 write set: only six market observation fields are writable.
+    # Keep read-only physical supply and every unrelated World domain
+    # from the authoritative owner; detach the outer maps and each row
+    # before writing. This preserves atomic rejection and the complete
+    # source Schema.validate oracle below.
+    var staged: Dictionary = _world.duplicate()
+    staged["markets"] = _world["markets"].duplicate()
     for location in updates:
         if not staged["markets"].has(location) or not (updates[location] is Dictionary):
             return false
-        var m: Dictionary = staged["markets"][location]
+        var m: Dictionary = staged["markets"][location].duplicate()
         var proposed: Dictionary = updates[location]
         if str(proposed.get("id", "")) != str(m.get("id", "")):
             return false
@@ -4098,8 +4115,8 @@ func apply_market_phase(tick: int, updates: Dictionary) -> bool:
             if not (proposed.get(field) is Dictionary):
                 return false
             m[field] = proposed[field].duplicate(true)
-        # At this boundary the original shared inventory and all physical
-        # facility/population balances are untouched by the market phase.
+        staged["markets"][location] = m
+        # Supply/owner remain the previous canonical physical inventory.
     if Schema.validate(staged) != "":
         return false
     _world = staged
