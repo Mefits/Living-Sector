@@ -8,6 +8,8 @@ const DISPLAY_INTERVAL: float = 0.5
 var _process_us: Array[int] = []
 var _advance_us: Array[int] = []
 var _ui_us: Array[int] = []
+var _delta_us: Array[int] = []
+var _ticks_window: Array[int] = []
 var _frames: int = 0
 var _ticks: int = 0
 var _elapsed: float = 0.0
@@ -31,6 +33,8 @@ func capture(frame_delta: float, process_usec: int, advance_usec: int,
     _push(_process_us, process_usec)
     _push(_advance_us, advance_usec)
     _push(_ui_us, ui_usec)
+    _push(_delta_us, full_frame_us)
+    _push(_ticks_window, maxi(completed_ticks, 0))
 
 func _push(samples: Array[int], usec: int) -> void:
     samples.append(maxi(0, usec))
@@ -60,11 +64,28 @@ func _p95(values: Array[int]) -> float:
         0, sorted.size() - 1)
     return float(sorted[idx]) / 1000.0
 
+func _max_window(values: Array[int]) -> float:
+    var biggest: int = 0
+    for value in values:
+        biggest = maxi(biggest, value)
+    return float(biggest) / 1000.0
+
+func _tick_average() -> float:
+    if _ticks_window.is_empty():
+        return 0.0
+    var total: int = 0
+    for value in _ticks_window:
+        total += value
+    return float(total) / float(_ticks_window.size())
+
 func summary() -> Dictionary:
     return {
         "fps": Engine.get_frames_per_second(),
         "frames": _frames, "ticks": _ticks,
         "last_frame_ticks": _last_frame_ticks,
+        "ticks_per_frame_window": _tick_average(),
+        "frame_p95_ms": _p95(_delta_us),
+        "frame_window_max_ms": _max_window(_delta_us),
         "process_avg_ms": _average(_process_us),
         "process_p95_ms": _p95(_process_us),
         "advance_avg_ms": _average(_advance_us),
