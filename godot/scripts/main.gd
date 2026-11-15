@@ -554,13 +554,15 @@ func _process(delta: float) -> void:
     _frame_profiler.capture(delta, process_usec, advance_usec, ui_usec, new_ticks)
     if _frame_profiler.display_due() and _perf_label != null:
         var report: Dictionary = _frame_profiler.summary()
+        var drawing: Dictionary = _active_draw_profile()
         _perf_label.text = _frame_profiler.compact_text()
         _perf_label.tooltip_text = (
             "CPU _process: avg %.2f / p95 %.2f / max %.2f мс\n" +
             "advance_frame (симуляция + callbacks): avg %.2f / p95 %.2f / max %.2f мс\n" +
             "UI после расчёта: avg %.2f / p95 %.2f / max %.2f мс\n" +
             "Худший полный кадр (delta): %.2f мс; тиков всего: %d\n" +
-            "Отрисовка GPU/SceneTree вне этих CPU-таймеров; проверяйте FPS."
+            "draw CPU (последний / max): %.2f / %.2f мс, вызовов: %d\n" +
+            "GPU-компоновка и VSYNC вне CPU-таймеров; проверяйте FPS."
         ) % [
             float(report["process_avg_ms"]), float(report["process_p95_ms"]),
             float(report["worst_process_ms"]),
@@ -568,7 +570,10 @@ func _process(delta: float) -> void:
             float(report["worst_advance_ms"]),
             float(report["ui_avg_ms"]), float(report["ui_p95_ms"]),
             float(report["worst_ui_ms"]),
-            float(report["worst_frame_ms"]), int(report["ticks"])]
+            float(report["worst_frame_ms"]), int(report["ticks"]),
+            float(drawing.get("last_usec", 0)) / 1000.0,
+            float(drawing.get("max_usec", 0)) / 1000.0,
+            int(drawing.get("calls", 0))]
     if _ui_profile_log:
         _ui_profile_log_elapsed += maxf(delta, 0.0)
         if _ui_profile_log_elapsed >= 5.0:
@@ -579,7 +584,14 @@ func _process(delta: float) -> void:
             output["speed"] = _runner.clock.world_speed if _runner != null else 0.0
             output["view"] = "system" if _in_system else "sector"
             output["observer"] = _observer_panel.visible if _observer_panel != null else false
+            output["draw_cpu"] = _active_draw_profile()
             print("P2_UI_FRAME " + JSON.stringify(output))
+
+func _active_draw_profile() -> Dictionary:
+    var view: Variant = _system_view if _in_system else _map
+    if view != null and view.has_method("draw_profile"):
+        return view.draw_profile()
+    return {}
 
 func _toggle_pause() -> void:
     if not _runner or not _fatal_restore_error.is_empty():
@@ -722,8 +734,10 @@ func _flush_finished_tick_views(delta: float) -> void:
     if ENABLE_DEBUG_MANUAL_FLEET_UI:
         _populate_ship_choices()
     var shared_economy: Dictionary = _refresh_observer()
+    if shared_economy.is_empty():
+        shared_economy = _runner.economy_snapshot()
     _refresh_selection(shared_economy, false)
-    _update_status()
+    _update_status(shared_economy)
     _pending_ui_tick = -1
 
 func _runtime_failure() -> Dictionary:
@@ -731,7 +745,7 @@ func _runtime_failure() -> Dictionary:
         return _runner.last_phase_failure()
     return {}
 
-func _update_status() -> void:
+func _update_status(shared_economy: Dictionary = {}) -> void:
     if not _runner:
         return
     var totals: Dictionary = _model.seed_stats()
@@ -744,7 +758,7 @@ func _update_status() -> void:
     ]
     _status.text += "   |   " + _runner.calendar.display_text(_runner.tick_count)
     if _runner.has_method("economy_summary"):
-        var economic: Dictionary = _runner.economy_summary()
+        var economic: Dictionary = _runner.economy_summary(shared_economy)
         _status.text += "   |   Native: %d рын. / %d предприятий" % [int(economic.get("markets", 0)), int(economic.get("facilities", 0))]
         if _runner.tick_count % 5 == 0 and _runner.tick_count > 0:
             _status.text += " · Выпуск: %d · Добыча: %d" % [int(economic.get("last_recipe_facilities", 0)), int(economic.get("last_mining_facilities", 0))]
