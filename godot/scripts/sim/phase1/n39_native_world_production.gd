@@ -88,6 +88,9 @@ var _world: Dictionary = {}
 var _ledger: RefCounted = Ledger.new()
 var _last_tick: int = -1
 var _ready: bool = false
+## Same-build A/B opt-out. Does not enter World, N9 or N38 checkpoints.
+var _owned_stage_enabled: bool = OS.get_environment(
+    "LS_PERF_N39_FORCE_LEGACY_STAGES") != "1"
 
 func initialize(physical_world: Dictionary) -> bool:
     if _ready or _measured_schema_validate("L92", physical_world) != "":
@@ -330,8 +333,9 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         _world, tick, tick_scale, tick_multiplier)
     if not initial.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(initial.get("reason", "rejected"))}
-    var lifecycle_world: Dictionary = _copy_owned_world("L196",
-        ["facilities", "markets", "populations"])
+    var lifecycle_world: Dictionary = (
+        _copy_owned_world("L196", ["facilities", "markets", "populations"])
+        if _owned_stage_enabled else _copy_world("L196", true))
     # Receipts accumulate indefinitely; cloning the whole N9 history on
     # every no-op orbit tick would make long-term simulation quadratic.
     # No new maintenance payments are possible unless there is a paid
@@ -2181,7 +2185,7 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         return {"ok": true, "status": "N91_LEGACY_DISABLED", "assigned": []}
     # No N91 assignment means no canonical writes, therefore there is
     # nothing to stage, validate or copy (same success payload as before).
-    if proposals.is_empty():
+    if _owned_stage_enabled and proposals.is_empty():
         return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
             "tick": tick, "assigned": []}
     var staged: Dictionary = _copy_world("L2008", true)
@@ -3277,17 +3281,19 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
     # The source proposer may update research heads even when no research
     # is paid. Skip only if BOTH paid shifts and head changes are absent.
     # Never skip a source head-state transition or a real N9 payment.
-    if proposed["shifts"].is_empty() and (
+    if _owned_stage_enabled and proposed["shifts"].is_empty() and (
             proposed["heads"] == _world["research_directors"]):
         return {"ok": true, "status": "N143_PAID_CANONICAL",
             "tick": tick, "paid": [],
             "blocked": proposed.get("blocked", []).duplicate(true)}
     # N143 can mutate only these domains; all other canonical graphs
     # remain read-only. This keeps journals/ship history out of staging.
-    var staged: Dictionary = _copy_owned_world("L3098", [
-        "research_directors", "markets", "facilities", "populations",
-        "faction_treasuries", "research", "research_receipts",
-        "research_mandates", "faction_charters"])
+    var staged: Dictionary = (
+        _copy_owned_world("L3098", [
+            "research_directors", "markets", "facilities", "populations",
+            "faction_treasuries", "research", "research_receipts",
+            "research_mandates", "faction_charters"])
+        if _owned_stage_enabled else _copy_world("L3098", true))
     if proposed["heads"].size() != staged["research_directors"].size():
         return {"ok": false, "fatal": true, "reason": "missing_native_research_head"}
     for fid in proposed["heads"]:
