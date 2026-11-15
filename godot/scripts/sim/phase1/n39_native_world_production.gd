@@ -122,17 +122,36 @@ func market_observation_version() -> int:
 
 func native_schema_profile() -> Dictionary:
     return {"enabled": _profile_copy_enabled,
-        "schema": _profile_schema_sites.duplicate(true),
-        "copies": _profile_copy_sites.duplicate(true),
+        "schema": _cost_percentiles(_profile_schema_sites),
+        "copies": _cost_percentiles(_profile_copy_sites),
         "market_observation_version": _market_observation_version}
+
+func _cost_percentiles(measured: Dictionary) -> Dictionary:
+    var published: Dictionary = {}
+    for site in measured:
+        var row: Dictionary = measured[site].duplicate()
+        var samples: Array = row.get("samples_usec", []).duplicate()
+        row.erase("samples_usec")
+        if not samples.is_empty():
+            samples.sort()
+            for p in [50, 95, 99]:
+                var offset: int = clampi(ceili(
+                    float(samples.size()) * float(p) / 100.0) - 1,
+                    0, samples.size() - 1)
+                row["p" + str(p) + "_usec"] = int(samples[offset])
+        published[site] = row
+    return published
 
 func _record_timing(bucket: Dictionary, site: String, elapsed: int) -> void:
     var row: Dictionary = bucket.get(site, {"calls": 0, "total_usec": 0,
-        "max_usec": 0, "min_usec": 9223372036854775807})
+        "max_usec": 0, "min_usec": 9223372036854775807,
+        "samples_usec": []})
     row["calls"] = int(row["calls"]) + 1
     row["total_usec"] = int(row["total_usec"]) + elapsed
     row["max_usec"] = maxi(int(row["max_usec"]), elapsed)
     row["min_usec"] = mini(int(row["min_usec"]), elapsed)
+    var samples: Array = row["samples_usec"]
+    samples.append(elapsed)
     bucket[site] = row
 
 func _measured_schema_validate(site: String, world: Dictionary) -> String:
