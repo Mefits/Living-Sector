@@ -14,6 +14,7 @@ const ENABLE_DEBUG_MANUAL_FLEET_UI: bool = false
 const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
+const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 
 var _model
 var _runner
@@ -38,8 +39,24 @@ var _ship_choice: OptionButton
 var _ship_destination: LineEdit
 var _cargo_commodity: LineEdit
 var _cargo_quantity: SpinBox
+## U1/U2: real FPS and UI-only timing, no extra World snapshots.
+var _frame_profiler = UIFrameProfiler.new()
+var _perf_label: Label
+var _ui_profile_log: bool = false
+var _ui_profile_log_elapsed: float = 0.0
+## U6: all tick_completed signals are coalesced into the latest finished
+## authoritative tick. SceneTree UI never runs inside advance_frame().
+var _pending_ui_tick: int = -1
+var _last_orbit_presentation_tick: int = -1
+var _last_fleet_presentation_tick: int = -1
+var _presentation_elapsed: float = 0.0
+var _last_full_presentation_tick: int = -1
+const UI_DETAIL_INTERVAL: float = 0.45
+const UI_FLEET_MIN_TICKS: int = 4
 
 func _ready() -> void:
+    _ui_profile_log = OS.get_cmdline_user_args().has("--p2-ui-profile") or (
+        OS.get_environment("LS_PROFILE_UI_FRAMES") == "1")
     var background := ColorRect.new()
     background.color = Color("#08101a")
     background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -63,6 +80,14 @@ func _ready() -> void:
     title.add_theme_font_size_override("font_size", 23)
     title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     heading.add_child(title)
+    # Always-on counter. Engine FPS includes compositor stalls; the three
+    # CPU timers below only measure code, not GPU presentation.
+    _perf_label = Label.new()
+    _perf_label.text = "FPS — · process — · sim — · UI —"
+    _perf_label.add_theme_font_size_override("font_size", 11)
+    _perf_label.add_theme_color_override("font_color", Color("#8fc6d9"))
+    _perf_label.tooltip_text = "FPS из Engine; p95 _process, advance_frame и UI за последние 120 кадров. Худший кадр — от запуска."
+    heading.add_child(_perf_label)
     _back_button = Button.new()
     _back_button.text = "← К сектору"
     _back_button.visible = false
@@ -494,9 +519,9 @@ func _toggle_observer() -> void:
     _observer_button.text = "Скрыть наблюдение" if _observer_panel.visible else "Наблюдение"
     _refresh_observer()
 
-func _refresh_observer() -> void:
+func _refresh_observer() -> Dictionary:
     if not _observer_panel or not _observer_panel.visible or not _runner:
-        return
+        return {}
     # A read-only checkpoint projection lets the Observer distinguish a
     # planned route from durable N15/N97 cargo and N9/N104 receipts. It
     # never owns, mutates, or reconstructs a second World/Ledger/Board.
@@ -506,14 +531,55 @@ func _refresh_observer() -> void:
     # frame. Never clone growing markets/receipts a second time here.
     var economy: Dictionary = native_production.get("world", {})
     if economy.is_empty():
-        return
+        return {}
     _observer_panel.call("show_live_economy", _runner.tick_count,
         economy, _runner.economy_summary(economy),
         economy.get("ships", {}), native_production)
+    return economy
 
 func _process(delta: float) -> void:
+    var began: int = Time.get_ticks_usec()
+    var ticks_before: int = _runner.tick_count if _runner != null else 0
+    var advance_usec: int = 0
     if _runner and _fatal_restore_error.is_empty():
+        var advance_start: int = Time.get_ticks_usec()
         _runner.advance_frame(delta)
+        advance_usec = maxi(0, Time.get_ticks_usec() - advance_start)
+    var ui_start: int = Time.get_ticks_usec()
+    _flush_finished_tick_views(delta)
+    var ui_usec: int = maxi(0, Time.get_ticks_usec() - ui_start)
+    var process_usec: int = maxi(0, Time.get_ticks_usec() - began)
+    var new_ticks: int = maxi(0, _runner.tick_count - ticks_before) if (
+        _runner != null) else 0
+    _frame_profiler.capture(delta, process_usec, advance_usec, ui_usec, new_ticks)
+    if _frame_profiler.display_due() and _perf_label != null:
+        var report: Dictionary = _frame_profiler.summary()
+        _perf_label.text = _frame_profiler.compact_text()
+        _perf_label.tooltip_text = (
+            "CPU _process: avg %.2f / p95 %.2f / max %.2f мс\n" +
+            "advance_frame (симуляция + callbacks): avg %.2f / p95 %.2f / max %.2f мс\n" +
+            "UI после расчёта: avg %.2f / p95 %.2f / max %.2f мс\n" +
+            "Худший полный кадр (delta): %.2f мс; тиков всего: %d\n" +
+            "Отрисовка GPU/SceneTree вне этих CPU-таймеров; проверяйте FPS."
+        ) % [
+            float(report["process_avg_ms"]), float(report["process_p95_ms"]),
+            float(report["worst_process_ms"]),
+            float(report["advance_avg_ms"]), float(report["advance_p95_ms"]),
+            float(report["worst_advance_ms"]),
+            float(report["ui_avg_ms"]), float(report["ui_p95_ms"]),
+            float(report["worst_ui_ms"]),
+            float(report["worst_frame_ms"]), int(report["ticks"])]
+    if _ui_profile_log:
+        _ui_profile_log_elapsed += maxf(delta, 0.0)
+        if _ui_profile_log_elapsed >= 5.0:
+            _ui_profile_log_elapsed = 0.0
+            var output: Dictionary = _frame_profiler.summary()
+            output["tick"] = _runner.tick_count if _runner != null else -1
+            output["paused"] = _runner.clock.paused if _runner != null else true
+            output["speed"] = _runner.clock.world_speed if _runner != null else 0.0
+            output["view"] = "system" if _in_system else "sector"
+            output["observer"] = _observer_panel.visible if _observer_panel != null else false
+            print("P2_UI_FRAME " + JSON.stringify(output))
 
 func _toggle_pause() -> void:
     if not _runner or not _fatal_restore_error.is_empty():
@@ -617,26 +683,43 @@ func _sync_speed_control() -> void:
 
 
 func _on_tick_completed(tick: int) -> void:
-    # N39 writes receipts almost every tick. Checking their existence
-    # previously forced a full rich-text inspector + World/ledger clone on
-    # EVERY tick, and on system screens drew the same view a second time.
-    # Keep the actual N158 simulation and native orbit tick unchanged;
-    # presentation can update the slower inspector on an 8-tick cadence.
-    if tick % 8 == 0:
-        if ENABLE_DEBUG_MANUAL_FLEET_UI:
-            _populate_ship_choices()
-        _refresh_observer()
-        _refresh_selection()
-        _update_status()
+    # N158 emits from WITHIN advance_frame(). It may advance several ticks
+    # in one GUI frame: do not clone N39 World, rebuild inspector text or
+    # redraw geometry inside the signal. This records only the last real
+    # completed tick; it cannot influence tick order or AI.
+    _pending_ui_tick = tick
+
+func _flush_finished_tick_views(delta: float) -> void:
+    _presentation_elapsed += maxf(delta, 0.0)
+    if _pending_ui_tick < 0 or _runner == null:
         return
-    # Native orbit angles may continue to refresh each tick. Only ship
-    # state presentation is sampled every 4 ticks; it never drives N14.
-    if _in_system and _system_view != null and _model != null:
-        var live_system: Dictionary = _model.system_by_id(_selected_system)
-        if not live_system.is_empty():
-            _system_view.update_world(live_system)
-            if tick % 4 == 0:
-                _system_view.call("set_live_fleet", _runner.fleet_snapshot())
+    var latest: int = _pending_ui_tick
+    # Orbit view always samples the newest completed real state, at most
+    # once per visible GUI frame. No interpolation or fictitious movement.
+    if _in_system and _system_view != null and _model != null and (
+            latest != _last_orbit_presentation_tick):
+        var current: Dictionary = _model.system_by_id(_selected_system)
+        if not current.is_empty():
+            _system_view.update_world(current)
+            _last_orbit_presentation_tick = latest
+            if _last_fleet_presentation_tick < 0 or (
+                    latest - _last_fleet_presentation_tick >= UI_FLEET_MIN_TICKS):
+                _system_view.set_live_fleet(_runner.fleet_snapshot())
+                _last_fleet_presentation_tick = latest
+    # Heavy N38/Observer and text panels run only after ALL ticks of this
+    # frame, at a real-time cadence. A paused game never invents updates.
+    if _presentation_elapsed < UI_DETAIL_INTERVAL:
+        return
+    _presentation_elapsed = 0.0
+    if _last_full_presentation_tick == latest:
+        return
+    _last_full_presentation_tick = latest
+    if ENABLE_DEBUG_MANUAL_FLEET_UI:
+        _populate_ship_choices()
+    var shared_economy: Dictionary = _refresh_observer()
+    _refresh_selection(shared_economy, false)
+    _update_status()
+    _pending_ui_tick = -1
 
 func _runtime_failure() -> Dictionary:
     if _runner != null and _runner.has_method("last_phase_failure"):
