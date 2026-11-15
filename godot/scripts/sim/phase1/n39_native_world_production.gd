@@ -4176,7 +4176,13 @@ func apply_market_phase(tick: int, updates: Dictionary,
                 "orders", "history"]:
             if not (proposed.get(field) is Dictionary):
                 return false
-            m[field] = proposed[field].duplicate(true)
+            # Identical observation dictionaries already belong to N39.
+            # Keep the canonical immutable-for-this-phase reference rather
+            # than deep-cloning six unchanged fields on every N150 tick.
+            # Changed proposals MUST detach before publication; external
+            # mutations cannot alias canonical N39.
+            if proposed[field] != m.get(field, null):
+                m[field] = proposed[field].duplicate(true)
         staged["markets"][location] = m
         # Supply/owner remain the previous canonical physical inventory.
     if _measured_schema_validate("L4121", staged) != "":
