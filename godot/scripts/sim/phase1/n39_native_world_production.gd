@@ -107,13 +107,17 @@ var _profile_world_copy_calls: int = 0
 var _profile_world_copy_usec: int = 0
 var _profile_ship_copy_calls: int = 0
 var _profile_ship_copy_usec: int = 0
+var _profile_n21_commit_calls: int = 0
+var _profile_n21_commit_usec: int = 0
 
 func world_copy_profile() -> Dictionary:
     return {"enabled": _profile_copy_enabled,
         "world_copy_calls": _profile_world_copy_calls,
         "world_copy_usec": _profile_world_copy_usec,
         "ship_copy_calls": _profile_ship_copy_calls,
-        "ship_copy_usec": _profile_ship_copy_usec}
+        "ship_copy_usec": _profile_ship_copy_usec,
+        "n21_commit_calls": _profile_n21_commit_calls,
+        "n21_commit_usec": _profile_n21_commit_usec}
 
 func world_snapshot() -> Dictionary:
     if not _ready:
@@ -1192,7 +1196,18 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
 ## Original Rust N21: source FIFO FacilityStorage dock_queue + dock fee.
 ## This is the ONLY paid N21 Apply. A source proposal cannot publish
 ## facilities, ships or N9 by itself. N38 owns snapshot of these fields.
+## Optional diagnostic only; no timing work or branching of native
+## economy when LS_PROFILE_NATIVE_PHASES is disabled.
 func _commit_native_n21(proposal: Dictionary) -> Dictionary:
+    if not _profile_copy_enabled:
+        return _commit_native_n21_unprofiled(proposal)
+    var began: int = Time.get_ticks_usec()
+    var outcome: Dictionary = _commit_native_n21_unprofiled(proposal)
+    _profile_n21_commit_calls += 1
+    _profile_n21_commit_usec += maxi(0, Time.get_ticks_usec() - began)
+    return outcome
+
+func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     if not proposal.get("ok", false) or not (proposal.get("world") is Dictionary) or (
             not (proposal.get("ledger_snapshot") is Dictionary)):
         return {"ok": false, "reason": "n21_invalid_staged_source_world"}
@@ -4979,7 +4994,11 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
         return {"ok": false, "fatal": true, "reason": "n129_native_total_not_conserved"}
     for account in accounts:
         if int(actual.get(account, -1)) != int(accounts[account]):
-            return {"ok": false, "fatal": true, "reason": "n129_wallet_world_divergence"}
+            return {"ok": false, "fatal": true,
+                "reason": "n129_wallet_world_divergence",
+                "account": str(account), "tick": tick,
+                "ledger_credits": int(actual.get(account, -1)),
+                "world_credits": int(accounts[account])}
     _world = staged
     _ledger = wallets
     return {"ok": true, "due": true, "tick": tick,
