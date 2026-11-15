@@ -7,6 +7,7 @@ on:
       - feature/n84-ship-only-copy-20261115
       - feature/godot-phase2-world-copy-boundaries-20261115
       - feature/n9-owned-ledger-fork-20261115
+      - feature/n153-route-graph-cache-20261115
     paths:
       - .github/workflows/p2-unified-godot-smoke.yml
       - godot/docs/phase2/P2_CI_TRIGGER.txt
@@ -118,6 +119,35 @@ jobs:
             tail -n 110 godot/logs/p2-unified/n9-owned-fork-history.log
             exit 1
           fi
+          # Cached N4 route results must preserve direction/tie breaks and
+          # actual N153 funded-contract decisions, including N38 reload.
+          timeout --signal=TERM --kill-after=5s 30s godot --headless --path godot \
+            --script res://tests/p2_n153_route_cache_parity_check.gd \
+            > godot/logs/p2-unified/n153-route-cache-parity.log 2>&1
+          n153route=$?
+          if test "$n153route" -ne 0; then
+            echo "P2_CI_N153_ROUTE_PARITY_FAIL code=$n153route"
+            tail -n 100 godot/logs/p2-unified/n153-route-cache-parity.log
+            exit 1
+          fi
+          timeout --signal=TERM --kill-after=5s 30s godot --headless --path godot \
+            --script res://tests/n58_route_graph_audit_check.gd \
+            > godot/logs/p2-unified/n58-route-audit.log 2>&1
+          n58=$?
+          if test "$n58" -ne 0; then
+            echo "P2_CI_N58_ROUTE_AUDIT_FAIL code=$n58"
+            tail -n 100 godot/logs/p2-unified/n58-route-audit.log
+            exit 1
+          fi
+          timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
+            --script res://tests/p2_n153_live_contract_dispatch_check.gd \
+            > godot/logs/p2-unified/n153-real-dispatch.log 2>&1
+          n153actual=$?
+          if test "$n153actual" -ne 0; then
+            echo "P2_CI_N153_REAL_DISPATCH_FAIL code=$n153actual"
+            tail -n 110 godot/logs/p2-unified/n153-real-dispatch.log
+            exit 1
+          fi
           # N21 must reject loss or rewrite of old paid N9 receipts while
           # avoiding quadratic history cloning on every docking action.
           timeout --signal=TERM --kill-after=5s 45s godot --headless --path godot \
@@ -190,7 +220,34 @@ jobs:
           # On the dedicated performance branch continue the same real
           # N38 restart + paid source acceptance past the N129 tick825
           # regression, without altering the default integration gate.
-          if test "$GITHUB_REF_NAME" = "feature/n9-owned-ledger-fork-20261115"; then
+          if test "$GITHUB_REF_NAME" = "feature/n153-route-graph-cache-20261115"; then
+            LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
+              timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
+                --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+                > godot/logs/p2-unified/stage2-native-420.log 2>&1
+            stage2=$?
+            if test "$stage2" -ne 0 || ! grep -q "P2_STAGE2_LONG_NATIVE_PASS tick=900" godot/logs/p2-unified/stage2-native-420.log; then
+              echo "P2_CI_N153_LONG_900_FAIL code=$stage2"
+              tail -n 100 godot/logs/p2-unified/stage2-native-420.log
+              exit 1
+            fi
+            routefile=godot/scripts/sim/route_graph.gd
+            cp "$routefile" "$RUNNER_TEMP/n153-route-candidate.gd"
+            git fetch --no-tags --depth=1 origin e1dc28924cd689edd23d8a75b273c63678199f31
+            git show e1dc28924cd689edd23d8a75b273c63678199f31:"$routefile" > "$routefile"
+            timeout --signal=TERM --kill-after=5s 90s godot --headless --path godot \
+              --script res://tests/p2_n153_route_cache_benchmark.gd \
+              > godot/logs/p2-unified/n153-route-baseline-bench.log 2>&1
+            baseline_code=$?
+            cp "$RUNNER_TEMP/n153-route-candidate.gd" "$routefile"
+            timeout --signal=TERM --kill-after=5s 90s godot --headless --path godot \
+              --script res://tests/p2_n153_route_cache_benchmark.gd \
+              > godot/logs/p2-unified/n153-route-candidate-bench.log 2>&1
+            candidate_code=$?
+            echo "N153_ROUTE_AB_BASELINE $(grep 'N153_ROUTE_REPEAT_BENCH_PASS' godot/logs/p2-unified/n153-route-baseline-bench.log | tail -n 1)"
+            echo "N153_ROUTE_AB_CANDIDATE $(grep 'N153_ROUTE_REPEAT_BENCH_PASS' godot/logs/p2-unified/n153-route-candidate-bench.log | tail -n 1)"
+            test "$baseline_code" -eq 0 -a "$candidate_code" -eq 0 || exit 1
+          elif test "$GITHUB_REF_NAME" = "feature/n9-owned-ledger-fork-20261115"; then
             # New ledger branch is first proven on the real 900-tick
             # original seed including strict N38 restart at tick360.
             LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \

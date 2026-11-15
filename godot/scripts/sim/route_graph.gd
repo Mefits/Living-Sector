@@ -9,6 +9,20 @@ var _edges: Dictionary = {}
 var _nodes: Dictionary = {}
 var _edge_count: int = 0
 
+## This N4 graph is immutable between successful load_worlds() calls.
+## N153 repeatedly asks about the same source/destination pair for
+## different ships and source offers. Cache only detached finished routes;
+## no state or monetary/profitability decisions are cached.
+const MAX_PATH_CACHE: int = 4096
+var _path_cache: Dictionary = {} # start -> {destination -> detached route}
+var _path_cache_size: int = 0
+var _path_hits: int = 0
+var _path_misses: int = 0
+
+func path_cache_stats() -> Dictionary:
+    return {"hits": _path_hits, "misses": _path_misses,
+        "entries": _path_cache_size, "limit": MAX_PATH_CACHE}
+
 func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
     var edges: Dictionary = {}
     var nodes: Dictionary = {}
@@ -106,6 +120,12 @@ func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
     _edges = edges
     _nodes = nodes
     _edge_count = count
+    # A failed load leaves the old immutable graph and its cache intact.
+    # Clear the cache only after replacing the authoritative topology.
+    _path_cache.clear()
+    _path_cache_size = 0
+    _path_hits = 0
+    _path_misses = 0
     return true
 
 func edge_count() -> int:
@@ -117,7 +137,27 @@ func has_location(location: String) -> bool:
 func outgoing(location: String) -> Array:
     return _edges.get(location, []).duplicate(true)
 
+## Cached results are returned as independent dictionaries so callers
+## can never rewrite a later ship's deterministic route. Negative routes
+## are cached too; successful graph reloads invalidate every cached pair.
 func shortest_path(start: String, destination: String) -> Dictionary:
+    var destinations: Dictionary = _path_cache.get(start, {})
+    if destinations.has(destination):
+        _path_hits += 1
+        return (destinations[destination] as Dictionary).duplicate(true)
+    _path_misses += 1
+    var result: Dictionary = _shortest_path_uncached(start, destination)
+    if _path_cache_size >= MAX_PATH_CACHE:
+        _path_cache.clear()
+        _path_cache_size = 0
+    if not _path_cache.has(start):
+        _path_cache[start] = {}
+    _path_cache[start][destination] = result.duplicate(true)
+    _path_cache_size += 1
+    return result
+
+## Source N4 directed Dijkstra and exact lexicographic tie-break retained.
+func _shortest_path_uncached(start: String, destination: String) -> Dictionary:
     if not _nodes.has(start) or not _nodes.has(destination):
         return {"reachable": false, "reason": "unknown_location"}
     if start == destination:
