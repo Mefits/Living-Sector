@@ -35,6 +35,60 @@ var _body_pins: Array = []
 var _focused_body_id: String = ""
 var _globe_zoom: float = 1.0
 var _globe_pan: Vector2 = Vector2.ZERO
+## U4: detached UI-only indices. The authoritative World is never mutated.
+var _body_index: Dictionary = {}
+var _facilities_by_body: Dictionary = {}
+var _body_ids_by_location: Dictionary = {}
+var _ships_by_body: Dictionary = {}
+var _max_orbit_radius: float = 1.0
+var _last_draw_usec: int = 0
+var _max_draw_usec: int = 0
+var _draw_calls: int = 0
+
+func draw_profile() -> Dictionary:
+    return {"calls": _draw_calls, "last_usec": _last_draw_usec,
+        "max_usec": _max_draw_usec}
+
+func _rebuild_body_index() -> void:
+    _body_index.clear()
+    _max_orbit_radius = 1.0
+    for value in _world.get("bodies", []):
+        if not (value is Dictionary):
+            continue
+        var body: Dictionary = value
+        _body_index[str(body.get("id", ""))] = body
+        _max_orbit_radius = maxf(_max_orbit_radius,
+            float(body.get("orbit_radius", 0.0)))
+
+func _rebuild_facility_index() -> void:
+    _facilities_by_body.clear()
+    _body_ids_by_location.clear()
+    for value in _world.get("facilities", []):
+        if not (value is Dictionary):
+            continue
+        var facility: Dictionary = value
+        var bid: String = str(facility.get("body", ""))
+        var location: String = str(facility.get("location", ""))
+        _facilities_by_body[bid] = int(_facilities_by_body.get(bid, 0)) + 1
+        if not _body_ids_by_location.has(location):
+            _body_ids_by_location[location] = []
+        var attached: Array = _body_ids_by_location[location]
+        if not attached.has(bid):
+            attached.append(bid)
+    _rebuild_ship_index()
+
+func _rebuild_ship_index() -> void:
+    _ships_by_body.clear()
+    for raw in _live_fleet.values():
+        if not (raw is Dictionary):
+            continue
+        var ship: Dictionary = raw
+        var transit: Variant = ship.get("transit", {})
+        if not (transit is Dictionary) or not transit.is_empty():
+            continue
+        var location: String = str(ship.get("location", ""))
+        for bid in _body_ids_by_location.get(location, []):
+            _ships_by_body[bid] = int(_ships_by_body.get(bid, 0)) + 1
 
 
 func _ready() -> void:
@@ -44,6 +98,8 @@ func _ready() -> void:
 
 func set_world(world: Dictionary) -> void:
     _world = world.duplicate(true)
+    _rebuild_body_index()
+    _rebuild_facility_index()
     _selected_body_id = ""
     _focused_body_id = ""
     _zoom = 1.0
@@ -54,19 +110,50 @@ func set_world(world: Dictionary) -> void:
 
 
 func set_live_fleet(fleet: Dictionary) -> void:
-    _live_fleet = fleet.duplicate(true)
+    # The caller's N158 fleet_snapshot is already detached. Retain ONLY
+    # visual fields; no second clone of cargo, BT, wallets or provenance.
+    var projected: Dictionary = {}
+    for sid in fleet:
+        var raw: Variant = fleet[sid]
+        if not (raw is Dictionary):
+            continue
+        var ship: Dictionary = raw
+        var transit: Variant = ship.get("transit", {})
+        projected[sid] = {"location": str(ship.get("location", "")),
+            "system_id": str(ship.get("system_id", "")),
+            "class": str(ship.get("class", "")),
+            "transit": (transit as Dictionary).duplicate(true)
+                if transit is Dictionary else {}}
+    if projected == _live_fleet:
+        return
+    _live_fleet = projected
+    _rebuild_ship_index()
     queue_redraw()
-
 
 func update_world(world: Dictionary) -> void:
     if str(world.get("system", {}).get("id", "")) != str(_world.get("system", {}).get("id", "")):
         set_world(world)
         return
-    _world = world.duplicate(true)
-    queue_redraw()
-
+    # Native orbit angles can change each tick; static geometry usually
+    # does not. Deep detach only changed visual domains, not whole World.
+    var changed: bool = false
+    if world.get("bodies", []) != _world.get("bodies", []):
+        _world["bodies"] = (world.get("bodies", []) as Array).duplicate(true)
+        _rebuild_body_index()
+        changed = true
+    if world.get("facilities", []) != _world.get("facilities", []):
+        _world["facilities"] = (world.get("facilities", []) as Array).duplicate(true)
+        _rebuild_facility_index()
+        changed = true
+    if world.get("system", {}) != _world.get("system", {}):
+        _world["system"] = (world.get("system", {}) as Dictionary).duplicate(true)
+        changed = true
+    if changed:
+        queue_redraw()
 
 func select_body(body_id: String) -> void:
+    if _selected_body_id == body_id:
+        return
     _selected_body_id = body_id
     queue_redraw()
 
@@ -108,11 +195,7 @@ func reset_view() -> void:
 
 
 func _body_by_id(body_id: String) -> Dictionary:
-    for body in _world.get("bodies", []):
-        if str(body.get("id", "")) == body_id:
-            return body
-    return {}
-
+    return _body_index.get(body_id, {})
 
 func _known_moon_parent(body: Dictionary) -> Dictionary:
     if str(body.get("type", "")) != "moon":
@@ -170,12 +253,8 @@ func _radius_transform(radius: float) -> float:
 
 
 func _orbit_scale() -> float:
-    var max_radius: float = 1.0
-    for body in _world.get("bodies", []):
-        max_radius = maxf(max_radius, float(body.get("orbit_radius", 0.0)))
     var available: float = maxf(90.0, minf(size.x, size.y) * 0.40)
-    return available / maxf(1.0, _radius_transform(max_radius))
-
+    return available / maxf(1.0, _radius_transform(_max_orbit_radius))
 
 func _center() -> Vector2:
     return size * 0.5 + _pan
@@ -218,31 +297,20 @@ func _body_size(body: Dictionary) -> float:
 
 
 func _facility_count(body_id: String) -> int:
-    var result: int = 0
-    for facility in _world.get("facilities", []):
-        if str(facility.get("body", "")) == body_id:
-            result += 1
-    return result
-
+    return int(_facilities_by_body.get(body_id, 0))
 
 func _live_ship_count(body_id: String) -> int:
-    var locations: Dictionary = {}
-    for facility in _world.get("facilities", []):
-        if str(facility.get("body", "")) == body_id:
-            locations[str(facility.get("location", ""))] = true
-    var total: int = 0
-    for ship_id in _live_fleet:
-        var ship: Dictionary = _live_fleet[ship_id]
-        if locations.has(str(ship.get("location", ""))) and ship.get("transit", {}).is_empty():
-            total += 1
-    return total
-
+    return int(_ships_by_body.get(body_id, 0))
 
 func _draw() -> void:
+    var started: int = Time.get_ticks_usec()
     if is_body_focused():
         _draw_body_focus()
     else:
         _draw_system()
+    _last_draw_usec = maxi(0, Time.get_ticks_usec() - started)
+    _max_draw_usec = maxi(_max_draw_usec, _last_draw_usec)
+    _draw_calls += 1
 
 
 func _draw_system() -> void:
