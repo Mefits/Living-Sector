@@ -110,16 +110,24 @@ static func propose(world: Dictionary, tick: int, multiplier: int) -> Dictionary
             population_wealth[str(h["id"])] = int(h["wealth"])
         # The source market is not its own account: its Facility owner
         # is the only real N9 payer. Avoid creating market wallets.
-        for m in helped.get("markets", []):
-            facilities[str(m["id"])]["credits"] = int(m["credits"])
-        for p in helped.get("producers", []):
-            var id: String = str(p["id"])
-            # This class may not be a paid controller; still the same
-            # persistent FacilityOperations wallet, never a duplicate.
-            facilities[id]["credits"] = int(p["credits"])
+        # Rust MarketIdentity and FacilityIdentity point to the SAME
+        # FacilityOperations wallet. The source relief adapter holds market
+        # and producer views in separate arrays, so copying both arrays'
+        # final balances sequentially would overwrite a real market
+        # controller relief with the unchanged producer-view balance.
+        # Apply each actual source event ONCE to the canonical facility
+        # wallet instead; N39 replays the very same events through N9.
         for event in help.get("events", []):
             var id: String = str(event["recipient_id"])
             var recipient_kind: String = str(event["recipient_kind"])
+            var amount: int = int(event["amount"])
+            if recipient_kind == "facility":
+                if not facilities.has(id) or amount <= 0 or int(
+                        facilities[id]["credits"]) > 9223372036854775807 - amount:
+                    return {"ok": false, "reason": "n129_invalid_shared_facility_wallet"}
+                facilities[id]["credits"] = int(facilities[id]["credits"]) + amount
+            elif recipient_kind != "household":
+                return {"ok": false, "reason": "n129_invalid_relief_recipient_kind"}
             transfers.append({
                 "kind": "native_faction_relief",
                 "source": "faction/" + str(event["faction_id"]),
