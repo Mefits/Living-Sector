@@ -1405,10 +1405,15 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     # restore/retention and exact account audits. Thus every refusal that
     # the previous source rejected still keeps its original reason. Only
     # forged previously-unchecked new N21 receipt provenance is rejected.
-    var n21_proof: String = DockDeltaValidator.validate_delta(_world,
-        future, money)
-    if not n21_proof.is_empty():
-        return {"ok": false, "reason": "n21_local_" + n21_proof}
+    # N21's old Schema/ledger checks have already proved occupancy,
+    # FIFO and retention. The new narrow proof is only required if this
+    # transition actually ADDS a dock receipt: scanning the old append-only
+    # archive again on the common no-new-receipt path adds quadratic work.
+    if future["dock_receipts"].size() > _world.get("dock_receipts", {}).size():
+        var n21_proof: String = DockDeltaValidator.validate_delta(_world,
+            future, money)
+        if not n21_proof.is_empty():
+            return {"ok": false, "reason": "n21_local_" + n21_proof}
     # Explicit N21 write set: only ships/facilities/paid dock receipts
     # can change. The full future has already passed every old domain,
     # FIFO/receipt and N39/N9 guard above. Retain canonical references
