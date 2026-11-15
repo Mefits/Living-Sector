@@ -24,10 +24,19 @@ func _initialize() -> void:
     ids.sort()
     for sid in ids:
         var candidate: Dictionary = seed_world["ships"][sid]
-        if str(candidate.get("active_contract_id", "")).is_empty() and (
-                str(candidate.get("docked_at", "")).is_empty()) and (
-                candidate.get("transit", {}) is Dictionary) and (
-                candidate["transit"].is_empty()):
+        if not str(candidate.get("active_contract_id", "")).is_empty() or (
+                not str(candidate.get("docked_at", "")).is_empty()) or (
+                not (candidate.get("transit", {}) is Dictionary)) or (
+                not candidate["transit"].is_empty()):
+            continue
+        var dock_nearby: bool = false
+        for fid in seed_world["facilities"]:
+            var fac: Dictionary = seed_world["facilities"][fid]
+            if str(fac.get("location", "")) == str(candidate.get("location", "")) and (
+                    int(fac.get("docking_capacity", 0)) > 0):
+                dock_nearby = true
+                break
+        if dock_nearby:
             selected = str(sid)
             eligible = candidate
             break
@@ -58,6 +67,36 @@ func _initialize() -> void:
             _fail("extended World failed source Schema at " + str(
                 total_ships) + ": " + issue)
             return
+        # A7 source Schema and local dock occupancy must reject a
+        # truly *occupied* over-capacity dock. A longer waiting FIFO
+        # alone is legal and is deliberately not counted as occupancy.
+        if total_ships >= 100:
+            var target_facility: String = ""
+            var capacity: int = 0
+            for fid in world["facilities"]:
+                var fac: Dictionary = world["facilities"][fid]
+                var cap: int = int(fac.get("docking_capacity", 0))
+                if cap > 0 and cap + 1 <= total_ships - 24 and (
+                        str(fac.get("location", "")) == str(eligible["location"])):
+                    target_facility = str(fid)
+                    capacity = cap
+                    break
+            if target_facility.is_empty():
+                _fail("no real compatible positive-capacity dock for scale proof")
+                return
+            var overflowing: Dictionary = world.duplicate(true)
+            var docked_count: int = 0
+            for sid in overflowing["ships"]:
+                if str(sid).begins_with("p2a-fixture-ship-"):
+                    overflowing["ships"][sid]["docked_at"] = target_facility
+                    docked_count += 1
+                    if docked_count >= capacity + 1:
+                        break
+            if DockLocal.validate_delta(world, overflowing, {}) != (
+                    "dock_capacity_exceeded") or Schema.validate(overflowing) != (
+                    "dock_capacity_exceeded"):
+                _fail("local and full Schema differ on occupied docking capacity")
+                return
         var accounts: Dictionary = Schema.accounts(world)
         for sid in world["ships"]:
             if not accounts.has(Schema.ship_account(str(sid))) or (
