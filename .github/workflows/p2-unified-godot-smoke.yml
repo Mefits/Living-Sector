@@ -93,6 +93,17 @@ jobs:
             tail -n 100 godot/logs/p2-unified/n38-n21-fee-codec.log
             exit 1
           fi
+          # N21 must reject loss or rewrite of old paid N9 receipts while
+          # avoiding quadratic history cloning on every docking action.
+          timeout --signal=TERM --kill-after=5s 45s godot --headless --path godot \
+            --script res://tests/p2_n21_ledger_history_guard_check.gd \
+            > godot/logs/p2-unified/n21-history-guard.log 2>&1
+          n21history=$?
+          if test "$n21history" -ne 0; then
+            echo "P2_CI_N21_LEDGER_HISTORY_FAIL code=$n21history"
+            tail -n 100 godot/logs/p2-unified/n21-history-guard.log
+            exit 1
+          fi
           # ONE Gate4 research acceptance on the original frozen Rust
           # factions, accounts, market electronics and actual N38 disk.
           timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
