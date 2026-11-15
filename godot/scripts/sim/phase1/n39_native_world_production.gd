@@ -1399,6 +1399,14 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     for key in expected_balances:
         if money["balances"].get(key, null) != expected_balances[key]:
             return {"ok": false, "reason": "n21_wallet_did_not_match_source_n9"}
+    # Narrow additional proof only AFTER original Schema, complete ledger
+    # restore/retention and exact account audits. Thus every refusal that
+    # the previous source rejected still keeps its original reason. Only
+    # forged previously-unchecked new N21 receipt provenance is rejected.
+    var n21_proof: String = DockDeltaValidator.validate_delta(_world,
+        future, money)
+    if not n21_proof.is_empty():
+        return {"ok": false, "reason": "n21_local_" + n21_proof}
     # Explicit N21 write set: only ships/facilities/paid dock receipts
     # can change. The full future has already passed every old domain,
     # FIFO/receipt and N39/N9 guard above. Retain canonical references
