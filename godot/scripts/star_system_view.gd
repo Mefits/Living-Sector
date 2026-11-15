@@ -119,11 +119,13 @@ func set_live_fleet(fleet: Dictionary) -> void:
             continue
         var ship: Dictionary = raw
         var transit: Variant = ship.get("transit", {})
+        var visual_transit: Dictionary = {}
+        if transit is Dictionary:
+            visual_transit = (transit as Dictionary).duplicate(true)
         projected[sid] = {"location": str(ship.get("location", "")),
             "system_id": str(ship.get("system_id", "")),
             "class": str(ship.get("class", "")),
-            "transit": (transit as Dictionary).duplicate(true)
-                if transit is Dictionary else {}}
+            "transit": visual_transit}
     if projected == _live_fleet:
         return
     _live_fleet = projected
