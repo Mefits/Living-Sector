@@ -1,0 +1,60 @@
+extends GutTest
+## Rust apply.rs::commit_dock always transfers N21 discounted fees to
+## the physical FacilityOperations, including N151's construction_dock.
+## The original N151 dock begins at 0, but its valid N21 income may rise.
+## Unit fixtures are detached; they do not inject goods or ships into sim.
+const Schema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
+
+func _state_with_fee(amount: int, reported: int) -> Dictionary:
+    var fid: String = "n151-temp-real-dock"
+    var op: String = "n21:dock:seed-ship:5"
+    return {"dock_receipts": {op: {
+        "operation_id": op, "facility_id": fid, "action": "dock",
+        "fee": amount, "tick": 5,
+        "financial_receipt": op if amount > 0 else ""}},
+        "facility_id": fid, "credits": reported}
+
+func test_original_colony_dock_can_earn_real_receipted_n21_fees() -> void:
+    var world: Dictionary = _state_with_fee(16, 16)
+    assert_true(Schema._original_colony_dock_income_proved(
+        world, world["facility_id"], world["credits"]))
+    world["credits"] = 17
+    assert_false(Schema._original_colony_dock_income_proved(
+        world, world["facility_id"], world["credits"]),
+        "An unreceipted extra credit must fail closed")
+    world["credits"] = 0
+    assert_false(Schema._original_colony_dock_income_proved(
+        world, world["facility_id"], world["credits"]),
+        "The source fee cannot disappear from N151 operator's cash")
+
+func test_n151_receipts_must_be_original_n21_and_payment_backed() -> void:
+    var world: Dictionary = _state_with_fee(16, 16)
+    var op: String = "n21:dock:seed-ship:5"
+    world["dock_receipts"][op]["financial_receipt"] = ""
+    assert_false(Schema._original_colony_dock_income_proved(
+        world, world["facility_id"], world["credits"]))
+    world["dock_receipts"][op]["financial_receipt"] = op
+    world["dock_receipts"][op]["fee"] = -1
+    assert_false(Schema._original_colony_dock_income_proved(
+        world, world["facility_id"], world["credits"]))
+    world["dock_receipts"][op]["fee"] = 16
+    world["dock_receipts"][op]["action"] = "free_credit"
+    assert_false(Schema._original_colony_dock_income_proved(
+        world, world["facility_id"], world["credits"]))
+
+func test_n151_zero_initial_cash_and_two_docks_keep_exact_fee_sum() -> void:
+    var fid: String = "n151-temp-real-dock"
+    assert_true(Schema._original_colony_dock_income_proved(
+        {"dock_receipts": {}}, fid, 0))
+    assert_false(Schema._original_colony_dock_income_proved(
+        {"dock_receipts": {}}, fid, 1))
+    var world: Dictionary = _state_with_fee(16, 26)
+    var id2: String = "n21:dock:another-ship:6"
+    world["dock_receipts"][id2] = {
+        "operation_id": id2, "facility_id": fid, "action": "dock",
+        "fee": 10, "tick": 6, "financial_receipt": id2}
+    assert_true(Schema._original_colony_dock_income_proved(
+        world, fid, 26))
+    world["dock_receipts"][id2]["fee"] = 11
+    assert_false(Schema._original_colony_dock_income_proved(
+        world, fid, 26))
