@@ -226,6 +226,15 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "tick": tick}
             var choice: Dictionary = N153.select_contract(context)
             if str(choice.get("id", "")) == str(contract_id):
+                # Source winner tie-break is strictly profit > (not >=).
+                # N81 cannot change the profit selected by N153; building
+                # a full GOAP/BT for a weaker/equal bid cannot replace the
+                # existing winner. In this branch a winner is already
+                # nonempty, so ship_blockers is never published; when no
+                # winner exists every N81 rejection is still counted.
+                # N153 and all real gates above still execute unchanged.
+                if not winner.is_empty() and int(choice["profit"]) <= int(winner["profit"]):
+                    continue
                 var origin_owner: bool = ship_faction == seller_faction
                 var candidate_plan: Dictionary = NativePipeline.propose(ship, {
                     "contract_id": str(contract_id),
