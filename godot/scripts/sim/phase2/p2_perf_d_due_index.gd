@@ -19,7 +19,7 @@ func rebuild(events: Array) -> bool:
         var id: String = event["id"]
         if keys.has(id):
             return false
-        var key: Vector2i = Vector2i(int(event["due_tick"]), int(event["phase"]))
+        var key: String = _key(int(event["due_tick"]), int(event["phase"]))
         if not buckets.has(key):
             buckets[key] = []
         var bucket: Array = buckets[key]
@@ -36,7 +36,7 @@ func add(event: Dictionary) -> bool:
     var id: String = event["id"]
     if _event_keys.has(id):
         return false
-    var key: Vector2i = Vector2i(int(event["due_tick"]), int(event["phase"]))
+    var key: String = _key(int(event["due_tick"]), int(event["phase"]))
     if not _buckets.has(key):
         _buckets[key] = []
     var bucket: Array = _buckets[key]
@@ -48,7 +48,7 @@ func add(event: Dictionary) -> bool:
 func remove(event_id: String) -> bool:
     if not _event_keys.has(event_id):
         return false
-    var key: Vector2i = _event_keys[event_id]
+    var key: String = _event_keys[event_id]
     var bucket: Array = _buckets[key]
     for i in range(bucket.size()):
         if bucket[i]["id"] == event_id:
@@ -62,7 +62,7 @@ func remove(event_id: String) -> bool:
 
 func take_due(tick: int, phase: int) -> Array[Dictionary]:
     var result: Array[Dictionary] = []
-    var key: Vector2i = Vector2i(tick, phase)
+    var key: String = _key(tick, phase)
     if not _buckets.has(key):
         return result
     var bucket: Array = _buckets[key]
@@ -77,6 +77,9 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
 
 func pending_count() -> int:
     return _count
+
+func _key(tick: int, phase: int) -> String:
+    return str(tick) + ":" + str(phase)
 
 func _valid(event: Dictionary) -> bool:
     for key in ["id", "due_tick", "phase", "entity_id", "sequence", "kind", "payload"]:
