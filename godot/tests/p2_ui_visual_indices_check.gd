@@ -47,6 +47,22 @@ func _initialize() -> void:
     if visual._body_by_id("earth")["current_angle"] != 40.0:
         _fail("live native orbit angle not reflected")
         return
+    # Facility mutations are real visual invalidation events; indices
+    # must rebuild only then, without any new simulated economic facility.
+    var changed: Dictionary = sys.duplicate(true)
+    changed["facilities"].append({"id": "dock-b", "body": "earth",
+        "location": "Moon-port"})
+    visual.update_world(changed)
+    if visual._facility_count("earth") != 2:
+        _fail("facility-to-body index was not invalidated on a real view change")
+        return
+    var traveling: Dictionary = {"actual-source-ship": {
+        "location": "Earth-port", "system_id": "system-sol",
+        "class": "miner", "transit": {"position": [20.0, 30.0]}}}
+    visual.set_live_fleet(traveling)
+    if visual._live_ship_count("earth") != 0:
+        _fail("in-flight ship shown as physically docked on a body")
+        return
     # This input value differs from the cached source system; the sector
     # map changes only after set_worlds(), never by source dictionary alias.
     sys["system"]["universe_offset"] = [1000.0, -60.0]
