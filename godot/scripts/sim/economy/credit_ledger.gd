@@ -19,42 +19,42 @@ var _receipt_order_chunks: Array = []
 var _receipt_count: int = 0
 
 func _init() -> void:
-    _receipt_partitions.resize(RECEIPT_PARTITIONS)
-    for i in range(RECEIPT_PARTITIONS):
-        _receipt_partitions[i] = {}
+	_receipt_partitions.resize(RECEIPT_PARTITIONS)
+	for i in range(RECEIPT_PARTITIONS):
+		_receipt_partitions[i] = {}
 
 func _bucket_index(id: String) -> int:
-    return int(id.hash()) & (RECEIPT_PARTITIONS - 1)
+	return int(id.hash()) & (RECEIPT_PARTITIONS - 1)
 
 func _has_receipt_id(id: String) -> bool:
-    return (_receipt_partitions[_bucket_index(id)] as Dictionary).has(id)
+	return (_receipt_partitions[_bucket_index(id)] as Dictionary).has(id)
 
 func _receipt_at(id: String) -> Dictionary:
-    return (_receipt_partitions[_bucket_index(id)] as Dictionary).get(id, {})
+	return (_receipt_partitions[_bucket_index(id)] as Dictionary).get(id, {})
 
 func _append_receipt(id: String, record: Dictionary) -> void:
-    # Strictly new immutable record. Every existing shard and order chunk
-    # is treated read-only across independent owned Ledger forks.
-    var bucket: int = _bucket_index(id)
-    var detached: Dictionary = (
-        _receipt_partitions[bucket] as Dictionary).duplicate()
-    detached[id] = record.duplicate(true)
-    _receipt_partitions[bucket] = detached
-    var last: int = _receipt_order_chunks.size() - 1
-    if last < 0 or (_receipt_order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
-        _receipt_order_chunks.append([id])
-    else:
-        var order: Array = (_receipt_order_chunks[last] as Array).duplicate()
-        order.append(id)
-        _receipt_order_chunks[last] = order
-    _receipt_count += 1
+	# Strictly new immutable record. Every existing shard and order chunk
+	# is treated read-only across independent owned Ledger forks.
+	var bucket: int = _bucket_index(id)
+	var detached: Dictionary = (
+		_receipt_partitions[bucket] as Dictionary).duplicate()
+	detached[id] = record.duplicate(true)
+	_receipt_partitions[bucket] = detached
+	var last: int = _receipt_order_chunks.size() - 1
+	if last < 0 or (_receipt_order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
+		_receipt_order_chunks.append([id])
+	else:
+		var order: Array = (_receipt_order_chunks[last] as Array).duplicate()
+		order.append(id)
+		_receipt_order_chunks[last] = order
+	_receipt_count += 1
 
 func _snapshot_receipts() -> Dictionary:
-    var result: Dictionary = {}
-    for chunk in _receipt_order_chunks:
-        for id in chunk:
-            result[id] = _receipt_at(str(id)).duplicate(true)
-    return result
+	var result: Dictionary = {}
+	for chunk in _receipt_order_chunks:
+		for id in chunk:
+			result[id] = _receipt_at(str(id)).duplicate(true)
+	return result
 
 func import_accounts(accounts: Dictionary) -> bool:
 	if not _balances.is_empty() or _receipt_count != 0:
@@ -195,10 +195,10 @@ func pay_native_ship_crew(operation_id: String, ship_account: String,
 
 
 func snapshot() -> Dictionary:
-    # The N38 version-1 envelope and ORIGINAL insertion order are retained.
-    # Export is intentionally full and detached at a real save/proof boundary.
-    return {"version": 1, "balances": _balances.duplicate(true),
-        "receipts": _snapshot_receipts()}
+	# The N38 version-1 envelope and ORIGINAL insertion order are retained.
+	# Export is intentionally full and detached at a real save/proof boundary.
+	return {"version": 1, "balances": _balances.duplicate(true),
+		"receipts": _snapshot_receipts()}
 
 ## A trusted, owned N9 transaction branch. The source ledger has already
 ## validated each receipt on its original creation or untrusted N38 restore.
@@ -209,25 +209,25 @@ func snapshot() -> Dictionary:
 ## NOT historical receipt count. No old receipt map is writable by child.
 ## External N38 restore remains strict and re-validates all history.
 func fork() -> RefCounted:
-    var child: RefCounted = get_script().new()
-    child.set("_balances", _balances.duplicate(true))
-    child.set("_receipt_partitions", _receipt_partitions.duplicate())
-    child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
-    child.set("_receipt_count", _receipt_count)
-    return child
+	var child: RefCounted = get_script().new()
+	child.set("_balances", _balances.duplicate(true))
+	child.set("_receipt_partitions", _receipt_partitions.duplicate())
+	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
+	child.set("_receipt_count", _receipt_count)
+	return child
 
 ## Validate old immutable N9 receipt provenance by scanning the existing
 ## internal receipts, without materializing a complete duplicate history.
 ## No live receipt row or collection is returned to the caller.
 func receipt_count() -> int:
-    return _receipt_count
+	return _receipt_count
 
 func retains_receipts(candidate: Dictionary) -> bool:
-    for chunk in _receipt_order_chunks:
-        for id in chunk:
-            if candidate.get(id, null) != _receipt_at(str(id)):
-                return false
-    return true
+	for chunk in _receipt_order_chunks:
+		for id in chunk:
+			if candidate.get(id, null) != _receipt_at(str(id)):
+				return false
+	return true
 
 ## Read-only N39 verification of wallet balances for operations that can
 ## mutate only the detached ship domain (not the authoritative ledger).
@@ -250,29 +250,29 @@ func restore(data: Dictionary) -> bool:
 			return false
 		if receipts[key].get("id") != key or not (receipts[key].get("legs") is Array):
 			return false
-    # Build the complete immutable index locally before publishing ANY
-    # imported account/receipt. This is an untrusted N38/staged boundary.
-    var partitions: Array = []
-    partitions.resize(RECEIPT_PARTITIONS)
-    for i in range(RECEIPT_PARTITIONS):
-        partitions[i] = {}
-    var order_chunks: Array = []
-    var next_count: int = 0
-    for id in receipts:
-        var bucket: int = _bucket_index(str(id))
-        (partitions[bucket] as Dictionary)[id] = (
-            receipts[id] as Dictionary).duplicate(true)
-        var last: int = order_chunks.size() - 1
-        if last < 0 or (order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
-            order_chunks.append([id])
-        else:
-            (order_chunks[last] as Array).append(id)
-        next_count += 1
-    _balances = candidate.duplicate(true)
-    _receipt_partitions = partitions
-    _receipt_order_chunks = order_chunks
-    _receipt_count = next_count
-    return true
+	# Build the complete immutable index locally before publishing ANY
+	# imported account/receipt. This is an untrusted N38/staged boundary.
+	var partitions: Array = []
+	partitions.resize(RECEIPT_PARTITIONS)
+	for i in range(RECEIPT_PARTITIONS):
+		partitions[i] = {}
+	var order_chunks: Array = []
+	var next_count: int = 0
+	for id in receipts:
+		var bucket: int = _bucket_index(str(id))
+		var target: Dictionary = partitions[bucket]
+		target[id] = (receipts[id] as Dictionary).duplicate(true)
+		var last: int = order_chunks.size() - 1
+		if last < 0 or (order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
+			order_chunks.append([id])
+		else:
+			(order_chunks[last] as Array).append(id)
+		next_count += 1
+	_balances = candidate.duplicate(true)
+	_receipt_partitions = partitions
+	_receipt_order_chunks = order_chunks
+	_receipt_count = next_count
+	return true
 
 func _valid_account(value: Variant) -> bool:
 	return value is String and not value.is_empty()
