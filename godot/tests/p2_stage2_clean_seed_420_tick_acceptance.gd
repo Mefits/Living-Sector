@@ -7,6 +7,8 @@ const Saves = preload("res://scripts/sim/save_state.gd")
 const NativeCoherence = preload("res://scripts/sim/phase2/unified_native_checkpoint_coherence.gd")
 const NativeTimeline = preload("res://scripts/sim/phase2/unified_native_timeline_integrity.gd")
 const NativeFrame = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
+const NativeWorldSchema = preload("res://scripts/sim/phase1/n39_native_world_schema.gd")
+const NativeProduction = preload("res://scripts/sim/phase1/n39_native_world_production.gd")
 const LAST_TICK: int = 420
 const CHECK_TICKS: Array[int] = [1, 60, 120, 240, 360, 361, 420]
 
@@ -120,7 +122,30 @@ func _initialize() -> void:
             return
         var loaded: Dictionary = Saves.load_runner(resumed, seed, path)
         if not loaded.get("ok", false) or resumed.tick_count != 360:
-            _fail("N38 disk restore tick360 rejected: " + str(loaded))
+            # Fail closed, but reveal which real N38/N39 checkpoint
+            # preflight refused the source World. This diagnostic never
+            # edits the save, source economy or the active sim.
+            var raw_disk: Dictionary = Saves._read_checkpoint(path)
+            var restore_probe: Dictionary = {
+                "disk_decoded": not raw_disk.is_empty()}
+            if not raw_disk.is_empty():
+                restore_probe["timeline"] = NativeTimeline.validate(raw_disk)
+                restore_probe["serialized_coherence"] = (
+                    NativeCoherence.validate_serialized_candidate(raw_disk))
+                var isolated: Dictionary = raw_disk.duplicate(true)
+                var normalization_ok: bool = resumed._normalize_number_at(
+                    isolated, "native_production_multiplier")
+                if normalization_ok and isolated.get("native_production") is Dictionary:
+                    normalization_ok = resumed._normalize_native_snapshot(
+                        isolated["native_production"])
+                restore_probe["native_type_normalized"] = normalization_ok
+                if normalization_ok:
+                    restore_probe["world_schema"] = NativeWorldSchema.validate(
+                        isolated["native_production"]["world"])
+                    restore_probe["n39_restore"] = NativeProduction.new().restore(
+                        isolated["native_production"])
+            _fail("N38 disk restore tick360 rejected: " + str(loaded) +
+                " diagnosis=" + str(restore_probe))
             return
         var after: Dictionary = resumed.checkpoint()
         if after.is_empty() or not after.has("native_production"):
