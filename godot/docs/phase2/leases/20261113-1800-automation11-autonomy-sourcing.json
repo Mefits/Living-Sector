@@ -1,0 +1,12 @@
+{
+  "worker": "automation11",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T17:00:26Z",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_autonomy_source_matching.gd"
+  ],
+  "boundary": "new pure N135 source market matching adapter; no central runner, ledger, board, or GUI changes",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "released_at": "2026-11-13T17:00:26Z",
+  "commit": "07096f5335265c07685332506e26b9e4a74af37a"
+}

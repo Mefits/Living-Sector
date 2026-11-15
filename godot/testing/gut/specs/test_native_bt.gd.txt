@@ -1,0 +1,45 @@
+extends GutTest
+## Materialized by testing/gut/install-gut.{ps1,sh}; not parsed by the
+## main Godot project until the real GUT 9.7.1 addon is installed.
+const Bt = preload("res://scripts/sim/ships/ai/native_behavior_tree.gd")
+
+func test_original_sequence_advances_one_leaf_per_tick() -> void:
+    var tree: Dictionary = Bt.sequence([
+        Bt.action({"kind": "Dock"}),
+        Bt.action({"kind": "DeliverCargo"})
+    ])
+    assert_true(Bt.validate(tree))
+    assert_eq(Bt.current_action(tree), "Dock")
+    var first: Dictionary = Bt.tick(tree, func(_spec: Dictionary,
+            _bb: Dictionary) -> Dictionary:
+        return {"status": Bt.SUCCESS, "commands": []})
+    assert_true(first.get("ok", false))
+    assert_eq(first.get("status", ""), Bt.RUNNING)
+    assert_eq(Bt.current_action(first["tree"]), "DeliverCargo")
+    assert_eq(Bt.current_action(tree), "Dock",
+        "Pure N84 tick must not change the prior canonical tree")
+    var second: Dictionary = Bt.tick(first["tree"], func(
+            _spec: Dictionary, _bb: Dictionary) -> Dictionary:
+        return {"status": Bt.SUCCESS, "commands": []})
+    assert_eq(second.get("status", ""), Bt.SUCCESS)
+
+func test_n38_requires_integral_bt_cursor() -> void:
+    var tree: Dictionary = Bt.sequence([Bt.action({"kind": "Dock"})])
+    tree["index"] = 1.0
+    assert_false(Bt.validate(tree))
+    var restored: Dictionary = Bt.normalize_from_json(tree)
+    assert_true(Bt.validate(restored))
+    assert_eq(restored["index"], 1)
+    tree["index"] = 0.4
+    assert_true(Bt.normalize_from_json(tree).is_empty())
+
+func test_invalid_action_fails_without_leaking_commands() -> void:
+    var empty_spec: Dictionary = Bt.action({})
+    assert_true(empty_spec.is_empty())
+    var tree: Dictionary = Bt.action({"kind": "Buy"})
+    var result: Dictionary = Bt.tick(tree, func(_a: Dictionary,
+            _b: Dictionary) -> Dictionary:
+        return {"status": "invalid_status", "commands": [
+            {"kind": "FakeTransfer"}]})
+    assert_eq(result.get("status", ""), Bt.FAILURE)
+    assert_true(result.get("commands", []).is_empty())

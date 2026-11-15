@@ -1,0 +1,20 @@
+{
+  "owner": "automation11-2110",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T21:10:00+03:00",
+  "expires_at": "2026-11-13T21:55:00+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_contract_demand_admission.gd",
+    "godot/tests/p2_contract_demand_admission_check.gd"
+  ],
+  "boundary": "Fix blocking N135 sourcing vs N104 admission price mismatch; source market offer only; regression tests; no central runner or ledger edits",
+  "finished_at": "2026-11-13T21:18:00+03:00",
+  "code_commits": [
+    "7dab5bcf79f1461dddeb079cd96743ac8163bcd6",
+    "cbe8cde127d7922b27f7bf894f4105b60844e846",
+    "ac77eb14bb1f42751449bb7a2cb8be95e6b1a646"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261113-2118-automation11-live-demand-revalidation.md",
+  "verification": "CODE_UNVERIFIED; static inspection; Actions 0"
+}

@@ -1,0 +1,11 @@
+# P2 handoff — 13.11.2026 17:41 MSK — automation11
+- Gate 2, commit `30c645d4a9c3c33027bceacd1e87ec417e2be23a`; branch `integration/godot-phase2-unified-20261113`, PR #249.
+- Changed only `godot/scripts/main.gd`: new F5 manual N14 ship order bar (canonical fleet dropdown, native destination ID input, dispatch button).
+- The UI invokes the existing `_runner.request_ship_departure(ship_id,destination)`, never edits ships, N9 ledger, world, or clock itself.
+- On success it refreshes ship choices, system projection, live observer and status; rejected routes display runner reason. Ship choices refresh after tick and save/load.
+- This makes previously engine-only explicit N14 orders reachable from the normal Godot UI; it does NOT implement autonomous N153 planning, N21 docking or contracts.
+- Static checks: matched existing runner API and Godot OptionButton/LineEdit usage; exact anchor replacements succeeded. No local Godot executable and no F5 runtime test: **WIRED_CODE_UNVERIFIED**.
+- Risk: crowded toolbar on narrow screens; route IDs must match frozen Galaxy directed graph. Verify parser, then F5 manual Earth→alpha-station departure, transit, save/reload, and rejected-route rollback.
+- Existing Windows artifact #43403286156 predates this code. GitHub Actions launched: **0**.
+- Lease `leases/20261113-1733-automation11-fleet-dispatch.json` RELEASED. No files remain reserved.
+- Next free task: test canonical fleet locally; then integrate native N21 docking / cargo / autonomous N153 into one N158 phase, with save/reload and UI.

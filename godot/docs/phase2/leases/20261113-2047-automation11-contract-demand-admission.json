@@ -1,0 +1,19 @@
+{
+  "owner": "automation11-2047",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T20:47:29+03:00",
+  "expires_at": "2026-11-13T21:32:29+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_contract_demand_admission.gd",
+    "godot/tests/p2_contract_demand_admission_check.gd"
+  ],
+  "boundary": "Pure N135->N104 admission validation against canonical world stock/owner/funds and idempotent contract identity; no central N39/ledger mutation or second board; future sole Apply owner must commit escrow",
+  "finished_at": "2026-11-13T20:56:00+03:00",
+  "code_commits": [
+    "dcbb0b960ee19d030c718134831683822372b646",
+    "1a0cf408b624d9b27ea7d7ab7a450d3f212b5209"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261113-2055-automation11-n135-n104-admission.md",
+  "verification": "CODE_UNVERIFIED; no Godot; Actions 0"
+}

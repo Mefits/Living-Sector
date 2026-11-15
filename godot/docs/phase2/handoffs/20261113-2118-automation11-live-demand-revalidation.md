@@ -1,0 +1,11 @@
+# P2 autonomy — live N135 admission revalidation (13 Nov 21:18 MSK)
+- Input head: 7c4008384e7a1af7881299e37414782b64f15f93; lease: 20261113-2110-autonomy-source-price-automation11.json.
+- Code commits: 7dab5bcf79f1461dddeb079cd96743ac8163bcd6, cbe8cde127d7922b27f7bf894f4105b60844e846, ac77eb14bb1f42751449bb7a2cb8be95e6b1a646.
+- Scope: unified_contract_demand_admission.gd and p2_contract_demand_admission_check.gd only.
+- The N104 admission boundary now reruns original N135 shortage/supplier/affordability projection against the current canonical World before approving escrow admission.
+- Rejects forged quantities, obsolete supplier/source, resolved shortage, newly unaffordable demand, changed prices; retains existing ledger/world parity and source-stock guards.
+- Test fixture now contains actual N135 consumption receipts and exercises forgery, shortage resolution, supplier stock loss, affordability, price changes, and duplicate identity.
+- This remains PURE VALIDATION: no N104 post, no escrow transfer, no physical ship route. Never claim autonomy end-to-end.
+- Static review of final GitHub source/test done; Godot 4.7.2 unavailable: CODE_UNVERIFIED; GitHub Actions runs: 0.
+- Next: wire sole N39 Apply to atomic escrow-backed N104 post, then N153 autonomous ship selection and real N14/N21/N15/N97 delivery receipts; observe and persist.
+- Lease RELEASED; central N158/World/Ledger/Save untouched.

@@ -1,0 +1,17 @@
+{
+  "worker": "automation11",
+  "status": "RELEASED",
+  "started_msk": "2026-11-13T23:56:40+03:00",
+  "scope": [
+    "godot/scripts/sim/ships/docking_registry.gd",
+    "godot/scripts/sim/phase2/unified_fleet_logistics.gd"
+  ],
+  "boundary": "Make N21 dock exact N104 market owner instead of arbitrary station at same location; no N39 runner/ledger changes",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "completed_commits": [
+    "c5d512e194927c7acf5932ae4cbcf5c7395f67b3",
+    "42422451669257fc6070fe58d818e51e4fc0af98",
+    "caa30e285dc4b02ab0ee38b001e486bdf5083cf3"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261113-2356-automation11-exact-market-dock.md"
+}

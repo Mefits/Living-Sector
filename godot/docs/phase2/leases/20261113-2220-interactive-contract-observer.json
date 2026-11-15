@@ -1,0 +1,21 @@
+{
+  "owner": "interactive-chat-large-autonomy-contract-apply",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started_at": "2026-11-13T22:20:00+03:00",
+  "expires_at": "2026-11-13T23:30:00+03:00",
+  "scope": [
+    "godot/scripts/observer_panel.gd"
+  ],
+  "boundary": "Read-only summary of real N135/N104 funded posted contracts and escrow, no manual controls, no invented head/ship AI",
+  "released_at": "2026-11-13T22:34:00+03:00",
+  "handoff": "godot/docs/phase2/handoffs/20261113-2234-interactive-n135-n104-canonical-post.md",
+  "code_commits": [
+    "dda8e1d6",
+    "93a8fd30",
+    "d7560692",
+    "778a27d5",
+    "80ed10b1"
+  ],
+  "verification": "STATIC_PASS / GODOT_RUNTIME_UNVERIFIED"
+}

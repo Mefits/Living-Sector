@@ -1,0 +1,15 @@
+{
+  "owner": "automation11",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started_at": "2026-11-13T22:52:00+03:00",
+  "expires_at": "2026-11-13T23:52:00+03:00",
+  "base_head": "759c0f113231a0389c47e2d70750723a2e610f74",
+  "scope": [
+    "godot/scripts/sim/phase2/n158_production_runtime.gd"
+  ],
+  "boundary": "N153 accepted contract reaches actual source -> native N21 dock through existing single N39 Apply; no fabricated cargo or settlement.",
+  "released_at": "2026-11-13T22:58:00+03:00",
+  "handoff": "godot/docs/phase2/handoffs/20261113-2252-automation11-source-docking.md",
+  "verification": "WIRED_CODE_UNVERIFIED"
+}

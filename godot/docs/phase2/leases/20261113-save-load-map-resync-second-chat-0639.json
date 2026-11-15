@@ -1,0 +1,12 @@
+{
+  "owner": "second-chat-overnight",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T06:39:31+03:00",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "purpose": "Restore visible orbital map, selection and speed controls after loading P2 checkpoint; no ledger or runner changes",
+  "handoff": "Will release after code commit",
+  "commit": "aa650eaf8b557a06f2261bb6dea46eedfff515b4",
+  "result": "Checkpoint load refreshes world map and speed control without changing authoritative simulation; CODE_UNVERIFIED"
+}

@@ -1,0 +1,35 @@
+{
+  "worker": "chat3-v3-n38-recovery-20261114",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "32ca43fd15497b239d9a102addbebd26140305b2",
+  "goal": "Independent V3: N38 invalid-but-SHA-valid primary must not poison .bak; valid restored .pending must promote even after earlier primary failed semantic restore. Preserve transactional single runner baseline and immutable N39/N9 source.",
+  "scope": [
+    "godot/scripts/sim/save_state.gd (N38 pre-save rotation and load pending promotion only)",
+    "godot/tests/p2_native_save_recovery_check.gd (new deferred regression)",
+    "godot/docs/phase2/handoffs/20261114-chat3-v3-recovery.md (new)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+    "N9/N104",
+    "balance/behaviors"
+  ],
+  "coordination": "Chat1 active N108 gate jump on N39/N158; chat2 B2 released, subsequent B3 may occupy N39/N158. N38 SaveState only.",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED, static readback only; Godot and Actions not run",
+  "result": "Independent N38 recovery/source protection: old primary backup admission validates N39/N9 JSON exact amounts and original N1 clock/calendar/cadence/events; valid restored pending promoted despite invalid previous primary with valid SHA.",
+  "commits": [
+    "a3473b3",
+    "9803419",
+    "7a4c7bb",
+    "b8102e6",
+    "bf13d0a",
+    "e46d091",
+    "879a53a",
+    "61983ff"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat3-v3-n38-recovery.md",
+  "remaining": "V2 crisis event N39/N158 glue after other leases released; final Godot test matrix"
+}

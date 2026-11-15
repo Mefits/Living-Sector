@@ -1,0 +1,35 @@
+{
+  "worker": "chat-continuation-stage2-acceptance",
+  "status": "RELEASED",
+  "started": "2026-11-15",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "79267943204ab30d0e323559ac98f12e2ac88aa2",
+  "goal": "Stage2 bounded clean-seed integrated Godot runtime acceptance after user confirmed Windows tick361 error no longer reproduces: original Galaxy 0.6.7, real 420 ticks at x8, canonical ledger invariants, tick360 mid-faction N38 save/reload, continuation through 361 and no duplicated phase/receipt. No balance changes. Actual Godot 4.7.2 execution found N91 false fatal at tick181 on source N151 marketless construction_dock; fix source N91 selectors and authoritative N39 Apply to recognize exactly receipted colony dock, without skipping payments. Stage2 Godot CI 43644368572 now establishes N38 exact physical market stock roundtrip and trend float JSON failure at tick360: implement lossless transport of native IEEE-754 floats inside same hashed N38 JSON envelope, preserving exact money/stock/contract guards.",
+  "scope": [
+    "godot/tests/p2_stage2_clean_seed_420_tick_acceptance.gd",
+    "godot/docs/phase2/handoffs/20261115-stage2-clean-seed-runtime-acceptance.md",
+    "godot/docs/phase2/P2_CI_TRIGGER.txt (only once after source ready)",
+    ".github/workflows/p2-unified-godot-smoke.yml (append one bounded real Godot acceptance only)",
+    "godot/scripts/sim/phase2/unified_n91_construction_dispatch.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N91 site dock validation only)",
+    "godot/tests/p2_n91_marketless_colony_dock_stage_check.gd",
+    "godot/scripts/sim/save_state.gd (strict N38 native float lossless JSON envelope codec only)",
+    "godot/scripts/sim/phase2/unified_native_save_roundtrip_guard.gd (strict typed BT key checks only)",
+    "godot/tests/p2_n38_native_f64_envelope_check.gd"
+  ],
+  "constraints": [
+    "Do not mutate gameplay balance or frozen Rust source",
+    "Do not create synthetic money, ships, routes, contracts or AI actions",
+    "Use existing sole N39/N9/N38 world, no duplicate ticks",
+    "One batched Godot Actions run rather than micro runs",
+    "Pass only with actual Godot logs; if it fails, report real blocker"
+  ],
+  "verification": "GODOT_4_7_2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS",
+  "notes": "Original smoke 43647029802 SUCCESS on exactly d3473f36. Later concurrent commits through e556cccf were GUT/testing/tooling only (no simulation changes). All Stage2 failures encountered were repaired in this same PR; no balance changes. Stage2 full acceptance 116476ms incl test audit and disk restart; separate performance profiling required.",
+  "completed": "2026-11-15",
+  "tested_commit": "d3473f36f1976235ff32bc5e1bc7a6e84736bec2",
+  "ci_run_url": "https://github.com/Mefits/Living-Sector/actions/runs/43647029802",
+  "handoff": "godot/docs/phase2/handoffs/20261115-stage2-clean-seed-runtime-acceptance.md",
+  "result": "Godot parser 310/310, N158/N151/N150 native economy, N143 research, N91/N151 marketless dock and N38 IEEE-754 + typed BT exact envelope all passed real Godot 4.7.2. Original untouched Galaxy source ran 420 real ticks with no rejected phases. At tick360 save on real disk -> new N158 runner load -> strict complete NativeFrameGuard -> tick361 and tick420 passed; 24 original ships, N9 receipts reconcile source crew wage writeoffs and a genuine funded contract without synthetic grants.",
+  "next": "One Stage3 whole-game A/Б/В/Г macro: actual autonomous paid N104 delivery/midflight restore, full colony B and head/admin mandate V with real receipts, plus Windows G and long-soak; profile per-tick snapshot/ledger validation for growth with 2168 receipts/420 ticks. Do not claim SOURCE_INTEGRATION_COMPLETE until those gates actually pass."
+}

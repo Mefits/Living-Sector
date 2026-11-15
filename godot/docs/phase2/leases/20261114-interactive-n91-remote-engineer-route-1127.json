@@ -1,0 +1,19 @@
+{
+  "worker": "interactive-primary-chat-20261114",
+  "status": "RELEASED",
+  "base_head": "72a81ae28fe9a63c26b68bb81229fe430a12f56d",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n91_construction_dispatch.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N91 apply only)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (N91 leaves)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (N91 dispatch and site dock checks)",
+    "godot/tests/p2_gate4_native_construction_check.gd",
+    "godot/docs/phase2/handoffs/20261114-n91-remote-engineer-route.md"
+  ],
+  "goal": "N91 same-system autonomous physical directed N14 engineer route with fuel-aware native preflight, N146/N21 real undock/dock, N84 saved sequence and N141 paid labor; no false remote travel or second world",
+  "verification": "STATIC_DELIMITER_AND_IMPORT_REFS_PASS; GODOT_NOT_EXECUTED; GITHUB_ACTIONS_0",
+  "code_head": "bfff76284430b0380c25ca8e2ea7a5ecbd6cd787",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n91-remote-engineer-route.md",
+  "release_summary": "Native N91 same-system path+fuel, N84 origin undock/physical N14 traversal, N39 route revalidation, N21 destination dock, existing Gate4 isolated real Sol edge test; no CI"
+}

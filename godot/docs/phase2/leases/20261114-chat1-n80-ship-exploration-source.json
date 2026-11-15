@@ -1,0 +1,35 @@
+{
+  "worker": "chat1-continuation-n80",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "goal": "Recover frozen Rust N80 smart-idle gated exploration and profitable ice mining source candidates from same canonical N39 World, with no synthetic fuel, nav, gates or wallets",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n80_ship_exploration_stage.gd (NEW source-only proposal)",
+    "godot/tests/p2_n80_native_gate_explore_check.gd (NEW deferred fixture)",
+    "godot/docs/phase2/handoffs/20261114-chat1-n80-exploration-source.md (NEW)",
+    "godot/scripts/sim/phase2/unified_n80_ship_mining_stage.gd (NEW read-only N103/N80 source candidate)",
+    "godot/tests/p2_n80_native_mining_source_check.gd (NEW deferred fixture)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/save_state.gd",
+    "N9/N104/N153/N14/ship command Apply"
+  ],
+  "coordination": "Chat3 V2 currently holds N39/N158 and Schema. Build read-only source proposal without changing these files; no runtime or GitHub Actions until whole port is complete.",
+  "verification": "SOURCE_PREPARED / CODE_UNVERIFIED / NOT_LIVE_WIRED. Four files statically read back from GitHub: quotes/brackets, no NUL, final newline. No parser, Godot F5, or Actions executed.",
+  "started": "2026-11-14",
+  "completed": "2026-11-14",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-n80-exploration-source.md",
+  "commits": [
+    "14d4362c963a1541c1584906bb35ab0195d31d09",
+    "26d98aa342d6d356487bc182de50aca7d98ee698",
+    "5f9c4c6379ed5e5837e75e361490ecb667e22ef3",
+    "73e4a30310a13e65d0cb8666ca3ea7f9281a7816",
+    "69db2566053637a992b0e7c576fe8f2e7068592e",
+    "898443a94f65c55f01879df919efed5a51c65fa9",
+    "db335119d54e852cb47dd3a292345a422707ba8a"
+  ],
+  "next": "After Chat3 releases N39/N158/Schema, claim a scoped execution lease for canonical N158 N80/N103 source-to-runtime activation, N84 explore, legal N21 exploration dock and N103 N90 market Sell, then deferred one-Godot acceptance."
+}

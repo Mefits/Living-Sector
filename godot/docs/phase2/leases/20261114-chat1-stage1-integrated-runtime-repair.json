@@ -1,0 +1,33 @@
+{
+  "worker": "chat1-stage1",
+  "status": "RELEASED",
+  "started": "2026-11-14",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "96c978dd7a8990b31c1fb0e141ccac8343a573fb",
+  "goal": "P2 Stage 1: remove confirmed N91 Dictionary==String runtime error, reconcile N158 phase registry and stale test, diagnose and repair N143 N38-save blocker without relaxing ledger/cargo safeguards; run one bundled Godot smoke after edits.",
+  "scope": [
+    "godot/scripts/ported/n91_construction_executor.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (phase registry only)",
+    "godot/tests/p2_n158_live_production_check.gd",
+    "godot/tests/p2_gate4_native_paid_research_check.gd (error diagnostics only)",
+    "godot/scripts/sim/save_state.gd (diagnostics only if needed)",
+    "godot/docs/phase2/handoffs/20261114-chat1-stage1-integration-repair.md",
+    "godot/docs/phase2/P2_CI_TRIGGER.txt (single CI trigger if necessary)",
+    "godot/scripts/sim/phase2/unified_native_save_roundtrip_guard.gd (only exact N155 profile float JSON rounding exception)",
+    "godot/scripts/sim/ship_state.gd (source N108 derived float JSON restore compatibility)"
+  ],
+  "constraints": [
+    "No balance or mechanic changes",
+    "No weakening N38/N9 checks",
+    "Do not overlap others' current leases",
+    "No long soak",
+    "No repeated GitHub Actions unless evidence requires followup"
+  ],
+  "verification": "GODOT_4_7_2_INTEGRATED_SMOKE_PASS (not whole-game A/B/V/G or Windows)",
+  "notes": "CI 43641003750: N143 loaded snapshot failed N39 Schema invalid_ship_state after exact JSON normalization. CI 43641400532: N158 5-tick production save failed at computed work_shift/produced_outputs with 1e-14 IEEE drift; broad same-JSON-token, <=1e-12 relative float rule now used outside money/stock/cargo/contract. N108 derived fitting recomputes exact installed slots and permits only ULP-scale float changes; integer ship progression normalized prior to restore. Final stage one CI pending.",
+  "completed": "2026-11-14",
+  "result": "Stage1 real Godot 4.7.2 combined smoke success on tested commit b40a9428b0314b5d63e51d1d8303d539f5009f62; parser 310/310 and editor/economy/research exit codes all zero; N158 native production N151/N150/N9 and N38 save/reload/continue PASS; N143 paid N9 research and N38 save/reload/tech PASS.",
+  "ci_run_url": "https://github.com/Mefits/Living-Sector/actions/runs/43642388330",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-stage1-integration-repair.md",
+  "next": "Stage2 economic mandates N109/N110 -> N111 quoted right action -> N121/N104/N9 paid with counters; then coordinated A/B/V/G whole game acceptance and long-tick profiling. Do not rebalance while port verification."
+}

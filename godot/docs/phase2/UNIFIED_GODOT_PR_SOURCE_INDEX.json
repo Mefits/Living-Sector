@@ -1,0 +1,1281 @@
+{
+  "strategy": "P2 single-branch source consolidation; latest PR wins new filename collision, existing P2 runtime always retained; no automatic execution of independent source modules",
+  "collected_on": "2026-11-13",
+  "repo": "Mefits/Living-Sector",
+  "base_integration": "feature/godot-phase2-n158-production-boot-20261113",
+  "pr_count": 159,
+  "prs": [
+    {
+      "number": 247,
+      "title": "N157 LARGE: close Phase1 frozen source map, atomic economic persistence and stable boot recovery (macro10)",
+      "head": "feature/godot-n157-macro10-source-persistence-20261113",
+      "head_sha": "735d13f6f088c22945996ffb9d146fa0994e6ec9",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 246,
+      "title": "N39 LARGE: Rust physical market production, paid household work shifts and finite mining (macro #1)",
+      "head": "feature/godot-n39-production-worldbridge-20261112",
+      "head_sha": "02eee3e1070e21dd7698de329bd3608afa618b7a",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 245,
+      "title": "N155 LARGE: native faction strategy catalogue, exact HTN/GOAP shadow and Director source bridge (macro #7)",
+      "head": "feature/godot-n155-macro7-director-native-strategy-20261113",
+      "head_sha": "d381618316f9eeef2fdfdb92db1c67ba6e8076f6",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 244,
+      "title": "N156 LARGE: frozen Rust facility lifecycle, paid upkeep and supply/crew-mission policy (macro1, excludes N39)",
+      "head": "feature/godot-n156-native-facility-economy-lifecycle-20261113",
+      "head_sha": "24dd57fad419ff05a2fcec00e77e3fba9a2b0cac",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 243,
+      "title": "N154 LARGE: close Rust macro #6 construction strategy, paid shipyard refit and physical site materialization",
+      "head": "feature/godot-n154-construction-strategy-shipyard-refit-20261113",
+      "head_sha": "e76a6606078c59796d7632a4cda87ea31d4e3e6a",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 242,
+      "title": "N153 LARGE: finish frozen Rust autonomous ship AI source domain — macro #4",
+      "head": "feature/godot-n153-native-ship-ai-behavior-20261113",
+      "head_sha": "22deba3e23ad4513d7bd68a47b5fdb92e4674083",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 241,
+      "title": "N152 LARGE: complete Rust ContractBoard hydration, indices and physical cleanup — macro #5 source closure",
+      "head": "feature/godot-n152-contract-board-lifecycle-index-cleanup-20261113",
+      "head_sha": "d6bb7f8a3154e7a08d70ddbf965a367fee109ad5",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 240,
+      "title": "N151 LARGE: finish Rust population paid-consumption tick, migration and colony founding — macro #2 source closure",
+      "head": "feature/godot-n151-population-colony-macro2-source-closure-20261113",
+      "head_sha": "68b1acfd58017b21715f8cbd99ee39ebe1dc8258",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 239,
+      "title": "N150 LARGE: close frozen Rust macro #9 markets, diplomacy and territorial control source coverage",
+      "head": "feature/godot-n150-market-diplomacy-territory-complete-20261113",
+      "head_sha": "289cd5f9962f372ef6784f3f23650ca6e411a465",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 238,
+      "title": "N149 LARGE: complete Rust ship crew 5-phase source parity and close macro #3 Ship Life coverage",
+      "head": "feature/godot-n149-ship-crew-full-parity-macro3-closure-20261113",
+      "head_sha": "015ed9872ad3bcc96349fe7ae42f9fd0e2ff258c",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 237,
+      "title": "N148 LARGE: Rust ship bankruptcy/hoard lifecycle, finite fleet retirements and native wire snapshot",
+      "head": "feature/godot-n148-native-ship-lifecycle-retirement-20261113",
+      "head_sha": "9743e6c42ea7fa942549fdef0ee55b3d2603360d",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 236,
+      "title": "N147 LARGE: Rust colony aftercare physical migration and prepaid passenger commission",
+      "head": "feature/godot-n147-colony-paid-workforce-migration-20261113",
+      "head_sha": "96b0547589c0010d327b02e8f77b2cb774b0278a",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 235,
+      "title": "N146 macro10: frozen SimCommand and ordered CommandBuffer port",
+      "head": "feature/godot-n146-native-sim-command-buffer-20261113",
+      "head_sha": "de07295acc2e38036103376a55c3da9435fbce5a",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 234,
+      "title": "N145 Macro 5 — native posted contract aging, renewal and reputation admission",
+      "head": "feature/godot-n145-contract-aging-renewal-20261113",
+      "head_sha": "c5daac60cd1d259cd3b288dd09cf33983d90129a",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 233,
+      "title": "N143 LARGE: complete frozen Rust research source domain and paid scientific shift lifecycle (macro #8)",
+      "head": "feature/godot-n143-complete-rust-research-domain-20261112",
+      "head_sha": "b8376c63607835aa5b70935865157288eed1aa8b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 232,
+      "title": "N144 Macro2: Rust-native colony expedition proposal ranking (CODE_UNVERIFIED)",
+      "head": "feature/godot-n144-colony-proposals-20261112",
+      "head_sha": "11d7e512255bf57f2490e115205fb76b0810c849",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 231,
+      "title": "N142 LARGE: Rust WorldRegistry physical route distances and legacy travel timings",
+      "head": "feature/godot-n142-native-registry-physical-distance-20261112",
+      "head_sha": "849061cdc60d61fd1c71d95db50950f3c209fa29",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 230,
+      "title": "N140 LARGE: frozen Rust spatial LOD ship scheduler and immutable world tuning",
+      "head": "feature/godot-n140-lod-tuning-20261112",
+      "head_sha": "609dc3dd89968518142fa42ccf1da9b3a594a19c",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 229,
+      "title": "N141 LARGE: native paid construction labor and shared workforce receipts",
+      "head": "feature/godot-n141-construction-paid-labor-20261112",
+      "head_sha": "535faecb403b55fa627dc62005b8f4760217deb6",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 228,
+      "title": "N138 LARGE: frozen Rust ship crew morale, occupation and paid-upkeep phase contract",
+      "head": "feature/godot-n138-crew-welfare-20261112",
+      "head_sha": "b7332ba89d2c651941f08ae027a85fc981ddf628",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 227,
+      "title": "N139 LARGE: native Rust production-chain stages and precursor priority",
+      "head": "feature/godot-n139-native-production-chain-20261112",
+      "head_sha": "9f312541f85f648d8eefee225e41d71e98f1e7a2",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 226,
+      "title": "N137: native Rust ship utility considerations and price freshness (Phase 1)",
+      "head": "feature/godot-n137-native-ai-considerations-20261112",
+      "head_sha": "8fbe37a1e3bf8b0c22ab0c98df286b12c168aee6",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 225,
+      "title": "N135 LARGE: native Rust station order dispatcher, funded fleet assignments and recovery",
+      "head": "feature/godot-n135-native-station-orders-20261112",
+      "head_sha": "19261a96702b1e53ec92502edd0345b4bb35ac67",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 224,
+      "title": "N136 LARGE: native economic proposal review and funded receipt lifecycle",
+      "head": "feature/godot-n136-native-economic-proposal-20261112",
+      "head_sha": "911d21799627f856b8bafe3a96f20218cde829c0",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 223,
+      "title": "N134 LARGE: Rust faction strategy coordination, director vote and paid receipt audit",
+      "head": "feature/godot-n134-native-coordination-20261112",
+      "head_sha": "998d03f55199ab909fd532bf9ee5876dc8e7b2b8",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 222,
+      "title": "N133: Frozen director industrial accident cadence (Phase 1, CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n133-source-port-20261112",
+      "head_sha": "eab89d9af4b526d7abde0afc893affcdf9513dc0",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 221,
+      "title": "N132: Frozen T2/T3 shipyard module recipe catalog (Phase 1, CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n132-source-port-20261112",
+      "head_sha": "bfc5fe4ce22c6f9efa89702e27f610f3cf4ce29f",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 220,
+      "title": "N131: Frozen market coverage price engine (Phase 1, CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n131-source-port-20261112",
+      "head_sha": "46f292ed8dabcced43743418c94e0afd60739bd6",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 219,
+      "title": "Godot N130: Paid facility service reserve restocking",
+      "head": "feature/godot-n130-facility-upkeep-second-20261112",
+      "head_sha": "6a96d2db2e7b3635f022c19f118ec7cb293bd492",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 218,
+      "title": "Godot N129: Faction facility taxes and treasury bailouts",
+      "head": "feature/godot-n129-faction-tax-second-20261112",
+      "head_sha": "42c077d379ad514946a9d96af9bb37712e62e02f",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 217,
+      "title": "Godot N128: Crew skill roles and receipt-based training",
+      "head": "feature/godot-n128-ship-combat-second-20261112",
+      "head_sha": "4fc89ef79e4277653dcc7ad136bb0b6b69473afb",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 216,
+      "title": "N121 LARGE: Rust native HTN execution, paid contracts, production receipts and durable retry",
+      "head": "feature/godot-n121-native-execution-20261112",
+      "head_sha": "25619b4e34ee50549e5e37d25639fcf03dd15878",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 215,
+      "title": "N127 Rust population production and monetisation proposal",
+      "head": "feature/godot-n127-pop-production-wealth-20261112",
+      "head_sha": "2ecf012a522504fdc3f05c888c303289f035b4e6",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 214,
+      "title": "N126 Rust population passenger contract posting proposals",
+      "head": "feature/godot-n126-pop-passenger-contracts-20261112",
+      "head_sha": "fc0e666b2f215143468610994e307473bf59e1af",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 213,
+      "title": "N125 Rust population emergency food delivery contract proposals",
+      "head": "feature/godot-n125-pop-food-contracts-20261112",
+      "head_sha": "dd3aebd4fca45e61a2678495a8d361740876ebf7",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 212,
+      "title": "N124: Market observed demand, shortage persistence and order expiry [CODE_UNVERIFIED]",
+      "head": "feature/godot-phase1-n124-market-demand-20261112",
+      "head_sha": "9619e4dea2650d4ce04bebd82cb858e48b4029e5",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 211,
+      "title": "N123: Body resource regeneration and biome multipliers [CODE_UNVERIFIED]",
+      "head": "feature/godot-phase1-n123-body-ecology-20261112",
+      "head_sha": "625a6b0b83db2a1682a54ba15c0a671ffb381749",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 210,
+      "title": "N122: Territorial controller derived from physical facilities [CODE_UNVERIFIED]",
+      "head": "feature/godot-phase1-n122-territory-20261112",
+      "head_sha": "48278a9b784a456dd94a65ce5a94b54d74fd03da",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 209,
+      "title": "N120: Rust paid research shift with physical electronics and wages",
+      "head": "feature/godot-n120-research-execution-20261112",
+      "head_sha": "46b34404bc227c2bf168b2805a24235dc6944927",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 208,
+      "title": "N119: Rust admin ship hydration after persisted spawn",
+      "head": "feature/godot-n119-shipyard-orders-20261112",
+      "head_sha": "5b7cdb3a8335670d5a3b0ad6d8bafc8a78cbd4ce",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 207,
+      "title": "N118: Rust colony commission site and prepaid contract proposal",
+      "head": "feature/godot-n118-colony-foundation-20261112",
+      "head_sha": "308e7b3c2272fc04036684cbeade063572e439cc",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 206,
+      "title": "N117: Read-only native planner comparison [CODE_UNVERIFIED]",
+      "head": "feature/godot-n117-native-port-second-20261112",
+      "head_sha": "0445a8391c5a1a7a8c8f1ccafaf0b7c2112fcfd6",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 205,
+      "title": "N116: Paid native facility workforce shifts [CODE_UNVERIFIED]",
+      "head": "feature/godot-n116-native-port-second-20261112",
+      "head_sha": "420e667f2c46d1e791a999bb01b4f3be977fcec2",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 204,
+      "title": "N115: Canonical faction relations and treaty transitions [CODE_UNVERIFIED]",
+      "head": "feature/godot-n115-native-port-second-20261112",
+      "head_sha": "6c1bf3f453224e3fae631f4e10b87adb68f78ad4",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 203,
+      "title": "N114: Native population migration transfers [CODE_UNVERIFIED]",
+      "head": "feature/godot-n114-population-overnight-20261112",
+      "head_sha": "119133aee1f85d51d02a9a415227f0550f1c330b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 202,
+      "title": "N113: Native director strategic commitment hysteresis [CODE_UNVERIFIED]",
+      "head": "feature/godot-n113-director-overnight-20261112",
+      "head_sha": "59d24bb247dd1153a014ef448eb063ef8c51a762",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 201,
+      "title": "N112: Native moving-target ship transit [CODE_UNVERIFIED]",
+      "head": "feature/godot-n112-navigation-overnight-20261112",
+      "head_sha": "dda332e3c077c56a44fa6482b100089642eb3e40",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 200,
+      "title": "N108: Rust gate fees, shipyard fitting Apply and contract-breach consequences",
+      "head": "feature/godot-n108-special-ship-command-apply-20261112",
+      "head_sha": "dd7592a84ee7d272577904e11338274c260a4a03",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 199,
+      "title": "N111 [CODE_UNVERIFIED] Native shortage alternatives: delivery/build/wait projection",
+      "head": "feature/godot-n111-options-overnight11",
+      "head_sha": "f16d4691165a3128cc5ab99fab57d871c391d92d",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 198,
+      "title": "N110 [CODE_UNVERIFIED] Native station tier upgrades: material and payroll preflight",
+      "head": "feature/godot-n110-progression-overnight11",
+      "head_sha": "a789a4b016f301d5960ec08162636a90cbcb40b7",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 197,
+      "title": "N109 [CODE_UNVERIFIED] Native faction charter: authority, approval tranches, shared paid ceiling",
+      "head": "feature/godot-n109-charter-overnight11",
+      "head_sha": "66c037d63b425e22bd326060ff4c8dea67f7a14f",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 196,
+      "title": "N107 — frozen Rust native component port (CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n107-port-20261112",
+      "head_sha": "1d9a778c4cee62da0e58eca0e318d0a3e88a961a",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 195,
+      "title": "N106 — frozen Rust native component port (CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n106-port-20261112",
+      "head_sha": "5daa19c134d167c91e46fd1235ac7a8fb5f5f4af",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 194,
+      "title": "N105 — frozen Rust native component port (CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n105-port-20261112",
+      "head_sha": "94f340d8c120f06dee11b9bfda22e206d7f45887",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 193,
+      "title": "N104: source-backed contract escrow, passenger manifests and funded delivery",
+      "head": "feature/godot-n104-contract-funding-escrow-20261112",
+      "head_sha": "70f582fe3ff3a472fef7fa62ad6188863648b53b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 192,
+      "title": "N97: frozen Rust exclusive ship Buy/Sell/Mine/Refuel Apply settlement",
+      "head": "feature/godot-n97-transaction-apply-20261112",
+      "head_sha": "3d1412f15a72341b59e98c6aba97f8e837a900af",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 191,
+      "title": "N103: frozen Rust phase-1 component port (CODE_UNVERIFIED)",
+      "head": "feature/godot-n103-phase1-second-20261112",
+      "head_sha": "3ab29f6fedb775b5c315dc36811de69b36bae83a",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 190,
+      "title": "N102: frozen Rust phase-1 component port (CODE_UNVERIFIED)",
+      "head": "feature/godot-n102-phase1-second-20261112",
+      "head_sha": "875be625c4ade48791140eb17d97261d2b60087d",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 189,
+      "title": "N101: frozen Rust phase-1 component port (CODE_UNVERIFIED)",
+      "head": "feature/godot-n101-phase1-second-20261112",
+      "head_sha": "49229095df704e0a09d20f3e68e9821fdde128f7",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 188,
+      "title": "N100 Phase 1: complete native Hybrid Planner composition and arbitration [CODE_UNVERIFIED]",
+      "head": "feature/godot-n100-hybrid-planner-overnight11",
+      "head_sha": "8a9ab04a9ab78ff2d42567e37b222faf09c7dfb7",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 187,
+      "title": "N99 Phase 1: Bounded native Control Beam",
+      "head": "feature/godot-n99-control-beam-overnight11",
+      "head_sha": "632455ab2fdb0930597d41ee37627edc56b4bc4b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 186,
+      "title": "N98 Phase 1: Durable native plan ledger",
+      "head": "feature/godot-n98-plan-ledger-overnight11",
+      "head_sha": "efdaa0df5f1fb9788a175aaa71529bd56b857fcf",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 185,
+      "title": "N96: Native portfolio policy scoring (CODE_UNVERIFIED)",
+      "head": "feature/godot-n96-overnight11-20261112",
+      "head_sha": "38cfec5ae877f8e75ee463782f7cacedfa18c7ee",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 184,
+      "title": "N95: Native production dependency preview (CODE_UNVERIFIED)",
+      "head": "feature/godot-n95-overnight11-20261112",
+      "head_sha": "af06e52d85fc11aacf652c1a121c4d53b21f387d",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 183,
+      "title": "N94: Native sourcing and funded offer profitability (CODE_UNVERIFIED)",
+      "head": "feature/godot-n94-overnight11-20261112",
+      "head_sha": "24826fc8b93e3b9582435fac16ed6609ebfa5fca",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 182,
+      "title": "N90: Rust ship economic BT actions and one-pending transaction mailbox",
+      "head": "feature/godot-n90-ship-economic-actions-20261112",
+      "head_sha": "1e564ab7ca2556f92847b54476841a9e5ce9b678",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 181,
+      "title": "N93 Rust→Godot component port: htn-adapter",
+      "head": "feature/godot-nightshift-n93-htn-adapter-20261112",
+      "head_sha": "3e138217e8d5bd90a0c2514aac7c7e543e2ea35f",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 180,
+      "title": "N92 Rust→Godot component port: colony-development",
+      "head": "feature/godot-nightshift-n92-colony-development-20261112",
+      "head_sha": "7a155ebb8e5b67f738c1c86758611ee25d2be07b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 179,
+      "title": "N91 Rust→Godot component port: construction-executor",
+      "head": "feature/godot-nightshift-n91-construction-executor-20261112",
+      "head_sha": "0b8af8f899ef7cd1e4f132af1209db91ef11f264",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 178,
+      "title": "Godot N89: frozen Rust mandates component port",
+      "head": "feature/godot-n89-mandates-second-20261112",
+      "head_sha": "35e3f93ba112f6712aad543cfa77c021188ae9f3",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 177,
+      "title": "Godot N88: frozen Rust ship-actions component port",
+      "head": "feature/godot-n88-ship-actions-second-20261112",
+      "head_sha": "1c5280531c11cff6eb977f104fa5f313320f4f2f",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 176,
+      "title": "Godot N87: frozen Rust considerations component port",
+      "head": "feature/godot-n87-considerations-second-20261112",
+      "head_sha": "facf0e3a4e11530525d6cf0d4eb69d2d80b55668",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 175,
+      "title": "N86 | Rust AI personality archetypes (CODE_UNVERIFIED)",
+      "head": "feature/godot-n86-personality-overnight-20261112",
+      "head_sha": "4ac8200f5af8147b5a64b5ac74ce94a4e2c070fe",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 174,
+      "title": "N85 | Rust utility goal scoring (CODE_UNVERIFIED)",
+      "head": "feature/godot-n85-utility-scoring-overnight-20261112",
+      "head_sha": "2156d93be2b63ef9c56df425c4e02ef166732325",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 173,
+      "title": "N84 | Rust resumable behavior tree (CODE_UNVERIFIED)",
+      "head": "feature/godot-n84-bt-engine-overnight-20261112",
+      "head_sha": "3ea11d4aca9efca6674016fbec1592d744e25cfa",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 172,
+      "title": "N83: Port ship trade route price-memory policy (CODE_UNVERIFIED)",
+      "head": "feature/godot-n83-trade-second-20261112",
+      "head_sha": "578dd78e02114a3c6d602b15e4232ac34795fa88",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 171,
+      "title": "N82: Port native 12-technology research catalogue (CODE_UNVERIFIED)",
+      "head": "feature/godot-n82-tech-second-20261112",
+      "head_sha": "98ea483e336df38400582c790a1400b723847472",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 170,
+      "title": "N81: Port frozen Rust GOAP cost-weighted planning (CODE_UNVERIFIED)",
+      "head": "feature/godot-n81-goap-second-20261112",
+      "head_sha": "16c0b91845ed890c94818c86dc3e19b6971bd969",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 169,
+      "title": "N80: port frozen Rust ship AI personality, goal scoring and replan policies",
+      "head": "feature/godot-n80-native-ship-decision-ai-20261112",
+      "head_sha": "4e3680a5cc0e2467dc40a7c3dc68e0c9b10ffb58",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 168,
+      "title": "N79: Rust colony expedition eligibility gate (CODE_UNVERIFIED)",
+      "head": "feature/godot-n79-shipyard-orders-20261112",
+      "head_sha": "2db53475f8d2410b8324b33dbb9afafae33759c9",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 167,
+      "title": "N78: Rust director strategic memory hysteresis (CODE_UNVERIFIED)",
+      "head": "feature/godot-n78-faction-strategy-20261112",
+      "head_sha": "58f370301a31fdd0243ca725c01c2d0971faa3bf",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 166,
+      "title": "N77: Rust construction site state and receipts (CODE_UNVERIFIED)",
+      "head": "feature/godot-n77-construction-lifecycle-20261112",
+      "head_sha": "fa02a7cb02b26ea9e5a96057fb12d43cb8638619",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 165,
+      "title": "N73: Rust native production recipe catalogue and admission",
+      "head": "feature/godot-n73-overnight11-20261112",
+      "head_sha": "6edd8122e0a4ab17acd0299aa667fa1591a1ef0f",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 164,
+      "title": "N72: native aggregated ship crew hunger, food and wages",
+      "head": "feature/godot-n72-overnight11-20261112",
+      "head_sha": "38df04e713a9c6b2feb20330172716c766a9bd9b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 163,
+      "title": "N71: native household consumption with physical market purchases",
+      "head": "feature/godot-n71-overnight11-20261112",
+      "head_sha": "6032a2c64cdb84429c6d262f13a9b058fcf7dc55",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 162,
+      "title": "N76: Rust-native paid research progress admission (CODE_UNVERIFIED)",
+      "head": "feature/godot-n76-research-progress-overnight11-20261112",
+      "head_sha": "e866b424052f4e17cfd7b5e5714775a201b12192",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 161,
+      "title": "N75: Rust-native construction delivery admission (CODE_UNVERIFIED)",
+      "head": "feature/godot-n75-construction-overnight11-20261112",
+      "head_sha": "22a52a5a49ce044642dec76a5e48375dc17ef5e1",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 160,
+      "title": "N74: Rust-native cargo hold capacity admission (CODE_UNVERIFIED)",
+      "head": "feature/godot-n74-cargo-capacity-overnight11-20261112",
+      "head_sha": "f767e3a1f09322761af3646e48233b21c285eaf4",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 159,
+      "title": "N70: native facility condition and repair cadence",
+      "head": "feature/godot-n70-native-maintenance-20261112",
+      "head_sha": "9eeef595af82a86233dc99a1324db3140ef73cb1",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 158,
+      "title": "N69: native canonical faction relations and treaty gates",
+      "head": "feature/godot-n69-native-relations-20261112",
+      "head_sha": "96b78c0c8f8e72caaa519dd38d2e0be7401c4df7",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 157,
+      "title": "N68: replay-safe native price ticks for market state",
+      "head": "feature/godot-n68-native-pricing-20261112",
+      "head_sha": "665fd38f611087765518c8479bb162f0971267f0",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 156,
+      "title": "N67: source-backed read-only fleet inspector with explicit missing metrics",
+      "head": "feature/godot-n67-fleet-inspector-snapshot-20261112",
+      "head_sha": "c7cb0b6c30c607e627c639fa58c04b61f2fdd9e0",
+      "base": "feature/godot-n66-fleet-command-receipts-20261112",
+      "draft": true
+    },
+    {
+      "number": 155,
+      "title": "N66: exactly-once native fleet command receipts with durable schema v2",
+      "head": "feature/godot-n66-fleet-command-receipts-20261112",
+      "head_sha": "162f22fb266e086814964b100fe689b967ba460f",
+      "base": "feature/godot-n64-itinerary-scheduler-20261112",
+      "draft": true
+    },
+    {
+      "number": 154,
+      "title": "N65: restore frozen Rust zero-fuel transit semantics without fictitious distress stop",
+      "head": "feature/godot-n65-fleet-distress-20261112",
+      "head_sha": "6835ae2a1815afe837ebc6ff3bf8d93f875e9a2b",
+      "base": "feature/godot-n61-live-itinerary-admission-20261112",
+      "draft": true
+    },
+    {
+      "number": 153,
+      "title": "N64: native one-hop-per-tick route executor with atomic world+intent checkpoint",
+      "head": "feature/godot-n64-itinerary-scheduler-20261112",
+      "head_sha": "8f9a95c890f08c7823b9c7651947f2622dbe315c",
+      "base": "feature/godot-n63-itinerary-state-20261112",
+      "draft": true
+    },
+    {
+      "number": 152,
+      "title": "N63: durable explicit native multi-hop intent registry with physical phase guards",
+      "head": "feature/godot-n63-itinerary-state-20261112",
+      "head_sha": "b9f9cdacd3ae2eb59a3cbf38ec51dafabf7246ce",
+      "base": "feature/godot-n61-live-itinerary-admission-20261112",
+      "draft": true
+    },
+    {
+      "number": 151,
+      "title": "N62: fail-closed P1 runtime readiness preflight and regression",
+      "head": "feature/godot-nightshift-n62-runtime-readiness-20261112",
+      "head_sha": "1cb03dea96f94f97ffa807b3f618b440ddbf763e",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 150,
+      "title": "N61: N58-N60 directed multi-hop admission in physical N57 fleet commands",
+      "head": "feature/godot-n61-live-itinerary-admission-20261112",
+      "head_sha": "8aba694fe54a0cd4f445e3bcd7eb74a692dd3504",
+      "base": "feature/godot-n57-live-fleet-engine-20261112",
+      "draft": true
+    },
+    {
+      "number": 149,
+      "title": "N57: native fleet, docking and 2.76M source credits in one guarded engine",
+      "head": "feature/godot-n57-live-fleet-engine-20261112",
+      "head_sha": "59677a5704ba6a2f20f3675d493c0520ade9ffd7",
+      "base": "feature/godot-n54-fleet-save-bridge-20261112",
+      "draft": true
+    },
+    {
+      "number": 148,
+      "title": "N60: fail-closed native directed itinerary admission",
+      "head": "feature/godot-n60-route-itinerary-admission-20261112",
+      "head_sha": "07517b833d933ddb18fa7564b1dd812484db686d",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 147,
+      "title": "Godot N59: deterministic directed multi-hop route planner (Rust pathfinder parity)",
+      "head": "feature/godot-n59-route-pathfinder-second-20261112",
+      "head_sha": "9fb9b4ce735556c97f526c5d29c51ce2334099bc",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 146,
+      "title": "N58: read-only directed route graph provenance audit",
+      "head": "feature/godot-n58-route-graph-audit-20261112",
+      "head_sha": "61ad5b64a59192e4a78bab9c7a96ff9dce9cba98",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 145,
+      "title": "N56: fail-closed directed route admission (read-only)",
+      "head": "feature/godot-nightshift-n56-route-admission-20261112",
+      "head_sha": "207d8c419f0c5633d9f44220cd266974a0ab1d0a",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 144,
+      "title": "N54: atomic in-memory orbital/fleet/credits/dock checkpoint and transit nonce restore",
+      "head": "feature/godot-n54-fleet-save-bridge-20261112",
+      "head_sha": "a5163396369d614890e46f4f092eeee4af724b71",
+      "base": "feature/godot-n53-dock-start-gate-20261112",
+      "draft": true
+    },
+    {
+      "number": 143,
+      "title": "N53: bootstrap native station docking capacities without phantom occupied docks",
+      "head": "feature/godot-n53-dock-start-gate-20261112",
+      "head_sha": "92da82a15f85325575a24d5feb41d63ec546c4b3",
+      "base": "feature/godot-n46-native-ship-bootstrap-20261112",
+      "draft": true
+    },
+    {
+      "number": 142,
+      "title": "N52: native starting ship credits admitted once to a single N11 ledger",
+      "head": "feature/godot-n52-ship-credit-ledger-20261112",
+      "head_sha": "b0d31d6b4952f6785872360566aa44c0d0e86709",
+      "base": "feature/godot-n46-native-ship-bootstrap-20261112",
+      "draft": true
+    },
+    {
+      "number": 141,
+      "title": "N51: Rust-source initial ship fitting and size-aware sensors",
+      "head": "feature/godot-n51-fitting-parity-20261112",
+      "head_sha": "33933f94b1d7ade70c92b7065628890ebe317295",
+      "base": "feature/godot-n46-native-ship-bootstrap-20261112",
+      "draft": true
+    },
+    {
+      "number": 140,
+      "title": "Godot N55: bounded frame tick admission with Rust Delay semantics",
+      "head": "feature/godot-n55-clock-admission-second-20261112",
+      "head_sha": "ba3c6091108ddbbaeda287e917ab204fc8241ddb",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 139,
+      "title": "N50: Rust-native starter fleet crews and atomic roster restore",
+      "head": "feature/godot-n50-crew-initialization-20261112",
+      "head_sha": "f249187af86658c63e67dec17053a511c40ef06a",
+      "base": "feature/godot-n46-native-ship-bootstrap-20261112",
+      "draft": true
+    },
+    {
+      "number": 138,
+      "title": "N49: read-only native system selection inspector (CODE_UNVERIFIED)",
+      "head": "feature/godot-n49-orbit-selection-inspector-20261112",
+      "head_sha": "0c950db3b2a06246d16b8e577dd706abc58c1799",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 137,
+      "title": "N48: fail-closed passenger manifest with physical embark/disembark (CODE_UNVERIFIED)",
+      "head": "feature/godot-n48-migration-transport-admission-20261112",
+      "head_sha": "bf3a63bc3b34082c49fc86390e3fd0274203f799",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 136,
+      "title": "N46: source-accurate first-game ship fuel/cargo from frozen Rust seeder",
+      "head": "feature/godot-n46-native-ship-bootstrap-20261112",
+      "head_sha": "fb8a2faaeba4367806d67ebdf53c3b9b1327da66",
+      "base": "feature/godot-n43-native-location-resolver-20261112",
+      "draft": true
+    },
+    {
+      "number": 135,
+      "title": "N47: deterministic native Galaxy seed integrity preflight",
+      "head": "feature/godot-nightshift-n47-seed-validation-20261112",
+      "head_sha": "a2bd3c0f4820278582c2895fdd93137c5190b1dd",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 134,
+      "title": "Godot N45: paid research shift with real ledger and electronics (CODE_UNVERIFIED)",
+      "head": "feature/godot-n45-research-funded-orders-20261112",
+      "head_sha": "ddef610fdc725892620d698f7708f0914a68155b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 133,
+      "title": "N43: native body/station orbit position resolver and moving ship destinations",
+      "head": "feature/godot-n43-native-location-resolver-20261112",
+      "head_sha": "da8534bfcf66f9e3c1163255bf19d20b91497903",
+      "base": "feature/godot-n40-ship-transit-worldbridge-20261112",
+      "draft": true
+    },
+    {
+      "number": 132,
+      "title": "N44: Rust-native research prerequisites and station tier preflight",
+      "head": "feature/godot-n44-research-prerequisite-gate-20261112",
+      "head_sha": "caa9bb04e780063c2185316628534f1a70cf64ed",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 131,
+      "title": "N42: read-only cross-domain closed-transfer integrity audit",
+      "head": "feature/godot-n42-world-invariant-audit-20261112",
+      "head_sha": "16ff2fd0d6ca1795a0049b8c576eadac76783092",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 130,
+      "title": "N40: opt-in native ship transit in the Godot simulation tick (no invented fuel)",
+      "head": "feature/godot-n40-ship-transit-worldbridge-20261112",
+      "head_sha": "707a740340b6189d4cd7509a384b050a86757a6b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 129,
+      "title": "N41: frozen Observer asset provenance and station-kit manifest audit",
+      "head": "feature/godot-nightshift-n41-observer-asset-audit-20261112",
+      "head_sha": "e841f3d23ee67e607da0c75bd0031c7bc857d83b",
+      "base": "integration/godot-47-n33-n37-20261112",
+      "draft": true
+    },
+    {
+      "number": 128,
+      "title": "Godot 4.7 P1: integrate N33–N37 without regressing Windows preview",
+      "head": "integration/godot-47-n33-n37-20261112",
+      "head_sha": "1e4a1e9f34fff7313ce176107890ecdbe25fc85a",
+      "base": "fix/godot-n32-diagnostics-20261112",
+      "draft": true
+    },
+    {
+      "number": 127,
+      "title": "N38: deterministic P1 checkpoint integrity and safe backup recovery",
+      "head": "feature/godot-nightshift-n38-save-integrity-second-20261112",
+      "head_sha": "2742655362365517a1afc1c369810274b03e8ff7",
+      "base": "integration/godot-foundation-smoke-20261112",
+      "draft": true
+    },
+    {
+      "number": 126,
+      "title": "N37: frozen Rust asset inventory, provenance gates and reproducible audit",
+      "head": "feature/godot-nightshift-n37-assets-license-audit-20261112",
+      "head_sha": "678246c350d543203c87abc0d32a8a453b31eda7",
+      "base": "integration/godot-foundation-smoke-20261112",
+      "draft": true
+    },
+    {
+      "number": 125,
+      "title": "N36: main scene startup health and Godot 4.x UI smoke",
+      "head": "feature/godot-nightshift-n36-godot47-compat-second-20261112",
+      "head_sha": "81b0a458bc2845e29737a76c17f7b62595623192",
+      "base": "integration/godot-foundation-smoke-20261112",
+      "draft": true
+    },
+    {
+      "number": 124,
+      "title": "N35: opt-in authoritative contract phase and guarded restore",
+      "head": "feature/godot-nightshift-n35-contract-tick-second-20261112",
+      "head_sha": "75c9dff56a99df6ef7b75f59479c19b6295c2c03",
+      "base": "feature/godot-nightshift-n34-smoke-integrity",
+      "draft": true
+    },
+    {
+      "number": 123,
+      "title": "N34: fail-closed Godot smoke integrity and bounded execution",
+      "head": "feature/godot-nightshift-n34-smoke-integrity",
+      "head_sha": "66d8666e4179c176ac42e4df938756d1f1c20e5b",
+      "base": "feature/godot-nightshift-n33-integration-acceptance-20261112",
+      "draft": true
+    },
+    {
+      "number": 122,
+      "title": "N32 Godot 4.7.2: unified Windows preview and runtime fixes",
+      "head": "fix/godot-n32-diagnostics-20261112",
+      "head_sha": "7b7ad3e7ba443ddccdcd5a25becaa8affc191a97",
+      "base": "integration/godot-foundation-smoke-20261112",
+      "draft": true
+    },
+    {
+      "number": 121,
+      "title": "N33: fail-closed Windows Godot integration acceptance with JSON evidence",
+      "head": "feature/godot-nightshift-n33-integration-acceptance-20261112",
+      "head_sha": "3598d52c1b52b87a0a082d4166817da41b1a7d03",
+      "base": "integration/godot-foundation-smoke-20261112",
+      "draft": true
+    },
+    {
+      "number": 120,
+      "title": "N32: integrated Godot test candidate — calendar, observer, domain modules and Windows smoke",
+      "head": "integration/godot-foundation-smoke-20261112",
+      "head_sha": "f7e3709dab88cf1fb6dcf1b0580d3c49409abffb",
+      "base": "feature/godot-nightshift-n31-contract-runtime-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 119,
+      "title": "Godot N31: deterministic contract commands on authoritative ticks",
+      "head": "feature/godot-nightshift-n31-contract-runtime-second-20261112",
+      "head_sha": "01b3e60119effad421a7f091e2386da5e10cdd5b",
+      "base": "feature/godot-nightshift-n30-contract-cargo-audit-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 118,
+      "title": "N30: read-only physical contract and escrow reconciliation",
+      "head": "feature/godot-nightshift-n30-contract-cargo-audit-second-20261112",
+      "head_sha": "c0a6ebf599b2f2fb33b7690996b5343c3e23db7e",
+      "base": "feature/godot-nightshift-n27-contract-gate-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 117,
+      "title": "N29: dock-authorized cargo transfer gate (CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n29-docking-cargo-second-20261112",
+      "head_sha": "15ef52f676e1c179dfa4ee318519c3a1fdc02827",
+      "base": "feature/godot-nightshift-n15-cargo-20261112-0630",
+      "draft": true
+    },
+    {
+      "number": 116,
+      "title": "Godot N28: deterministic read-only credit ledger reconciliation",
+      "head": "feature/godot-nightshift-n28-ledger-audit-20261112",
+      "head_sha": "63821345990148d76ee806a2d91d996afaca70ba",
+      "base": "feature/godot-nightshift-n11-ledger-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 115,
+      "title": "Godot N27: enforce physical delivery receipts at contract board boundary",
+      "head": "feature/godot-nightshift-n27-contract-gate-second-20261112",
+      "head_sha": "9127da6e537463c2087b4ec68da839cb68d5dd15",
+      "base": "feature/godot-nightshift-n26-delivery-settlement-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 114,
+      "title": "Godot N26: physical cargo receipt gate for contract escrow payouts",
+      "head": "feature/godot-nightshift-n26-delivery-settlement-second-20261112",
+      "head_sha": "f3563771ecf1905aabc32cccadcfcc55423267ff",
+      "base": "feature/godot-nightshift-n15-cargo-20261112-0630",
+      "draft": true
+    },
+    {
+      "number": 113,
+      "title": "N25: Rust order matching and atomic local stock/money settlement",
+      "head": "feature/godot-nightshift-n25-market-settlement-second-20261112",
+      "head_sha": "867a10ff13c1faf46a82a3a314255b490b5948d1",
+      "base": "feature/godot-nightshift-20261112",
+      "draft": true
+    },
+    {
+      "number": 112,
+      "title": "Godot N24: deterministic read-only P1 world diagnostics",
+      "head": "feature/godot-nightshift-n24-snapshot-diagnostics-20261112",
+      "head_sha": "b6f243d22cefbc37414725b7ae464c34fb6ee86b",
+      "base": "feature/godot-p1-ticks-orbits-saves",
+      "draft": true
+    },
+    {
+      "number": 111,
+      "title": "Godot N23: paid facilities in authoritative tick loop",
+      "head": "feature/godot-nightshift-n23-production-tick-second-20261112",
+      "head_sha": "525f83ddbe4140289f1e437ff561a2a8aa08f24f",
+      "base": "feature/godot-nightshift-n8-integration-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 110,
+      "title": "N22: lightweight batched ship view with culling and selection",
+      "head": "feature/godot-nightshift-n22-batch-view-20261112",
+      "head_sha": "d08ab68fe6b5f9bdb746e1274a24b10998db0cd8",
+      "base": "feature/godot-nightshift-20261112",
+      "draft": true
+    },
+    {
+      "number": 109,
+      "title": "N21: deterministic ship docking registry and headless smoke",
+      "head": "feature/godot-nightshift-n21-docking-20261112",
+      "head_sha": "118b0c763bf4e06355af557d5c9cb515f7867a70",
+      "base": "feature/godot-nightshift-20261112",
+      "draft": true
+    },
+    {
+      "number": 108,
+      "title": "Godot N20: honest read-only observer panel and command availability",
+      "head": "feature/godot-nightshift-n20-observer-overnight-20261112",
+      "head_sha": "3ebba7c541fd20dd79ff2f6619659fdbc3125342",
+      "base": "feature/godot-nightshift-n19-head-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 107,
+      "title": "Godot N19: deterministic faction head arbitration (CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n19-head-second-20261112",
+      "head_sha": "1f0444a5bc8cb676c4818efb16f2341421af9801",
+      "base": "feature/godot-nightshift-n18-admin-second-20261112-0752",
+      "draft": true
+    },
+    {
+      "number": 106,
+      "title": "Godot N18: station administrator staffing, priorities and paid dispatch",
+      "head": "feature/godot-nightshift-n18-admin-second-20261112-0752",
+      "head_sha": "475d13f63759d22695b1aafeda807f5d894b2e2a",
+      "base": "feature/godot-nightshift-n6-production-overnight-20261112",
+      "draft": true
+    },
+    {
+      "number": 105,
+      "title": "N17: native construction deliveries, paid shifts and station tier gates",
+      "head": "feature/godot-nightshift-n17-construction-second-20261112",
+      "head_sha": "b122d3ca92a8e6dec013dd08480111225e46f337",
+      "base": "feature/godot-nightshift-20261112",
+      "draft": true
+    },
+    {
+      "number": 104,
+      "title": "Godot N7: physical food/water crisis and paid production cycle",
+      "head": "feature/godot-nightshift-n7-needs-production-overnight-20261112",
+      "head_sha": "2a7c7687c1a1a95bf9b13ba633920bbf738e3372",
+      "base": "feature/godot-nightshift-n8-integration-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 103,
+      "title": "Godot N8: deterministic paid-production integration and shared labor acceptance",
+      "head": "feature/godot-nightshift-n8-integration-second-20261112",
+      "head_sha": "7db7a67ad5ed4197164c58130b85095636e97939",
+      "base": "feature/godot-nightshift-n6-production-overnight-20261112",
+      "draft": true
+    },
+    {
+      "number": 102,
+      "title": "Godot N16: prepaid contract board and escrow lifecycle (CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n16-contracts-second-20261112",
+      "head_sha": "006e03d60ddef8f9f75aa5ab69cace4e4691ac14",
+      "base": "feature/godot-nightshift-n11-ledger-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 101,
+      "title": "Godot N15: atomic ship cargo load/unload and idempotent receipts",
+      "head": "feature/godot-nightshift-n15-cargo-20261112-0630",
+      "head_sha": "9a6d2ca8dd3f95f87561f75f03d48c42a574bec4",
+      "base": "feature/godot-nightshift-n14-transit-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 100,
+      "title": "Godot N6: paid local recipe production with atomic stock/payroll boundary",
+      "head": "feature/godot-nightshift-n6-production-overnight-20261112",
+      "head_sha": "73d97a9276d374bd317d5464bc296fc1469045a1",
+      "base": "feature/godot-nightshift-n9-storage-overnight-20261112",
+      "draft": true
+    },
+    {
+      "number": 99,
+      "title": "Godot N14: deterministic ship transit and native fuel accounting",
+      "head": "feature/godot-nightshift-n14-transit-second-20261112",
+      "head_sha": "6cf18eb655b5773b558fd6e73c5df7460af6f457",
+      "base": "feature/godot-nightshift-n13-ships-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 98,
+      "title": "N10: native Rust price engine, order matching and market tick history",
+      "head": "feature/godot-nightshift-n10-prices-second-20261112",
+      "head_sha": "8e6e9245641166d65b2a9dba60ac1740fc303100",
+      "base": "feature/godot-nightshift-20261112",
+      "draft": true
+    },
+    {
+      "number": 97,
+      "title": "N12: Rust-parity household consumption and sentiment slice",
+      "head": "feature/godot-nightshift-n12-population-second-20261112",
+      "head_sha": "42f90c0b903ef88dbded738c79741f12570f5a62",
+      "base": "feature/godot-p1-ticks-orbits-saves",
+      "draft": true
+    },
+    {
+      "number": 96,
+      "title": "Godot N9: atomic native commodity inventories and capacity boundaries",
+      "head": "feature/godot-nightshift-n9-storage-overnight-20261112",
+      "head_sha": "9c81cb733d092192b4a5c1a0fd866d1df0dfaac8",
+      "base": "feature/godot-nightshift-n5-commodities-recipes-20261112",
+      "draft": true
+    },
+    {
+      "number": 95,
+      "title": "Godot N13: Rust-parity ship classes, size tiers and validated state",
+      "head": "feature/godot-nightshift-n13-ships-second-20261112",
+      "head_sha": "0354b74c3be8be5ac4010aff5a56dec8002f64ae",
+      "base": "feature/godot-nightshift-n4-registry-routes-overnight-20261112",
+      "draft": true
+    },
+    {
+      "number": 94,
+      "title": "N11: atomic native credit ledger and receipts (CODE_UNVERIFIED)",
+      "head": "feature/godot-nightshift-n11-ledger-second-20261112",
+      "head_sha": "00a5db3bc2205011717073ce38c2ba345237e605",
+      "base": "feature/godot-nightshift-20261112",
+      "draft": true
+    },
+    {
+      "number": 93,
+      "title": "Godot N5: native commodities and fractional recipe parity",
+      "head": "feature/godot-nightshift-n5-commodities-recipes-20261112",
+      "head_sha": "e2451beff5499824ebca5a843fd6931f04c55ac6",
+      "base": "feature/godot-p1-ticks-orbits-saves",
+      "draft": true
+    },
+    {
+      "number": 92,
+      "title": "Godot N4: native identity registry and directed travel route graph",
+      "head": "feature/godot-nightshift-n4-registry-routes-overnight-20261112",
+      "head_sha": "f0fab080028ad27e342a438e093a349a1f523dfd",
+      "base": "feature/godot-nightshift-n1-static-audit-code",
+      "draft": true
+    },
+    {
+      "number": 91,
+      "title": "Godot N3: deterministic phase cadence, event queue and checkpoint parity",
+      "head": "feature/godot-nightshift-n3-events-second-20261112",
+      "head_sha": "8fa6e298e96feaaabfeb26f36d177b14f31ef9fd",
+      "base": "feature/godot-nightshift-n2-calendar-second-20261112",
+      "draft": true
+    },
+    {
+      "number": 90,
+      "title": "Godot N1: harden P1 seed boundaries and audit smoke",
+      "head": "feature/godot-nightshift-n1-static-audit-code",
+      "head_sha": "c96dd597383051b0645a18fd10fee0e76996d977",
+      "base": "feature/godot-p1-ticks-orbits-saves",
+      "draft": true
+    },
+    {
+      "number": 89,
+      "title": "Godot N2: native-unit calendar, checkpoint compatibility and deterministic smoke",
+      "head": "feature/godot-nightshift-n2-calendar-second-20261112",
+      "head_sha": "ff397f6ec5b193034460ef39a0255a9d557725b2",
+      "base": "feature/godot-p1-ticks-orbits-saves",
+      "draft": true
+    }
+  ]
+}

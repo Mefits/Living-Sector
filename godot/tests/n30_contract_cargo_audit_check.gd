@@ -33,7 +33,7 @@ func _initialize() -> void:
 	assert(audit.inspect(board, cargo, ledger)["ok"])
 	assert(coordinator.settle_verified("c", "ship", "driver", 4)["ok"])
 	assert(audit.inspect(board, cargo, ledger)["ok"])
-	var original := cargo.receipts["contract:c:unload"].duplicate(true)
+	var original: Dictionary = cargo.receipts["contract:c:unload"].duplicate(true)
 	cargo.receipts["contract:c:unload"]["quantities"]["ore"] = 9
 	assert(not audit.inspect(board, cargo, ledger)["ok"])
 	cargo.receipts["contract:c:unload"] = original

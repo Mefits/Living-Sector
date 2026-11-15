@@ -1,0 +1,21 @@
+{
+  "worker": "second-chat-colony-n144-20261114",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "b5899e382663195b80d6c66225da0a2c946533eb",
+  "goal": "Source-wired native N144 active-colony-site N113/N134 head vote and funded N104/N9 Passenger commission, no ghost market or resident, physical N153 route to original dock",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n144_colony_contracts.gd (new)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N144 paid site contract method only)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (N134 strategic colony approval and paid posting only)",
+    "godot/scripts/sim/phase2/unified_n104_passenger_transit.gd (N144 founding passenger acceptance only as needed)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (N144 contract binding and receipt invariants only)",
+    "godot/docs/phase2/handoffs/20261114-second-chat-n144-paid-colony-contracts.md (new)",
+    "godot/tests/p2_n144_paid_colony_passengers_source_check.gd (new test, NOT RUN)"
+  ],
+  "non_overlap": "N149 lease released; any new leases read before central writes. No N154 materialization, N97 marketplace rewrite, N148 retire, balance or UI changes",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED: static paths/balanced brackets/source mapping; Godot/parser/Actions NOT RUN; new founding head, Metals deliveries and final station establishment pending",
+  "handoff": "godot/docs/phase2/handoffs/20261114-second-chat-n144-paid-founding-passengers.md",
+  "code_head": "76bafb07c1f73f961fd038e99852e07920bd34c7",
+  "released_on": "2026-11-14"
+}

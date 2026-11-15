@@ -1,0 +1,17 @@
+{
+  "worker": "chat-1-trade-20261114",
+  "status": "RELEASED",
+  "goal": "Complete same A1 N83 paid market integration for source market owner facilities that are not literally type=station; only real N21 capacity and owner Market accepted, no virtual station",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_fleet_logistics.gd (one N83 market dock mode, preserve other modes)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd (trade only)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (trade only)",
+    "godot/scripts/sim/phase2/unified_n83_free_trade_apply.gd (market-owner source preflight)",
+    "godot/docs/phase2/handoffs/20261114-chat1-n83-paid-free-trade.md (correction)"
+  ],
+  "nonoverlap": "No modifications to N144/N151 colony, N134 Head or existing N104 contract dock path. Re-fetch shared file blob SHA before edit.",
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat1-n83-paid-free-trade.md",
+  "verification": "GitHub static readback, no Godot F5/parser/Actions; code-only source market dock mode on actual Market owner and original N21 occupancy.",
+  "completed": "2026-11-14"
+}

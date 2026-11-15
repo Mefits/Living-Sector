@@ -1,0 +1,40 @@
+{
+  "worker": "chat3-V2-crisis-source-atomic-staging",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "60db31b029e8b7e32ffa41bf6710c98dace90ec2",
+  "goal": "Complete live Rust Bundle(S) source crisis integration after chat1 release: atomic N39 facility flags, N158 crisis phase pre/post-market proof, exactly once signal after commit, N38 serialization.",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_native_crisis_phase.gd (new)",
+    "godot/tests/p2_native_crisis_atomic_phase_check.gd (new)",
+    "godot/docs/phase2/handoffs/20261114-chat3-v2-crisis-atomic-stage.md (new)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (only new V2 crisis apply and preload)",
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd (only optional starving_notified validation)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (only V2 crisis phase+transient state/summary/restore)",
+    "godot/scripts/sim/phase2/unified_native_crisis_events.gd (pure legacy FacilityOperations handling)"
+  ],
+  "excludes": [
+    "N9/N104",
+    "unified_ship_ai_execution.gd",
+    "balance"
+  ],
+  "coordination": "Chat1 N108 GatePair and Chat2 B3 RELEASED; latest PR HEAD checked before shared file claims. Re-fetch blob SHA before every edit, never force.",
+  "verification": "SOURCE_WIRED / CODE_UNVERIFIED. Eight changed GDScripts fetched and statically checked balanced delimiters/quotes/EOL/NUL. No Godot/CI/Actions, no runtime PASS.",
+  "result": "Full Rust engine.rs::scan_crisis_events source path wired: N150 MarketHistory flags → N1/N158 crisis phase → one N39 FacilityOperations starving_notified commit → existing TickRunner signal and compact Observer → N38 save. No second event queue or ledger.",
+  "commits": [
+    "79a59bf",
+    "197c2a5",
+    "dd1fd60",
+    "c4eeeb9",
+    "2bafe23",
+    "b4a154f",
+    "0904d68",
+    "5a21667",
+    "0a973b7",
+    "867787a",
+    "5076659",
+    "2ee8825"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat3-v2-native-crisis-live.md",
+  "remaining": "Final combined Godot/parser/Windows acceptance of whole Rust→Godot migration; actual behavioral test must run only then."
+}

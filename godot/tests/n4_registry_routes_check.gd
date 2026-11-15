@@ -30,8 +30,11 @@ func _initialize() -> void:
         _fail("registry leaked writable references")
         return
     var graph = registry.graph()
-    if graph == null or graph.edge_count() != 12:
-        _fail("native route count")
+    # Rust seeder charts 12 raw JSON lanes in both directions (24),
+    # then spawner::chart_colony_routes adds 25 UNINHABITED planet
+    # endpoints with 146 SAME-SYSTEM INSERT OR IGNORE corridors.
+    if graph == null or graph.edge_count() != 170 or not graph.has_location("mars-colony") or int(graph.shortest_path("earth-station", "mars-colony").get("distance", -1)) != 18:
+        _fail("native seeded DB route count")
         return
     var path: Dictionary = graph.shortest_path("earth-station", "pirate-outpost")
     var expected_path: Array = [
@@ -44,8 +47,9 @@ func _initialize() -> void:
     if not is_equal_approx(float(path["distance"]), 855.0):
         _fail("native route distance")
         return
-    if graph.shortest_path("pirate-outpost", "earth-station").get("reachable", true):
-        _fail("invented reverse route")
+    var return_trip: Dictionary = graph.shortest_path("pirate-outpost", "earth-station")
+    if not return_trip.get("reachable", false) or not is_equal_approx(float(return_trip.get("distance", -1.0)), 855.0) or return_trip.get("locations", []) != ["pirate-outpost", "lane-barnard", "lane-tau", "lane-epsilon", "earth-station"]:
+        _fail("missing Rust-seeded reverse return corridor")
         return
     var snapshot: String = JSON.stringify(registry.snapshot())
     var second = Registry.new()

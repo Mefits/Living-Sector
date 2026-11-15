@@ -45,7 +45,10 @@ func load_seed(seed: Dictionary) -> bool:
                 if not _put(staged, kind, key, sid, value):
                     return false
     var graph = RouteGraph.new()
-    if not graph.load_worlds(seed["worlds"]):
+    # Frozen Rust sim_db::seeder inserts each actual JSON corridor in
+    # BOTH directions, then N142 observes those persisted DB travel_routes.
+    # Preserve the raw JSON's directed mode for independent N58/N59.
+    if not graph.load_worlds(seed["worlds"], true):
         return false
     for key in staged:
         var kind: String = staged[key]["kind"]

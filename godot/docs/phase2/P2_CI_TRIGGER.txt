@@ -1,0 +1,3 @@
+P2 STAGE2 RESTART FULL N38 FRAME GUARD — 2026-11-15
+Current source HEAD 40b50e52436d29d58d24c0bbbdb7a3bdc74c4e6b.
+CI 43646676288 proved Godot 4.7.2 editor, parser, real production/research, N91, N38 exact 8-byte binary64/typed BT keys all PASS. Untouched source world ran 360 consecutive native ticks with 1925 N9 receipts and one funded N104 contract. N38 physical save and fresh runner LOAD SUCCEEDED. New Stage2 assertion stopped on raw Variant Dictionary inequality of ledger 1 vs JSON 1.0; replaced with original strict NativeFrameGuard for ALL N9/escrow/N104/N15 values, only exact numeric JSON integral conversions permitted. Continue after real N38 restore through tick361 and 420. No changes in game balance, source logic or money.

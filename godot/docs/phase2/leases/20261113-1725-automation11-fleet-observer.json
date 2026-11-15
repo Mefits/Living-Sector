@@ -1,0 +1,13 @@
+{
+  "worker": "automation11-1725",
+  "status": "RELEASED",
+  "scope": [
+    "godot/scripts/observer_panel.gd"
+  ],
+  "boundary": "Read-only canonical N46 fleet per-ship location, cargo, fuel and transit diagnostics in observer. No main/runner/world writes.",
+  "started_at": "2026-11-13T14:25:25Z",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "code_commit": "d02354eb1ccc4318c55ea5789ebd870d2f7ad61f",
+  "released_at": "2026-11-13T14:31:00Z",
+  "handoff": "godot/docs/phase2/handoffs/20261113-1725-automation11-fleet-observer.md"
+}

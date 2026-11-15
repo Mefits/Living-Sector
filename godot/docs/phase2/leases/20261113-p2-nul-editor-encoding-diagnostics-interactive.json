@@ -1,0 +1,16 @@
+{
+  "owner": "interactive-chat-user-local-godot",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/diagnose_text_encoding.ps1",
+    "godot/scripts/diagnose_text_encoding.cmd",
+    "godot/docs/phase2/handoffs/20261113-local-godot-nul-encoding-investigation.md"
+  ],
+  "purpose": "Provide single-click local Windows diagnosis of recurring Godot 4.7.2 Unexpected NUL characters with paths, without touching source files or CI",
+  "started_at": "2026-11-13",
+  "ci": "ZERO_GITHUB_ACTIONS",
+  "verification": "DIAGNOSTIC_TOOL_SOURCE_ONLY; AWAITING_USER_LOCAL_SCAN",
+  "handoff": "godot/docs/phase2/handoffs/20261113-local-godot-nul-encoding-investigation.md",
+  "completed_at": "2026-11-13"
+}

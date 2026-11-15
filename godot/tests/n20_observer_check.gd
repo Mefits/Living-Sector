@@ -1,5 +1,5 @@
 extends SceneTree
-const Projection = preload("res://scripts/sim/observer/observer_projection.gd")
+const ObserverProjection = preload("res://scripts/sim/observer/observer_projection.gd")
 
 func _initialize() -> void:
     var head := {"ok": true, "tick": 42, "faction_id": "genesis",
@@ -21,7 +21,7 @@ func _initialize() -> void:
             "id": "contract-8", "status": "delivered",
             "cargo_delivered": true, "paid": false}]}
     var before := state.duplicate(true)
-    var view: Dictionary = Projection.build(42, "genesis", state)
+    var view: Dictionary = ObserverProjection.build(42, "genesis", state)
     assert(view["ok"])
     assert(view["head"]["selected"] == "supply")
     assert(view["head"]["committed_spend"] == 0)
@@ -33,13 +33,13 @@ func _initialize() -> void:
     assert(not view["commands"][0]["enabled"])
     assert(view["commands"][0]["mode"] == "advise")
     assert(state == before)
-    var stale: Dictionary = Projection.build(43, "genesis", state)
+    var stale: Dictionary = ObserverProjection.build(43, "genesis", state)
     assert(not stale["head"]["available"])
     assert(stale["stations"].is_empty() and stale["contracts"].is_empty())
-    var report: String = Projection.describe(view)
+    var report: String = ObserverProjection.describe(view)
     assert(report.contains("survival_first"))
     assert(report.contains("not_executed"))
     assert(report.contains("команды недоступны"))
-    assert(Projection.describe(view) == report)
+    assert(ObserverProjection.describe(view) == report)
     print("N20_OBSERVER_CHECK_OK")
     quit(0)

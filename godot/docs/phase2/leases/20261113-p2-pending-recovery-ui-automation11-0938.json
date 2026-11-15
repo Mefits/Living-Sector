@@ -1,0 +1,12 @@
+{
+  "owner": "automation11",
+  "status": "RELEASED",
+  "scope": [
+    "godot/scripts/main.gd"
+  ],
+  "purpose": "Expose durable pending recovery and failed promotion in startup and manual load notices",
+  "started_at": "2026-11-13T09:38:50+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "completed_commit": "639273163c70058ad0b4d3131ad50f77f4e60f61",
+  "handoff": "Startup/manual load now distinguish backup, promoted pending, and pending not durable; Godot runtime unverified"
+}

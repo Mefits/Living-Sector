@@ -1,0 +1,43 @@
+{
+  "worker": "chat3-n113-full-source-options-20261114",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "9a60f1f9fc1d7ce0e52f5b7328dcf7725a8ed6f3",
+  "goal": "Extend canonical N113/N147 Rust source candidate set with original N143 research readiness, N144 expansion site proposals, prior N111 supply exact source re-quote; no fabricated alternatives and no duplicate Head/ledger; defer Godot execution until final acceptance.",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n113_original_candidates.gd (new pure source projector)",
+    "godot/scripts/sim/phase2/unified_n147_colony_head_grant.gd (source candidate integration)",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (N147 source context pass; one authoritative N39)",
+    "godot/tests/p2_n113_original_candidates_check.gd (deferred)",
+    "godot/tests/p2_n147_native_head_grant_check.gd (deferred update)",
+    "godot/docs/phase2/handoffs/20261114-chat3-n113-source-candidates.md (new)",
+    "godot/docs/phase2/P2_V4_FINAL_ACCEPTANCE_MATRIX_RU.md (precise status update)"
+  ],
+  "excludes": [
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (no second Head or phase)",
+    "N21 FIFO, N9, contracts, physics",
+    "Any balance or new thresholds",
+    "Godot/headless/F5/CI/Actions until source closure"
+  ],
+  "coordination": "All prior Chat1 N21 and Chat2 B4 leases RELEASED at start. Re-fetch SHA before each touched shared file; no edits to ship code.",
+  "verification": "SOURCE_WIRED/CODE_UNVERIFIED/RUNTIME_UNVERIFIED; 8 files reread and GDScript delimiters/quotes/LF/NUL statically checked. Godot F5/headless/parser/CI/Actions NOT RUN.",
+  "result": "Real original N113 candidate source projection wired: N143 research readiness/score, N144 active/new colony expansion scores, prior N111/N154 re-quoted source-positive supply, existing N147 migration. Previous supply without N154/N121 evidence retained fail-closed. N113 pending confirmation requires consecutive actual strategic cycles, avoiding false confirmation across unready N147 cycles. No second Director/World, credits, or Head tick.",
+  "commits": [
+    "9a2c95f",
+    "98be835",
+    "1e06987",
+    "fd7070f",
+    "822d567",
+    "fab3a5c",
+    "7e6294b",
+    "375ab2e",
+    "f2d4da6",
+    "4bc6353",
+    "890d6b9",
+    "e76decf",
+    "412335d",
+    "5558d26"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261114-chat3-n113-source-candidates.md",
+  "remaining": "Full N109/N110 player delegated priority, N135/N121 alternate prior supply not fully quotable by N154, central N113 new nonmigration Head authority and one end-to-end Godot/Windows acceptance."
+}

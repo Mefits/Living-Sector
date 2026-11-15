@@ -1,0 +1,14 @@
+{
+  "owner": "second-chat-overnight",
+  "status": "RELEASED",
+  "scope": [
+    "godot/scripts/phase2_package_windows.sh"
+  ],
+  "started_at": "2026-11-13T09:47:48+03:00",
+  "purpose": "Harden Windows export artifact verification against wrong-platform or missing/invalid PCK; no Actions dispatch",
+  "result_commits": [
+    "4027bfce7c496689840f17e8b1b9c311f1cadd4a",
+    "33857d82d3ca991a70e4bc66f1159cbabe1588b1"
+  ],
+  "handoff": "Windows package script validates x86_64 PE and GDPC PCK before publishing. Static-only, no runtime or CI run."
+}

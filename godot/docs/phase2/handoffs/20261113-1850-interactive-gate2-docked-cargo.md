@@ -1,0 +1,17 @@
+# Living Sector P2 / Gate 2 — N21/N15 single-world docking and cargo
+- Date: 13 November 2026, interactive-chat. Branch `integration/godot-phase2-unified-20261113`, shared Draft PR #249.
+- Base before lease: `9404c9307c0e1f7a5fb4d4508b7d499176648c57`. Work performed on current shared HEAD without force-push.
+- Code commits: `950f1dfb` (canonical seed/schema/N21 adapter), `134527e4` (N39 atomic command Apply + N158 API), `efe41dd3` (full roundtrip fixture), `dfc82c99` (F5 GUI), `4a6fb7ae` (dock departure gate assertion), `bfac0dc2` (same-faction cargo protection).
+- New `godot/scripts/sim/phase2/unified_fleet_logistics.gd` calls existing N21 `docking_registry.gd` and N15 `docked_cargo_gate.gd` / `ship_cargo_transfer.gd`; their source logic is no longer just a disconnected library.
+- N46 starter ships remain 24 real frozen IDs, explicitly UND0CKED like the Rust seeder. Native `docking_capacity` is preserved in the existing N39 facility rows; old P2 saves do not fabricate dock capacities/receipts.
+- Authoritative dock occupancy is reconstructed from `world.ships[*].docked_at` and original facility capacities. No second persistent docking registry, ledger, world or clock.
+- Four explicit APIs: `request_ship_dock`, `request_ship_undock`, `request_ship_cargo(..., "load", ...)`, `request_ship_cargo(..., "unload", ...)`. N14 departure now requires a real undock.
+- `N39.apply_fleet_logistics()` checks no other World domain or ship wallets change; checks receipts/nonces, exact per-commodity hold/market deltas, dock capacity, schema and N9 account totals BEFORE one World swap. No phantom cash or stock.
+- Cargo path is limited to SAME-FACTION stock held by the actual N39 Market owner, until paid N104 contracts/inter-faction settlement are wired. It is not a free commerce simulator.
+- Receipt identities and integer quantities restored via the existing N38 SaveState/N158 normalization. Duplicate commands fail without modifying stock.
+- F5 GUI in `godot/scripts/main.gd`: ship selection, dock/undock, commodity/quantity, load/unload, refreshed live observer/status. No duplicate local data.
+- New `godot/tests/p2_unified_docked_cargo_check.gd`: finds REAL co-located owned market+ship, rejects pre-dock load, checks N21 dock gating, N15 real stock/load, duplicate prevention, save-to-disk/restore, unload and undock, verifies unchanged N9 balances.
+- Verification actually performed: GitHub readback of all eight edited/added scripts, ZERO NUL, balanced punctuation/strings, all preload paths exist; API/persistence hooks present. Godot 4.7.2 executable not available in this chat, so this remains **WIRED_CODE_UNVERIFIED**, NOT a Godot runtime PASS. No GitHub Actions started and no Windows artifact generated.
+- Immediate local check: GitHub Desktop Fetch/Pull shared branch, Godot 4.7.2 import + F5, choose an original ship at a friendly station, `Стыковка` → own stock `В трюм` or `Загрузить` → save/reload → `Выгрузить` → `Отстыковать`. Run headless fixture in Godot when available; capture first exact path/line on parser error.
+- Remaining Gate 2: verify real Godot parser/runtime and in-flight loaded-cargo continuation/arrival; then N21 arrival docking UX/ship cargo observer and N104 paid contracts. Do not treat this as Gate 3 commerce or completed fleet autonomy.
+- Rollback: revert the above six code commits on the unified branch, preserving concurrent unrelated HEAD changes; do not reset/force-push shared PR.

@@ -1,0 +1,13 @@
+{
+  "owner": "overnight-scheduler-automation11",
+  "status": "RELEASED",
+  "scope": [
+    "godot/scripts/sim/save_state.gd"
+  ],
+  "purpose": "Recover verified .pending after interrupted atomic save without discarding healthy primary/backup",
+  "started_at": "2026-11-13T05:09:38Z",
+  "base_head": "c48d27d5f2012f6e72ff955280d42788f5cb87a3",
+  "commit": "6c82236d1a334792e94f37cfb7a37259ac551dc3",
+  "verification": "CODE_UNVERIFIED",
+  "actions_runs": 0
+}

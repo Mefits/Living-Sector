@@ -1,0 +1,12 @@
+{
+  "owner": "second-chat-overnight",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T06:22:21+03:00",
+  "scope": [
+    ".github/workflows/p2-windows-release.yml"
+  ],
+  "task": "Add explicitly dispatched bounded Windows export artifact workflow; no automatic CI triggers",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "result_commit": "8473c4d6bc74d59eb0299c0d8d2abe21d61ca10f",
+  "handoff": "Manual-only Windows export workflow committed. No CI run dispatched; no ZIP produced. Next run: coordinate remaining shared Actions budget and run once after parser/import readiness, inspect artifact and Windows launch."
+}

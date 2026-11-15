@@ -23,7 +23,11 @@ func plan(tick: int, station: Dictionary, ledger: RefCounted, executing: bool = 
     var shortages: Dictionary = station.get("shortages", {})
     var facilities: Array = station.get("facilities", [])
     var owner: String = str(station.get("market_owner", ""))
-    var workforce: int = maxi(0, int(floor(float(station.get("population_count", 0)) * 3.0 / 5.0)))
+    # Frozen station.rs sums floor(3/5 * population_count) PER household
+    # cohort, rather than rounding after grouping cohorts. N39 can pass
+    # that exact real-population capacity without altering payroll rules.
+    var workforce: int = maxi(0, int(station.get("workforce_limit",
+        int(floor(float(station.get("population_count", 0)) * 3.0 / 5.0)))))
     var occupied: int = maxi(0, int(station.get("occupied_workers", 0)))
     var idle: int = maxi(0, workforce - occupied)
     var head: String = str(station.get("head_priority", ""))

@@ -1,0 +1,12 @@
+{
+  "owner": "automation-shift11",
+  "status": "RELEASED",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_station_demand_phase.gd"
+  ],
+  "boundary": "N135 deterministic physical supplier allocation for multiple station deficits; no N158, ContractBoard or ledger edits",
+  "started_at": "2026-11-13T21:45:48+03:00",
+  "expires_at": "2026-11-13T22:35:48+03:00",
+  "finished_at": "2026-11-13T21:54:00+03:00",
+  "commit": "709ee574b1fd8ea8b9217c0221c3cc0b93ccacc5"
+}

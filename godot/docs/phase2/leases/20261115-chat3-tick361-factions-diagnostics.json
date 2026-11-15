@@ -1,0 +1,32 @@
+{
+  "worker": "chat3-tick361-factions-diagnostics-20261115",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "base_head": "0ebab66f027625469af7efc78822bf5f3a003b39",
+  "goal": "Act on actual user godot(1).log: native factions phase rejects at tick 361 without root detail; ensure rejected N151/N147/N104/paid subphases propagate exact source failure, preserve one TickRunner failure freeze; separate active chat1 N91 and registry scope.",
+  "scope": [
+    "godot/scripts/sim/phase1/n39_native_production_tick_runner.gd (failure log include recorded reason)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (ONLY _integrated_phase_failure_reason and if necessary missing result assignment, not Chat1 phase registry)",
+    "godot/docs/phase2/handoffs/20261115-chat3-tick361-rejection-diagnostics.md",
+    "godot/tests/p2_factions_failure_reason_source_check.gd (new deferred, no run)"
+  ],
+  "excludes": [
+    "godot/scripts/ported/n91_construction_executor.gd (Chat1 active)",
+    "godot/scripts/sim/save_state.gd (Chat1 active)",
+    "N158 phase registry/Chat1 lines",
+    "balance, new retries, relaxed source safeguards",
+    "Godot Actions intermediate"
+  ],
+  "coordination": "Chat1 stage1 runtime repair lease IN_PROGRESS covers N158 phase registry only; limit edit to method _integrated_phase_failure_reason, re-fetch current SHA and do not clobber concurrent changes.",
+  "verification": "Source readback / balanced delimiters and strings; Godot Windows runtime tick361 failure USER-REPRODUCED, exact root still unverified; new code not run.",
+  "result": "Actual user Windows Godot 4.7.2 log confirms first P2 factions tick 361 rejection (no old N91 crash) but omits substage; N158 now maps real source N151/N104/B4/N121/N143 failures to scoped reason, N39 TickRunner prints that reason in the failing log, regression authored (not run). No gameplay change or speculative fix.",
+  "commits": [
+    "fc582ba",
+    "00f3fad",
+    "27916c1",
+    "c27ede5",
+    "86adebf"
+  ],
+  "handoff": "godot/docs/phase2/handoffs/20261115-chat3-tick361-rejection-diagnostics.md",
+  "remaining": "User pulls current shared branch and sends fresh Godot log after next launch; make one targeted fix based on reason; Chat1 active Stage1 handles N91/research/save."
+}

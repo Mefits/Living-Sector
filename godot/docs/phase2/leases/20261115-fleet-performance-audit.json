@@ -1,0 +1,24 @@
+{
+  "worker": "chat-fleet-performance-first-20261115",
+  "status": "IN_PROGRESS",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started": "2026-11-15",
+  "base_head": "d2e016579f02653ff5be85abaf202ab5f97c403c",
+  "goal": "Prove real native N153 ship nondepartures vs source policy; optimize avoidable GUI/world snapshot deep copies on live main thread, preserve one N39/N158 simulation and Rust behavior; gather opt-in per-phase timing and first source block reason, one real combined headless test.",
+  "scope": [
+    "godot/scripts/sim/phase1/n39_native_world_production.gd (read-only ships_snapshot accessor only)",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd (fleet_snapshot shortcut only)",
+    "godot/scripts/main.gd (observer and selection UI cadence only)",
+    "godot/scripts/sim/phase1/n39_native_production_tick_runner.gd (opt-in timing diagnostics only)",
+    "godot/tests/p2_autonomy_bottleneck_probe.gd (new: N153 truth and phase sampling)",
+    "godot/docs/phase2/handoffs/20261115-fleet-performance-first-audit.md (new)",
+    "godot/docs/phase2/leases/20261115-fleet-performance-audit.json (new)"
+  ],
+  "exclude": [
+    "new player orders, economic mandates, balance",
+    "ship physics, route graph fabrication, synthetic cargo/money",
+    "N38 save envelope and existing CI workflow unless final bundled test evidence demands",
+    "source Rust and default AI policies"
+  ],
+  "verification": "PENDING"
+}

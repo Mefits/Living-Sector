@@ -1,0 +1,12 @@
+{
+  "worker": "automation11",
+  "status": "RELEASED",
+  "created_at": "2026-11-13T13:54:00Z",
+  "scope": [
+    "godot/scripts/observer_panel.gd"
+  ],
+  "boundary": "Read-only N156 crew morale, paid maintenance and production state projection in existing observer; no World/Runner/Ledger writes",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "code_commit": "d359410d12541d1a21bd45e1407ac18601d93360",
+  "released_at": "2026-11-13T13:59:00Z"
+}

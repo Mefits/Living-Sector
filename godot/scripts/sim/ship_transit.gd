@@ -30,7 +30,8 @@ func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: 
 		return false
 	var spec: Dictionary = Catalog.spec(str(ship["class"]))
 	var rate := float(spec.get("fuel_consumption_base", 0.0))
-	var speed := Catalog.effective_speed(str(ship["class"]), str(ship["size"]))
+	var speed := float(ship.get("speed_modifier", Catalog.effective_speed(
+		str(ship["class"]), str(ship["size"]))))
 	if rate <= 0.0 or speed <= 0.0 or float(ship["fuel"]) <= 0.0:
 		return false
 	var token := _next_token
@@ -45,8 +46,10 @@ func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: 
 
 ## Advance exactly one authoritative simulation tick; repeat calls are idempotent.
 ## Arrival is determined by distance, NEVER by the display-only arrival_tick.
-func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: int, tick_scale: float) -> String:
-	if not state.ships.has(ship_id) or not is_finite(tick_scale) or tick_scale <= 0.0:
+func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: int,
+		tick_scale: float, skipped_ticks: int = 1,
+		authorized_lod_fire: bool = false) -> String:
+	if not state.ships.has(ship_id) or not is_finite(tick_scale) or tick_scale <= 0.0 or skipped_ticks < 1:
 		return "invalid"
 	var ship: Dictionary = state.ships[ship_id]
 	var transit: Dictionary = ship.get("transit", {})
@@ -54,27 +57,44 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		return "idle"
 	if tick <= int(transit["last_tick"]):
 		return "duplicate"
-	if tick != int(transit["last_tick"]) + 1:
+	# N140's authoritative cursor may reanchor when an observer moves:
+	# skipped_ticks is derived from the original cursor, NOT simply
+	# tick minus the prior transit update. The N14 caller must mark
+	# a legitimately fired LOD gate; manual/default calls remain strict.
+	if not authorized_lod_fire and tick != int(transit["last_tick"]) + 1:
 		return "nonsequential_tick"
+	if not authorized_lod_fire and skipped_ticks != 1:
+		return "lod_authority_required"
 	var target_id := str(transit["to"])
 	if not positions.has(target_id) or not _valid_position(positions[target_id]):
 		return "missing_destination"
 	var spec: Dictionary = Catalog.spec(str(ship["class"]))
-	var speed := Catalog.effective_speed(str(ship["class"]), str(ship["size"]))
+	var speed := float(ship.get("speed_modifier", Catalog.effective_speed(
+		str(ship["class"]), str(ship["size"]))))
 	var position := Vector2(float(transit["position"][0]), float(transit["position"][1]))
 	var target: Vector2 = positions[target_id]
 	var remaining := position.distance_to(target)
 	var velocity := BASE_VELOCITY * speed * tick_scale
 	if not is_finite(remaining) or velocity <= 0.0:
 		return "invalid"
-	if remaining <= maxf(velocity, ARRIVAL_THRESHOLD):
+	# A final movement step is still a physical flight step. Previously it
+	# teleported the ship into dock without paying the final tick of fuel.
+	# Check the tank before either advancing or completing this step.
+	var consumption := float(spec["fuel_consumption_base"]) * tick_scale
+	if not is_finite(consumption) or consumption <= 0.0:
+		return "invalid"
+	if remaining <= ARRIVAL_THRESHOLD:
 		ship["location"] = target_id
 		ship["transit"] = {}
 		return "arrived"
-	var consumption := float(spec["fuel_consumption_base"]) * tick_scale
 	if float(ship["fuel"]) < consumption:
 		transit["last_tick"] = tick
 		return "out_of_fuel"
+	if remaining <= velocity:
+		ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
+		ship["location"] = target_id
+		ship["transit"] = {}
+		return "arrived"
 	var next_position := position.move_toward(target, minf(velocity, remaining))
 	ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
 	transit["position"] = [next_position.x, next_position.y]
@@ -101,6 +121,21 @@ func cancel(state: RefCounted, ship_id: String) -> bool:
 	transit["token"] = _next_token
 	_next_token += 1
 	transit["arrival_tick"] = -1
+	return true
+
+
+## N54 combined fleet envelope calls these on the SINGLE transit authority.
+## The cursor must be strictly greater than every persisted active token;
+## never reuse a token after a save/restore or an interrupted arrival event.
+func next_token() -> int:
+	return _next_token
+
+func restore_next_token(cursor: int, highest_active_token: int) -> bool:
+	if cursor < 1 or highest_active_token < 0:
+		return false
+	if cursor <= highest_active_token:
+		return false
+	_next_token = cursor
 	return true
 
 func _valid_position(value: Variant) -> bool:

@@ -1,0 +1,37 @@
+{
+  "worker": "chat-gut-autonomy-tooling",
+  "status": "RELEASED",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "started": "2026-11-15",
+  "goal": "Pin official GUT 9.7.1 Godot4.7, add reproducible installer and CLI test suite without vendoring 259 external files; add isolated no-player clean seed N158 world evidence reporter, optional strict autonomous-delivery existing test and independent manual/one-time CI gate.",
+  "scope": [
+    "godot/testing/gut/* (new)",
+    "godot/tests/gut/* (new)",
+    "godot/tests/p2_autonomous_world_observer_check.gd (new)",
+    "godot/.gitignore (ignore fetched third-party addon only)",
+    "godot/docs/TESTING_AUTONOMOUS_WORLD_RU.md (new)",
+    "godot/.gutconfig.json (new)",
+    " .github/workflows/godot-autonomy-gut.yml (new)",
+    "godot/docs/GODOT_TOOLING_DECISIONS_RU.md (dated verified GUT status)"
+  ],
+  "exclude": [
+    "godot/scripts/sim/save_state.gd",
+    "godot/docs/phase2/P2_CI_TRIGGER.txt",
+    ".github/workflows/p2-unified-godot-smoke.yml",
+    "godot/tests/p2_stage2_clean_seed_420_tick_acceptance.gd",
+    "N39/N158 production runtime source",
+    "balance, manual mandates, user-driven policies"
+  ],
+  "coordination": "Other live stage2 clean-seed runtime-acceptance lease covers existing native N38 and CI. No edits to its files.",
+  "upstream": {
+    "name": "bitwes/Gut",
+    "tag": "v9.7.1",
+    "sha": "aeb5d4f3f7f0a6c9b5e178876d6c99b791fda605"
+  },
+  "verification": "GODOT_4_7_2_GUT_AND_CLEAN_WORLD_PASS; AUTONOMOUS_FREIGHT_NOT_PROVEN; WINDOWS_GUI_AND_SOAK_NOT_RUN",
+  "completed": "2026-11-15",
+  "result": "Official GUT v9.7.1 pinned upstream commit installed on Godot 4.7.2, 6/6 real GUT tests PASS. Clean original Galaxy 0.6.7 N158 runner advanced 420 ticks, accounts exact, 2168 new N9 receipts, 18 sampled market stock changes, +1 facility +1 population group, +468 research receipts; no sampled flight/paid freight. JSON report artifact saved.",
+  "ci_run_url": "https://github.com/Mefits/Living-Sector/actions/runs/43647250102",
+  "handoff": "godot/docs/phase2/handoffs/20261115-gut-autonomous-world-test.md",
+  "next": "Do not integrate player/economic mandates. Real N135→N104→N153→N14→N21→N15 paid shipping still requires separate strict Godot end-to-end proof; 420-tick observer says no transit/payout. Later longer head/admin colony, research and profiling."
+}

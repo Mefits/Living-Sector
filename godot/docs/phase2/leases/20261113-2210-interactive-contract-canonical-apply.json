@@ -1,0 +1,26 @@
+{
+  "owner": "interactive-chat-large-autonomy-contract-apply",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T22:10:00+03:00",
+  "expires_at": "2026-11-13T23:30:00+03:00",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase1/n39_native_world_schema.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase2/n158_galaxy_production_seed.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/tests/p2_live_funded_contract_check.gd"
+  ],
+  "boundary": "First live canonical N135→N104 post with sole N9 ledger, persisted escrow+board World and duplicate suppression; no N153 dispatch/ship AI or UI; fail closed, no dummy orders",
+  "base_head": "bf1cbba69bd39ecf98d839776d5eccf17a3db7eb",
+  "released_at": "2026-11-13T22:34:00+03:00",
+  "handoff": "godot/docs/phase2/handoffs/20261113-2234-interactive-n135-n104-canonical-post.md",
+  "code_commits": [
+    "dda8e1d6",
+    "93a8fd30",
+    "d7560692",
+    "778a27d5",
+    "80ed10b1"
+  ],
+  "verification": "STATIC_PASS / GODOT_RUNTIME_UNVERIFIED"
+}

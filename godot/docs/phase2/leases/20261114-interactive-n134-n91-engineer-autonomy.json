@@ -1,0 +1,23 @@
+{
+  "worker": "interactive-chat",
+  "status": "RELEASED",
+  "base_head": "94c33875c257c89f36c741b50392385206ca2a91",
+  "branch": "integration/godot-phase2-unified-20261113",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_n91_construction_dispatch.gd (new)",
+    "godot/scripts/sim/phase2/unified_ship_ai_execution.gd",
+    "godot/scripts/sim/phase1/n39_native_world_production.gd",
+    "godot/scripts/sim/phase2/n158_production_runtime.gd",
+    "godot/scripts/sim/phase2/unified_native_construction_labor.gd",
+    "godot/tests/p2_n91_autonomous_engineer_check.gd (new)",
+    "godot/scripts/ported/n91_construction_executor.gd",
+    "godot/scripts/sim/phase2/unified_native_construction_phase.gd",
+    "godot/scripts/sim/phase2/unified_n134_construction_head.gd",
+    "godot/scripts/observer_panel.gd",
+    "godot/tests/p2_gate4_native_construction_check.gd"
+  ],
+  "goal": "N91 source engineering ship selection and native GOAP/N84 Construct active action via real N14/N21 and N39, plus N134 bounded head grant stage; no fake sites or fleet micromanagement, no CI",
+  "code_head": "0fadc7b0976f57c2c6f318ecde0ed170b0da8a97",
+  "handoff": "godot/docs/phase2/handoffs/20261114-n134-n91-head-engineer-construction.md",
+  "verification": "SOURCE_WIRED_STATIC_PASS; GODOT_NOT_EXECUTED; GITHUB_ACTIONS_0"
+}

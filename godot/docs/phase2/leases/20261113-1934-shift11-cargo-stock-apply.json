@@ -1,0 +1,13 @@
+{
+  "worker": "shift11-automation",
+  "status": "RELEASED",
+  "started_at": "2026-11-13T19:34:00+03:00",
+  "scope": [
+    "godot/scripts/sim/phase2/unified_fleet_logistics.gd"
+  ],
+  "boundary": "Fix physical N15 market stock propagation from isolated CargoGate to canonical staged World; no runner/ledger edits",
+  "reason": "N39 apply_fleet_logistics rejects cargo because staged market supply remains unchanged",
+  "released_at": "2026-11-13T19:34:00+03:00",
+  "code_commit": "4f4bcc2d7b22d1e4f8592cb3e4a0c22bc49d221e",
+  "handoff": "godot/docs/phase2/handoffs/20261113-1934-shift11-cargo-stock.md"
+}

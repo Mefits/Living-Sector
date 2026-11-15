@@ -1,0 +1,50 @@
+extends GutTest
+## Canonical source regressions: no fake N97 ice sites and preserve
+## original N21 refusal instead of replacing it with a staged-world error.
+const NativeData = preload("res://scripts/native_data.gd")
+const Runtime = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
+const Roster = preload("res://scripts/sim/ships/native_ship_roster.gd")
+const Locations = preload("res://scripts/sim/ships/native_location_resolver.gd")
+const IceStage = preload("res://scripts/sim/phase2/unified_n80_ship_mining_stage.gd")
+
+func test_n103_only_plans_ice_on_source_n97_mine_body_waypoint() -> void:
+    var seed: Dictionary = NativeData.load_current_world()
+    assert_false(seed.has("error"))
+    var runner = Runtime.new()
+    assert_true(runner.start_from_seed(seed))
+    var roster = Roster.new()
+    var resolver = Locations.new()
+    assert_true(roster.load_seed(seed))
+    assert_true(resolver.load_seed(seed))
+    var world: Dictionary = runner.production.world_snapshot()
+    var inspected_miners: int = 0
+    for ship in world.get("ships", {}).values():
+        if str(ship.get("class", "")) != "miner":
+            continue
+        inspected_miners += 1
+        var sources: Dictionary = IceStage._physical_sources(
+            world, roster.registry.graph(), resolver, ship)
+        for site in sources.get("sites", []):
+            assert_eq(str(site["location"]),
+                "mine-" + str(site["body_id"]),
+                "N103 must not mine at an ordinary station on a rich body")
+    assert_gt(inspected_miners, 0, "Original seed contains native miners")
+
+func test_n21_refusal_retains_exact_source_reason_without_world_write() -> void:
+    var seed: Dictionary = NativeData.load_current_world()
+    assert_false(seed.has("error"))
+    var runner = Runtime.new()
+    assert_true(runner.start_from_seed(seed))
+    var ships: Array = runner.fleet_snapshot().keys()
+    ships.sort()
+    assert_gt(ships.size(), 0)
+    var ship_id: String = str(ships[0])
+    var before: Dictionary = runner.production.world_snapshot()
+    var denied: Dictionary = runner.production.apply_native_n21_request(
+        1, ship_id, "not-an-actual-native-ship-location", "dock")
+    assert_false(denied.get("ok", false))
+    assert_eq(str(denied.get("reason", "")),
+        "n21_fifo_request_ship_not_waiting_at_actual_location",
+        "A real source rejection must not be relabeled as bad World")
+    assert_eq(runner.production.world_snapshot(), before,
+        "N21 refusal must not modify canonical N39 World")
