@@ -267,6 +267,27 @@ jobs:
             echo "N9_APPEND_ONLY_AB_CANDIDATE"
             grep 'N9_FORK_SCALE_RESULT' godot/logs/p2-unified/n9-append-candidate-scale.log
             test "$base_code" -eq 0 -a "$cand_code" -eq 0 || exit 1
+            # The fast fork must not make whole World/N38 simulation slower:
+            # exact same 420 ticks, native source seed + real N38 restart.
+            # Compare every published acceptance checkpoint after removing
+            # the wall-clock-only field. Both arms run on ONE CI host.
+            git show 814a72eb945bfd53e2018f62e71fa7981adc2d9f:"$ledger_file" > "$ledger_file"
+            timeout --signal=TERM --kill-after=5s 240s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/n9-append-base-420.log 2>&1
+            world_base=$?
+            cp "$RUNNER_TEMP/n9-append-candidate.gd" "$ledger_file"
+            timeout --signal=TERM --kill-after=5s 240s godot --headless --path godot \
+              --script res://tests/p2_stage2_clean_seed_420_tick_acceptance.gd \
+              > godot/logs/p2-unified/n9-append-candidate-420.log 2>&1
+            world_candidate=$?
+            base_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/p2-unified/n9-append-base-420.log | tail -n 1 | sed 's/.*=//')
+            candidate_ms=$(grep -o 'P2_STAGE2_CLEAN_NATIVE_TICK420_N38_RESTART_PASS elapsed_ms=[0-9]*' godot/logs/p2-unified/n9-append-candidate-420.log | tail -n 1 | sed 's/.*=//')
+            grep 'P2_STAGE2_CLEAN_CHECK tick=' godot/logs/p2-unified/n9-append-base-420.log | sed -E 's/ elapsed_ms=[0-9]+//' > godot/logs/p2-unified/n9-append-base-checkpoints.txt
+            grep 'P2_STAGE2_CLEAN_CHECK tick=' godot/logs/p2-unified/n9-append-candidate-420.log | sed -E 's/ elapsed_ms=[0-9]+//' > godot/logs/p2-unified/n9-append-candidate-checkpoints.txt
+            diff -u godot/logs/p2-unified/n9-append-base-checkpoints.txt godot/logs/p2-unified/n9-append-candidate-checkpoints.txt
+            echo "N9_JOURNAL_WHOLE_SIM_AB_PASS baseline_ms=${base_ms:-MISSING} candidate_ms=${candidate_ms:-MISSING} checkpoints_identical=true"
+            test "$world_base" -eq 0 -a "$world_candidate" -eq 0 -a -n "$base_ms" -a -n "$candidate_ms" || exit 1
           elif test "$GITHUB_REF_NAME" = "feature/n153-route-graph-cache-20261115"; then
             LS_STAGE2_LONG_TICKS=900 LS_PROFILE_NATIVE_PHASES=1 \
               timeout --signal=TERM --kill-after=5s 420s godot --headless --path godot \
