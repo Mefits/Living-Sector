@@ -134,8 +134,34 @@ static func _apply(state: Dictionary, op: String, map: Dictionary) -> Dictionary
 		return {}
 	return {"state": next, "action": intent, "cost": cost}
 
+## Canonical native N81 state has four roles, 11 fuel buckets and
+## six booleans. Encoding the exact same equality relation into 12
+## integral bits avoids JSON serialization for every Dijkstra edge.
+## Unknown/exotic snapshots keep the original JSON key unchanged.
 static func _key(s: Dictionary) -> String:
-	return JSON.stringify([s.at, s.docked, s.fuel_bucket, s.cargo_loaded, s.delivered, s.sold, s.retrofitted, s.rested])
+	var role: int = -1
+	match str(s.get("at", "")):
+		ORIGIN: role = 0
+		SOURCE: role = 1
+		DEST: role = 2
+		SHIPYARD: role = 3
+	var fuel: Variant = s.get("fuel_bucket", null)
+	var flags: Array[String] = ["docked", "cargo_loaded",
+		"delivered", "sold", "retrofitted", "rested"]
+	var valid: bool = role >= 0 and typeof(fuel) == TYPE_INT and (
+		int(fuel) >= 0 and int(fuel) <= 10)
+	if valid:
+		for name in flags:
+			if typeof(s.get(name, null)) != TYPE_BOOL:
+				valid = false
+				break
+	if not valid:
+		return JSON.stringify([s.at, s.docked, s.fuel_bucket,
+			s.cargo_loaded, s.delivered, s.sold, s.retrofitted, s.rested])
+	var bitmask: int = 0
+	for name in flags:
+		bitmask = (bitmask << 1) | int(s[name])
+	return str(((role * 11 + int(fuel)) << 6) | bitmask)
 
 static func _goal(s: Dictionary, kind: String, min_fuel: int) -> bool:
 	match kind:
