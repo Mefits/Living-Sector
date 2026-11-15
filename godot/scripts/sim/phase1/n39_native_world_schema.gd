@@ -19,6 +19,46 @@ const NativeRelations = preload("res://scripts/sim/phase1/n150_native_full_facti
 const ShipyardRecipes = preload("res://scripts/sim/shipyard/native_module_recipes_n132.gd")
 const SourceExecution = preload("res://scripts/port/n121_native_execution_state.gd")
 
+## Rust engine/apply.rs::commit_dock charges its (possibly
+## temporary) operator a real fee. N151 colony.rs starts a physical
+## marketless construction dock with zero credits, but it can later
+## EARN N21 fees. The old "credits == 0 forever" rule rejected each
+## legitimate paid dock, forcing the same ship to retry for seconds
+## every tick. Require EXACT provenance from original N21 dock
+## receipts, not arbitrary capital or a fake Market.
+static func _original_colony_dock_income_proved(state: Dictionary,
+        dock_id: String, actual_credits: int) -> bool:
+    if actual_credits < 0 or dock_id.is_empty():
+        return false
+    var receipts: Variant = state.get("dock_receipts", {})
+    if not (receipts is Dictionary):
+        return false
+    var earned: int = 0
+    for op in receipts:
+        var raw: Variant = receipts[op]
+        if not (raw is Dictionary):
+            return false
+        var item: Dictionary = raw
+        if str(item.get("facility_id", "")) != dock_id:
+            continue
+        if str(item.get("action", "")) == "undock":
+            continue
+        if str(item.get("action", "")) != "dock" or not (
+                str(op).begins_with("n21:dock:")) or str(
+                item.get("operation_id", "")) != str(op):
+            return false
+        var amount: Variant = item.get("fee", null)
+        if typeof(amount) != TYPE_INT or int(amount) < 0 or (
+                earned > 9223372036854775807 - int(amount)):
+            return false
+        var paid_id: String = str(item.get("financial_receipt", ""))
+        if (int(amount) > 0 and paid_id != str(op)) or (
+                int(amount) == 0 and not paid_id.is_empty()):
+            return false
+        earned += int(amount)
+    return earned == actual_credits
+
+
 static func validate(state: Dictionary) -> String:
     for key in ["facilities", "markets", "populations", "bodies"]:
         if not (state.get(key) is Dictionary):
@@ -988,7 +1028,8 @@ static func validate(state: Dictionary) -> String:
                     str(dock_proof.get("kind", "")) != "colony_dock_prepared" or
                     str(dock_proof.get("facility_id", "")) != str(id) or
                     int(dock_proof.get("native_db_id", 0)) != int(fac.get("native_db_id", -1)) or
-                    int(fac.get("credits", -1)) != 0 or
+                    not _original_colony_dock_income_proved(
+                        state, str(id), int(fac.get("credits", -1))) or
                     int(fac.get("crew_count", -1)) != 0 or
                     int(fac.get("docking_capacity", -1)) != 4):
                 return "unapproved_marketless_colony_dock"
