@@ -8,6 +8,8 @@ const MAX_TICK: int = 9007199254740991
 var _pending: Array[Dictionary] = []
 var _next_sequence: int = 1
 var _ids: Dictionary = {}
+# Position map for O(1) cancellation; _pending remains the sole event store.
+var _positions: Dictionary = {}
 # Counts only: authoritative event records remain in _pending.
 # A missing boundary avoids scanning all future events.
 var _due_counts: Dictionary = {}
@@ -37,6 +39,7 @@ func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, ki
     }
     _next_sequence += 1
     _ids[event_id] = true
+    _positions[event_id] = _pending.size()
     _pending.append(event)
     _count_due(due_tick, phase, 1)
     return true
@@ -44,14 +47,20 @@ func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, ki
 func cancel(event_id: String) -> bool:
     if not _ids.has(event_id):
         return false
-    for i in range(_pending.size()):
-        if _pending[i]["id"] == event_id:
-            var removed: Dictionary = _pending[i]
-            _count_due(int(removed["due_tick"]), int(removed["phase"]), -1)
-            _pending.remove_at(i)
-            _ids.erase(event_id)
-            return true
-    return false
+    # Swapping with the last record avoids shifting every later event.
+    # Dispatch and snapshot both sort by the canonical comparator, not array position.
+    var index: int = int(_positions[event_id])
+    var removed: Dictionary = _pending[index]
+    _count_due(int(removed["due_tick"]), int(removed["phase"]), -1)
+    var last: int = _pending.size() - 1
+    if index != last:
+        var moved: Dictionary = _pending[last]
+        _pending[index] = moved
+        _positions[str(moved["id"])] = index
+    _pending.pop_back()
+    _positions.erase(event_id)
+    _ids.erase(event_id)
+    return true
 
 func take_due(tick: int, phase: int) -> Array[Dictionary]:
     # Past-due events from a restored snapshot are rejected by restore;
@@ -67,6 +76,9 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
         else:
             remaining.append(event)
     _pending = remaining
+    _positions.clear()
+    for i in range(_pending.size()):
+        _positions[str(_pending[i]["id"])] = i
     _due_counts.erase(_due_key(tick, phase))
     result.sort_custom(Callable(self, "_less"))
     return result.duplicate(true)
@@ -116,7 +128,11 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
     for event in staged:
         var key: String = _due_key(int(event["due_tick"]), int(event["phase"]))
         staged_counts[key] = int(staged_counts.get(key, 0)) + 1
+    var staged_positions: Dictionary = {}
+    for i in range(staged.size()):
+        staged_positions[str(staged[i]["id"])] = i
     _pending = staged
+    _positions = staged_positions
     _due_counts = staged_counts
     _ids = seen_ids
     _next_sequence = int(next)
