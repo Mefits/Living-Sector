@@ -1,0 +1,37 @@
+extends SceneTree
+const COORD = preload("res://scripts/sim/phase2/n158_worker_control_coordinator.gd")
+
+func _initialize() -> void:
+    var owner = COORD.new()
+    assert(owner.owner_configure(1.0))
+    var speed_id: int = owner.ui_enqueue("speed", {"value": 8.0})
+    var resume_id: int = owner.ui_enqueue("resume")
+    assert(speed_id > 0 and resume_id > speed_id)
+    assert(owner.owner_drain_one()["id"] == speed_id)
+    assert(owner.owner_drain_one()["id"] == resume_id)
+    assert(owner.ui_read_ack(speed_id)["success"])
+    assert(owner.owner_add_elapsed(0.25))
+    assert(owner.owner_begin_tick())
+    assert(not owner.owner_begin_tick())
+    assert(owner.owner_finish_tick(true))
+    assert(owner.owner_publish_committed(1, {"ships": [{"id": "a"}]}))
+    var frame: Dictionary = owner.ui_read_frame()
+    frame["view"]["ships"][0]["id"] = "mutated"
+    assert(owner.ui_read_frame()["view"]["ships"][0]["id"] == "a")
+    var load_id: int = owner.ui_enqueue("load", {"slot": "slot1"})
+    assert(not owner.owner_drain_one()["success"]) # no executor: fail closed
+    assert(not owner.ui_read_ack(load_id)["success"])
+    assert(owner.ui_read_frame()["tick"] == 1) # failed load preserves frame
+    var save_id: int = owner.ui_enqueue("save", {"slot": "slot1"})
+    assert(owner.owner_drain_one(func(_kind: String, _slot: String) -> bool: return true)["success"])
+    assert(owner.ui_read_ack(save_id)["success"])
+    var second = COORD.new()
+    var step_id: int = second.ui_enqueue("step")
+    assert(second.owner_drain_one()["success"])
+    assert(second.owner_begin_tick())
+    assert(not second.owner_begin_tick())
+    assert(not second.owner_finish_tick(false))
+    assert(second.ui_enqueue("resume") == -1)
+    assert(second.ui_read_ack(step_id)["success"])
+    print("P2_PERF_E_CONTROL_COORDINATOR_PASS")
+    quit()
