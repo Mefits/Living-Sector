@@ -3,6 +3,9 @@ extends RefCounted
 ## Keys are exact (tick, phase); ordering is delegated to the same comparator.
 ## Values are detached copies, so callers cannot mutate the index via aliases.
 
+const MAX_EVENTS: int = 100000
+const MAX_TICK: int = 9007199254740991
+
 var _buckets: Dictionary = {}
 var _event_keys: Dictionary = {}
 var _positions: Dictionary = {} # event id -> position in its bucket
@@ -12,6 +15,9 @@ func rebuild(events: Array) -> bool:
     var buckets: Dictionary = {}
     var keys: Dictionary = {}
     var positions: Dictionary = {}
+    var sequences: Dictionary = {}
+    if events.size() > MAX_EVENTS:
+        return false
     for value in events:
         if not (value is Dictionary):
             return false
@@ -19,8 +25,9 @@ func rebuild(events: Array) -> bool:
         if not _valid(event):
             return false
         var id: String = event["id"]
-        if keys.has(id):
+        if keys.has(id) or sequences.has(event["sequence"]):
             return false
+        sequences[event["sequence"]] = true
         var key: String = _key(int(event["due_tick"]), int(event["phase"]))
         if not buckets.has(key):
             buckets[key] = []
@@ -38,7 +45,7 @@ func add(event: Dictionary) -> bool:
     if not _valid(event):
         return false
     var id: String = event["id"]
-    if _event_keys.has(id):
+    if _event_keys.has(id) or _count >= MAX_EVENTS:
         return false
     var key: String = _key(int(event["due_tick"]), int(event["phase"]))
     if not _buckets.has(key):
@@ -98,10 +105,10 @@ func _valid(event: Dictionary) -> bool:
         if not event.has(key):
             return false
     return event["id"] is String and not event["id"].is_empty() \
-        and event["due_tick"] is int and event["due_tick"] >= 1 \
+        and event["due_tick"] is int and event["due_tick"] >= 1 and event["due_tick"] <= MAX_TICK \
         and event["phase"] is int and event["phase"] >= 0 and event["phase"] <= 255 \
         and event["entity_id"] is String and not event["entity_id"].is_empty() \
-        and event["sequence"] is int and event["sequence"] >= 1 \
+        and event["sequence"] is int and event["sequence"] >= 1 and event["sequence"] < MAX_TICK \
         and event["kind"] is String and not event["kind"].is_empty() \
         and event["payload"] is Dictionary
 
