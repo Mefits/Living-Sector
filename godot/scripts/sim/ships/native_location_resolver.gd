@@ -5,6 +5,7 @@ extends RefCounted
 ## Route distance is only routing cost; it is NOT world-space geometry.
 
 const WorldModel = preload("res://scripts/sim/world_model.gd")
+const SatelliteProfile = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 const NativeChart = preload("res://scripts/sim/phase2/unified_n142_original_colony_chart.gd")
 const FACILITY_ORBIT_RADIUS: float = 0.55
 const FACILITY_ORBIT_PERIOD: float = 8000.0
@@ -36,6 +37,11 @@ func load_seed(seed: Dictionary) -> bool:
             return false
         var offset := Vector2(float(raw_offset[0]), float(raw_offset[1]))
         var system_bodies: Dictionary = {}
+        var verified_sol: bool = (
+            sid == "system-sol" and str(
+                checked.system_by_id(sid).get(
+                    "navigation_geometry_profile", "")) ==
+                SatelliteProfile.NAVIGATION_GEOMETRY_VERSION)
         for source in source_world.get("bodies", []):
             if not (source is Dictionary):
                 return false
@@ -64,10 +70,18 @@ func load_seed(seed: Dictionary) -> bool:
                     str(body.get("type", "")) != "moon" or
                     not _finite_number(local_radius) or float(local_radius) <= 0.0):
                 return false
+            var station_radius: float = FACILITY_ORBIT_RADIUS
+            var native_body_radius: float = 0.0
+            if verified_sol:
+                native_body_radius = SatelliteProfile.physical_radius_native(bid)
+                if native_body_radius > 0.0:
+                    station_radius = SatelliteProfile.compact_station_orbit_radius(bid)
             staged_bodies[bid] = {
                 "system_id": sid, "radius": float(radius), "period": float(period),
                 "offset": offset, "parent_id": parent_id,
-                "local_radius": float(local_radius) if not parent_id.is_empty() else 0.0
+                "local_radius": float(local_radius) if not parent_id.is_empty() else 0.0,
+                "station_radius": station_radius,
+                "physical_radius": native_body_radius
             }
             system_bodies[bid] = true
         for source in source_world.get("facilities", []):
@@ -175,6 +189,42 @@ func system_for_body(body_id: String) -> String:
 ## ship/mod.rs::observe_prices. Do not infer from display coords.
 func body_for_location(location: String) -> String:
     return str(_locations[location]["body_id"]) if _loaded and _locations.has(location) else ""
+
+
+## Exactly the physical radius used by N43 and N14 stations. The
+## original foreign-system 0.55 orbit is retained until verified geometry.
+func station_radius_for_location(location: String) -> float:
+    if not _loaded or not _locations.has(location):
+        return -1.0
+    var bid: String = str(_locations[location]["body_id"])
+    return float(_bodies.get(bid, {}).get(
+        "station_radius", FACILITY_ORBIT_RADIUS))
+
+
+## Exact final approach to Sol physical bodies. Not a tolerance used for
+## screen-space picking or a free Rust 0.01-unit arrival bubble.
+func arrival_tolerance_for_location(location: String) -> float:
+    if not _loaded or not _locations.has(location):
+        return -1.0
+    var bid: String = str(_locations[location]["body_id"])
+    var body_radius: float = float(_bodies.get(bid, {}).get(
+        "physical_radius", 0.0))
+    if body_radius <= 0.0:
+        return 0.01 # frozen legacy behavior elsewhere
+    return clampf(body_radius * 0.20, 0.000003, 0.00008)
+
+
+## Star center is the unchanged source system offset. Only verified Sol
+## uses the physical star exclusion radius; all other star metrics unknown.
+func verified_solar_exclusion(system_id: String) -> Dictionary:
+    if system_id != "system-sol":
+        return {}
+    if not _loaded or not _bodies.has("earth") or not (
+            float(_bodies["earth"].get("physical_radius", 0.0)) > 0.0):
+        return {}
+    return {"center": _bodies["earth"]["offset"],
+        "radius": 0.20, "system_id": system_id}
+
 
 ## Frozen Rust BodyOrbit::universe_offset comes from the original
 ## registered source system, NOT the rendered body's orbital position.
@@ -292,7 +342,7 @@ func ephemeris_for_location(location: String, model: RefCounted,
     if orbits.is_empty():
         return {"ok": false, "reason": "missing_body_ephemeris"}
     if bool(info["station"]):
-        orbits.append({"radius": FACILITY_ORBIT_RADIUS,
+        orbits.append({"radius": float(_bodies[body_id]["station_radius"]),
             "angle": fposmod(
                 float(initial_facility_angle(location)) +
                 360.0 * elapsed_native_units / FACILITY_ORBIT_PERIOD, 360.0),
@@ -332,7 +382,8 @@ func positions_from_world(model: RefCounted, elapsed_native_units: float,
                 initial_angle +
                 360.0 * elapsed_native_units / FACILITY_ORBIT_PERIOD, 360.0))
             positions[loc] = body_center + Vector2(
-                cos(phase), sin(phase)) * FACILITY_ORBIT_RADIUS
+                cos(phase), sin(phase)) * float(
+                _bodies[str(info["body_id"])]["station_radius"])
         else:
             positions[loc] = body_center
     return {"ok": true, "positions": positions}
