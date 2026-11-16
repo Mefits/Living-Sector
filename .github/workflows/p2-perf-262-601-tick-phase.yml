@@ -1,0 +1,70 @@
+name: P2 PERF E bounded 601-tick phase evidence
+
+on:
+  push:
+    branches:
+      - integration/perf-astra-5-workers-20261116
+    paths:
+      - .github/workflows/p2-perf-262-601-tick-phase.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-phase-601:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/perf601"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 150 --silent --show-error \
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/perf601"
+          mv "$RUNNER_TEMP/perf601/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/perf601/godot"
+          chmod +x "$RUNNER_TEMP/perf601/godot"
+          echo "$RUNNER_TEMP/perf601" >> "$GITHUB_PATH"
+      - name: Import and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/perf-601
+          if ! timeout --signal=TERM --kill-after=5s 80s \
+            godot --headless --path godot --editor --import --quit \
+            > godot/logs/perf-601/import.log 2>&1; then
+            tail -n 120 godot/logs/perf-601/import.log; exit 1
+          fi
+          if ! timeout --signal=TERM --kill-after=5s 80s \
+            godot --headless --path godot \
+            --script res://tests/p2_unified_script_compile_check.gd \
+            > godot/logs/perf-601/parser.log 2>&1; then
+            tail -n 120 godot/logs/perf-601/parser.log; exit 1
+          fi
+      - name: Bounded 601 real paid ticks, per-phase/copy-site measurements
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! LS_PROFILE_NATIVE_PHASES=1 timeout --signal=TERM --kill-after=5s 550s \
+            godot --headless --path godot \
+            --script res://tests/p2_perf_e_601_tick_phase_hotspots.gd \
+            > godot/logs/perf-601/profile.log 2>&1; then
+            tail -n 140 godot/logs/perf-601/profile.log
+            exit 1
+          fi
+          grep -q P2_PERF_E_601_TICK_SOURCE_PROFILE_PASS godot/logs/perf-601/profile.log || {
+            tail -n 140 godot/logs/perf-601/profile.log; exit 1
+          }
+          grep P2_PERF_E_PHASE_TICK godot/logs/perf-601/profile.log
+      - name: Preserve profile diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-perf-e-real-source-601-phase-logs
+          path: godot/logs/perf-601/
+          if-no-files-found: warn
+          retention-days: 7
