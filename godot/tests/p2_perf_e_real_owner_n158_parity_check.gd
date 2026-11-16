@@ -5,6 +5,7 @@ extends SceneTree
 const NativeData = preload("res://scripts/native_data.gd")
 const Runner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
+const N38Guard = preload("res://scripts/sim/phase2/unified_native_save_roundtrip_guard.gd")
 const Worker = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 
 var _worker = Worker.new()
@@ -63,9 +64,15 @@ func _initialize() -> void:
             + " tick=" + str(direct.tick_count))
         return
     var after_load: Dictionary = direct.checkpoint()
-    if after_load != saved:
-        _fail("direct N38 restart differs at "
-            + _first_difference(saved, after_load, "checkpoint", 0))
+    # Existing N38 on-disk codec accepts exact integer-to-float promotion
+    # for source counters (e.g. research_directors.stations), but never
+    # rounding or mutation of money, stock, cargo, contracts or receipts.
+    # Use the SAME authoritative check as production SaveState instead of
+    # incorrectly requiring a byte-identical pre/post JSON Variant type.
+    var n38_parity: Dictionary = N38Guard.verify_authoritative_frame(saved, after_load)
+    if not n38_parity.get("ok", false):
+        _fail("direct authoritative N38 frame drift: " + str(n38_parity)
+            + " first=" + _first_difference(saved, after_load, "checkpoint", 0))
         return
     if not _compare(direct, "N38 restart at tick5"):
         return
