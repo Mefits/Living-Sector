@@ -13,6 +13,7 @@ const SourceGoal = preload("res://scripts/sim/phase1/n155_head_strategy_shadow.g
 const SourceExecution = preload("res://scripts/port/n121_native_execution_state.gd")
 const SEARCH_BUDGET: Dictionary = {"max_nodes": 350, "max_depth": 12}
 const FACTION_SUBSIDY_FLOOR: int = 5000
+static var _sorted_recipe_projection: Array = []
 
 static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary:
     if faction.is_empty() or tick < 1 or not world.get(
@@ -88,21 +89,9 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
             "commodity": str(c.get("commodity", "")),
             "quantity": int(c.get("quantity", 0)),
             "assigned_ship_id": c.get("fulfiller_id", null)})
-    var recipes: Array = []
-    for original in NativeRecipes.TABLE:
-        var ins: Array = []
-        var outs: Array = []
-        var input_names: Array = original["in"].keys()
-        var output_names: Array = original["out"].keys()
-        input_names.sort()
-        output_names.sort()
-        for good in input_names:
-            ins.append([str(good), int(original["in"][good])])
-        for good in output_names:
-            outs.append([str(good), int(original["out"][good])])
-        recipes.append({"recipe_id": str(original["id"]),
-            "facility_type": str(original["facility"]),
-            "inputs": ins, "outputs": outs})
+    # The frozen recipe catalogue is independent of World and faction.
+    # Reuse its sorted projection, but detach it for each planning snapshot.
+    var recipes: Array = _recipe_projection()
     var known_tech: Array = world.get("research", {}).get(faction, []).duplicate(true)
     known_tech.sort()
     return {"ok": true, "snapshot": {
@@ -198,3 +187,25 @@ static func propose(world: Dictionary, faction: String, head: Dictionary,
         "roles": decision.get("roles", {}).duplicate(true),
         "source_snapshot_tick": tick,
         "native_dispatch_authorized": false}
+
+# Cache only immutable source-catalogue-derived rows, never World state.
+# A caller can mutate a snapshot without contaminating another faction.
+static func _recipe_projection() -> Array:
+    if _sorted_recipe_projection.is_empty():
+        var built: Array = []
+        for original in NativeRecipes.TABLE:
+            var ins: Array = []
+            var outs: Array = []
+            var input_names: Array = original["in"].keys()
+            var output_names: Array = original["out"].keys()
+            input_names.sort()
+            output_names.sort()
+            for good in input_names:
+                ins.append([str(good), int(original["in"][good])])
+            for good in output_names:
+                outs.append([str(good), int(original["out"][good])])
+            built.append({"recipe_id": str(original["id"]),
+                "facility_type": str(original["facility"]),
+                "inputs": ins, "outputs": outs})
+        _sorted_recipe_projection = built
+    return _sorted_recipe_projection.duplicate(true)
