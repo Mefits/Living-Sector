@@ -54,7 +54,12 @@ func paid_path_profile() -> Dictionary:
 		"snapshot_max_usec": _profile_snapshot_max_usec}
 
 
-func _init() -> void:
+## A trusted fork replaces the entire partition header immediately. Avoid
+## constructing 1024 throwaway empty shard dictionaries on EVERY paid fork.
+## Normal construction and N38 restore still initialize all shards.
+func _init(trusted_fork: bool = false) -> void:
+	if trusted_fork:
+		return
 	_receipt_partitions.resize(RECEIPT_PARTITIONS)
 	for i in range(RECEIPT_PARTITIONS):
 		_receipt_partitions[i] = {}
@@ -288,7 +293,9 @@ func fork() -> RefCounted:
 	return result
 
 func _profile_inner_fork() -> RefCounted:
-	var child: RefCounted = get_script().new()
+	# Fork owns a detached header from the parent; initializing 1024 empty
+	# shard dictionaries first is pure allocation overhead at every stage.
+	var child: RefCounted = get_script().new(true)
 	child.set("_balances", _balances.duplicate(true))
 	child.set("_receipt_partitions", _receipt_partitions.duplicate())
 	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
