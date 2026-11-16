@@ -80,18 +80,27 @@ static func _shares_mutable_storage(old_value: Variant, new_value: Variant) -> b
 
 
 static func _collect_mutable_nodes(value: Variant, nodes: Array) -> void:
-    if not (value is Dictionary or value is Array):
-        return
-    for node in nodes:
-        if is_same(node, value):
-            return
-    nodes.append(value)
-    if value is Dictionary:
-        for key in value:
-            _collect_mutable_nodes(value[key], nodes)
-    else:
-        for item in value:
-            _collect_mutable_nodes(item, nodes)
+    # Iterative walk avoids stack overflow on deeply nested market metadata.
+    # Seen identities also terminate cycles without dropping shared children.
+    var pending: Array = [value]
+    while not pending.is_empty():
+        var current: Variant = pending.pop_back()
+        if not (current is Dictionary or current is Array):
+            continue
+        var seen: bool = false
+        for node in nodes:
+            if is_same(node, current):
+                seen = true
+                break
+        if seen:
+            continue
+        nodes.append(current)
+        if current is Dictionary:
+            for key in current:
+                pending.append(current[key])
+        else:
+            for item in current:
+                pending.append(item)
 
 
 ## Capture only protected market fields before N150 executes. This detached
