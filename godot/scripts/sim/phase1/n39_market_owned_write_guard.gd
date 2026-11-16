@@ -50,20 +50,32 @@ static func validate_owned_write(before: Dictionary, after: Dictionary) -> Strin
 ## Detect shared mutable storage at any depth of a protected value.
 ## Value equality alone cannot prove the baseline is independent.
 static func _shares_mutable_storage(old_value: Variant, new_value: Variant) -> bool:
-    if old_value is Dictionary and new_value is Dictionary:
-        if is_same(old_value, new_value):
-            return true
+    # Search *all* nested mutable containers, including Dictionary <-> Array
+    # crossings. The previous same-type recursion missed an aliased Dictionary
+    # moved under an Array (or the reverse) in a different protected field.
+    # Skip scalar leaves: comparing primitive values cannot reveal an alias.
+    if not (old_value is Dictionary or old_value is Array):
+        return false
+    if not (new_value is Dictionary or new_value is Array):
+        return false
+    if is_same(old_value, new_value):
+        return true
+    if old_value is Dictionary:
         for old_key in old_value:
-            for new_key in new_value:
-                if _shares_mutable_storage(old_value[old_key], new_value[new_key]):
-                    return true
-    elif old_value is Array and new_value is Array:
-        if is_same(old_value, new_value):
-            return true
+            if _shares_mutable_storage(old_value[old_key], new_value):
+                return true
+    else:
         for old_item in old_value:
-            for new_item in new_value:
-                if _shares_mutable_storage(old_item, new_item):
-                    return true
+            if _shares_mutable_storage(old_item, new_value):
+                return true
+    if new_value is Dictionary:
+        for new_key in new_value:
+            if _shares_mutable_storage(old_value, new_value[new_key]):
+                return true
+    else:
+        for new_item in new_value:
+            if _shares_mutable_storage(old_value, new_item):
+                return true
     return false
 
 
