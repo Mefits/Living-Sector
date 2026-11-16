@@ -9,6 +9,8 @@ const Shift = preload("res://scripts/sim/phase1/n143_native_research_shift.gd")
 const Payroll = preload("res://scripts/sim/phase1/n39_native_paid_shift.gd")
 const Technology = preload("res://scripts/sim/strategy/native_technology_catalog.gd")
 
+const EconomicPriority = preload("res://scripts/sim/strategy/economic_research_priority.gd")
+
 static func _population_rows(world: Dictionary, occupied: Dictionary) -> Array:
     var output: Array = []
     var ids: Array = world["populations"].keys()
@@ -91,6 +93,12 @@ static func propose(world: Dictionary, seed_factions: Dictionary,
         var charter: Dictionary = faction_charters.get(faction, {})
         if not (mandate is Dictionary) or not (charter is Dictionary):
             return {"ok": false, "reason": "invalid_original_faction_research_policy"}
+        if mandate.is_empty():
+            var priority: Dictionary = EconomicPriority.recommend(world, faction, observed)
+            if not priority.is_empty():
+                observed["research"] = priority["id"]
+                observed["research_required"] = priority["work"]
+                observed["progress"] = 0
         var selected: Dictionary = Director.observe_research(observed,
             mandate, charter, Technology.all())
         if not selected.get("ok", false):
