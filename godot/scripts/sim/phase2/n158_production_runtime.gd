@@ -175,6 +175,14 @@ var _reuse_faction_read_frame: bool = OS.get_environment(
 ## LS_PROFILE_SHIP_TRACE=1 (avoid thousands of expensive print calls).
 var _profile_ship_starts: Dictionary = {}
 var _profile_ship_samples: Dictionary = {}
+## Bounded diagnostic window, not canonical simulation history.
+const SHIP_PROFILE_WINDOW: int = 256
+
+static func append_bounded_ship_profile_sample(samples: Array, elapsed_usec: int) -> void:
+    samples.append(maxi(0, elapsed_usec))
+    if samples.size() > SHIP_PROFILE_WINDOW:
+        samples.pop_front()
+
 
 func profile_native_ship_subphases() -> Dictionary:
     var stages: Dictionary = {}
@@ -190,6 +198,7 @@ func profile_native_ship_subphases() -> Dictionary:
             var p95: int = clampi(ceili(float(sorted.size()) * 0.95) - 1,
                 0, sorted.size() - 1)
             stages[stage] = {"calls": sorted.size(),
+                "window_limit": SHIP_PROFILE_WINDOW,
                 "total_usec": total,
                 "average_usec": float(total) / float(sorted.size()),
                 "p95_usec": int(sorted[p95]),
@@ -210,7 +219,7 @@ func _profile_ship_stage(tick: int, stage: String) -> void:
         key = stage.trim_suffix("_end")
         if _profile_ship_starts.has(key):
             var samples: Array = _profile_ship_samples.get(key, [])
-            samples.append(maxi(0, now_us - int(_profile_ship_starts[key])))
+            append_bounded_ship_profile_sample(samples, now_us - int(_profile_ship_starts[key]))
             _profile_ship_samples[key] = samples
             _profile_ship_starts.erase(key)
     if tick >= 320 and OS.get_environment("LS_PROFILE_SHIP_TRACE") == "1":
