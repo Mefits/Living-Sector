@@ -15,6 +15,11 @@ const DETAIL_RADIUS: float = 24.0
 const SURFACE_REVEAL_WHEEL_STEPS: float = 2.0
 const WHEEL_ZOOM: float = 1.32
 const BACKGROUND: Color = Color("#0b1421")
+## Orbit paths are orientation guides, not the main visual subject.
+## Suppress them near planet detail scale without changing any geometry.
+const ORBIT_LINE_OPACITY: float = 0.30
+const SATELLITE_ORBIT_LINE_OPACITY: float = 0.25
+const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
 ## Native Galaxy 0.6.7 stores heliocentric radius/period/angle for ALL
@@ -555,6 +560,16 @@ func _draw() -> void:
     _draw_calls += 1
 
 
+func _orbit_line_alpha(is_satellite: bool) -> float:
+    var base: float = (
+        SATELLITE_ORBIT_LINE_OPACITY if is_satellite else ORBIT_LINE_OPACITY)
+    # At close zoom, orbit circles become visual clutter, especially while
+    # following a moving planet. Fade them rather than cutting them off.
+    var near_fade: float = minf(
+        1.0, ORBIT_FADE_BEGIN_ZOOM / maxf(_zoom, ORBIT_FADE_BEGIN_ZOOM))
+    return base * near_fade
+
+
 func _draw_system() -> void:
     draw_rect(Rect2(Vector2.ZERO, size), BACKGROUND, true)
     _body_pins.clear()
@@ -573,11 +588,12 @@ func _draw_system() -> void:
         if not parent.is_empty():
             draw_arc(_body_position(parent, scale),
                 _satellite_orbit_radius(body, parent), 0.0, TAU,
-                72, Color("#35495a"), 1.0, true)
+                72, Color(0.23, 0.32, 0.42, _orbit_line_alpha(true)), 1.0, true)
             continue
         var radius: float = _radius_transform(float(body.get("orbit_radius", 0.0))) * scale * _zoom
         if radius > 1.0:
-            draw_arc(star, radius, 0.0, TAU, 96, Color("#26394a"), 1.0, true)
+            draw_arc(star, radius, 0.0, TAU, 96,
+                Color(0.18, 0.26, 0.35, _orbit_line_alpha(false)), 1.0, true)
     var star_size: float = 13.0 * clampf(sqrt(_zoom), 0.8, 4.0)
     draw_circle(star, star_size, _star_color(str(system.get("star_type", ""))))
     draw_circle(star, star_size + 5.0, Color("#526575"), false, 1.0, true)
