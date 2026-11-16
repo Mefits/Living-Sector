@@ -258,6 +258,44 @@ func receipt_kind_count(kind: String) -> int:
 ## receipt shards. A caller receives a fully detached record, never a mutable
 ## alias to a ledger shard. Missing IDs return an empty dictionary.
 ## This is deliberately read-only; it cannot bypass commit/restore checks.
+## Full O(history) diagnostic oracle for the O(1) kind counters and the
+## persistent shard/order index. Never called on the paid transaction hot path.
+## Reads private immutable rows only: no snapshot copies or mutable exposure.
+## Detects duplicate/missing order IDs, wrong shard membership, stale counters,
+## and unexpected extra shard entries. Legacy receipts without kind are valid.
+func audit_receipt_index() -> bool:
+	var seen: Dictionary = {}
+	var actual_kinds: Dictionary = {}
+	var count: int = 0
+	for chunk in _receipt_order_chunks:
+		if not (chunk is Array) or chunk.is_empty() or chunk.size() > ORDER_CHUNK_SIZE:
+			return false
+		for id in chunk:
+			if not (id is String) or id.is_empty() or seen.has(id):
+				return false
+			var shard: Dictionary = _receipt_partitions[_bucket_index(id)]
+			if not shard.has(id) or not (shard[id] is Dictionary):
+				return false
+			var row: Dictionary = shard[id]
+			if row.get("id") != id:
+				return false
+			seen[id] = true
+			count += 1
+			var kind: Variant = row.get("kind", null)
+			if kind is String:
+				actual_kinds[kind] = int(actual_kinds.get(kind, 0)) + 1
+	if count != _receipt_count or actual_kinds != _receipt_kind_counts:
+		return false
+	var shard_total: int = 0
+	for i in range(RECEIPT_PARTITIONS):
+		var shard: Dictionary = _receipt_partitions[i]
+		for id in shard:
+			if not (id is String) or not seen.has(id) or _bucket_index(id) != i:
+				return false
+			shard_total += 1
+	return shard_total == count
+
+
 func receipt_copy(operation_id: String) -> Dictionary:
 	if operation_id.is_empty() or not _has_receipt_id(operation_id):
 		return {}
