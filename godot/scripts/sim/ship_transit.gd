@@ -3,8 +3,10 @@ extends RefCounted
 ## Coordinates are world-space and MUST come from the native position resolver,
 ## never from travel_routes.distance or map screen offsets.
 const Catalog = preload("res://scripts/sim/ship_catalog.gd")
+const OrbitalIntercept = preload("res://scripts/sim/ships/native_orbital_intercept.gd")
 const BASE_VELOCITY := 0.05 # Rust agents/ship/mod.rs SHIP_BASE_VELOCITY
 const ARRIVAL_THRESHOLD := 0.01 # Rust SHIP_ARRIVAL_THRESHOLD
+const ARRIVAL_FLOAT_EPSILON := 0.000001 # Vector2 float32 only: 0.1 ~= 2 * 0.05
 var _next_token: int = 1
 
 func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: String, positions: Dictionary, tick: int, tick_scale: float) -> bool:
@@ -48,7 +50,8 @@ func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: 
 ## Arrival is determined by distance, NEVER by the display-only arrival_tick.
 func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: int,
 		tick_scale: float, skipped_ticks: int = 1,
-		authorized_lod_fire: bool = false) -> String:
+        authorized_lod_fire: bool = false,
+        target_ephemeris: Dictionary = {}) -> String:
 	if not state.ships.has(ship_id) or not is_finite(tick_scale) or tick_scale <= 0.0 or skipped_ticks < 1:
 		return "invalid"
 	var ship: Dictionary = state.ships[ship_id]
@@ -90,17 +93,36 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 	if float(ship["fuel"]) < consumption:
 		transit["last_tick"] = tick
 		return "out_of_fuel"
-	if remaining <= velocity:
+	# Keep a tiny float32 tolerance: 0.1 - 0.05 is not exactly
+	# 0.05 in Vector2. This is a numerical boundary, not a free jump.
+	if remaining <= velocity + ARRIVAL_FLOAT_EPSILON:
 		ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
 		ship["location"] = target_id
 		ship["transit"] = {}
 		return "arrived"
-	var next_position := position.move_toward(target, minf(velocity, remaining))
+	# All safety gates and authoritative arrival checks use the CURRENT
+	# native destination. The lead aim only changes the heading; it never
+	# marks the ship arrived, teleports it, grants fuel or changes route.
+	var aim: Vector2 = target
+	var lead: Dictionary = {}
+	if not target_ephemeris.is_empty():
+		lead = OrbitalIntercept.aim_point(
+		    position, BASE_VELOCITY * speed, target_ephemeris, target)
+		aim = lead["point"]
+	var next_position: Vector2 = position.move_toward(
+		aim, minf(velocity, position.distance_to(aim)))
 	ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
 	transit["position"] = [next_position.x, next_position.y]
-	transit["distance_travelled"] = clampf(float(transit["distance_total"]) - next_position.distance_to(target), 0.0, float(transit["distance_total"]))
+	transit["distance_travelled"] = clampf(
+		float(transit["distance_total"]) - next_position.distance_to(target),
+		0.0, float(transit["distance_total"]))
 	transit["last_tick"] = tick
-	transit["arrival_tick"] = tick + ceili(next_position.distance_to(target) / maxf(velocity, 0.00001))
+	var eta_steps: float = next_position.distance_to(target) / maxf(
+		velocity, 0.00001)
+	if bool(lead.get("prediction_used", false)):
+		eta_steps = float(lead["eta_native"]) / maxf(
+		    tick_scale, 0.00001)
+	transit["arrival_tick"] = tick + ceili(eta_steps)
 	return "moving"
 
 ## Any previously scheduled arrival must carry the same token.
