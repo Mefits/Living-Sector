@@ -107,3 +107,48 @@ static func bounded_paid_tick_window(samples: Array, end_tick: int) -> Dictionar
         "request_wall_avg_usec": float(request_total) / float(n),
         "time_kind": "elapsed_wall_not_cpu"
     }
+
+
+## Strict same-seed checkpoint comparator for E acceptance. A timing improvement
+## is NOT accepted when paid-tick coverage, source checkpoint identity, or
+## detached data counts disagree. Timing is wall elapsed, never CPU/FPS.
+## Caller supplies immutable scalar checkpoint fingerprints from N38/BT/RNG
+## and exact primitive counts, never a live World reference.
+static func compare_checkpoint_pair(baseline: Dictionary, candidate: Dictionary) -> Dictionary:
+    for field in ["from_tick", "to_tick", "observed_paid_ticks", "expected_paid_ticks",
+            "complete", "source_fingerprint", "counts", "advance_wall_avg_usec",
+            "projection_wall_avg_usec", "request_wall_avg_usec"]:
+        if not baseline.has(field) or not candidate.has(field):
+            return {"accepted": false, "reason": "missing_" + field}
+    if baseline["complete"] != true or candidate["complete"] != true:
+        return {"accepted": false, "reason": "incomplete_window"}
+    for field in ["from_tick", "to_tick", "observed_paid_ticks", "expected_paid_ticks",
+            "source_fingerprint"]:
+        if baseline[field] != candidate[field]:
+            return {"accepted": false, "reason": "mismatch_" + field}
+    if baseline["observed_paid_ticks"] != baseline["expected_paid_ticks"]:
+        return {"accepted": false, "reason": "incomplete_coverage"}
+    for side in [baseline, candidate]:
+        if typeof(side["counts"]) != TYPE_DICTIONARY:
+            return {"accepted": false, "reason": "invalid_counts"}
+        for key in COUNT_KEYS:
+            if not side["counts"].has(key) or typeof(side["counts"][key]) != TYPE_INT or side["counts"][key] < 0:
+                return {"accepted": false, "reason": "invalid_count_" + key}
+        for field in ["advance_wall_avg_usec", "projection_wall_avg_usec", "request_wall_avg_usec"]:
+            if (typeof(side[field]) != TYPE_FLOAT and typeof(side[field]) != TYPE_INT) or not is_finite(float(side[field])) or float(side[field]) < 0.0:
+                return {"accepted": false, "reason": "invalid_time_" + field}
+        if absf(float(side["advance_wall_avg_usec"]) + float(side["projection_wall_avg_usec"]) - float(side["request_wall_avg_usec"])) > 0.01:
+            return {"accepted": false, "reason": "invalid_attribution"}
+    for key in COUNT_KEYS:
+        if baseline["counts"][key] != candidate["counts"][key]:
+            return {"accepted": false, "reason": "mismatch_count_" + key}
+    var old_usec: float = float(baseline["advance_wall_avg_usec"])
+    var new_usec: float = float(candidate["advance_wall_avg_usec"])
+    return {
+        "accepted": true, "reason": "parity_matched",
+        "advance_wall_delta_usec": new_usec - old_usec,
+        "advance_wall_ratio": (new_usec / old_usec if old_usec > 0.0 else -1.0),
+        "projection_wall_delta_usec": float(candidate["projection_wall_avg_usec"]) - float(baseline["projection_wall_avg_usec"]),
+        "request_wall_delta_usec": float(candidate["request_wall_avg_usec"]) - float(baseline["request_wall_avg_usec"]),
+        "improved": new_usec < old_usec
+    }
