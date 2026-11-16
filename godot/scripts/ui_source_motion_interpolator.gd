@@ -13,9 +13,14 @@ static func sample_duration(previous_usec: int, now_usec: int,
         initial_usec: int = 160000) -> int:
     if previous_usec <= 0 or now_usec <= previous_usec:
         return initial_usec
-    # Visual interpolation can slow down / stop if the simulation stalls.
-    # Never extrapolate a ship, fake N39 movement or run a separate clock.
-    return clampi(now_usec - previous_usec, 50000, 650000)
+    # The previous 650ms cap caused visible stops whenever a source tick
+    # took >650ms (e.g. ~1.4s near tick 2300). Follow the last *observed*
+    # interval with a small jitter reserve, bounded to 3.5s. No prediction
+    # beyond the newer authoritative position, no synthetic N39 movement.
+    # If source processing exceeds even this interval, hold at the committed
+    # endpoint rather than fabricating the next ship/planet location.
+    return clampi(ceili(float(now_usec - previous_usec) * 1.15),
+        50000, 3500000)
 
 static func orbit_angle(previous: float, current: float,
         fraction: float) -> float:
