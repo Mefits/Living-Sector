@@ -1,8 +1,8 @@
 extends RefCounted
 ## E / N158: real opt-in owner THREAD for the existing authoritative runner.
 ## The runner and SaveState live ONLY on the worker. This is a parity harness
-## boundary, not a UI backend: main.gd still uses its original synchronous N158.
-## UI may only exchange detached scalar commands and completed snapshots.
+## boundary; main.gd may opt in, but the default stays synchronous until
+## verified. Only detached scalars, checkpoints and bounded view data cross.
 const Runner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
 
@@ -32,7 +32,7 @@ func launch(source_seed: Dictionary) -> bool:
 ## Do not hand live SceneTree objects, Runner or World into this API.
 func submit(kind: String, payload: Dictionary = {}) -> int:
     if kind not in ["pause", "resume", "speed", "step", "checkpoint",
-            "save", "load", "restore"]:
+            "save", "load", "restore", "frame"]:
         return -1
     if not _safe_payload(payload):
         return -1
@@ -40,11 +40,25 @@ func submit(kind: String, payload: Dictionary = {}) -> int:
             int(payload["count"]) < 1 or int(payload["count"]) > 64):
         return -1
     if kind == "speed" and (typeof(payload.get("value")) not in [TYPE_FLOAT, TYPE_INT] or
-            not is_finite(float(payload["value"])) or float(payload["value"]) <= 0.0):
+            not is_finite(float(payload["value"])) or float(payload["value"]) <= 0.0 or
+            float(payload["value"]) > 16.0):
         return -1
-    if kind in ["save", "load"] and (typeof(payload.get("path")) != TYPE_STRING or
-            not String(payload["path"]).begins_with("user://tests/")):
-        return -1
+    if kind == "frame":
+        if typeof(payload.get("delta")) not in [TYPE_FLOAT, TYPE_INT] or (
+                not is_finite(float(payload["delta"])) or
+                float(payload["delta"]) < 0.0 or float(payload["delta"]) > 0.25):
+            return -1
+        for flag in ["view", "observer"]:
+            if payload.has(flag) and typeof(payload[flag]) != TYPE_BOOL:
+                return -1
+    if kind in ["save", "load"]:
+        if typeof(payload.get("path")) != TYPE_STRING:
+            return -1
+        var path: String = String(payload["path"])
+        if (not path.begins_with("user://tests/") and
+                not path.begins_with("user://saves/")) or (
+                path.contains("..") or path.contains("\\\\") or path.length() > 240):
+            return -1
     if kind == "restore" and not (payload.get("checkpoint") is Dictionary):
         return -1
     _mutex.lock()
@@ -110,6 +124,8 @@ func _owner_loop(seed: Dictionary) -> void:
             continue
         var payload: Dictionary = command["payload"]
         var answer: Dictionary = {"ticket": ticket, "kind": kind, "ok": false}
+        var began_usec: int = Time.get_ticks_usec()
+        var before_tick: int = sim.tick_count
         match kind:
             "pause", "resume":
                 answer["ok"] = sim.queue_control(kind)
@@ -123,6 +139,12 @@ func _owner_loop(seed: Dictionary) -> void:
                 answer["ok"] = sim.queue_control("step", int(payload["count"]))
                 if answer["ok"]:
                     sim.advance_frame(0.0)
+            "frame":
+                # The sole authoritative N158 advances off the SceneTree thread.
+                # GUI submits at most one frame command at a time; no catch-up
+                # bursts or artificial logical ticks are introduced here.
+                sim.advance_frame(float(payload["delta"]))
+                answer["ok"] = true
             "checkpoint":
                 answer["checkpoint"] = sim.checkpoint()
                 answer["ok"] = true
@@ -153,6 +175,22 @@ func _owner_loop(seed: Dictionary) -> void:
         answer["tick"] = sim.tick_count
         answer["paused"] = sim.clock.paused
         answer["speed"] = sim.clock.world_speed
+        answer["sim_usec"] = maxi(0, Time.get_ticks_usec() - began_usec)
+        if answer["ok"] and kind in ["frame", "step", "load", "restore"]:
+            # Read only after the full phase/transaction commit. The UI never
+            # touches sim, sim.world, production or live Ledger directly.
+            answer["calendar_text"] = sim.calendar.display_text(sim.tick_count)
+            answer["angles"] = sim.world.orbital_snapshot()
+            if kind in ["load", "restore"] or (kind == "frame" and (
+                    bool(payload.get("view", false)) or
+                    bool(payload.get("observer", false)))):
+                var economy: Dictionary = sim.economy_snapshot()
+                answer["economy"] = economy
+                answer["summary"] = sim.economy_summary(economy)
+                if kind in ["load", "restore"] or bool(payload.get("observer", false)):
+                    answer["native"] = sim.checkpoint().get(
+                        "native_production", {})
+        answer["advanced"] = sim.tick_count != before_tick
         _publish(answer)
     # sim is released on this same owner thread. No live reference escapes.
 
