@@ -35,7 +35,11 @@ static func compact_station_orbit_radius(body_id: String) -> float:
     var radius: float = physical_radius_native(body_id)
     if radius <= 0.0:
         return 0.0
-    return radius + STATION_ALTITUDE_KM / KM_PER_AU * SOL_UNITS_PER_AU
+    # For gas giants a flat 400 km would put the dock INSIDE the
+    # verified 3% physical navigation clearance. Keep at least a
+    # 5%-radius clearance; terrestrial worlds still use 400 km.
+    return radius + maxf(STATION_ALTITUDE_KM / KM_PER_AU *
+        SOL_UNITS_PER_AU, radius * 0.05)
 
 ## These known identities and legacy source values are *guards*:
 ## a custom/edited seed is not silently rewritten.
