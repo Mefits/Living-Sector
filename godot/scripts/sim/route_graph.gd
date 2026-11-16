@@ -66,9 +66,11 @@ func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
                 # This is EXACTLY the Rust sim_db seeder's two INSERT ...
                 # ON CONFLICT(from_location,to_location) DO UPDATE loops.
                 # A repeated reverse edge is a DB upsert, not an extra arc.
-                for pair in [[from_id, to_id], [to_id, from_id]]:
-                    var origin: String = str(pair[0])
-                    var target: String = str(pair[1])
+                # Avoid allocating two temporary pair Arrays for every
+                # seeded edge. The two SQL upserts retain their exact order.
+                for direction in 2:
+                    var origin: String = from_id if direction == 0 else to_id
+                    var target: String = to_id if direction == 0 else from_id
                     if not edges.has(origin):
                         edges[origin] = []
                     if not edge_positions.has(origin):
