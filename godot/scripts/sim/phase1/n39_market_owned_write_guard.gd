@@ -6,6 +6,14 @@ extends RefCounted
 const Observation = preload("res://scripts/sim/phase1/n39_market_observation_validator.gd")
 
 static func validate_owned_write(before: Dictionary, after: Dictionary) -> String:
+    # A shared mutable baseline cannot prove an owned write-set: in-place
+    # changes would alter both sides and make an illegal write appear equal.
+    # Call capture_protected_fields() before mutation for live World checks.
+    if is_same(before, after):
+        return "market_write_aliased_baseline"
+    for location in before:
+        if after.has(location) and is_same(before[location], after[location]) and (before[location] is Dictionary):
+            return "market_write_aliased_baseline"
     if before.size() != after.size():
         return "market_write_cardinality_changed"
     for location in before:
