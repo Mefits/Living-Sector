@@ -2,7 +2,7 @@
 
 ## 🚨 НЕ ДУБЛИРОВАТЬ ДВА ФИКСА АСТРЫ (17.11.2026)
 
-PR #262 УЖЕ содержит 99ab25e9 (N9 WeakRef, N152 no-op, N91 receipt proof, N39 engineer ship-only) и 1676db61 (8 N158 world_snapshot readsites заменены на detached N39 projections; 27→19 статических callsites). НЕ повторять эти изменения, НЕ писать ещё раз те же read projections. Пакеты еще требуют проверки ([skip ci]); E тестирует их, другие смены ищут новые измеренные узкие места.
+PR #262 УЖЕ содержит 99ab25e9 (N9 WeakRef, N152 no-op, N91 receipt proof, N39 engineer ship-only) и 1676db61 (8 N158 world_snapshot readsites заменены на detached N39 projections; 27→19 статических callsites). НЕ повторять эти изменения, НЕ писать ещё раз те же read projections. Новый короткий HEAD CI #43972442164 успешно проверил оба пакета: 500 реальных тиков, worker+N38, targeted WeakRef/projections, 160-тактовый legacy-vs-owned A/B с 5/5 точных checkpoint hashes. Поздние 900/2600 и Windows memory soak остаются НЕПРОВЕРЕННЫМИ. E отвечает за дальнейший профиль; остальные смены ищут новые узкие места.
 
 Статический аудит: 1) профилировщики N39/N158 бесконечно накапливают samples только в opt-in режиме; 2) N152 все еще копирует историю ContractBoard на no-op tick; 3) N39 L196 deep World per paid tick. Подробности и границы уверенности: [17 November checkpoint](checkpoints/20261117-two-astra-fixes-independent-audit-ru.md). tldraw: https://www.tldraw.com/f/Dzo-huxLVMxka2COuru0w → Оптимизация.
 
