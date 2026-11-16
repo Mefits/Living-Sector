@@ -163,6 +163,24 @@ func _check() -> void:
             return
     view.call("set_world", sol)
 
+    # Soft orbit guides stay dim in the system view and fade as we approach
+    # the planet, without hiding or altering any physical/world orbits.
+    view.set("_zoom", 1.0)
+    var distant_planet_alpha: float = float(view.call("_orbit_line_alpha", false))
+    var distant_moon_alpha: float = float(view.call("_orbit_line_alpha", true))
+    if distant_planet_alpha > 0.35 or distant_moon_alpha > distant_planet_alpha:
+        _fail("distant system orbits are too bright")
+        return
+    view.set("_zoom", 32.0)
+    var near_planet_alpha: float = float(view.call("_orbit_line_alpha", false))
+    var near_moon_alpha: float = float(view.call("_orbit_line_alpha", true))
+    if near_planet_alpha <= 0.0 or (
+            near_planet_alpha >= distant_planet_alpha) or (
+            near_moon_alpha >= distant_moon_alpha):
+        _fail("near-surface orbit guides did not fade")
+        return
+    view.call("set_world", sol)
+
     # Root-cause regression: all relative-orbit separation must obey the
     # SAME camera scale as full-system orbital distance. A moon must not
     # grow into its parent when zoom grows past the old sqrt(zoom) clamp.
