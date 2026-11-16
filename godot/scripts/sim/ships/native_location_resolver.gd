@@ -222,8 +222,46 @@ func verified_solar_exclusion(system_id: String) -> Dictionary:
     if not _loaded or not _bodies.has("earth") or not (
             float(_bodies["earth"].get("physical_radius", 0.0)) > 0.0):
         return {}
-    return {"center": _bodies["earth"]["offset"],
+    return {"id": "sol-star", "center": _bodies["earth"]["offset"],
         "radius": 0.20, "system_id": system_id}
+
+
+## One bounded planet list per real N140 system/tick. A station may
+## take a route past several bodies, but collision tests only consider
+## real physical radii, not oversized display glyphs or fake orbits.
+## The caller caches this result across every fired ship in that system.
+func verified_planet_obstacles(system_id: String,
+        model: RefCounted) -> Array:
+    if not _loaded or system_id != "system-sol" or model == null or (
+            not model.has_method("orbital_snapshot") or
+            not model.has_method("seed_fingerprint") or
+            model.seed_fingerprint() != _fingerprint):
+        return []
+    if not _bodies.has("earth") or float(_bodies["earth"].get(
+            "physical_radius", 0.0)) <= 0.0:
+        return []
+    var computed: Dictionary = _body_positions_from_angles(
+        model.orbital_snapshot())
+    if not computed.get("ok", false):
+        return []
+    var obstacles: Array = []
+    var ids: Array = _bodies.keys()
+    ids.sort()
+    for bid in ids:
+        var body: Dictionary = _bodies[bid]
+        if str(body["system_id"]) != system_id:
+            continue
+        var radius: float = float(body.get("physical_radius", 0.0))
+        if radius <= 0.0:
+            continue
+        # 3% clearance around the real surface, not a fake visual
+        # marker radius. Unknown bodies cannot be guessed safely.
+        obstacles.append({
+            "id": str(bid),
+            "center": computed["positions"][bid],
+            "radius": radius * 1.03
+        })
+    return obstacles
 
 
 ## Frozen Rust BodyOrbit::universe_offset comes from the original
