@@ -181,76 +181,130 @@ func _check() -> void:
         return
     view.call("set_world", sol)
 
-    # Root-cause regression: all relative-orbit separation must obey the
-    # SAME camera scale as full-system orbital distance. A moon must not
-    # grow into its parent when zoom grows past the old sqrt(zoom) clamp.
+    # Approved Sol Lab baseline: 0.65 radial display compression.
     var earth: Dictionary = {}
     var luna: Dictionary = {}
+    var mars: Dictionary = {}
+    var jupiter: Dictionary = {}
+    var mercury: Dictionary = {}
+    var callisto: Dictionary = {}
     for body in sol.get("bodies", []):
-        if str(body.get("id", "")) == "earth":
-            earth = body
-        elif str(body.get("id", "")) == "luna":
-            luna = body
-    if earth.is_empty() or luna.is_empty():
-        _fail("original Earth/Luna seed missing")
+        match str(body.get("id", "")):
+            "earth":
+                earth = body
+            "luna":
+                luna = body
+            "mars":
+                mars = body
+            "jupiter":
+                jupiter = body
+            "mercury":
+                mercury = body
+            "callisto":
+                callisto = body
+    if earth.is_empty() or luna.is_empty() or mars.is_empty() or (
+            jupiter.is_empty() or mercury.is_empty() or callisto.is_empty()):
+        _fail("missing original Sol bodies")
         return
-    # Also check an arbitrary child via parent_body_id; no Luna ID-specific
-    # drawing exceptions are allowed.
-    var generic_child: Dictionary = {
-        "id": "ui-test-satellite",
-        "type": "moon",
-        "parent_body_id": "earth",
-        "orbit_radius": earth.get("orbit_radius", 0.0),
-        "current_angle": 37.0,
-        "biome": "lifeless"
-    }
-    var known_parent: Dictionary = view.call("_known_moon_parent", luna)
-    var generic_parent: Dictionary = view.call("_known_moon_parent", generic_child)
-    if str(known_parent.get("id", "")) != "earth" or (
-            str(generic_parent.get("id", "")) != "earth"):
-        _fail("parent relationships were not resolved")
+    var earth_r: float = float(earth["orbit_radius"])
+    if absf(float(view.call("_radius_transform", earth_r)) -
+            pow(earth_r, 0.65)) > 0.00001:
+        _fail("Sol Lab compression baseline was lost")
         return
 
-    var base_luna_separation: float = -1.0
-    var base_generic_separation: float = -1.0
+    # Readable symbols are not physical sizes, but maintain the hierarchy.
+    var star_size: float = 13.5
+    var jupiter_size: float = float(view.call("_body_size_at_zoom", jupiter, 1.0))
+    var earth_size: float = float(view.call("_body_size_at_zoom", earth, 1.0))
+    var mars_size: float = float(view.call("_body_size_at_zoom", mars, 1.0))
+    var moon_size: float = float(view.call("_body_size_at_zoom", luna, 1.0))
+    if not (star_size > jupiter_size and jupiter_size > earth_size and (
+            earth_size > mars_size) and mars_size > moon_size):
+        _fail("Sun / Jupiter / Earth / Mars / Moon symbols not ordered")
+        return
+    view.set("_zoom", 1.0)
+    view.set("_pan", Vector2.ZERO)
+    view.set("_draw_body_positions", {})
+    var scale: float = float(view.call("_orbit_scale"))
+    var mercury_pos: Vector2 = view.call("_body_position", mercury, scale)
+    if mercury_pos.distance_to(view.size * 0.5) < 13.5 + (
+            float(view.call("_body_size", mercury)) + 2.0):
+        _fail("Sun covers Mercury on system overview")
+        return
+
+    # Real LOCAL Moon distance is 384,400 km, not 2.1-2.0 from
+    # its legacy heliocentric seed orbit radius. Generic metadata path
+    # never needs hardcoded satellite identities.
+    var moon_local: float = float(view.call("_satellite_orbit_native_radius", luna))
+    if absf(moon_local - 384400.0 / 149597870.7 * 2.0) > 0.0000001:
+        _fail("Moon orbital separation does not use local km data")
+        return
+    if float(view.call("_satellite_orbit_native_radius", callisto)) <= moon_local:
+        _fail("Callisto local orbit was not resolved")
+        return
+    var generic: Dictionary = {
+        "id": "test-planetocentric-moon",
+        "type": "moon",
+        "parent_body_id": "earth",
+        "satellite_orbit_radius_native": 0.02,
+        "orbit_radius": earth_r,
+        "current_angle": 37.0
+    }
+    var missing: Dictionary = generic.duplicate(true)
+    missing.erase("satellite_orbit_radius_native")
+    var missing_parent: Dictionary = view.call("_known_moon_parent", missing)
+    if not missing_parent.is_empty():
+        _fail("invented a satellite orbit without local radius")
+        return
+    var parent: Dictionary = view.call("_known_moon_parent", luna)
+    if str(parent.get("id", "")) != "earth":
+        _fail("Sol Moon does not orbit Earth visually")
+        return
+    var generic_parent: Dictionary = view.call("_known_moon_parent", generic)
+    if str(generic_parent.get("id", "")) != "earth":
+        _fail("generic explicit satellite parent was lost")
+        return
+    if float(view.call("_satellite_visibility", luna, earth, scale)) > 0.001:
+        _fail("Moon must be hidden when it overlaps Earth on overview")
+        return
+
     for zoom_value in [0.45, 1.0, 8.0, 32.0, 64.0, 128.0, 512.0]:
-        var z: float = float(zoom_value)
-        view.set("_zoom", z)
+        var zoom: float = float(zoom_value)
+        view.set("_zoom", zoom)
         view.set("_pan", Vector2.ZERO)
         view.set("_draw_body_positions", {})
-        var orbit_scale: float = float(view.call("_orbit_scale"))
-        var earth_point: Vector2 = view.call("_body_position", earth, orbit_scale)
-        for child in [luna, generic_child]:
-            var screen_point: Vector2 = view.call("_body_position", child, orbit_scale)
-            var separation: float = screen_point.distance_to(earth_point)
-            var expected: float = float(view.call("_satellite_orbit_radius", child, earth))
-            # Vector2 is float32; large positions at ×512 need a relative epsilon.
-            if absf(separation - expected) > maxf(0.05, expected * 0.00005):
-                _fail("child/parent projection mismatch at zoom " + str(z))
+        scale = float(view.call("_orbit_scale"))
+        var earth_pos: Vector2 = view.call("_body_position", earth, scale)
+        for child in [luna, generic]:
+            var child_pos: Vector2 = view.call("_body_position", child, scale)
+            var actual: float = child_pos.distance_to(earth_pos)
+            var expected: float = float(view.call(
+                "_satellite_orbit_radius", child, earth, scale))
+            if absf(actual - expected) > maxf(0.05, expected * 0.0001):
+                _fail("satellite projection mismatch at zoom " + str(zoom))
                 return
-            var footprint: float = float(view.call("_body_size", earth)) + (
+            var combined: float = float(view.call("_body_size", earth)) + (
                 float(view.call("_body_size", child)))
-            if separation <= footprint:
-                _fail("satellite overlaps parent at zoom " + str(z))
+            var opacity: float = float(view.call(
+                "_satellite_visibility", child, earth, scale))
+            if opacity > 0.01 and actual < combined - 3.0:
+                _fail("drawn satellite overlaps parent")
                 return
-            var unzoomed: float = separation / z
-            if str(child.get("id", "")) == "luna":
-                if base_luna_separation < 0.0:
-                    base_luna_separation = unzoomed
-                elif absf(unzoomed - base_luna_separation) > 0.02:
-                    _fail("Luna relative orbit did not scale linearly")
-                    return
-            else:
-                if base_generic_separation < 0.0:
-                    base_generic_separation = unzoomed
-                elif absf(unzoomed - base_generic_separation) > 0.02:
-                    _fail("generic satellite orbit did not scale linearly")
-                    return
+            if zoom == 32.0 and opacity < 0.5:
+                _fail("satellite did not emerge at local zoom")
+                return
+        if zoom == 32.0:
+            var moon_pos: Vector2 = view.call("_body_position", luna, scale)
+            var mars_pos: Vector2 = view.call("_body_position", mars, scale)
+            if moon_pos.distance_to(earth_pos) >= (
+                    mars_pos.distance_to(earth_pos)):
+                _fail("Moon is projected farther away than Mars")
+                return
 
     if JSON.stringify(sol) != before:
         _fail("satellite camera projection mutated frozen world")
         return
-    print("P2 SEAMLESS ZOOM PASS: orbit/globe camera + generic satellite projection; no world mutation")
+    print("P2 SEAMLESS ZOOM PASS: Sol Lab compression, Moon local orbit, camera and LOD; no world mutation")
     view.queue_free()
     quit(0)
 
