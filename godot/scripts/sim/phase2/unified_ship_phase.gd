@@ -4,6 +4,7 @@ extends RefCounted
 ## only for actual explicit departures on native directed navigation edges.
 const ShipState = preload("res://scripts/sim/ship_state.gd")
 const ShipTransit = preload("res://scripts/sim/ship_transit.gd")
+const NativeIntercept = preload("res://scripts/sim/ships/native_orbital_intercept.gd")
 const N140Gate = preload("res://scripts/sim/phase2/unified_n140_ship_lod_phase.gd")
 const NativeShipMemory = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
 
@@ -36,7 +37,9 @@ static func _load(world: Dictionary) -> Dictionary:
 ## not automatically decide their routes until the native N153 AI is wired.
 static func advance(world: Dictionary, positions: Dictionary,
         tick: int, tick_scale: float, resolver: RefCounted,
-        tick_multiplier: int = 1, observers: Array = []) -> Dictionary:
+        tick_multiplier: int = 1, observers: Array = [],
+        orbital_model: RefCounted = null,
+        native_time: float = -1.0) -> Dictionary:
     if tick < 1 or not is_finite(tick_scale) or tick_scale <= 0.0:
         return {"ok": false, "reason": "invalid_fleet_clock"}
     var opened: Dictionary = _load(world)
@@ -57,6 +60,10 @@ static func advance(world: Dictionary, positions: Dictionary,
     ids.sort()
     var outcomes: Dictionary = {}
     var mutable: bool = bool(gate["changed"])
+    # Build N43 ephemerides ONLY for active transits on fired N140 ticks.
+    # Cache by destination; all ships use the same committed World/orbit
+    # snapshot, with no additional World copy, clock or guessed motion.
+    var forecast_cache: Dictionary = {}
     for id in ids:
         var row: Dictionary = state.ships[id]
         # A skipped Rust ship cannot move, burn fuel, observe prices,
@@ -68,8 +75,30 @@ static func advance(world: Dictionary, positions: Dictionary,
         var scale: int = int(fired[str(id)])
         if scale < 1:
             return {"ok": false, "reason": "invalid_native_lod_fired_scale"}
+        var destination: String = str(
+            (row["transit"] as Dictionary).get("to", ""))
+        var forecast: Dictionary = {}
+        if forecast_cache.has(destination):
+            forecast = forecast_cache[destination]
+        elif resolver != null and orbital_model != null and (
+                resolver.has_method("ephemeris_for_location") and
+                native_time >= 0.0):
+            var resolved: Dictionary = resolver.ephemeris_for_location(
+                destination, orbital_model, native_time)
+            if bool(resolved.get("ok", false)):
+                var candidate: Dictionary = resolved["trajectory"]
+                # Fail closed: a prediction must agree with the physical
+                # N43 coordinate already used for canonical transit.
+                var actual: Variant = positions.get(destination, null)
+                if actual is Vector2 and (
+                        NativeIntercept.valid_trajectory(candidate)) and (
+                        NativeIntercept.position_after(candidate, 0.0).distance_to(
+                            actual) < 0.0005):
+                    forecast = candidate
+            forecast_cache[destination] = forecast
         var outcome: String = motion.advance(
-            state, str(id), positions, tick, tick_scale * float(scale), scale, true)
+            state, str(id), positions, tick, tick_scale * float(scale),
+            scale, true, forecast)
         if not (outcome in ["arrived", "moving", "out_of_fuel"]):
             return {"ok": false, "reason": "native_ship_" + outcome,
                 "ship": str(id)}
