@@ -5,6 +5,7 @@ extends SceneTree
 const NativeData = preload("res://scripts/native_data.gd")
 const Model = preload("res://scripts/sim/world_model.gd")
 const Resolver = preload("res://scripts/sim/ships/native_location_resolver.gd")
+const Profiles = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 const Avoidance = preload("res://scripts/sim/ships/native_avoidance.gd")
 const State = preload("res://scripts/sim/ship_state.gd")
 const Transit = preload("res://scripts/sim/ship_transit.gd")
@@ -33,6 +34,13 @@ func _run() -> void:
         "system-sol", model)
     if obstacles.size() < 7 or obstacles.size() > 16:
         _fail("bounded Sol physical planet obstacle registry missing")
+        return
+    # The Jupiter station altitude must be outside its 3% physical
+    # exclusion even though a fixed 400 km altitude would not be.
+    var jupiter_surface: float = Profiles.physical_radius_native("jupiter")
+    var jupiter_orbit: float = Profiles.compact_station_orbit_radius("jupiter")
+    if jupiter_orbit <= jupiter_surface * 1.03:
+        _fail("gas giant station spawned inside its collision radius")
         return
     if not resolver.verified_planet_obstacles(
             "system-alpha-centauri", model).is_empty():
