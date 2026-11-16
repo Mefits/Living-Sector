@@ -56,6 +56,25 @@ func _initialize() -> void:
         "nested": reverse_type_old["earth"]["audit"]}
     _expect(Guard.validate_owned_write(reverse_type_old, reverse_type_new) ==
         "market_write_aliased_protected_field", "reject_array_under_dictionary")
+    # A wide, nested detached tree must not trigger combinatorial recursion.
+    # It is legal when values match and no mutable node is shared.
+    var wide_old: Dictionary = {"earth": _market()}
+    var wide_tree: Dictionary = {}
+    for i in range(24):
+        var branch_row: Dictionary = {}
+        for j in range(12):
+            branch_row["item_%d" % j] = [{"value": i * 12 + j}]
+        wide_tree["branch_%d" % i] = branch_row
+    wide_old["earth"]["audit"] = wide_tree
+    var wide_new: Dictionary = wide_old.duplicate(true)
+    _expect(Guard.validate_owned_write(wide_old, wide_new) == "",
+        "wide_detached_tree")
+    # Reuse a deep leaf across independent trees; the traversal must still
+    # find the alias without relying on matching paths or container types.
+    wide_new["earth"]["audit"]["branch_23"]["item_11"] = {
+        "moved": wide_old["earth"]["audit"]["branch_0"]["item_0"]}
+    _expect(Guard.validate_owned_write(wide_old, wide_new) ==
+        "market_write_aliased_protected_field", "wide_cross_branch_alias")
     var cross_type_detached: Dictionary = cross_type_new.duplicate(true)
     _expect(Guard.validate_owned_write(cross_type_old, cross_type_detached) ==
         "market_write_outside_observation", "cross_type_detached_still_illegal")
