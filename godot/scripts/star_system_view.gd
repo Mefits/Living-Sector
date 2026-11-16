@@ -12,6 +12,7 @@ const MIN_ZOOM: float = 0.45
 const MAX_ZOOM: float = 32.0
 const WHEEL_ZOOM: float = 1.32
 const BACKGROUND: Color = Color("#0b1421")
+const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
 ## Native Galaxy 0.6.7 stores heliocentric radius/period/angle for ALL
 ## bodies and has NO parent identifier. Do not rewrite Rust orbit physics.
@@ -47,6 +48,17 @@ var _draw_body_positions: Dictionary = {}
 var _last_draw_usec: int = 0
 var _max_draw_usec: int = 0
 var _draw_calls: int = 0
+## Presentation-only Rust/Bevy InterpPos equivalent. These NEVER modify
+## WorldModel, native orbit physics, N39 transit, N9 or checkpoints.
+var _body_motion_from: Dictionary = {}
+var _body_motion_started_usec: int = -1
+var _body_motion_duration_usec: int = 0
+var _last_body_commit_usec: int = -1
+var _ship_motion_from: Dictionary = {}
+var _ship_motion_started_usec: int = -1
+var _ship_motion_duration_usec: int = 0
+var _last_ship_commit_usec: int = -1
+var _draw_now_usec: int = 0
 
 func draw_profile() -> Dictionary:
     return {"calls": _draw_calls, "last_usec": _last_draw_usec,
@@ -99,6 +111,21 @@ func _ready() -> void:
     clip_contents = true
 
 
+func _process(_delta: float) -> void:
+    # Only redraw the UI during an active visual transition. This does
+    # not advance orbital physics or any real N158/N39 ship position.
+    if not visible or is_body_focused():
+        return
+    var now_usec: int = Time.get_ticks_usec()
+    if (not _body_motion_from.is_empty() and
+            VisualMotion.alpha(_body_motion_started_usec,
+                _body_motion_duration_usec, now_usec) < 1.0) or (
+            not _ship_motion_from.is_empty() and
+            VisualMotion.alpha(_ship_motion_started_usec,
+                _ship_motion_duration_usec, now_usec) < 1.0):
+        queue_redraw()
+
+
 func set_world(world: Dictionary) -> void:
     _world = world.duplicate(true)
     _rebuild_body_index()
@@ -109,6 +136,14 @@ func set_world(world: Dictionary) -> void:
     _pan = Vector2.ZERO
     _globe_zoom = 1.0
     _globe_pan = Vector2.ZERO
+    # A newly opened system has no previous visual position. Snap to
+    # the first real source snapshot; never glide between systems.
+    _body_motion_from.clear()
+    _body_motion_started_usec = -1
+    _last_body_commit_usec = -1
+    _ship_motion_from.clear()
+    _ship_motion_started_usec = -1
+    _last_ship_commit_usec = -1
     queue_redraw()
 
 
@@ -131,6 +166,32 @@ func set_live_fleet(fleet: Dictionary) -> void:
             "transit": visual_transit}
     if projected == _live_fleet:
         return
+    var now_usec: int = Time.get_ticks_usec()
+    var moving_origins: Dictionary = {}
+    for sid in projected:
+        if not _live_fleet.has(sid):
+            continue
+        var newer: Dictionary = projected[sid]
+        var older: Dictionary = _live_fleet[sid]
+        if str(newer.get("system_id", "")) != str(older.get("system_id", "")):
+            continue # Different system: genuine transit discontinuity.
+        var new_transit: Variant = newer.get("transit", {})
+        var old_transit: Variant = older.get("transit", {})
+        if not (new_transit is Dictionary) or not (old_transit is Dictionary):
+            continue
+        if new_transit.is_empty() or old_transit.is_empty():
+            continue # Departure/arrival must NOT be animated as a fake flight.
+        var old_position: Variant = _visual_ship_position(sid, older, now_usec)
+        var new_position: Variant = new_transit.get("position", null)
+        if VisualMotion.valid_xy(old_position) and (
+                VisualMotion.valid_xy(new_position)) and (
+                old_position != new_position):
+            moving_origins[sid] = old_position
+    _ship_motion_duration_usec = VisualMotion.sample_duration(
+        _last_ship_commit_usec, now_usec, 160000)
+    _ship_motion_started_usec = now_usec
+    _last_ship_commit_usec = now_usec
+    _ship_motion_from = moving_origins
     _live_fleet = projected
     _rebuild_ship_index()
     queue_redraw()
@@ -143,6 +204,21 @@ func update_world(world: Dictionary) -> void:
     # does not. Deep detach only changed visual domains, not whole World.
     var changed: bool = false
     if world.get("bodies", []) != _world.get("bodies", []):
+        var now_usec: int = Time.get_ticks_usec()
+        var visible_origins: Dictionary = {}
+        for old_value in _world.get("bodies", []):
+            if not (old_value is Dictionary):
+                continue
+            var old_body: Dictionary = old_value
+            var body_id: String = str(old_body.get("id", ""))
+            if not body_id.is_empty():
+                visible_origins[body_id] = _visual_body_angle(
+                    old_body, now_usec)
+        _body_motion_duration_usec = VisualMotion.sample_duration(
+            _last_body_commit_usec, now_usec, 160000)
+        _body_motion_started_usec = now_usec
+        _last_body_commit_usec = now_usec
+        _body_motion_from = visible_origins
         _world["bodies"] = (world.get("bodies", []) as Array).duplicate(true)
         _rebuild_body_index()
         changed = true
@@ -265,11 +341,35 @@ func _center() -> Vector2:
     return size * 0.5 + _pan
 
 
+func _visual_body_angle(body: Dictionary, now_usec: int) -> float:
+    var current: float = float(body.get("current_angle", 0.0))
+    var bid: String = str(body.get("id", ""))
+    if not _body_motion_from.has(bid):
+        return current
+    return VisualMotion.orbit_angle(float(_body_motion_from[bid]),
+        current, VisualMotion.alpha(_body_motion_started_usec,
+            _body_motion_duration_usec, now_usec))
+
+
+func _visual_ship_position(sid: Variant, ship: Dictionary,
+        now_usec: int) -> Variant:
+    var transit: Variant = ship.get("transit", null)
+    if not (transit is Dictionary):
+        return null
+    var current: Variant = transit.get("position", null)
+    if not _ship_motion_from.has(sid):
+        return current
+    return VisualMotion.transit_position(_ship_motion_from[sid],
+        current, VisualMotion.alpha(_ship_motion_started_usec,
+            _ship_motion_duration_usec, now_usec))
+
+
 func _body_position(body: Dictionary, scale: float) -> Vector2:
     var bid: String = str(body.get("id", ""))
     if not bid.is_empty() and _draw_body_positions.has(bid):
         return _draw_body_positions[bid]
-    var radians: float = deg_to_rad(float(body.get("current_angle", 0.0)))
+    var radians: float = deg_to_rad(_visual_body_angle(
+        body, _draw_now_usec))
     var parent: Dictionary = _known_moon_parent(body)
     var position: Vector2 = Vector2.ZERO
     if not parent.is_empty():
@@ -318,6 +418,7 @@ func _live_ship_count(body_id: String) -> int:
 
 func _draw() -> void:
     var started: int = Time.get_ticks_usec()
+    _draw_now_usec = started
     _draw_body_positions.clear()
     if is_body_focused():
         _draw_body_focus()
@@ -427,7 +528,8 @@ func _draw_real_native_transits(system: Dictionary,
     var offset: Vector2 = Vector2(float(system_offset[0]),
         float(system_offset[1]))
     var bounds: Rect2 = Rect2(Vector2.ZERO, size).grow(7.0)
-    for raw in _live_fleet.values():
+    for sid in _live_fleet:
+        var raw: Variant = _live_fleet[sid]
         if not (raw is Dictionary):
             continue
         var ship: Dictionary = raw
@@ -436,7 +538,8 @@ func _draw_real_native_transits(system: Dictionary,
         var transit: Variant = ship.get("transit", null)
         if not (transit is Dictionary) or transit.is_empty():
             continue
-        var native_xy: Variant = transit.get("position", null)
+        var native_xy: Variant = _visual_ship_position(sid, ship,
+            _draw_now_usec)
         if not (native_xy is Array) or native_xy.size() != 2:
             continue
         if not (native_xy[0] is int or native_xy[0] is float) or (
