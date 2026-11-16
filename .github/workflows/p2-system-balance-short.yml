@@ -58,14 +58,6 @@ jobs:
           timeout --signal=TERM --kill-after=5s 90s godot --headless --path godot --editor --import --quit >"$RUNNER_TEMP/parse.log" 2>&1 || {
             tail -n 140 "$RUNNER_TEMP/parse.log"; exit 1;
           }
-      - name: Diagnose direct N14 script parse before dependent scripts
-        shell: bash
-        run: |
-          # Diagnostics only: this RefCounted script is not a SceneTree.
-          # The direct loader exposes the root parse error rather than
-          # only a cascade of "Could not preload" from N158.
-          godot --headless --path godot --script res://scripts/sim/ship_transit.gd >"$RUNNER_TEMP/transit_parse.log" 2>&1 || true
-          grep -E 'Parse Error|SCRIPT ERROR:|at: GDScript::reload' "$RUNNER_TEMP/transit_parse.log" | head -n 20 || true
       - name: Click real moving ships and docked fleet; show read-only ship inspector
         shell: bash
         run: |
