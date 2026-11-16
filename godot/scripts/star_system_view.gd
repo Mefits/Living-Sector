@@ -1,5 +1,5 @@
 extends Control
-## Read-only 2D view of one original Galaxy 0.6.7 system.
+## Read-only continuous camera over a Galaxy 0.6.7 system.
 ## Orbit radii are compressed for readability; native orbital angles are live.
 ## Station markers use native facility anchors. Fleet markers show ACTUAL
 ## ship locations from the same World; in-flight positions are not painted
@@ -9,7 +9,10 @@ signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
 
 const MIN_ZOOM: float = 0.45
-const MAX_ZOOM: float = 32.0
+const MAX_ZOOM: float = 512.0
+const FOCUS_GLOBE_RADIUS: float = 165.0
+const CAMERA_EASING: float = 12.0
+const DETAIL_RADIUS: float = 24.0
 const WHEEL_ZOOM: float = 1.32
 const BACKGROUND: Color = Color("#0b1421")
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
@@ -21,9 +24,6 @@ const KNOWN_VISUAL_MOON_PARENTS: Dictionary = {
     "luna": "earth",
     "callisto": "jupiter"
 }
-const SEMANTIC_FOCUS_ZOOM: float = 5.0
-const GLOBE_MIN_ZOOM: float = 0.85
-const GLOBE_MAX_ZOOM: float = 1.8
 
 var _world: Dictionary = {}
 var _live_fleet: Dictionary = {}
@@ -34,8 +34,11 @@ var _dragging: bool = false
 var _drag_distance: float = 0.0
 var _body_pins: Array = []
 var _focused_body_id: String = ""
-var _globe_zoom: float = 1.0
-var _globe_pan: Vector2 = Vector2.ZERO
+## Camera-only animation; never writes into physical World/N39.
+var _wheel_target_zoom: float = -1.0
+var _wheel_anchor: Vector2 = Vector2.ZERO
+var _focus_zoom_target: float = -1.0
+var _return_camera: bool = false
 ## U4: detached UI-only indices. The authoritative World is never mutated.
 var _body_index: Dictionary = {}
 var _facilities_by_body: Dictionary = {}
@@ -111,13 +114,61 @@ func _ready() -> void:
     clip_contents = true
 
 
-func _process(_delta: float) -> void:
-    # Only redraw the UI during an active visual transition. This does
-    # not advance orbital physics or any real N158/N39 ship position.
-    if not visible or is_body_focused():
+func _process(delta: float) -> void:
+    if not visible:
         return
+    var camera_changed: bool = false
+    var ease: float = 1.0 - exp(-clampf(delta, 0.0, 0.1) * CAMERA_EASING)
+    if _return_camera:
+        _zoom = lerpf(_zoom, 1.0, ease)
+        _pan = _pan.lerp(Vector2.ZERO, ease)
+        camera_changed = true
+        if absf(_zoom - 1.0) < 0.005 and _pan.length() < 0.5:
+            _zoom = 1.0
+            _pan = Vector2.ZERO
+            _return_camera = false
+    elif _focus_zoom_target > 0.0 and not _focused_body_id.is_empty():
+        var body: Dictionary = _body_by_id(_focused_body_id)
+        if body.is_empty():
+            _focus_zoom_target = -1.0
+            _focused_body_id = ""
+        else:
+            _draw_now_usec = Time.get_ticks_usec()
+            _draw_body_positions.clear()
+            var point: Vector2 = _body_position(body, _orbit_scale())
+            var next_zoom_focus: float = lerpf(_zoom, _focus_zoom_target, ease)
+            var old_offset: Vector2 = point - _center() - _pan
+            var desired_pan: Vector2 = -old_offset * (next_zoom_focus / maxf(_zoom, 0.001))
+            _pan = _pan.lerp(desired_pan, ease)
+            _zoom = next_zoom_focus
+            camera_changed = true
+            if absf(_zoom - _focus_zoom_target) < 0.01 and _pan.distance_to(desired_pan) < 0.5:
+                _zoom = _focus_zoom_target
+                _focus_zoom_target = -1.0
+    elif _wheel_target_zoom > 0.0:
+        var next_zoom_wheel: float = lerpf(_zoom, _wheel_target_zoom, ease)
+        var ratio: float = next_zoom_wheel / maxf(_zoom, 0.001)
+        _pan += (_wheel_anchor - _center()) * (1.0 - ratio)
+        _zoom = next_zoom_wheel
+        camera_changed = true
+        if absf(_zoom - _wheel_target_zoom) < 0.005:
+            _wheel_target_zoom = -1.0
+
+    # When specifically focused via double-click, keep the SAME camera
+    # centered on the real moving planet, not a detached globe overlay.
+    if not _focused_body_id.is_empty() and _focus_zoom_target < 0.0 and not _return_camera and _wheel_target_zoom < 0.0:
+        var focused: Dictionary = _body_by_id(_focused_body_id)
+        if not focused.is_empty():
+            _draw_now_usec = Time.get_ticks_usec()
+            _draw_body_positions.clear()
+            var on_screen: Vector2 = _body_position(focused, _orbit_scale())
+            if on_screen.distance_to(_center()) > 0.5:
+                _pan += (_center() - on_screen) * ease
+                camera_changed = true
+
     var now_usec: int = Time.get_ticks_usec()
-    if (not _body_motion_from.is_empty() and
+    if camera_changed or (
+            not _body_motion_from.is_empty() and
             VisualMotion.alpha(_body_motion_started_usec,
                 _body_motion_duration_usec, now_usec) < 1.0) or (
             not _ship_motion_from.is_empty() and
@@ -134,8 +185,9 @@ func set_world(world: Dictionary) -> void:
     _focused_body_id = ""
     _zoom = 1.0
     _pan = Vector2.ZERO
-    _globe_zoom = 1.0
-    _globe_pan = Vector2.ZERO
+    _wheel_target_zoom = -1.0
+    _focus_zoom_target = -1.0
+    _return_camera = false
     # A newly opened system has no previous visual position. Snap to
     # the first real source snapshot; never glide between systems.
     _body_motion_from.clear()
@@ -247,11 +299,20 @@ func focus_body(body_id: String) -> bool:
     var body: Dictionary = _body_by_id(body_id)
     if body.is_empty():
         return false
-    # A single real world object is shown at globe scale. No extra World.
     _selected_body_id = body_id
     _focused_body_id = body_id
-    _globe_zoom = 1.0
-    _globe_pan = Vector2.ZERO
+    _return_camera = false
+    _wheel_target_zoom = -1.0
+    # One continuous camera, animated until the real body is large enough.
+    var low: float = MIN_ZOOM
+    var high: float = MAX_ZOOM
+    for i in range(20):
+        var mid: float = (low + high) * 0.5
+        if _body_size_at_zoom(body, mid) < FOCUS_GLOBE_RADIUS:
+            low = mid
+        else:
+            high = mid
+    _focus_zoom_target = high
     _dragging = false
     queue_redraw()
     return true
@@ -259,19 +320,18 @@ func focus_body(body_id: String) -> bool:
 
 func unfocus_body() -> void:
     _focused_body_id = ""
-    _globe_pan = Vector2.ZERO
-    _globe_zoom = 1.0
+    _focus_zoom_target = -1.0
+    _wheel_target_zoom = -1.0
+    _return_camera = true
     _dragging = false
     queue_redraw()
 
 
 func reset_view() -> void:
-    if is_body_focused():
-        _globe_zoom = 1.0
-        _globe_pan = Vector2.ZERO
-    else:
-        _zoom = 1.0
-        _pan = Vector2.ZERO
+    _focused_body_id = ""
+    _focus_zoom_target = -1.0
+    _wheel_target_zoom = -1.0
+    _return_camera = true
     queue_redraw()
 
 
@@ -395,19 +455,23 @@ func _moon_visual_orbit(body: Dictionary, parent: Dictionary) -> float:
         base * clampf(sqrt(_zoom), 1.0, 5.0))
 
 
-func _body_size(body: Dictionary) -> float:
-    # The old diagram zoomed the orbit position but kept every planet at
-    # 4–10 pixels, so close-up still looked distant. Symbol radius is
-    # deliberately schematic and grows sublinearly, never by physical size.
-    var symbol_scale: float = clampf(sqrt(_zoom), 0.8, 5.0)
+func _body_size_at_zoom(body: Dictionary, at_zoom: float) -> float:
+    # Symbol at sector scale; continuous larger globe at near scale.
+    var scale: float = sqrt(maxf(at_zoom, 0.64))
+    if at_zoom > 32.0:
+        scale = sqrt(32.0) * pow(at_zoom / 32.0, 1.12)
     var kind: String = str(body.get("type", ""))
     if kind == "moon":
-        return 4.0 * symbol_scale
-    if kind == "asteroid" or kind == "belt":
-        return 4.5 * symbol_scale
+        return 4.0 * scale
+    if kind in ["asteroid", "belt"]:
+        return 4.5 * minf(scale, 6.0)
     if str(body.get("biome", "")) == "gas_giant":
-        return 10.0 * symbol_scale
-    return 6.5 * symbol_scale
+        return 10.0 * scale
+    return 6.5 * scale
+
+
+func _body_size(body: Dictionary) -> float:
+    return _body_size_at_zoom(body, _zoom)
 
 
 func _facility_count(body_id: String) -> int:
@@ -420,10 +484,7 @@ func _draw() -> void:
     var started: int = Time.get_ticks_usec()
     _draw_now_usec = started
     _draw_body_positions.clear()
-    if is_body_focused():
-        _draw_body_focus()
-    else:
-        _draw_system()
+    _draw_system()
     _last_draw_usec = maxi(0, Time.get_ticks_usec() - started)
     _max_draw_usec = maxi(_max_draw_usec, _last_draw_usec)
     _draw_calls += 1
@@ -474,6 +535,8 @@ func _draw_system() -> void:
             draw_colored_polygon(vertices, color)
         else:
             draw_circle(position, visual_radius, color)
+            if visual_radius >= DETAIL_RADIUS:
+                _draw_globe_detail(body, position, visual_radius)
         if picked:
             draw_arc(position, visual_radius + 7.0, 0.0, TAU, 40,
                 Color("#a7eafa"), 1.8, true)
@@ -508,8 +571,55 @@ func _draw_system() -> void:
         "%s  /  %d тел  /  масштаб ×%.1f" % [str(system.get("name", "?")), bodies.size(), _zoom],
         HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#dce8ee"))
     draw_string(font, Vector2(14.0, size.y - 14.0),
-        "ЛКМ: выбрать · двойной клик / крупное колесо: глобус · колесо: орбиты · схематичный масштаб",
+        "Колесо: бесшовный масштаб до поверхности · двойной клик: приблизить планету · условные расстояния",
         HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#7d9cad"))
+
+
+## Surface placeholders grow in place on the very same orbital map.
+## No imaginary T1 industries or second terrain simulation are shown.
+func _draw_globe_detail(body: Dictionary, center: Vector2, radius: float) -> void:
+    var biome: String = str(body.get("biome", ""))
+    if biome == "terrestrial":
+        var land_a: PackedVector2Array = PackedVector2Array([
+            center + Vector2(-0.70, -0.35) * radius,
+            center + Vector2(-0.34, -0.72) * radius,
+            center + Vector2(0.09, -0.73) * radius,
+            center + Vector2(0.26, -0.44) * radius,
+            center + Vector2(0.08, -0.12) * radius,
+            center + Vector2(-0.26, -0.03) * radius,
+            center + Vector2(-0.43, 0.30) * radius,
+            center + Vector2(-0.67, 0.20) * radius
+        ])
+        var land_b: PackedVector2Array = PackedVector2Array([
+            center + Vector2(0.37, -0.05) * radius,
+            center + Vector2(0.66, 0.00) * radius,
+            center + Vector2(0.86, 0.35) * radius,
+            center + Vector2(0.56, 0.65) * radius,
+            center + Vector2(0.20, 0.75) * radius,
+            center + Vector2(0.10, 0.30) * radius
+        ])
+        draw_colored_polygon(land_a, Color("#789c7d"))
+        draw_colored_polygon(land_b, Color("#9bb38a"))
+        draw_circle(center + Vector2(-0.17, 0.41) * radius,
+            radius * 0.15, Color("#5689a3"))
+    elif biome == "gas_giant":
+        for band in [-0.70, -0.39, -0.06, 0.22, 0.57]:
+            var y: float = float(band) * radius
+            var half: float = sqrt(maxf(0.0, radius * radius - y * y)) * 0.92
+            draw_line(center + Vector2(-half, y),
+                center + Vector2(half, y), Color("#917d70"),
+                maxf(2.0, radius * 0.065))
+    elif biome in ["lifeless", "ice"]:
+        draw_circle(center + Vector2(-0.32, -0.20) * radius,
+            radius * 0.16, Color("#809aad"))
+        draw_circle(center + Vector2(0.36, 0.31) * radius,
+            radius * 0.10, Color("#90a9bd"))
+    elif biome in ["molten", "desert"]:
+        draw_arc(center + Vector2(0.10, -0.15) * radius,
+            radius * 0.51, 0.50, 2.75, 44, Color("#e4b08c"),
+            maxf(2.0, radius * 0.02))
+    draw_arc(center, radius, 0.18 * PI, 1.15 * PI, 70,
+        Color("#192a39"), maxf(1.0, radius * 0.025))
 
 
 ## Visual-only projection of N14's physical absolute world position.
@@ -567,10 +677,13 @@ func _draw_real_native_transits(system: Dictionary,
 
 
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
-    var previous: float = _zoom
-    _zoom = clampf(_zoom * multiplier, MIN_ZOOM, MAX_ZOOM)
-    var ratio: float = _zoom / previous
-    _pan += (pointer - _center()) * (1.0 - ratio)
+    _return_camera = false
+    _focus_zoom_target = -1.0
+    var prior_target: float = _wheel_target_zoom if _wheel_target_zoom > 0.0 else _zoom
+    _wheel_target_zoom = clampf(prior_target * multiplier, MIN_ZOOM, MAX_ZOOM)
+    _wheel_anchor = pointer
+    if _wheel_target_zoom < 20.0:
+        _focused_body_id = ""
     queue_redraw()
 
 
@@ -602,15 +715,9 @@ func _nearest_pin(pointer: Vector2) -> Dictionary:
 
 
 func _gui_input(event: InputEvent) -> void:
-    if is_body_focused():
-        _focus_input(event)
-        return
     if event is InputEventMouseButton:
         if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-            if _zoom >= SEMANTIC_FOCUS_ZOOM and not _nearest_pin(event.position).is_empty():
-                _pick(event.position, true)
-            else:
-                _zoom_at(event.position, WHEEL_ZOOM)
+            _zoom_at(event.position, WHEEL_ZOOM)
             accept_event()
         elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
             _zoom_at(event.position, 1.0 / WHEEL_ZOOM)
@@ -631,104 +738,6 @@ func _gui_input(event: InputEvent) -> void:
     elif event is InputEventMouseMotion and _dragging:
         _drag_distance += event.relative.length()
         _pan += event.relative
-        queue_redraw()
-        accept_event()
-
-## Semantic level 3: decorative 2D globe, NOT a fabricated terrain/colony
-## simulation. No nine slots, no fake building coordinates. Native physical
-## body and real facility/resource data remain in the existing inspector.
-func _draw_body_focus() -> void:
-    draw_rect(Rect2(Vector2.ZERO, size), BACKGROUND, true)
-    var body: Dictionary = _body_by_id(_focused_body_id)
-    if body.is_empty():
-        return
-    var font: Font = get_theme_default_font()
-    var biome: String = str(body.get("biome", ""))
-    var radius: float = maxf(105.0, minf(205.0, minf(size.x, size.y) * 0.29)) * _globe_zoom
-    var center: Vector2 = size * 0.5 + _globe_pan
-    var base: Color = _body_color(body)
-    draw_circle(center, radius + 2.0, Color("#283b4b"))
-    draw_circle(center, radius, base)
-    if biome == "terrestrial":
-        # Minimal, source-independent surface illustration: NOT a map of
-        # actual native land or claimed building locations.
-        var land: Color = Color("#789c7d")
-        var shape_a: PackedVector2Array = PackedVector2Array([
-            center + Vector2(-0.70, -0.35) * radius,
-            center + Vector2(-0.34, -0.72) * radius,
-            center + Vector2(0.09, -0.73) * radius,
-            center + Vector2(0.26, -0.44) * radius,
-            center + Vector2(0.08, -0.12) * radius,
-            center + Vector2(-0.26, -0.03) * radius,
-            center + Vector2(-0.43, 0.30) * radius,
-            center + Vector2(-0.67, 0.20) * radius
-        ])
-        var shape_b: PackedVector2Array = PackedVector2Array([
-            center + Vector2(0.37, -0.05) * radius,
-            center + Vector2(0.66, 0.00) * radius,
-            center + Vector2(0.86, 0.35) * radius,
-            center + Vector2(0.56, 0.65) * radius,
-            center + Vector2(0.20, 0.75) * radius,
-            center + Vector2(0.10, 0.30) * radius
-        ])
-        draw_colored_polygon(shape_a, land)
-        draw_colored_polygon(shape_b, Color("#9bb38a"))
-        draw_circle(center + Vector2(-0.17, 0.41) * radius,
-            0.15 * radius, Color("#5689a3"))
-    elif biome == "gas_giant":
-        for band in [-0.70, -0.39, -0.06, 0.22, 0.57]:
-            var y: float = float(band) * radius
-            var half: float = sqrt(maxf(0.0, radius * radius - y * y)) * 0.92
-            draw_line(center + Vector2(-half, y),
-                center + Vector2(half, y), Color("#917d70"), maxf(2.0, radius * 0.065))
-    elif biome in ["lifeless", "ice"]:
-        draw_circle(center + Vector2(-0.32, -0.20) * radius,
-            0.16 * radius, Color("#809aad"))
-        draw_circle(center + Vector2(0.36, 0.31) * radius,
-            0.10 * radius, Color("#90a9bd"))
-    elif biome in ["molten", "desert"]:
-        draw_arc(center + Vector2(0.10, -0.15) * radius,
-            radius * 0.51, 0.50, 2.75, 44, Color("#e4b08c"), maxf(2.0, radius * 0.02))
-    # A muted visible terminator, without gradients or glossy highlights.
-    draw_arc(center, radius, 0.18 * PI, 1.15 * PI, 70,
-        Color("#192a39"), maxf(2.0, radius * 0.025))
-    var name: String = str(body.get("name", _focused_body_id))
-    draw_string(font, Vector2(18.0, 31.0),
-        name + "  /  " + str(body.get("type", "?")), HORIZONTAL_ALIGNMENT_LEFT,
-        -1, 19, Color("#ebf2f4"))
-    var parent: Dictionary = _known_moon_parent(body)
-    if not parent.is_empty():
-        draw_string(font, Vector2(18.0, 54.0),
-            "Спутник " + str(parent.get("name", "планеты")) +
-            " · орбита вокруг планеты показана условно",
-            HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#a9c5d4"))
-    elif str(body.get("type", "")) == "moon":
-        draw_string(font, Vector2(18.0, 54.0),
-            "Родитель неизвестен в источнике — орбита не моделируется",
-            HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#d7b88c"))
-    draw_string(font, Vector2(18.0, size.y - 40.0),
-        "Биом: " + biome + "  ·  объектов: " + str(_facility_count(_focused_body_id)),
-        HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#cbdce6"))
-    draw_string(font, Vector2(18.0, size.y - 17.0),
-        "Колесо: размер глобуса · ЛКМ: сдвиг · назад: к орбитам · поверхность схематична",
-        HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#819cae"))
-
-
-func _focus_input(event: InputEvent) -> void:
-    if event is InputEventMouseButton:
-        if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-            _globe_zoom = clampf(_globe_zoom * 1.16, GLOBE_MIN_ZOOM, GLOBE_MAX_ZOOM)
-            queue_redraw()
-            accept_event()
-        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-            _globe_zoom = clampf(_globe_zoom / 1.16, GLOBE_MIN_ZOOM, GLOBE_MAX_ZOOM)
-            queue_redraw()
-            accept_event()
-        elif event.button_index == MOUSE_BUTTON_LEFT:
-            _dragging = event.pressed
-            accept_event()
-    elif event is InputEventMouseMotion and _dragging:
-        _globe_pan += event.relative
         queue_redraw()
         accept_event()
 
