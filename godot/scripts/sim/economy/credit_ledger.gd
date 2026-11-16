@@ -292,7 +292,10 @@ func snapshot() -> Dictionary:
 func _profile_inner_snapshot() -> Dictionary:
 	# The N38 version-1 envelope and ORIGINAL insertion order are retained.
 	# Export is intentionally full and detached at a real save/proof boundary.
-	return {"version": 1, "balances": _balances.duplicate(true),
+	# Wallet values are validated integer credits, never nested containers.
+	# Shallow duplication is a fully detached N38 balance map and avoids
+	# recursively walking an expanding wallet set at each snapshot.
+	return {"version": 1, "balances": _balances.duplicate(),
 		"receipts": _snapshot_receipts()}
 
 ## A trusted, owned N9 transaction branch. The source ledger has already
