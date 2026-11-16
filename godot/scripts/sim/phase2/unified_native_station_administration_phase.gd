@@ -32,15 +32,22 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         assignments[id] = 0
     # Build read-only ordered rosters once per due cycle. These are local to this
     # proposal, so ownership/movement/removal on the next tick cannot go stale.
-    var population_roster: Dictionary = {}
+    var occupied: Dictionary = Payroll.occupied(world, tick, external_workers)
+    var population_totals: Dictionary = {}
     var population_ids: Array = world["populations"].keys()
     population_ids.sort()
     for pop_id in population_ids:
         var pop: Dictionary = world["populations"][pop_id]
         var pop_key: String = str(pop.get("faction", "")) + "|" + str(pop.get("location", ""))
-        if not population_roster.has(pop_key):
-            population_roster[pop_key] = []
-        population_roster[pop_key].append(pop_id)
+        # Aggregate in sorted population-ID order, matching the old per-market
+        # loop exactly; no mutable World references escape this proposal.
+        var people: int = maxi(0, int(pop.get("count", 0)))
+        if not population_totals.has(pop_key):
+            population_totals[pop_key] = {"people": 0, "workforce": 0, "occupied": 0}
+        var totals: Dictionary = population_totals[pop_key]
+        totals["people"] = int(totals["people"]) + people
+        totals["workforce"] = int(totals["workforce"]) + int(people * 3 / 5)
+        totals["occupied"] = int(totals["occupied"]) + int(occupied.get(pop_id, 0))
     var facility_roster: Dictionary = {}
     for fid in facility_ids:
         var facility: Dictionary = world["facilities"][fid]
@@ -48,7 +55,6 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         if not facility_roster.has(facility_key):
             facility_roster[facility_key] = []
         facility_roster[facility_key].append(fid)
-    var occupied: Dictionary = Payroll.occupied(world, tick, external_workers)
     var views: Array = []
     var market_locations: Array = world["markets"].keys()
     market_locations.sort()
@@ -63,15 +69,10 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         if faction.is_empty():
             return {"ok": false, "reason": "n18_station_without_original_faction"}
         var key: String = faction + "|" + location
-        var total_population: int = 0
-        var real_workforce: int = 0
-        var working: int = 0
-        for pop_id in population_roster.get(key, []):
-            var p: Dictionary = world["populations"][pop_id]
-            var people: int = maxi(0, int(p.get("count", 0)))
-            total_population += people
-            real_workforce += int(people * 3 / 5)
-            working += int(occupied.get(pop_id, 0))
+        var totals: Dictionary = population_totals.get(key, {})
+        var total_population: int = int(totals.get("people", 0))
+        var real_workforce: int = int(totals.get("workforce", 0))
+        var working: int = int(totals.get("occupied", 0))
         var jobs: Array = []
         for id in facility_roster.get(key, []):
             var f: Dictionary = world["facilities"][id]
