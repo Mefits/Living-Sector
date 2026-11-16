@@ -133,6 +133,14 @@ static func compare_checkpoint_pair(baseline: Dictionary, candidate: Dictionary)
             return {"accepted": false, "reason": "invalid_tick_window"}
         if typeof(side["observed_paid_ticks"]) != TYPE_INT or typeof(side["expected_paid_ticks"]) != TYPE_INT:
             return {"accepted": false, "reason": "invalid_tick_coverage"}
+    # A caller-provided complete=true is not evidence of full coverage.
+    # Derive the exact 100-tick boundary from the fixed checkpoint window.
+    for side in [baseline, candidate]:
+        var required_ticks: int = int(side["to_tick"]) - int(side["from_tick"]) + 1
+        if required_ticks != 100 or int(side["expected_paid_ticks"]) != required_ticks:
+            return {"accepted": false, "reason": "invalid_expected_coverage"}
+        if int(side["observed_paid_ticks"]) != required_ticks:
+            return {"accepted": false, "reason": "incomplete_coverage"}
     if baseline["complete"] != true or candidate["complete"] != true:
         return {"accepted": false, "reason": "incomplete_window"}
     for field in ["from_tick", "to_tick", "observed_paid_ticks", "expected_paid_ticks",
