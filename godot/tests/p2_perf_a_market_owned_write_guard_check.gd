@@ -56,6 +56,19 @@ func _initialize() -> void:
         "market_write_removed_protected_field", "snapshot_rejects_removed_field")
     _expect(protected_snapshot["earth"]["stock"]["ore"] == 20.0,
         "snapshot_deep_detached")
+    # Malformed live market rows must never turn into a silently accepted
+    # empty snapshot (or be healed by replacing a bad row after capture).
+    var malformed_live: Dictionary = {"earth": 42}
+    var malformed_snapshot: Dictionary = Guard.capture_protected_fields(malformed_live)
+    _expect(Guard.validate_protected_snapshot(malformed_snapshot, malformed_live) ==
+        "market_write_invalid_row", "snapshot_rejects_malformed_row")
+    malformed_live["earth"] = _market()
+    _expect(Guard.validate_protected_snapshot(malformed_snapshot, malformed_live) ==
+        "market_write_invalid_row", "snapshot_rejects_healed_malformed_row")
+    var mixed_live: Dictionary = {"earth": _market(), "mars": []}
+    var mixed_snapshot: Dictionary = Guard.capture_protected_fields(mixed_live)
+    _expect(Guard.validate_protected_snapshot(mixed_snapshot, mixed_live) ==
+        "market_write_invalid_row", "snapshot_rejects_mixed_invalid_rows")
     # Local acceptance must NEVER stand in for the full Schema oracle:
     # this deliberately incomplete World is rejected by the original.
     _expect(Schema.validate({"markets": observation}) != "",
