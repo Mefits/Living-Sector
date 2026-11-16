@@ -1940,7 +1940,12 @@ func post_native_passenger_migration(tick: int, ready: Dictionary,
             if current.is_empty():
                 return {"ok": false, "fatal": true,
                     "reason": "n113_pending_missing_original_director"}
-            var next_world: Dictionary = _copy_world("L1751", true)
+            # Only the Director memory is written on the unpaid N113 path.
+            # Detach that domain before mutation; no mutable World value is
+            # returned to the caller and the full Schema/accounts oracle stays.
+            var next_world: Dictionary = _copy_world("L1751", false)
+            next_world["research_directors"] = _world[
+                "research_directors"].duplicate(true)
             next_world["research_directors"][faction][
                 "strategic"] = grant["strategy"].duplicate(true)
             var invalid: String = _measured_schema_validate("L1754", next_world)
