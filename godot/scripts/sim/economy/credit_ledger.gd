@@ -79,8 +79,11 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	var bucket: int = _bucket_index(id)
 	var started_usec: int = Time.get_ticks_usec() if _profile_append else 0
 	var old_shard_rows: int = (_receipt_partitions[bucket] as Dictionary).size() if _profile_append else 0
-	var detached: Dictionary = (
-		_receipt_partitions[bucket] as Dictionary).duplicate()
+	# A previously empty shard has no historical rows to detach. The
+	# new dictionary is private to this ledger, including after a fork;
+	# populated shards still require COW to protect parent/child history.
+	var old_shard: Dictionary = _receipt_partitions[bucket]
+	var detached: Dictionary = {} if old_shard.is_empty() else old_shard.duplicate()
 	# All callers construct a private record and return only a detached copy.
 	# commit() already detached the untrusted legs before creating this row;
 	# duplicating the entire row here repeated the deep copy on every paid leg.
