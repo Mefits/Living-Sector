@@ -1,4 +1,4 @@
-name: P2 PERF 262 opt-in real worker F5 smoke
+name: P2 PERF 262 plain F5 worker and legacy smoke
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/p2-perf-262-worker-gui-short.yml
       - godot/scripts/main.gd
+      - godot/project.godot
       - godot/scripts/sim/phase2/n158_real_owner_thread_probe.gd
       - godot/tests/p2_perf_e_real_owner_n158_parity_check.gd
   workflow_dispatch:
@@ -59,7 +60,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/p2-worker-gui-user"
           timeout --signal=TERM --kill-after=5s 75s \
             env XDG_DATA_HOME="$RUNNER_TEMP/p2-worker-gui-user" \
-            LS_N158_WORKER_GUI=1 \
             godot --headless --path godot -- --p2-worker-gui-check \
             >godot/logs/p2-worker-gui/f5-worker.log 2>&1 || {
               tail -n 160 godot/logs/p2-worker-gui/f5-worker.log; exit 1;
@@ -96,6 +96,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/p2-default-user"
           timeout --signal=TERM --kill-after=5s 60s \
             env XDG_DATA_HOME="$RUNNER_TEMP/p2-default-user" \
+            LS_N158_WORKER_GUI=0 \
             godot --headless --path godot -- --p2-boot-check \
             > godot/logs/p2-worker-gui/original-f5.log 2>&1 || {
               tail -n 130 godot/logs/p2-worker-gui/original-f5.log; exit 1;
@@ -114,7 +115,6 @@ jobs:
           mkdir -p "$RUNNER_TEMP/p2-live-worker-user"
           timeout --signal=TERM --kill-after=5s 75s \
             env XDG_DATA_HOME="$RUNNER_TEMP/p2-live-worker-user" \
-            LS_N158_WORKER_GUI=1 \
             godot --headless --path godot -- --p2-worker-gui-run-check \
             >godot/logs/p2-worker-gui/f5-worker-live.log 2>&1 || {
               tail -n 130 godot/logs/p2-worker-gui/f5-worker-live.log; exit 1;
