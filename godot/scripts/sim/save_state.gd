@@ -274,6 +274,21 @@ static func _physical_stock_matches(original: Dictionary, decoded: Dictionary) -
             return false
     return true
 
+## Exact UTF-8 byte measurement of the actual N38 v1 envelope. This is
+## diagnostic only: no file I/O, no archive migration and no limit increase.
+## The same encoder is used by save_runner, including tabs and final newline.
+static func encoded_checkpoint_bytes(snapshot: Dictionary) -> int:
+    return _encode_checkpoint_text(snapshot).to_utf8_buffer().size()
+
+static func _encode_checkpoint_text(snapshot: Dictionary) -> String:
+    return JSON.stringify(_wrap(snapshot), "\t", true, true) + "\n"
+
+static func encoded_checkpoint_budget(snapshot: Dictionary) -> Dictionary:
+    var count: int = encoded_checkpoint_bytes(snapshot)
+    return {"encoded_bytes": count, "max_bytes": MAX_SAVE_BYTES,
+        "remaining_bytes": maxi(0, MAX_SAVE_BYTES - count),
+        "within_limit": count <= MAX_SAVE_BYTES}
+
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
         return ERR_INVALID_DATA
@@ -295,7 +310,7 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
 
     var tmp: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
-    var encoded: String = JSON.stringify(_wrap(snapshot), "\t", true, true) + "\n"
+    var encoded: String = _encode_checkpoint_text(snapshot)
     if encoded.to_utf8_buffer().size() > MAX_SAVE_BYTES:
         return ERR_OUT_OF_MEMORY
     var file := FileAccess.open(tmp, FileAccess.WRITE)
