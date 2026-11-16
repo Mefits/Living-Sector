@@ -44,6 +44,9 @@ static func apply_world(world: Dictionary) -> bool:
         if bid.is_empty() or bodies.has(bid):
             return false
         bodies[bid] = body
+    # Validate the entire matching legacy group before committing any
+    # patch. A partially edited Sol must not become half-migrated.
+    var candidates: Array = []
     for moon_id in FROZEN_SOL_SATELLITES:
         if not bodies.has(moon_id):
             continue
@@ -68,7 +71,11 @@ static func apply_world(world: Dictionary) -> bool:
             if not (pair[0] is float or pair[0] is int) or (
                     absf(float(pair[0]) - float(pair[1])) > 0.000001):
                 return true # A non-frozen Sol is NOT silently migrated.
-        moon["parent_body_id"] = parent_id
+        candidates.append(moon_id)
+    for moon_id in candidates:
+        var moon: Dictionary = bodies[moon_id]
+        var spec: Dictionary = FROZEN_SOL_SATELLITES[moon_id]
+        moon["parent_body_id"] = str(spec["parent"])
         moon["satellite_orbit_radius_native"] = (
             float(spec["distance_km"]) / KM_PER_AU * SOL_UNITS_PER_AU)
         moon["satellite_orbit_period_native"] = (
