@@ -70,7 +70,7 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
                 cache[1] = _geometry_steps(outbound["locations"], positions)
             # Detach row dictionaries: ship-specific callers cannot mutate
             # the cached outbound geometry through a nested Array element.
-            steps.append_array((cache[1] as Array).duplicate(true))
+            steps.append_array(_detach_step_rows(cache[1] as Array))
             result = {"inbound": inbound["locations"],
                 "outbound": outbound["locations"], "steps": steps}
     cache[here] = result
@@ -87,13 +87,17 @@ static func _detached_legs(owned: Dictionary) -> Dictionary:
     if owned.has("outbound"):
         result["outbound"] = (owned["outbound"] as Array).duplicate()
     if owned.has("steps"):
-        var source_steps: Array = owned["steps"]
-        var steps: Array = []
-        steps.resize(source_steps.size())
-        for i in range(source_steps.size()):
-            steps[i] = (source_steps[i] as Dictionary).duplicate()
-        result["steps"] = steps
+        result["steps"] = _detach_step_rows(owned["steps"] as Array)
     return result
+
+## Every geometry row contains only scalar values (bool and float).
+## Duplicate the Array and each row, but never recurse into immutable values.
+static func _detach_step_rows(source_steps: Array) -> Array:
+    var steps: Array = []
+    steps.resize(source_steps.size())
+    for i in range(source_steps.size()):
+        steps[i] = (source_steps[i] as Dictionary).duplicate()
+    return steps
 
 ## N80's location resolver is read-only within one dispatch. Never
 ## persist the mapping across new World positions or an N38 restore.
