@@ -130,9 +130,10 @@ func _snapshot_receipts() -> Dictionary:
 		var ordered: Dictionary = {}
 		for chunk in _receipt_order_chunks:
 			for id in chunk:
-				# Private original rows never escape this cache. No per-row
-				# deep duplication in GDScript: one native deep copy below.
-				ordered[id] = _receipt_at(str(id))
+				# Order chunks contain only String IDs from committed receipts or
+				# validated restore. Avoid converting every ID on every rebuild.
+				# The final native deep copy still detaches every external row.
+				ordered[id] = _receipt_at(id)
 		_flat_receipt_cache = ordered
 		_flat_cache_count = _receipt_count
 	var result: Dictionary = _flat_receipt_cache.duplicate(true)
