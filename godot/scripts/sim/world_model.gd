@@ -1,4 +1,5 @@
 extends RefCounted
+const SatelliteOrbits = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 ## First Godot world model, intentionally independent of SceneTree.
 ## Identity and geometry are taken verbatim from the imported Rust seed.
 ## No economy, production, movement, AI or ticks are simulated here.
@@ -31,6 +32,12 @@ func load_seed(seed: Dictionary) -> bool:
             return false
         # Scene/UI code must never alter the seed's source structures.
         var world: Dictionary = incoming_world.duplicate(true)
+        # Apply the versioned native satellite profile ONLY to this
+        # detached model copy. Frozen imported Rust JSON is unchanged.
+        # The profile is part of the seed fingerprint, so an old
+        # heliocentric checkpoint cannot be silently restored here.
+        if not SatelliteOrbits.apply_world(world):
+            return false
         var system_value: Variant = world.get("system", null)
         if not (system_value is Dictionary):
             return false
@@ -147,7 +154,8 @@ func advance_orbits(tick_scale: float) -> void:
     for body_id in _bodies_by_id:
         var info: Dictionary = _bodies_by_id[body_id]
         var body: Dictionary = info["value"]
-        var period_value: Variant = body.get("orbit_period", null)
+        var period_value: Variant = body.get(
+            "satellite_orbit_period_native", body.get("orbit_period", null))
         var angle_value: Variant = body.get("current_angle", null)
         if not (period_value is int or period_value is float) or not (angle_value is int or angle_value is float):
             continue
