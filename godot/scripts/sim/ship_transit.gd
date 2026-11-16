@@ -57,7 +57,9 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		authorized_lod_fire: bool = false,
 		target_ephemeris: Dictionary = {},
 		arrival_tolerance: float = ARRIVAL_THRESHOLD,
-		solar_exclusion: Dictionary = {}) -> String:
+		solar_exclusion: Dictionary = {},
+		planetary_obstacles: Array = [],
+		destination_body_id: String = "") -> String:
 	if not state.ships.has(ship_id) or not is_finite(tick_scale) or (
 			tick_scale <= 0.0 or skipped_ticks < 1 or
 			not is_finite(arrival_tolerance) or arrival_tolerance <= 0.0):
@@ -126,26 +128,48 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		transit.erase("cached_lead_point")
 		transit.erase("lead_replan_tick")
 
-	if not plan_used and not solar_exclusion.is_empty():
-		var center: Variant = solar_exclusion.get("center", null)
-		var clearance: float = float(solar_exclusion.get("radius", -1.0))
-		if not (center is Vector2) or not is_finite(clearance) or (
-				clearance <= 0.0):
+	# One prepared obstacle list is supplied per real N140 system tick,
+	# not rebuilt for each of 500 ships. Do not confuse display marker
+	# radii with real native physical avoidance clearances.
+	var obstacles: Array = []
+	if not solar_exclusion.is_empty():
+		obstacles.append(solar_exclusion)
+	if planetary_obstacles.size() > 16:
+		return "invalid_navigation_geometry"
+	for obstacle in planetary_obstacles:
+		if not (obstacle is Dictionary):
 			return "invalid_navigation_geometry"
-		if NativeAvoidance.segment_crosses(position, aim, center, clearance):
+		if str(obstacle.get("id", "")) == destination_body_id:
+			continue # A valid landing destination is allowed at its body.
+		obstacles.append(obstacle)
+	for obstacle in obstacles:
+		if not (obstacle.get("center", null) is Vector2) or not (
+				is_finite(float(obstacle.get("radius", -1.0)))) or (
+				float(obstacle.get("radius", -1.0)) <= 0.0):
+			return "invalid_navigation_geometry"
+	if not plan_used:
+		for obstacle in obstacles:
+			var center: Vector2 = obstacle["center"]
+			var clearance: float = float(obstacle["radius"])
+			if not NativeAvoidance.segment_crosses(
+					position, aim, center, clearance):
+				continue
 			var proposed: Dictionary = NativeAvoidance.plan(
 				position, aim, center, clearance)
 			if not proposed.get("ok", false):
-				# Fail safely with an owned N14 holding state. No free
-				# movement through the Sun and no fictitious fuel expense.
+				# No fictitious movement, docking or fuel charge while
+				# waiting for an unsafe approach to become navigable.
 				transit["last_tick"] = tick
 				transit["navigation_hold"] = str(proposed.get("reason", "unsafe"))
 				return "holding"
 			route = proposed["points"]
 			if not route.is_empty():
 				transit["navigation_waypoints"] = route
+				transit["navigation_obstacle_id"] = str(
+					obstacle.get("id", "sol-star"))
 				transit.erase("navigation_hold")
 				plan_used = true
+				break
 
 	# A direct final leg is physical only if its path is clear. For
 	# verified near-body geometry, the old .01 Rust arrival bubble is
@@ -166,10 +190,23 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		var separation: float = position.distance_to(waypoint)
 		var movement: float = minf(velocity, separation)
 		var next_pos: Vector2 = position.move_toward(waypoint, movement)
+		# Moving planets can enter an old detour while the ship travels.
+		# Check the ACTUAL next physical segment each fired tick. If another
+		# body now blocks it, hold safely rather than cut through it or
+		# trigger unbounded replanning while the target is moving.
+		for obstacle in obstacles:
+			if NativeAvoidance.segment_crosses(
+					position, next_pos, obstacle["center"],
+					float(obstacle["radius"])):
+				transit["last_tick"] = tick
+				transit["navigation_hold"] = "moving_obstacle_" + str(
+					obstacle.get("id", "unknown"))
+				return "holding"
 		if separation <= velocity + ARRIVAL_FLOAT_EPSILON:
 			route.remove_at(0)
 		if route.is_empty():
 			transit.erase("navigation_waypoints")
+			transit.erase("navigation_obstacle_id")
 			# Recompute moving-target prediction only when the detour has
 			# actually been traversed; never use a stale pre-star aim.
 			transit.erase("cached_lead_point")
