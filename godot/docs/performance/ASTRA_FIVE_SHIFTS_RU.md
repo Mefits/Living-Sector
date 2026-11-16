@@ -1,5 +1,11 @@
 # Living Sector · Пять автономных смен оптимизации Астры (16.11.2026)
 
+## 🚨 НЕ ДУБЛИРОВАТЬ ДВА ФИКСА АСТРЫ (17.11.2026)
+
+PR #262 УЖЕ содержит 99ab25e9 (N9 WeakRef, N152 no-op, N91 receipt proof, N39 engineer ship-only) и 1676db61 (8 N158 world_snapshot readsites заменены на detached N39 projections; 27→19 статических callsites). НЕ повторять эти изменения, НЕ писать ещё раз те же read projections. Пакеты еще требуют проверки ([skip ci]); E тестирует их, другие смены ищут новые измеренные узкие места.
+
+Статический аудит: 1) профилировщики N39/N158 бесконечно накапливают samples только в opt-in режиме; 2) N152 все еще копирует историю ContractBoard на no-op tick; 3) N39 L196 deep World per paid tick. Подробности и границы уверенности: [17 November checkpoint](checkpoints/20261117-two-astra-fixes-independent-audit-ru.md). tldraw: https://www.tldraw.com/f/Dzo-huxLVMxka2COuru0w → Оптимизация.
+
 ## СРОЧНЫЙ ПРИОРИТЕТ: позднетиковая деградация 137→839 мс (16.11, обновление задач)
 
 **Перекрывает любые устаревшие task examples, перечисленные ниже.** Цель — измеренное ускорение оплаченных тиков при сохранении всего source behavior, не новые доки, FIFO safety helpers, UI/worker или дополнительные InterpPos костыли.
