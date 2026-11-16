@@ -89,6 +89,11 @@ func _initialize() -> void:
         _fail("moving N14 transit didn't draw class-specific fuel")
         return
     var checkpoint: Dictionary = a.checkpoint()
+    var expected_next_token: int = int(
+        checkpoint["native_production"]["world"]["ship_next_token"])
+    if expected_next_token < 2:
+        _fail("N14 active fleet lost monotonic transit token cursor")
+        return
     var save_path: String = "user://tests/p2-unified-fleet-" + str(Time.get_ticks_usec()) + ".json"
     if SaveState.save_runner(a, save_path) != OK:
         _fail("atomic N38/N39/N46 ship checkpoint failed")
@@ -138,7 +143,8 @@ func _initialize() -> void:
     if b.checkpoint()["native_production"]["ledger"]["balances"] != checkpoint["native_production"]["ledger"]["balances"]:
         _fail("ship wallets or paid economy wallet changed across N9 reload")
         return
-    if int(b.checkpoint()["native_production"]["world"]["ship_next_token"]) != 2:
+    if int(b.checkpoint()["native_production"]["world"]["ship_next_token"]) != (
+            expected_next_token):
         _fail("N14 transit cursor was lost after save/load")
         return
     b.queue_control("step", 5)
