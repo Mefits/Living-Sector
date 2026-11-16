@@ -2,6 +2,8 @@ extends SceneTree
 ## Negative regression for the single-pass cross-market N39 ownership guard.
 const Guard = preload("res://scripts/sim/phase1/n39_market_owned_write_guard.gd")
 
+var _failed: bool = false
+
 func _initialize() -> void:
     var before: Dictionary = {}
     for i in range(12):
@@ -30,8 +32,11 @@ func _initialize() -> void:
     _expect(Guard.validate_owned_write(before, after) ==
         "market_write_outside_observation",
         "independent but modified protected stock must fail")
-    print("PASS p2_perf_a_n39_cross_market_single_scan_20261116")
-    quit(0)
+    if _failed:
+        quit(1)
+    else:
+        print("PASS p2_perf_a_n39_cross_market_single_scan_20261116")
+        quit(0)
 
 func _expect(ok: bool, label: String) -> void:
     if not ok:
