@@ -14,6 +14,26 @@ const CAMERA_EASING: float = 12.0
 const DETAIL_RADIUS: float = 24.0
 const SURFACE_REVEAL_WHEEL_STEPS: float = 2.0
 const WHEEL_ZOOM: float = 1.32
+## Agreed Sol Lab 01 baseline: compress EMPTY map space, not world physics.
+const ORBIT_COMPRESSION: float = 0.65
+## Recursive local-space visual projection for parented satellites.
+## Smaller than the stellar exponent so moons emerge during planet zoom;
+## the parent/satellite relation comes from physical distance metadata.
+const SATELLITE_COMPRESSION: float = 0.50
+const KM_PER_AU: float = 149597870.7
+## The frozen Sol seed encodes Earth orbit_radius=2 for 1 AU.
+const SOL_NATIVE_UNITS_PER_AU: float = 2.0
+## Data-only Sol presentation metadata absent from frozen native seed.
+## No simulation change: later replace with body.parent_body_id and local orbit.
+const SOL_SATELLITE_ORBIT_KM: Dictionary = {
+    "luna": 384400.0,
+    "callisto": 1882700.0
+}
+const SOL_BODY_RADII_KM: Dictionary = {
+    "mercury": 2439.7, "venus": 6051.8, "earth": 6371.0,
+    "luna": 1737.4, "mars": 3389.5, "jupiter": 69911.0,
+    "saturn": 58232.0, "callisto": 2410.3
+}
 const BACKGROUND: Color = Color("#0b1421")
 ## Orbit paths are orientation guides, not the main visual subject.
 ## Suppress them near planet detail scale without changing any geometry.
@@ -387,6 +407,10 @@ func _known_moon_parent(body: Dictionary) -> Dictionary:
     var parent: Dictionary = _body_by_id(parent_id)
     if parent.is_empty() or str(parent.get("type", "")) != "planet":
         return {}
+    # Do not guess a local orbit from the child and parent's
+    # heliocentric radii in the frozen Rust seed.
+    if _satellite_orbit_native_radius(body) <= 0.0:
+        return {}
     return parent
 
 
@@ -429,7 +453,7 @@ func _body_color(body: Dictionary) -> Color:
 
 func _radius_transform(radius: float) -> float:
     # Deliberate nonlinear display compression, NOT physical distance.
-    return pow(maxf(radius, 0.0), 0.62)
+    return pow(maxf(radius, 0.0), ORBIT_COMPRESSION)
 
 
 func _orbit_scale() -> float:
@@ -472,8 +496,11 @@ func _body_position(body: Dictionary, scale: float) -> Vector2:
     var parent: Dictionary = _known_moon_parent(body)
     var position: Vector2 = Vector2.ZERO
     if not parent.is_empty():
+        # The satellite has its OWN local orbital coordinate frame.
+        # Native seed heliocentric orbit_radius never means moon distance.
         position = _body_position(parent, scale) + Vector2(
-            cos(radians), -sin(radians)) * _satellite_orbit_radius(body, parent)
+            cos(radians), -sin(radians)) * (
+                _satellite_orbit_radius(body, parent, scale))
     else:
         var orbit: float = _radius_transform(float(
             body.get("orbit_radius", 0.0))) * scale * _zoom
@@ -483,17 +510,60 @@ func _body_position(body: Dictionary, scale: float) -> Vector2:
     return position
 
 
-func _satellite_orbit_radius(body: Dictionary, parent: Dictionary) -> float:
-    # The frozen seed has HELIOCENTRIC orbits, not a native parent-relative
-    # radius. This is a schematic base spacing at zoom=1, not a physical
-    # Earth-Moon distance. Apply the SAME camera zoom as to stellar orbits.
-    # Never derive orbital separation from the rendered radius of either
-    # body: that mixes two coordinate spaces and causes overlap at high zoom.
-    # Works for any parent_body_id relationship, not only known moons.
-    var delta: float = absf(float(body.get("orbit_radius", 0.0)) -
-        float(parent.get("orbit_radius", 0.0)))
-    var base: float = 26.0 + minf(delta, 1.0) * 18.0
-    return base * _zoom
+func _satellite_orbit_native_radius(body: Dictionary) -> float:
+    # A future body may specify this directly; no need for any known ID.
+    var native_radius: float = float(body.get("satellite_orbit_radius_native", 0.0))
+    if is_finite(native_radius) and native_radius > 0.0:
+        return native_radius
+    # The original Sol seed has no planetocentric moon radii. Supply
+    # real astronomical LOCAL orbit distances to the visual layer only.
+    var system: Dictionary = _world.get("system", {})
+    var bid: String = str(body.get("id", ""))
+    if str(system.get("id", "")) == "system-sol" and (
+            SOL_SATELLITE_ORBIT_KM.has(bid)):
+        return float(SOL_SATELLITE_ORBIT_KM[bid]) / KM_PER_AU * (
+            SOL_NATIVE_UNITS_PER_AU)
+    return 0.0
+
+
+func _satellite_orbit_radius(body: Dictionary, _parent: Dictionary,
+        scale: float) -> float:
+    var local_native_radius: float = _satellite_orbit_native_radius(body)
+    if local_native_radius <= 0.0:
+        return 0.0
+    # Hierarchical map LOD: project a LOCAL radius under its parent,
+    # not a fake delta of heliocentric radii (old Luna-as-Mars bug).
+    # Display-only compression is intentional and identical for all moons.
+    return pow(local_native_radius, SATELLITE_COMPRESSION) * scale * _zoom
+
+
+func _satellite_visibility(body: Dictionary, parent: Dictionary,
+        scale: float) -> float:
+    # On overview scale, an actual moon separation is subpixel. Hide
+    # overlapping map glyphs until the viewer zooms into the parent.
+    var separation: float = _satellite_orbit_radius(body, parent, scale)
+    var combined_radius: float = _body_size(body) + _body_size(parent)
+    return clampf((separation - combined_radius + 3.0) / 14.0, 0.0, 1.0)
+
+
+func _overview_body_radius(body: Dictionary) -> float:
+    var kind: String = str(body.get("type", ""))
+    if kind in ["asteroid", "belt"]:
+        return 4.5
+    var system: Dictionary = _world.get("system", {})
+    var id: String = str(body.get("id", ""))
+    if str(system.get("id", "")) == "system-sol" and (
+            SOL_BODY_RADII_KM.has(id)):
+        # Readable, gently compressed physical size hierarchy.
+        # The star remains larger than Jupiter at orbital overview.
+        var known_km: float = float(SOL_BODY_RADII_KM[id])
+        var symbolic: float = 3.25 + 3.25 * pow(known_km / 6371.0, 0.33)
+        return minf(4.0, symbolic) if kind == "moon" else symbolic
+    if kind == "moon":
+        return 4.0
+    if str(body.get("biome", "")) == "gas_giant":
+        return 10.0
+    return 6.5
 
 
 func _body_size_at_zoom(body: Dictionary, at_zoom: float) -> float:
@@ -501,14 +571,10 @@ func _body_size_at_zoom(body: Dictionary, at_zoom: float) -> float:
     var scale: float = sqrt(maxf(at_zoom, 0.64))
     if at_zoom > 32.0:
         scale = sqrt(32.0) * pow(at_zoom / 32.0, 1.12)
-    var kind: String = str(body.get("type", ""))
-    if kind == "moon":
-        return 4.0 * scale
-    if kind in ["asteroid", "belt"]:
-        return 4.5 * minf(scale, 6.0)
-    if str(body.get("biome", "")) == "gas_giant":
-        return 10.0 * scale
-    return 6.5 * scale
+    var base: float = _overview_body_radius(body)
+    if str(body.get("type", "")) in ["asteroid", "belt"]:
+        return base * minf(scale, 6.0)
+    return base * scale
 
 
 func _body_size(body: Dictionary) -> float:
@@ -586,15 +652,19 @@ func _draw_system() -> void:
     for body in bodies:
         var parent: Dictionary = _known_moon_parent(body)
         if not parent.is_empty():
-            draw_arc(_body_position(parent, scale),
-                _satellite_orbit_radius(body, parent), 0.0, TAU,
-                72, Color(0.23, 0.32, 0.42, _orbit_line_alpha(true)), 1.0, true)
+            var moon_fade: float = _satellite_visibility(body, parent, scale)
+            if moon_fade > 0.01:
+                draw_arc(_body_position(parent, scale),
+                    _satellite_orbit_radius(body, parent, scale), 0.0, TAU,
+                    72, Color(0.23, 0.32, 0.42,
+                        _orbit_line_alpha(true) * moon_fade), 1.0, true)
             continue
         var radius: float = _radius_transform(float(body.get("orbit_radius", 0.0))) * scale * _zoom
         if radius > 1.0:
             draw_arc(star, radius, 0.0, TAU, 96,
                 Color(0.18, 0.26, 0.35, _orbit_line_alpha(false)), 1.0, true)
-    var star_size: float = 13.0 * clampf(sqrt(_zoom), 0.8, 4.0)
+    # A small, legible symbol: no giant Sun covering Mercury's orbit.
+    var star_size: float = 13.5 * clampf(sqrt(_zoom), 0.8, 4.0)
     draw_circle(star, star_size, _star_color(str(system.get("star_type", ""))))
     draw_circle(star, star_size + 5.0, Color("#526575"), false, 1.0, true)
     draw_string(font, star + Vector2(star_size + 8.0, -15.0), str(system.get("name", "")),
@@ -605,7 +675,16 @@ func _draw_system() -> void:
         var picked: bool = bid == _selected_body_id
         var visual_radius: float = _body_size(body)
         var kind: String = str(body.get("type", ""))
+        var moon_parent: Dictionary = _known_moon_parent(body)
+        var moon_fade: float = 1.0
+        if not moon_parent.is_empty():
+            moon_fade = _satellite_visibility(body, moon_parent, scale)
+            if moon_fade < 0.001:
+                # The moon still exists, but cannot be distinguished
+                # from its parent at this overview magnification.
+                continue
         var color: Color = _body_color(body)
+        color.a *= moon_fade
         if kind == "asteroid" or kind == "belt":
             var vertices: PackedVector2Array = PackedVector2Array([
                 position + Vector2(0.0, -visual_radius),
@@ -617,13 +696,13 @@ func _draw_system() -> void:
         else:
             draw_circle(position, visual_radius, color)
             if visual_radius >= DETAIL_RADIUS:
-                var detail_opacity: float = _surface_detail_alpha(body)
+                var detail_opacity: float = _surface_detail_alpha(body) * moon_fade
                 if detail_opacity > 0.001:
                     _draw_globe_detail(body, position, visual_radius,
                         detail_opacity)
         if picked:
             draw_arc(position, visual_radius + 7.0, 0.0, TAU, 40,
-                Color("#a7eafa"), 1.8, true)
+                Color(0.65, 0.92, 0.98, moon_fade), 1.8, true)
         var attached: int = _facility_count(bid)
         if attached > 0:
             # A small outlined square denotes a real seed facility/station
@@ -643,10 +722,14 @@ func _draw_system() -> void:
             draw_string(font, position + Vector2(-visual_radius - 25.0, 16.0),
                 str(local_ships), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("#7abacb"))
         var label_offset: Vector2 = Vector2(visual_radius + 8.0, -8.0)
-        draw_string(font, position + label_offset, str(body.get("name", bid)),
-            HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
+        var label_color: Color = (
             Color("#f2f7fa") if picked else Color("#a9bbc8"))
-        _body_pins.append({"body": body, "position": position, "hit_radius": maxf(22.0, visual_radius + 9.0)})
+        label_color.a *= moon_fade
+        draw_string(font, position + label_offset, str(body.get("name", bid)),
+            HORIZONTAL_ALIGNMENT_LEFT, -1, 13, label_color)
+        if moon_fade >= 0.5:
+            _body_pins.append({"body": body, "position": position,
+                "hit_radius": maxf(22.0, visual_radius + 9.0)})
     # Draw ONLY ships with a real committed N14 transit.position. The
     # radial display is compressed by the same source orbit transform as
     # the planets; there is no fabricated travel or per-frame motion.
