@@ -31,9 +31,15 @@ func _initialize() -> void:
     if coords.has("unknown-route-only-without-body"):
         _fail("fabricated_route_coordinate")
         return
-    # Earth at x=2, y=0 on frozen Sol seed; station orbit radius = .55.
+    # The verified Sol physical station is now close to the Earth,
+    # not at the original Rust .55 native radius. All non-Sol
+    # locations still retain the legacy .55 geometry.
     var earth_at_seed: Vector2 = Vector2(2.0, 0.0)
-    if absf(coords["earth-station"].distance_to(earth_at_seed) - 0.55) > 0.0001:
+    var earth_station_radius: float = (
+        (6371.0 + 400.0) * 2.0 / 149597870.7)
+    if absf(coords["earth-station"].distance_to(earth_at_seed) -
+            earth_station_radius) > 0.00001 or (
+            earth_station_radius >= 384400.0 * 2.0 / 149597870.7):
         _fail("station_orbit_radius")
         return
     # Nav site must be at its actual body center, not route.distance=12.
