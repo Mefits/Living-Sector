@@ -92,6 +92,12 @@ var _worker_smoke_view_done: bool = false
 var _worker_smoke_save_done: bool = false
 var _worker_smoke_load_done: bool = false
 var _worker_smoke_path: String = ""
+## Bounded real-time SceneTree check: validates async frames while native
+## paid economy advances by ordinary clock, not hand-issued fake steps.
+var _worker_live_check: bool = false
+var _worker_live_started_msec: int = 0
+var _worker_live_frames: int = 0
+var _worker_live_cpu_us: Array[int] = []
 
 func _ready() -> void:
     _ui_profile_log = OS.get_cmdline_user_args().has("--p2-ui-profile") or (
@@ -323,6 +329,9 @@ func _ready() -> void:
         _worker_smoke = OS.get_cmdline_user_args().has(
             "--p2-worker-gui-check")
         _worker_smoke_begin_msec = Time.get_ticks_msec()
+        _worker_live_check = OS.get_cmdline_user_args().has(
+            "--p2-worker-gui-run-check")
+        _worker_live_started_msec = Time.get_ticks_msec()
         # This is a detached presentation WorldModel loaded from the frozen
         # seed. It is NEVER a second N158 simulation or writable N39 World.
         _model = ReadOnlyWorldModel.new()
@@ -748,6 +757,33 @@ func _worker_gui_process(delta: float) -> void:
             "Экспериментальный N158 worker: 1 authoritative World/N9/Clock; " +
             "кадры SceneTree не вызывают advance_frame. Последний sim_ms " +
             "из worker; это НЕ измерение GPU и не подтверждение TPS.")
+    if _worker_live_check and _worker_booted:
+        _worker_live_frames += 1
+        _worker_live_cpu_us.append(cpu_usec)
+        if _worker_tick >= 32:
+            if _worker_economy.is_empty() or _worker_fleet.size() != 24 or (
+                    not _worker_failed.is_empty()):
+                push_error("P2_WORKER_GUI_LIVE_FAIL: no detached 32-tick frame")
+                _worker_live_check = false
+                get_tree().quit(1)
+                return
+            var samples: Array[int] = _worker_live_cpu_us.duplicate()
+            samples.sort()
+            var at: int = clampi(ceili(float(samples.size()) * 0.95) - 1,
+                0, samples.size() - 1)
+            print("P2_WORKER_GUI_32_TICK_LIVE_PASS ", JSON.stringify({
+                "tick": _worker_tick, "frames": _worker_live_frames,
+                "ui_process_p95_ms": snappedf(float(samples[at]) / 1000.0, 0.01),
+                "elapsed_s": snappedf(float(Time.get_ticks_msec() -
+                    _worker_live_started_msec) / 1000.0, 0.01),
+                "ships": _worker_fleet.size(), "worker_thread": true}))
+            _worker_live_check = false
+            get_tree().quit(0)
+        elif Time.get_ticks_msec() - _worker_live_started_msec > 30000:
+            push_error("P2_WORKER_GUI_LIVE_FAIL: 32 source ticks timeout, last="
+                + str(_worker_tick))
+            _worker_live_check = false
+            get_tree().quit(1)
 
 func _worker_receive(result: Dictionary) -> void:
     var kind: String = str(result.get("kind", ""))
