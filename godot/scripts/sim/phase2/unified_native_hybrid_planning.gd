@@ -34,14 +34,20 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
                 "location_id": str(f.get("location", "")),
                 "facility_type": str(f.get("type", ""))})
     var markets: Array = []
-    var locations: Array = world["markets"].keys()
+    # Market ownership is checked before sorting: global markets grow with
+    # the sector, while this faction's planning snapshot needs only its own.
+    # Keep the original sorted location order and source owner validation.
+    var locations: Array = []
+    for loc in world["markets"]:
+        var candidate: Dictionary = world["markets"][loc]
+        var candidate_owner: String = str(candidate.get("owner", ""))
+        if world["facilities"].has(candidate_owner) and str(
+                world["facilities"][candidate_owner].get("faction", "")) == faction:
+            locations.append(loc)
     locations.sort()
     for loc in locations:
         var m: Dictionary = world["markets"][loc]
         var owner: String = str(m.get("owner", ""))
-        if not world["facilities"].has(owner) or str(
-                world["facilities"][owner].get("faction", "")) != faction:
-            continue
         if str(world["facilities"][owner].get("location", "")) != str(loc):
             return {"ok": false, "reason": "n100_wrong_source_market_owner"}
         markets.append({"market_id": str(m.get("id", "")),
