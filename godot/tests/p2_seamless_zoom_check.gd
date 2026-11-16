@@ -125,6 +125,8 @@ func _check() -> void:
     for i in range(120):
         view.call("_process", 1.0 / 60.0)
 
+    view.call("set_world", sol)
+
     # Root-cause regression: all relative-orbit separation must obey the
     # SAME camera scale as full-system orbital distance. A moon must not
     # grow into its parent when zoom grows past the old sqrt(zoom) clamp.
