@@ -417,7 +417,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # preflighted before N39 atomically admits its persistent N84 BT.
         var engineer_plan: Dictionary = N91Dispatch.propose(
             production.world_snapshot(), _fleet_resolver, tick,
-            production.ledger_snapshot(), _fleet_roster.registry.graph(),
+            production.native_construction_funding_snapshot(), _fleet_roster.registry.graph(),
             positions["positions"], clock.tick_scale())
         if not engineer_plan.get("ok", false):
             _last_n91_result = engineer_plan

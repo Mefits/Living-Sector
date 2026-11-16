@@ -18,6 +18,25 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int) -> Dictionary:
     var ledger := Ledger.new()
     if not ledger.restore(bank):
         return _bad("invalid_live_n9_ledger")
+    var result: Dictionary = _stage(world, ledger, tick)
+    if result.get("ok", false):
+        result["ledger_snapshot"] = ledger.snapshot()
+        result.erase("owned_ledger")
+    return result
+
+## Trusted canonical N9 only; imported snapshots still use stage/restore.
+static func stage_owned(world: Dictionary, bank: RefCounted, tick: int) -> Dictionary:
+    if tick < 0 or not (world.get("contract_board", null) is Dictionary):
+        return _bad("missing_single_n104_board")
+    if not (world.get("escrow_balances", null) is Dictionary):
+        return _bad("missing_canonical_escrow_accounts")
+    if not (world["contract_board"].get("contracts", null) is Dictionary):
+        return _bad("invalid_n104_contracts")
+    return _stage(world, bank.fork(), tick)
+
+static func _stage(world: Dictionary, ledger: RefCounted, tick: int) -> Dictionary:
+    var original: Dictionary = world["contract_board"]
+    var bank: Dictionary = {"balances": ledger.balances_snapshot()}
     var original_total: int = ledger.total()
     var board := ContractBoard.new(ledger)
     if not board.restore(original):
@@ -76,7 +95,7 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int) -> Dictionary:
         return _bad("n9_money_conservation_failed")
     return {"ok": true, "tick": tick,
         "board_snapshot": board.snapshot(),
-        "ledger_snapshot": ledger.snapshot(),
+        "owned_ledger": ledger,
         "expired": expired, "renewed": renewed, "aged": aged,
         "refunded": refunds, "blocked": blocked,
         "changed": aged or not refunds.is_empty()}

@@ -2210,7 +2210,11 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
     if proposals.is_empty():
         return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
             "tick": tick, "assigned": []}
-    var staged: Dictionary = _copy_world("L2008", true)
+    # Only selected ship planning fields are writable in this stage.
+    # Unrelated growing histories remain canonical and read-only.
+    var staged: Dictionary = _copy_world("L2008", false)
+    staged["ships"] = _world["ships"].duplicate()
+    var funding: Dictionary = native_construction_funding_snapshot()
     var updated: Array = []
     var used_sites: Dictionary = {}
     var used_ships: Dictionary = {}
@@ -2224,8 +2228,9 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         if not staged["ships"].has(ship_id) or not staged["construction_sites"].has(site_id):
             return {"ok": false, "fatal": true, "reason": "n91_phantom_actor_or_site"}
         var site: Dictionary = staged["construction_sites"][site_id]
-        var ship: Dictionary = staged["ships"][ship_id]
-        if not N91SourceDispatch.physical_site_funded(staged, _ledger.snapshot(), site_id):
+        var ship: Dictionary = staged["ships"][ship_id].duplicate(true)
+        staged["ships"][ship_id] = ship
+        if not N91SourceDispatch.physical_site_funded(staged, funding, site_id):
             return {"ok": false, "fatal": true, "reason": "n91_unpaid_site_materials_cannot_dispatch"}
         var loc: String = str(site.get("location_name", ""))
         if bool(site.get("completed", false)) or int(site.get("progress_delivered", 0)) != int(site.get("progress_required", -1)) or int(site.get("labor", {}).get("completed", 0)) >= int(site.get("labor", {}).get("required", 0)):
@@ -3691,14 +3696,21 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
             "blocked": [], "status": "LEGACY_NO_CONTRACT_BOARD"}
     if not _world.has("contract_board") or not _world.has("escrow_balances"):
         return {"ok": false, "fatal": true, "reason": "n152_partial_contract_authority"}
-    var old_bank: Dictionary = _ledger.snapshot()
-    var proposal: Dictionary = NativeN152.stage(_world, old_bank, tick)
+    var legacy: bool = OS.get_environment("LS_LATE_CONTRACT_LEGACY") == "1"
+    var old_bank: Dictionary = _ledger.snapshot() if legacy else {}
+    var proposal: Dictionary = (NativeN152.stage(_world, old_bank, tick) if legacy
+        else NativeN152.stage_owned(_world, _ledger, tick))
     if not proposal.get("ok", false):
         return {"ok": false, "fatal": true, "reason": "n152_" + str(proposal.get("reason", "stage_rejected"))}
     if not bool(proposal.get("changed", false)):
         return {"ok": true, "tick": tick, "expired": [], "renewed": [],
             "refunded": [], "blocked": proposal.get("blocked", []).duplicate(true),
             "status": "NO_DUE_CONTRACT_CLOSURES"}
+    # No-change ticks above do not export or restore historical receipts.
+    # Actual changes still pass every original complete publication guard.
+    if not legacy:
+        old_bank = _ledger.snapshot()
+        proposal["ledger_snapshot"] = proposal["owned_ledger"].snapshot()
     var next_board: Dictionary = proposal["board_snapshot"]
     var next_bank: Dictionary = proposal["ledger_snapshot"]
     var old_board: Dictionary = _world["contract_board"]
@@ -5445,3 +5457,18 @@ func restore(saved: Dictionary) -> bool:
     _last_tick = int(saved["tick"])
     _ready = true
     return true
+
+## N91 needs only original N9 receipts named by current construction
+## deliveries. Missing evidence stays missing; the source funding predicate
+## still performs all N15/contract/quantity checks on the same World.
+func native_construction_funding_snapshot() -> Dictionary:
+    if OS.get_environment("LS_LATE_FUNDING_LEGACY") == "1":
+        return ledger_snapshot()
+    var receipts: Dictionary = {}
+    for row in _world.get("construction_receipts", {}).values():
+        if str(row.get("kind", "")) != "delivery" or not _world.get("construction_sites", {}).has(str(row.get("site_id", ""))):
+            continue
+        var id: String = str(row.get("n9_receipt_id", ""))
+        if not receipts.has(id) and _ledger.has_receipt(id):
+            receipts[id] = _ledger.receipt_copy(id)
+    return {"receipts": receipts}

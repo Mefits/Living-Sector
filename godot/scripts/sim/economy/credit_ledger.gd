@@ -24,7 +24,9 @@ var _receipt_count: int = 0
 ## Trusted fork lineage: only used to narrow an existing full provenance proof.
 ## Generation changes on every append/restore, including equal-count restore.
 var _receipt_generation: int = 0
-var _fork_source: RefCounted = null
+# Provenance must not keep every previous committed Ledger alive.
+# The child owns its COW shard references, not its parent ledger object.
+var _fork_source: WeakRef = null
 var _fork_source_generation: int = -1
 var _fork_changed_shards: Dictionary = {}
 ## Exact per-kind counts, updated only on committed append or validated restore.
@@ -321,7 +323,7 @@ func _profile_inner_fork() -> RefCounted:
 	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
 	child.set("_receipt_count", _receipt_count)
 	child.set("_receipt_generation", _receipt_generation)
-	child.set("_fork_source", self)
+	child.set("_fork_source", weakref(self))
 	child.set("_fork_source_generation", _receipt_generation)
 	child.set("_fork_changed_shards", {})
 	child.set("_receipt_kind_counts", _receipt_kind_counts.duplicate())
@@ -665,7 +667,7 @@ func retains_owned_receipts(parent: RefCounted) -> bool:
 	# Parent generation must still match the fork point: a later parent append
 	# or even same-count restore invalidates the shortcut. All other cases use
 	# the original exhaustive oracle, including unrelated/ancestor ledgers.
-	if is_same(_fork_source, parent) and (
+	if _fork_source != null and is_same(_fork_source.get_ref(), parent) and (
 			_fork_source_generation == int(parent.get("_receipt_generation"))):
 		for bucket_value in _fork_changed_shards:
 			var bucket: int = int(bucket_value)
