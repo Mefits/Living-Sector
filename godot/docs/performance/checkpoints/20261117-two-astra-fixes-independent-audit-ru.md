@@ -49,3 +49,18 @@
 В этом рабочем сеансе добавлены `godot/tests/p2_perf_pr262_astra_fixes_160_parity.gd` и ограниченный workflow `p2-pr262-head-500-acceptance.yml` (2 новых targeted теста, парный same-seed 160 real paid ticks, строгий checkpoint SHA, 500 paid ticks и worker/N38). CI job максимум 10 минут; не запускать старый 2600-tick replay на каждый коммит. Ссылка конкретного запуска: https://github.com/Mefits/Living-Sector/actions/runs/43972442164.
 
 Независимый аудит — чтение исходников и статическая проверка. Реальная Windows late-tick скорость/утечка памяти требуют отдельного замера.
+
+## РЕЗУЛЬТАТ короткой независимой CI-проверки двух пакетов — PASS
+
+GitHub Actions: https://github.com/Mefits/Living-Sector/actions/runs/43972442164
+Проверенный SHA: `9f7cd85a17f6a8087e8c0180649c7e9097adf4dc` (тесты + workflow включают оба исходных фикса).
+
+- Godot 4.7.2: импорт и parser/compile PASS.
+- WORKER_GUI_BOOT_CHECK: 2 реальных paid ticks, 24 ships, отдельный N158 thread, N38 save/restart, GUI navigation PASS.
+- 500 настоящих paid ticks: PASS, 24 корабля, без native phase failure; общее время 40.43 с. Последние 100 тиков на 100: avg 64.79 ms / p95 84.72 ms; на 300: avg 82.99 / p95 131.20 ms; на 500: avg 91.61 / p95 144.21 ms.
+- 5 существующих A/B/C/D/E target regressions PASS.
+- Новый `p2_late_growth_weak_parent_check.gd`: PASS (32 освобождённых предка, сохранение history, strict provenance).
+- Новый `p2_runtime_read_projection_check.gd`: PASS (отделённые вложенные Dictionary/Array, свежесть, dock receipts, legacy fallback).
+- Новый `p2_perf_pr262_astra_fixes_160_parity.gd`: PASS, **5 из 5 точных SHA контрольных состояний** после тиков 1,32,64,120,160. A/B: `LS_RUNTIME_FULL_WORLD_READS=1`, `LS_LATE_CONTRACT_LEGACY=1`, `LS_LATE_FUNDING_LEGACY=1` против defaults. Старое 14.37 с, оптимизированное 11.15 с, sequential same-job Godot Linux. Это один короткий real-tick парный прогон; **не** измерение 900/2600/Windows, не доказательство отсутствия долгосрочных утечек. Профилирование `LS_PROFILE_NATIVE_PHASES=1` здесь не включено.
+
+Не сравнивать 500-tick 40.43s с предыдущими 65.74s как точный процент ускорения: разная нагрузка облачных CI хостов. Статические оставшиеся кандидаты выше не изменены.
