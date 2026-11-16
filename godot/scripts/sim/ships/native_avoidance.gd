@@ -7,7 +7,9 @@ extends RefCounted
 const MAX_POINTS: int = 8
 const ANGULAR_SEGMENT: float = PI / 6.0
 const DETOUR_RADIUS_MULTIPLIER: float = 1.5
-const INTERSECTION_EPS: float = 0.000001
+## Relative comparison is essential: physical Earth radius is ~0.000085
+## native, so an absolute 1e-6 squared tolerance would erase the planet.
+const INTERSECTION_RELATIVE_EPS: float = 0.000001
 
 
 static func segment_crosses(start: Vector2, target: Vector2,
@@ -25,7 +27,7 @@ static func segment_crosses(start: Vector2, target: Vector2,
         (center - start).dot(delta) / length_sq, 0.0, 1.0)
     var closest: Vector2 = start + delta * projection
     return closest.distance_squared_to(center) < (
-        radius * radius - INTERSECTION_EPS)
+        radius * radius * (1.0 - INTERSECTION_RELATIVE_EPS))
 
 
 ## If both endpoints are outside the exclusion zone, choose a shallow
