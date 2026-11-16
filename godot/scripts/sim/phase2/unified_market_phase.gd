@@ -10,6 +10,10 @@ static func propose(physical_world: Dictionary, tick: int,
         tick_multiplier: int) -> Dictionary:
     if not (physical_world.get("markets") is Dictionary):
         return {"ok": false, "reason": "missing_authoritative_market"}
+    # N150 tick_one_market validates and deep-copies each market before any mutation.
+    # These DTO fields are borrowed read-only until that ownership boundary;
+    # copying them here duplicates the entire market graph a second time.
+    # No caller-owned reference may escape in updates (detached below).
     var views: Dictionary = {}
     var owner_by_id: Dictionary = {}
     for location in physical_world["markets"]:
@@ -34,16 +38,16 @@ static func propose(physical_world: Dictionary, tick: int,
             "pricing": {
                 "price_elasticity": float(m["elasticity"]),
                 "spread": float(m["spread"]),
-                "prices": m["prices"].duplicate(true),
-                "supply": m["supply"].duplicate(true),
-                "demand": m["demand"].duplicate(true)
+                "prices": m["prices"],
+                "supply": m["supply"],
+                "demand": m["demand"]
             },
             "flow": {
-                "seed_demand": m["seed_demand"].duplicate(true),
-                "consumption_window": m["consumption_window"].duplicate(true)
+                "seed_demand": m["seed_demand"],
+                "consumption_window": m["consumption_window"]
             },
-            "orders": m["orders"].duplicate(true),
-            "history": m["history"].duplicate(true)
+            "orders": m["orders"],
+            "history": m["history"]
         }
     var computed: Dictionary = Markets.tick_markets(views, tick,
         tick_multiplier, Callable(Price, "recalculate"))
