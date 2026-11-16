@@ -276,8 +276,17 @@ func set_live_fleet(fleet: Dictionary) -> void:
         var ship: Dictionary = raw
         var transit: Variant = ship.get("transit", {})
         var visual_transit: Dictionary = {}
-        if transit is Dictionary:
-            visual_transit = (transit as Dictionary).duplicate(true)
+        if transit is Dictionary and not transit.is_empty():
+            # Only the two coordinates are needed for drawing. Duplicating
+            # each N14 receipt (route, fuel, token, trajectory, etc.) on
+            # every UI update scales unnecessarily with a large fleet.
+            # Keep nonempty transit status even if its point is malformed:
+            # an in-flight vessel must never appear as docked instead.
+            var point: Variant = transit.get("position", null)
+            if point is Array and (point as Array).size() == 2:
+                visual_transit = {"position": [point[0], point[1]]}
+            else:
+                visual_transit = {"invalid_position": true}
         projected[sid] = {"location": str(ship.get("location", "")),
             "system_id": str(ship.get("system_id", "")),
             "class": str(ship.get("class", "")),
@@ -877,8 +886,12 @@ func _draw_real_native_transits(system: Dictionary,
             tone = Color("#9ecb95")
         elif str(ship.get("class", "")) == "freighter":
             tone = Color("#ddc287")
+        # At sector overview one simple marker per vessel; hundreds of
+        # decorative arc strokes have no gameplay value. Keep a halo on
+        # actual selected vessels and when zoomed to a local flight.
         draw_circle(screen, 3.4, tone)
-        draw_arc(screen, 5.0, 0.0, TAU, 12, tone, 1.0, true)
+        if _zoom >= 4.0:
+            draw_arc(screen, 5.0, 0.0, TAU, 12, tone, 1.0, true)
         if str(sid) == _selected_ship_id:
             draw_arc(screen, 9.0, 0.0, TAU, 20,
                 Color("#fff0b0"), 1.6, true)
