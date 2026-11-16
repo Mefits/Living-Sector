@@ -395,7 +395,11 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             return {"ok": false, "reason": "n18_station_administration_" +
                 str(station_admin.get("reason", "rejected"))}
         if station_admin.get("due", false):
-            var staffed: Dictionary = _copy_world("L277", true)
+            # Only facilities and the administration projection are written here.
+            # Detach facilities before staffing; every other World domain is
+            # read-only during this stage and the full Schema oracle remains.
+            var staffed: Dictionary = _copy_world("n18_staffing_root", false)
+            staffed["facilities"] = _world["facilities"].duplicate(true)
             for facility_id in staffed["facilities"]:
                 if not station_admin["assignments"].has(facility_id):
                     return {"ok": false, "reason": "n18_incomplete_station_staffing"}
