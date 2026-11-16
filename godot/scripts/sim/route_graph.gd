@@ -150,8 +150,18 @@ func edge_count() -> int:
 func has_location(location: String) -> bool:
     return _nodes.has(location)
 
+## Each N4 edge is a flat dictionary of scalar (String/float) values.
+## Copy the outer roster and each row, not recursively duplicate the whole
+## adjacency graph. Callers may mutate returned rows without touching N4.
+## Do not return _edges[location] or a shallow outer Array duplicate: both
+## would expose the authoritative edge dictionaries to callers.
 func outgoing(location: String) -> Array:
-    return _edges.get(location, []).duplicate(true)
+    var source: Array = _edges.get(location, [])
+    var detached: Array = []
+    detached.resize(source.size())
+    for i in range(source.size()):
+        detached[i] = (source[i] as Dictionary).duplicate()
+    return detached
 
 ## N4 route results contain only scalar metadata and a flat locations Array.
 ## Detach that Array explicitly rather than recursively deep-copying every
