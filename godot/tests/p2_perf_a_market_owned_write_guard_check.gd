@@ -15,6 +15,20 @@ func _initialize() -> void:
     var aliased_rows: Dictionary = {"earth": old["earth"]}
     _expect(Guard.validate_owned_write(old, aliased_rows) ==
         "market_write_aliased_baseline", "reject_shared_market_row")
+    # Distinct row dictionaries are insufficient when protected stock is shared.
+    var shallow_row: Dictionary = old["earth"].duplicate(false)
+    var nested_alias: Dictionary = {"earth": shallow_row}
+    _expect(Guard.validate_owned_write(old, nested_alias) ==
+        "market_write_aliased_protected_field", "reject_nested_stock_alias")
+    var nested_array_old: Dictionary = {"earth": _market()}
+    nested_array_old["earth"]["audit"] = {"entries": [1, 2]}
+    var nested_array_after: Dictionary = nested_array_old.duplicate(true)
+    nested_array_after["earth"]["audit"]["entries"] = nested_array_old["earth"]["audit"]["entries"]
+    _expect(Guard.validate_owned_write(nested_array_old, nested_array_after) ==
+        "market_write_aliased_protected_field", "reject_deep_array_alias")
+    var independent_nested: Dictionary = nested_array_old.duplicate(true)
+    _expect(Guard.validate_owned_write(nested_array_old, independent_nested) == "",
+        "accept_deep_detached_protected")
     var detached_rows: Dictionary = old.duplicate(true)
     _expect(Guard.validate_owned_write(old, detached_rows) == "",
         "accept_detached_equal_rows")
