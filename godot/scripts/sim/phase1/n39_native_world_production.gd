@@ -4157,7 +4157,11 @@ func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary
     var amount: int = int(candidate.get("wealth", -1))
     if amount < 0 or from.is_empty() or to.is_empty() or from == to or not _world["populations"].has(from) or not _world["populations"].has(to):
         return {"ok": false, "fatal": true, "reason": "n151_invalid_migrant_economy"}
-    var next_world: Dictionary = _copy_world("L3950", true)
+    # N151 only mutates population rows and the migration event. Detach the
+    # entire population domain before touching rows; no live World alias may
+    # be modified on a failed ledger/schema validation.
+    var next_world: Dictionary = _copy_world("n151_migration_root", false)
+    next_world["populations"] = _world["populations"].duplicate(true)
     var next_ledger = Ledger.new()
     var before_money: Dictionary = _ledger.snapshot()
     if not next_ledger.restore(before_money):
