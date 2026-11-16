@@ -66,6 +66,8 @@ static func advance(world: Dictionary, positions: Dictionary,
     var forecast_cache: Dictionary = {}
     var arrival_cache: Dictionary = {}
     var solar_cache: Dictionary = {}
+    var planet_cache: Dictionary = {}
+    var target_body_cache: Dictionary = {}
     for id in ids:
         var row: Dictionary = state.ships[id]
         # A skipped Rust ship cannot move, burn fuel, observe prices,
@@ -116,9 +118,24 @@ static func advance(world: Dictionary, positions: Dictionary,
                 "verified_solar_exclusion"):
             solar = resolver.verified_solar_exclusion(origin_system_id)
             solar_cache[origin_system_id] = solar
+        var planets: Array = []
+        if planet_cache.has(origin_system_id):
+            planets = planet_cache[origin_system_id]
+        elif resolver != null and orbital_model != null and (
+                resolver.has_method("verified_planet_obstacles")):
+            planets = resolver.verified_planet_obstacles(
+                origin_system_id, orbital_model)
+            planet_cache[origin_system_id] = planets
+        var target_body_id: String = ""
+        if target_body_cache.has(destination):
+            target_body_id = str(target_body_cache[destination])
+        elif resolver != null and resolver.has_method("body_for_location"):
+            target_body_id = resolver.body_for_location(destination)
+            target_body_cache[destination] = target_body_id
         var outcome: String = motion.advance(
             state, str(id), positions, tick, tick_scale * float(scale),
-            scale, true, forecast, tolerance, solar)
+            scale, true, forecast, tolerance, solar, planets,
+            target_body_id)
         if not (outcome in ["arrived", "moving", "out_of_fuel", "holding"]):
             return {"ok": false, "reason": "native_ship_" + outcome,
                 "ship": str(id)}
