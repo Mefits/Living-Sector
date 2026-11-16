@@ -7,6 +7,7 @@ func _initialize() -> void:
         "from_tick": 801, "to_tick": 900,
         "observed_paid_ticks": 100, "expected_paid_ticks": 100,
         "complete": true, "source_fingerprint": "n38-bt-rng-same",
+        "time_kind": "elapsed_wall_not_cpu",
         "counts": counts.duplicate(true),
         "advance_wall_avg_usec": 800.0,
         "projection_wall_avg_usec": 50.0,
@@ -40,5 +41,17 @@ func _initialize() -> void:
     changed = faster.duplicate(true)
     changed.erase("counts")
     assert(not Metrics.compare_checkpoint_pair(base, changed)["accepted"])
+    changed = faster.duplicate(true)
+    changed["source_fingerprint"] = ""
+    assert(Metrics.compare_checkpoint_pair(base, changed)["reason"] == "invalid_source_fingerprint")
+    changed = faster.duplicate(true)
+    changed["time_kind"] = "cpu"
+    assert(Metrics.compare_checkpoint_pair(base, changed)["reason"] == "invalid_time_kind")
+    changed = faster.duplicate(true)
+    changed["from_tick"] = 800
+    assert(Metrics.compare_checkpoint_pair(base, changed)["reason"] == "invalid_tick_window")
+    changed = faster.duplicate(true)
+    changed["to_tick"] = 899
+    assert(Metrics.compare_checkpoint_pair(base, changed)["reason"] == "invalid_tick_window")
     print("P2_PERF_E_SAME_SEED_CHECKPOINT_COMPARATOR PASS")
     quit(0)
