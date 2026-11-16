@@ -90,12 +90,17 @@ static func propose(physical_world: Dictionary, tick: int,
             return {"ok": false, "reason": "market_tick_must_not_mint_stock"}
         updates[location] = {
             "id": id,
-            "prices": result["pricing"]["prices"].duplicate(true),
-            "demand": result["pricing"]["demand"].duplicate(true),
-            "seed_demand": result["flow"]["seed_demand"].duplicate(true),
-            "consumption_window": result["flow"]["consumption_window"].duplicate(true),
-            "orders": result["orders"].duplicate(true),
-            "history": crisis["history"].duplicate(true)
+            # N150 tick_markets returns a freshly deep-owned market for every
+            # identity. This proposal is the sole consumer of those markets;
+            # re-duplicating growing orders/windows/history here costs another
+            # complete traversal per paid tick. Crisis staging also returns a
+            # detached history. None of these values alias physical_world.
+            "prices": result["pricing"]["prices"],
+            "demand": result["pricing"]["demand"],
+            "seed_demand": result["flow"]["seed_demand"],
+            "consumption_window": result["flow"]["consumption_window"],
+            "orders": result["orders"],
+            "history": crisis["history"]
         }
     return {"ok": true, "tick": tick, "updates": updates,
         "market_count": updates.size(),
