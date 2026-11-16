@@ -68,7 +68,7 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
             var steps: Array = _geometry_steps(inbound["locations"], positions)
             if not cache.has(1):
                 cache[1] = _geometry_steps(outbound["locations"], positions)
-            steps.append_array(cache[1])
+            # Detach row dictionaries: ship-specific callers cannot mutate\n            # the cached outbound geometry through a nested Array element.\n            steps.append_array((cache[1] as Array).duplicate(true))
             result = {"inbound": inbound["locations"],
                 "outbound": outbound["locations"], "steps": steps}
     cache[here] = result
