@@ -61,20 +61,14 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
         elif not positions.has(here) or not positions.has(source) or not positions.has(dest):
             result = {"error": "missing_real_world_position"}
         else:
-            var steps: Array = []
-            for path in [inbound["locations"], outbound["locations"]]:
-                for i in range(1, path.size()):
-                    var from_id: String = str(path[i - 1])
-                    var to_id: String = str(path[i])
-                    var present: bool = positions.has(from_id) and positions.has(to_id)
-                    var distance: float = -1.0
-                    if present:
-                        var a: Vector2 = positions[from_id]
-                        var b: Vector2 = positions[to_id]
-                        distance = a.distance_to(b)
-                    # Do NOT change original error priority: fuel-class is
-                    # checked before per-leg missing/invalid geometry.
-                    steps.append({"present": present, "distance": distance})
+            # The source->destination geometry is identical for all ships
+            # bidding on this offer. Cache detached scalar leg rows, not
+            # World positions, and append them in the original inbound-first
+            # order. Each here-location receives its own steps Array.
+            var steps: Array = _geometry_steps(inbound["locations"], positions)
+            if not cache.has(1):
+                cache[1] = _geometry_steps(outbound["locations"], positions)
+            steps.append_array(cache[1])
             result = {"inbound": inbound["locations"],
                 "outbound": outbound["locations"], "steps": steps}
     cache[here] = result
@@ -86,3 +80,19 @@ static func system_for(cache: Dictionary, location: String, resolver: RefCounted
     if not cache.has(location):
         cache[location] = resolver.system_for_location(location)
     return str(cache[location])
+
+## Pure scalar projection: no mutable World/position alias escapes this helper.
+## Preserve missing-position sentinel and the source leg iteration order.
+static func _geometry_steps(path: Array, positions: Dictionary) -> Array:
+    var steps: Array = []
+    for i in range(1, path.size()):
+        var from_id: String = str(path[i - 1])
+        var to_id: String = str(path[i])
+        var present: bool = positions.has(from_id) and positions.has(to_id)
+        var distance: float = -1.0
+        if present:
+            var a: Vector2 = positions[from_id]
+            var b: Vector2 = positions[to_id]
+            distance = a.distance_to(b)
+        steps.append({"present": present, "distance": distance})
+    return steps
