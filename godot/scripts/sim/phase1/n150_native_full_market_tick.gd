@@ -262,11 +262,13 @@ static func wire_snapshot(market: Dictionary) -> Dictionary:
 		return _fail(problem)
 	var pricing: Dictionary = market["pricing"]
 	var history: Dictionary = market["history"]
-	var trends: Array = []
-	for item in history["trend_samples"]:
+	# Validate before detaching the entire array in one deep-copy operation.
+	# Preserve source order and reject malformed rows without returning aliases.
+	var source_trends: Array = history["trend_samples"]
+	for item in source_trends:
 		if not (item is Dictionary):
 			return _fail("invalid_trend_sample")
-		trends.append(item.duplicate(true))
+	var trends: Array = source_trends.duplicate(true)
 	return {"ok": true, "snapshot": {
 		"id": market["id"], "facility_location": market["facility_location"],
 		"prices": pricing["prices"].duplicate(true),
