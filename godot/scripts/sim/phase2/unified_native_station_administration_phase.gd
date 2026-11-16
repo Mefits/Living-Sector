@@ -73,6 +73,7 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         var total_population: int = int(totals.get("people", 0))
         var real_workforce: int = int(totals.get("workforce", 0))
         var working: int = int(totals.get("occupied", 0))
+        var station_account: String = Schema.facility_account(owner_id)
         var jobs: Array = []
         for id in facility_roster.get(key, []):
             var f: Dictionary = world["facilities"][id]
@@ -82,7 +83,7 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
             jobs.append({
                 "id": str(id), "type": str(f.get("type", "")),
                 "crew": int(f.get("crew_count", 0)),
-                "owner": Schema.facility_account(owner_id),
+                "owner": station_account,
                 "household": "", "abandoned": bool(f.get("abandoned", false)),
                 "paid_tick": int(shift.get("tick", -1)),
                 "actual_workers": (shift.get("workers", {}) as Dictionary).values().reduce(
@@ -99,7 +100,7 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
             "population_count": total_population,
             "workforce_limit": real_workforce,
             "occupied_workers": working,
-            "market_owner": Schema.facility_account(owner_id),
+            "market_owner": station_account,
             "stock": market.get("supply", {}).duplicate(true),
             "prices": market.get("prices", {}).duplicate(true),
             "limits": market.get("limits", {}).duplicate(true),
