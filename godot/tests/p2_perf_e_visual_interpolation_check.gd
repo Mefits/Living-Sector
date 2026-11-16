@@ -57,7 +57,7 @@ func _initialize() -> void:
     if not is_equal_approx(float(current.get("current_angle", -1.0)), 1.0):
         _fail("read-only view canonical body angle overwritten by smoothing")
         return
-    view._body_motion_started_usec = (
+    view._body_motion_started_usec = int(
         Time.get_ticks_usec() - view._body_motion_duration_usec / 2)
     var halfway_angle: float = view._visual_body_angle(
         current, Time.get_ticks_usec())
@@ -75,7 +75,7 @@ func _initialize() -> void:
     if not view._ship_motion_from.has("ship-1"):
         _fail("real ship transit did not retain visual previous position")
         return
-    view._ship_motion_started_usec = (
+    view._ship_motion_started_usec = int(
         Time.get_ticks_usec() - view._ship_motion_duration_usec / 2)
     var visual_xy: Variant = view._visual_ship_position(
         "ship-1", view._live_fleet["ship-1"], Time.get_ticks_usec())
