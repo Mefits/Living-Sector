@@ -39,14 +39,23 @@ func load_seed(seed: Dictionary) -> bool:
         for source in source_world.get("bodies", []):
             if not (source is Dictionary):
                 return false
-            var body: Dictionary = source
-            var bid: String = str(body.get("id", ""))
+            var raw_body: Dictionary = source
+            var bid: String = str(raw_body.get("id", ""))
+            # WorldModel is the SINGLE owner of the derived, versioned
+            # physical Sol satellite metadata. Do not independently guess
+            # moon parents in the ship resolver.
+            var checked_info: Dictionary = checked.body_by_id(bid)
+            if checked_info.is_empty() or not (
+                    checked_info.get("value") is Dictionary):
+                return false
+            var body: Dictionary = checked_info["value"]
             var radius: Variant = body.get("orbit_radius", null)
             if bid.is_empty() or staged_bodies.has(bid) or not _finite_number(radius):
                 return false
             if float(radius) < 0.0:
                 return false
-            var period: Variant = body.get("orbit_period", null)
+            var period: Variant = body.get(
+                "satellite_orbit_period_native", body.get("orbit_period", null))
             if not _finite_number(period) or float(period) <= 0.0:
                 return false
             var parent_id: String = str(body.get("parent_body_id", ""))
@@ -82,7 +91,9 @@ func load_seed(seed: Dictionary) -> bool:
                 return false
     # Explicit future parent-relative metadata must be internally valid:
     # same source system, no missing parents, no orbital cycles/deep chains.
-    # The frozen Rust seed has no parent IDs, hence retains original geometry.
+    # The original Rust source files have no parent IDs. The WorldModel
+    # profile provides physically coherent Sol moon metadata in the
+    # derived runtime without changing those files.
     for bid in staged_bodies:
         var seen: Dictionary = {}
         var current: String = str(bid)
@@ -178,9 +189,10 @@ func source_system_offset_for_body(body_id: String) -> Array:
     return [source.x, source.y]
 
 
-## Build genuine native world positions from the same orbital angles
-## for both N14, physical docking and predictive ephemerides. The frozen
-## seed has only heliocentric orbits: no synthetic lunar offset is inferred.
+## Build physical native world positions from the SAME orbital angles
+## as N14, station geometry and predictive ephemerides. Explicit source
+## metadata and versioned verified Sol satellite profiles share the
+## same position resolver; unknown moons are never reparented.
 func _resolve_body_position(body_id: String, angles: Dictionary,
         known: Dictionary, ancestors: Dictionary) -> Variant:
     if known.has(body_id):
@@ -238,8 +250,8 @@ func body_universe_position(body_id: String, model: RefCounted) -> Dictionary:
 
 ## Map current committed World orbital angles to a deterministic,
 ## forward-predictable N14 trajectory WITHOUT mutating World or clock.
-## Physical parent-relative components are enabled only by explicit
-## parent_body_id + satellite_orbit_radius_native seed metadata.
+## Physical parent-relative components are enabled by explicit seed
+## metadata or the verified, versioned Sol model profile.
 func _components_for_body(body_id: String, angles: Dictionary,
         seen: Dictionary) -> Array:
     if not _bodies.has(body_id) or seen.has(body_id):
