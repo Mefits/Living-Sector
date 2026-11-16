@@ -264,6 +264,14 @@ func receipt_kind_count(kind: String) -> int:
 ## Detects duplicate/missing order IDs, wrong shard membership, stale counters,
 ## and unexpected extra shard entries. Legacy receipts without kind are valid.
 func audit_receipt_index() -> bool:
+	# A diagnostic must reject damaged private index structure rather than
+	# indexing out of bounds or coercing a non-dictionary shard. Never repair
+	# authoritative receipts during an audit.
+	if _receipt_partitions.size() != RECEIPT_PARTITIONS:
+		return false
+	for shard in _receipt_partitions:
+		if not (shard is Dictionary):
+			return false
 	var seen: Dictionary = {}
 	var actual_kinds: Dictionary = {}
 	var count: int = 0
