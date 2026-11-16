@@ -50,141 +50,141 @@ func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: 
 ## Advance exactly one authoritative simulation tick; repeat calls are idempotent.
 ## Arrival is determined by distance, NEVER by the display-only arrival_tick.
 func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: int,
-        tick_scale: float, skipped_ticks: int = 1,
-        authorized_lod_fire: bool = false,
-        target_ephemeris: Dictionary = {},
-        arrival_tolerance: float = ARRIVAL_THRESHOLD,
-        solar_exclusion: Dictionary = {}) -> String:
-    if not state.ships.has(ship_id) or not is_finite(tick_scale) or (
-            tick_scale <= 0.0 or skipped_ticks < 1 or
-            not is_finite(arrival_tolerance) or arrival_tolerance <= 0.0):
-        return "invalid"
-    var ship: Dictionary = state.ships[ship_id]
-    var transit: Dictionary = ship.get("transit", {})
-    if transit.is_empty():
-        return "idle"
-    if tick <= int(transit["last_tick"]):
-        return "duplicate"
-    # N140 controls fired ship frequency, never a second movement loop.
-    if not authorized_lod_fire and tick != int(transit["last_tick"]) + 1:
-        return "nonsequential_tick"
-    if not authorized_lod_fire and skipped_ticks != 1:
-        return "lod_authority_required"
-    var target_id: String = str(transit["to"])
-    if not positions.has(target_id) or not _valid_position(positions[target_id]):
-        return "missing_destination"
-    var spec: Dictionary = Catalog.spec(str(ship["class"]))
-    var speed: float = float(ship.get("speed_modifier",
-        Catalog.effective_speed(str(ship["class"]), str(ship["size"]))))
-    var position: Vector2 = Vector2(float(transit["position"][0]),
-        float(transit["position"][1]))
-    var target: Vector2 = positions[target_id]
-    var remaining: float = position.distance_to(target)
-    var velocity: float = BASE_VELOCITY * speed * tick_scale
-    var consumption: float = float(spec.get("fuel_consumption_base", 0.0)) * tick_scale
-    if not is_finite(remaining) or not is_finite(velocity) or (
-            velocity <= 0.0 or not is_finite(consumption) or consumption <= 0.0):
-        return "invalid"
+		tick_scale: float, skipped_ticks: int = 1,
+		authorized_lod_fire: bool = false,
+		target_ephemeris: Dictionary = {},
+		arrival_tolerance: float = ARRIVAL_THRESHOLD,
+		solar_exclusion: Dictionary = {}) -> String:
+	if not state.ships.has(ship_id) or not is_finite(tick_scale) or (
+			tick_scale <= 0.0 or skipped_ticks < 1 or
+			not is_finite(arrival_tolerance) or arrival_tolerance <= 0.0):
+		return "invalid"
+	var ship: Dictionary = state.ships[ship_id]
+	var transit: Dictionary = ship.get("transit", {})
+	if transit.is_empty():
+		return "idle"
+	if tick <= int(transit["last_tick"]):
+		return "duplicate"
+	# N140 controls fired ship frequency, never a second movement loop.
+	if not authorized_lod_fire and tick != int(transit["last_tick"]) + 1:
+		return "nonsequential_tick"
+	if not authorized_lod_fire and skipped_ticks != 1:
+		return "lod_authority_required"
+	var target_id: String = str(transit["to"])
+	if not positions.has(target_id) or not _valid_position(positions[target_id]):
+		return "missing_destination"
+	var spec: Dictionary = Catalog.spec(str(ship["class"]))
+	var speed: float = float(ship.get("speed_modifier",
+		Catalog.effective_speed(str(ship["class"]), str(ship["size"]))))
+	var position: Vector2 = Vector2(float(transit["position"][0]),
+		float(transit["position"][1]))
+	var target: Vector2 = positions[target_id]
+	var remaining: float = position.distance_to(target)
+	var velocity: float = BASE_VELOCITY * speed * tick_scale
+	var consumption: float = float(spec.get("fuel_consumption_base", 0.0)) * tick_scale
+	if not is_finite(remaining) or not is_finite(velocity) or (
+			velocity <= 0.0 or not is_finite(consumption) or consumption <= 0.0):
+		return "invalid"
 
-    # Existing routes are native receipts, persisted with the same ship
-    # and token as the cargo/fuel. No waypoint recomputation while cruising.
-    var waypoints: Variant = transit.get("navigation_waypoints", [])
-    if not NativeAvoidance.valid_stored_points(waypoints):
-        return "invalid_navigation_waypoints"
-    var route: Array = waypoints
-    var plan_used: bool = not route.is_empty()
-    var lead: Dictionary = {}
-    var aim: Vector2 = target
-    if not plan_used and not target_ephemeris.is_empty():
-        lead = OrbitalIntercept.aim_point(
-            position, BASE_VELOCITY * speed, target_ephemeris, target)
-        aim = lead["point"]
+	# Existing routes are native receipts, persisted with the same ship
+	# and token as the cargo/fuel. No waypoint recomputation while cruising.
+	var waypoints: Variant = transit.get("navigation_waypoints", [])
+	if not NativeAvoidance.valid_stored_points(waypoints):
+		return "invalid_navigation_waypoints"
+	var route: Array = waypoints
+	var plan_used: bool = not route.is_empty()
+	var lead: Dictionary = {}
+	var aim: Vector2 = target
+	if not plan_used and not target_ephemeris.is_empty():
+		lead = OrbitalIntercept.aim_point(
+			position, BASE_VELOCITY * speed, target_ephemeris, target)
+		aim = lead["point"]
 
-    if not plan_used and not solar_exclusion.is_empty():
-        var center: Variant = solar_exclusion.get("center", null)
-        var clearance: float = float(solar_exclusion.get("radius", -1.0))
-        if not (center is Vector2) or not is_finite(clearance) or (
-                clearance <= 0.0):
-            return "invalid_navigation_geometry"
-        if NativeAvoidance.segment_crosses(position, aim, center, clearance):
-            var proposed: Dictionary = NativeAvoidance.plan(
-                position, aim, center, clearance)
-            if not proposed.get("ok", false):
-                # Fail safely with an owned N14 holding state. No free
-                # movement through the Sun and no fictitious fuel expense.
-                transit["last_tick"] = tick
-                transit["navigation_hold"] = str(proposed.get("reason", "unsafe"))
-                return "holding"
-            route = proposed["points"]
-            if not route.is_empty():
-                transit["navigation_waypoints"] = route
-                transit.erase("navigation_hold")
-                plan_used = true
+	if not plan_used and not solar_exclusion.is_empty():
+		var center: Variant = solar_exclusion.get("center", null)
+		var clearance: float = float(solar_exclusion.get("radius", -1.0))
+		if not (center is Vector2) or not is_finite(clearance) or (
+				clearance <= 0.0):
+			return "invalid_navigation_geometry"
+		if NativeAvoidance.segment_crosses(position, aim, center, clearance):
+			var proposed: Dictionary = NativeAvoidance.plan(
+				position, aim, center, clearance)
+			if not proposed.get("ok", false):
+				# Fail safely with an owned N14 holding state. No free
+				# movement through the Sun and no fictitious fuel expense.
+				transit["last_tick"] = tick
+				transit["navigation_hold"] = str(proposed.get("reason", "unsafe"))
+				return "holding"
+			route = proposed["points"]
+			if not route.is_empty():
+				transit["navigation_waypoints"] = route
+				transit.erase("navigation_hold")
+				plan_used = true
 
-    # A direct final leg is physical only if its path is clear. For
-    # verified near-body geometry, the old .01 Rust arrival bubble is
-    # far larger than the Moon's orbit and must never skip the final leg.
-    var exact_arrival: bool = arrival_tolerance < ARRIVAL_THRESHOLD
-    if not plan_used and (not exact_arrival and remaining <= arrival_tolerance
-            or exact_arrival and remaining <= 0.0000001):
-        ship["location"] = target_id
-        ship["transit"] = {}
-        return "arrived"
-    if float(ship["fuel"]) < consumption:
-        transit["last_tick"] = tick
-        return "out_of_fuel"
+	# A direct final leg is physical only if its path is clear. For
+	# verified near-body geometry, the old .01 Rust arrival bubble is
+	# far larger than the Moon's orbit and must never skip the final leg.
+	var exact_arrival: bool = arrival_tolerance < ARRIVAL_THRESHOLD
+	if not plan_used and (not exact_arrival and remaining <= arrival_tolerance
+			or exact_arrival and remaining <= 0.0000001):
+		ship["location"] = target_id
+		ship["transit"] = {}
+		return "arrived"
+	if float(ship["fuel"]) < consumption:
+		transit["last_tick"] = tick
+		return "out_of_fuel"
 
-    if plan_used:
-        var point: Array = route[0]
-        var waypoint: Vector2 = Vector2(float(point[0]), float(point[1]))
-        var separation: float = position.distance_to(waypoint)
-        var movement: float = minf(velocity, separation)
-        var next_pos: Vector2 = position.move_toward(waypoint, movement)
-        if separation <= velocity + ARRIVAL_FLOAT_EPSILON:
-            route.remove_at(0)
-        if route.is_empty():
-            transit.erase("navigation_waypoints")
-        else:
-            transit["navigation_waypoints"] = route
-        ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
-        transit["position"] = [next_pos.x, next_pos.y]
-        transit["distance_travelled"] = clampf(
-            float(transit["distance_total"]) - next_pos.distance_to(target),
-            0.0, float(transit["distance_total"]))
-        transit["physical_distance_travelled"] = float(transit.get(
-            "physical_distance_travelled", 0.0)) + movement
-        transit["last_tick"] = tick
-        transit["arrival_tick"] = tick + maxi(1, ceili(
-            (next_pos.distance_to(target) + float(route.size()) * clearance_estimate(
-                solar_exclusion)) / maxf(velocity, 0.00001)))
-        return "moving"
+	if plan_used:
+		var point: Array = route[0]
+		var waypoint: Vector2 = Vector2(float(point[0]), float(point[1]))
+		var separation: float = position.distance_to(waypoint)
+		var movement: float = minf(velocity, separation)
+		var next_pos: Vector2 = position.move_toward(waypoint, movement)
+		if separation <= velocity + ARRIVAL_FLOAT_EPSILON:
+			route.remove_at(0)
+		if route.is_empty():
+			transit.erase("navigation_waypoints")
+		else:
+			transit["navigation_waypoints"] = route
+		ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
+		transit["position"] = [next_pos.x, next_pos.y]
+		transit["distance_travelled"] = clampf(
+			float(transit["distance_total"]) - next_pos.distance_to(target),
+			0.0, float(transit["distance_total"]))
+		transit["physical_distance_travelled"] = float(transit.get(
+			"physical_distance_travelled", 0.0)) + movement
+		transit["last_tick"] = tick
+		transit["arrival_tick"] = tick + maxi(1, ceili(
+			(next_pos.distance_to(target) + float(route.size()) * clearance_estimate(
+				solar_exclusion)) / maxf(velocity, 0.00001)))
+		return "moving"
 
-    if remaining <= velocity + ARRIVAL_FLOAT_EPSILON:
-        ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
-        ship["location"] = target_id
-        ship["transit"] = {}
-        return "arrived"
+	if remaining <= velocity + ARRIVAL_FLOAT_EPSILON:
+		ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
+		ship["location"] = target_id
+		ship["transit"] = {}
+		return "arrived"
 
-    var next_position: Vector2 = position.move_toward(
-        aim, minf(velocity, position.distance_to(aim)))
-    ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
-    transit["position"] = [next_position.x, next_position.y]
-    transit["distance_travelled"] = clampf(
-        float(transit["distance_total"]) - next_position.distance_to(target),
-        0.0, float(transit["distance_total"]))
-    transit["physical_distance_travelled"] = float(transit.get(
-        "physical_distance_travelled", 0.0)) + position.distance_to(next_position)
-    transit["last_tick"] = tick
-    var eta_steps: float = next_position.distance_to(target) / maxf(
-        velocity, 0.00001)
-    if bool(lead.get("prediction_used", false)):
-        eta_steps = float(lead["eta_native"]) / maxf(tick_scale, 0.00001)
-    transit["arrival_tick"] = tick + ceili(eta_steps)
-    return "moving"
+	var next_position: Vector2 = position.move_toward(
+		aim, minf(velocity, position.distance_to(aim)))
+	ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
+	transit["position"] = [next_position.x, next_position.y]
+	transit["distance_travelled"] = clampf(
+		float(transit["distance_total"]) - next_position.distance_to(target),
+		0.0, float(transit["distance_total"]))
+	transit["physical_distance_travelled"] = float(transit.get(
+		"physical_distance_travelled", 0.0)) + position.distance_to(next_position)
+	transit["last_tick"] = tick
+	var eta_steps: float = next_position.distance_to(target) / maxf(
+		velocity, 0.00001)
+	if bool(lead.get("prediction_used", false)):
+		eta_steps = float(lead["eta_native"]) / maxf(tick_scale, 0.00001)
+	transit["arrival_tick"] = tick + ceili(eta_steps)
+	return "moving"
 
 
 static func clearance_estimate(solar_exclusion: Dictionary) -> float:
-    return maxf(0.0, float(solar_exclusion.get("radius", 0.0)))
+	return maxf(0.0, float(solar_exclusion.get("radius", 0.0)))
 
 ## Any previously scheduled arrival must carry the same token.
 func arrival_token_valid(state: RefCounted, ship_id: String, token: int) -> bool:
