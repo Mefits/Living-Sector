@@ -23,7 +23,7 @@ const SOL_BODY_RADII_KM: Dictionary = {
 ## A provisional near-body docking altitude, not a new economy formula.
 ## The fixed native N43 0.55 radius put stations 100+ lunar radii away.
 const STATION_ALTITUDE_KM: float = 400.0
-const NAVIGATION_GEOMETRY_VERSION: String = "sol-stations-local-v1"
+const NAVIGATION_GEOMETRY_VERSION: String = "sol-stations-local-v2"
 
 static func physical_radius_native(body_id: String) -> float:
     if not SOL_BODY_RADII_KM.has(body_id):
