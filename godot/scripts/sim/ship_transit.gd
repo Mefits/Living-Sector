@@ -97,30 +97,30 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		ship["location"] = target_id
 		ship["transit"] = {}
 		return "arrived"
-    # All safety gates and authoritative arrival checks use the CURRENT
-    # native destination. The lead aim only changes the heading; it never
-    # marks the ship arrived, teleports it, grants fuel or changes route.
-    var aim: Vector2 = target
-    var lead: Dictionary = {}
-    if not target_ephemeris.is_empty():
-        lead = OrbitalIntercept.aim_point(
-            position, BASE_VELOCITY * speed, target_ephemeris, target)
-        aim = lead["point"]
-    var next_position: Vector2 = position.move_toward(
-        aim, minf(velocity, position.distance_to(aim)))
-    ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
-    transit["position"] = [next_position.x, next_position.y]
-    transit["distance_travelled"] = clampf(
-        float(transit["distance_total"]) - next_position.distance_to(target),
-        0.0, float(transit["distance_total"]))
-    transit["last_tick"] = tick
-    var eta_steps: float = next_position.distance_to(target) / maxf(
-        velocity, 0.00001)
-    if bool(lead.get("prediction_used", false)):
-        eta_steps = float(lead["eta_native"]) / maxf(
-            tick_scale, 0.00001)
-    transit["arrival_tick"] = tick + ceili(eta_steps)
-    return "moving"
+	# All safety gates and authoritative arrival checks use the CURRENT
+	# native destination. The lead aim only changes the heading; it never
+	# marks the ship arrived, teleports it, grants fuel or changes route.
+	var aim: Vector2 = target
+	var lead: Dictionary = {}
+	if not target_ephemeris.is_empty():
+		lead = OrbitalIntercept.aim_point(
+		    position, BASE_VELOCITY * speed, target_ephemeris, target)
+		aim = lead["point"]
+	var next_position: Vector2 = position.move_toward(
+		aim, minf(velocity, position.distance_to(aim)))
+	ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
+	transit["position"] = [next_position.x, next_position.y]
+	transit["distance_travelled"] = clampf(
+		float(transit["distance_total"]) - next_position.distance_to(target),
+		0.0, float(transit["distance_total"]))
+	transit["last_tick"] = tick
+	var eta_steps: float = next_position.distance_to(target) / maxf(
+		velocity, 0.00001)
+	if bool(lead.get("prediction_used", false)):
+		eta_steps = float(lead["eta_native"]) / maxf(
+		    tick_scale, 0.00001)
+	transit["arrival_tick"] = tick + ceili(eta_steps)
+	return "moving"
 
 ## Any previously scheduled arrival must carry the same token.
 func arrival_token_valid(state: RefCounted, ship_id: String, token: int) -> bool:
