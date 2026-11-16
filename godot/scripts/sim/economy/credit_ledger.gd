@@ -27,6 +27,29 @@ var _receipt_kind_counts: Dictionary = {}
 var _flat_receipt_cache: Dictionary = {}
 var _flat_cache_count: int = -1
 
+## Opt-in paid-path instrumentation; off by default and never serialized.
+## LS_PROFILE_N9_APPEND=1: time real committed receipt detach and full
+## snapshot materialization, not detached benchmark helpers.
+var _profile_append: bool = OS.get_environment("LS_PROFILE_N9_APPEND") == "1"
+var _profile_append_calls: int = 0
+var _profile_append_usec: int = 0
+var _profile_append_max_usec: int = 0
+var _profile_append_old_shard_rows: int = 0
+var _profile_snapshot_calls: int = 0
+var _profile_snapshot_usec: int = 0
+var _profile_snapshot_max_usec: int = 0
+
+func paid_path_profile() -> Dictionary:
+	return {"enabled": _profile_append, "receipt_count": _receipt_count,
+		"append_calls": _profile_append_calls,
+		"append_usec": _profile_append_usec,
+		"append_max_usec": _profile_append_max_usec,
+		"append_old_shard_rows": _profile_append_old_shard_rows,
+		"snapshot_calls": _profile_snapshot_calls,
+		"snapshot_usec": _profile_snapshot_usec,
+		"snapshot_max_usec": _profile_snapshot_max_usec}
+
+
 func _init() -> void:
 	_receipt_partitions.resize(RECEIPT_PARTITIONS)
 	for i in range(RECEIPT_PARTITIONS):
@@ -45,6 +68,8 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	# Strictly new immutable record. Every existing shard and order chunk
 	# is treated read-only across independent owned Ledger forks.
 	var bucket: int = _bucket_index(id)
+	var started_usec: int = Time.get_ticks_usec() if _profile_append else 0
+	var old_shard_rows: int = (_receipt_partitions[bucket] as Dictionary).size() if _profile_append else 0
 	var detached: Dictionary = (
 		_receipt_partitions[bucket] as Dictionary).duplicate()
 	detached[id] = record.duplicate(true)
@@ -64,8 +89,15 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	# A fork that still sees older immutable shards retains its own cache.
 	_flat_receipt_cache = {}
 	_flat_cache_count = -1
+	if _profile_append:
+		var elapsed: int = maxi(0, Time.get_ticks_usec() - started_usec)
+		_profile_append_calls += 1
+		_profile_append_usec += elapsed
+		_profile_append_max_usec = maxi(_profile_append_max_usec, elapsed)
+		_profile_append_old_shard_rows += old_shard_rows
 
 func _snapshot_receipts() -> Dictionary:
+	var started_usec: int = Time.get_ticks_usec() if _profile_append else 0
 	if _flat_cache_count != _receipt_count:
 		var ordered: Dictionary = {}
 		for chunk in _receipt_order_chunks:
@@ -75,7 +107,13 @@ func _snapshot_receipts() -> Dictionary:
 				ordered[id] = _receipt_at(str(id))
 		_flat_receipt_cache = ordered
 		_flat_cache_count = _receipt_count
-	return _flat_receipt_cache.duplicate(true)
+	var result: Dictionary = _flat_receipt_cache.duplicate(true)
+	if _profile_append:
+		var elapsed: int = maxi(0, Time.get_ticks_usec() - started_usec)
+		_profile_snapshot_calls += 1
+		_profile_snapshot_usec += elapsed
+		_profile_snapshot_max_usec = maxi(_profile_snapshot_max_usec, elapsed)
+	return result
 
 func import_accounts(accounts: Dictionary) -> bool:
 	if not _balances.is_empty() or _receipt_count != 0:
