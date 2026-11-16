@@ -8,6 +8,16 @@ func _initialize() -> void:
     var old: Dictionary = {"earth": _market()}
     var unchanged: Dictionary = old.duplicate(true)
     _expect(Guard.validate_owned_write(old, unchanged) == "", "unchanged")
+    # Equal dictionary contents are insufficient if the before/after rows
+    # share mutable storage: a forbidden in-place stock write is invisible.
+    _expect(Guard.validate_owned_write(old, old) ==
+        "market_write_aliased_baseline", "reject_same_market_map")
+    var aliased_rows: Dictionary = {"earth": old["earth"]}
+    _expect(Guard.validate_owned_write(old, aliased_rows) ==
+        "market_write_aliased_baseline", "reject_shared_market_row")
+    var detached_rows: Dictionary = old.duplicate(true)
+    _expect(Guard.validate_owned_write(old, detached_rows) == "",
+        "accept_detached_equal_rows")
     var observation: Dictionary = old.duplicate(true)
     observation["earth"]["prices"]["ore"] = 12.0
     observation["earth"]["history"]["crisis_notified"]["ore"] = true
