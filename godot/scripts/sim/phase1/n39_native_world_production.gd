@@ -4082,7 +4082,12 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         var expected_balance: int = before_balance - top_up if str(account) == payer else (before_balance + top_up if str(account) == escrow else before_balance)
         if int(after_money["balances"][account]) != expected_balance:
             return {"ok": false, "fatal": true, "reason": "n104_unrelated_balance_changed"}
-    var staged: Dictionary = _copy_world("L3885", true)
+    # N104 accept owns only these domains. Detach each mutable write-set
+    # before editing; all other World domains remain untouched. Keep the
+    # full Schema and N9 account oracles below before the atomic publish.
+    var staged: Dictionary = _copy_world("n104_accept_root", false)
+    for domain in ["escrow_balances", "faction_treasuries", "facilities", "ships"]:
+        staged[domain] = _world[domain].duplicate(true)
     staged["contract_board"] = board.snapshot()
     staged["escrow_balances"][escrow] = staged_ledger.balance(escrow)
     if native_site_contract:
