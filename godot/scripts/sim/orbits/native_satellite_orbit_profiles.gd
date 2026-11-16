@@ -12,6 +12,30 @@ const KM_PER_AU: float = 149597870.7
 const SOL_UNITS_PER_AU: float = 2.0
 const NATIVE_EARTH_YEAR: float = 700.0
 const EARTH_YEAR_DAYS: float = 365.25
+## Only the verified frozen Sol presentation has known physical radii.
+## Other systems retain original Rust facility radius until they provide
+## explicit physical body metadata; never guess physical sizes by biome.
+const SOL_BODY_RADII_KM: Dictionary = {
+    "mercury": 2439.7, "venus": 6051.8, "earth": 6371.0,
+    "luna": 1737.4, "mars": 3389.5, "jupiter": 69911.0,
+    "saturn": 58232.0, "callisto": 2410.3
+}
+## A provisional near-body docking altitude, not a new economy formula.
+## The fixed native N43 0.55 radius put stations 100+ lunar radii away.
+const STATION_ALTITUDE_KM: float = 400.0
+const NAVIGATION_GEOMETRY_VERSION: String = "sol-stations-local-v1"
+
+static func physical_radius_native(body_id: String) -> float:
+    if not SOL_BODY_RADII_KM.has(body_id):
+        return 0.0
+    return float(SOL_BODY_RADII_KM[body_id]) / KM_PER_AU * SOL_UNITS_PER_AU
+
+
+static func compact_station_orbit_radius(body_id: String) -> float:
+    var radius: float = physical_radius_native(body_id)
+    if radius <= 0.0:
+        return 0.0
+    return radius + STATION_ALTITUDE_KM / KM_PER_AU * SOL_UNITS_PER_AU
 
 ## These known identities and legacy source values are *guards*:
 ## a custom/edited seed is not silently rewritten.
@@ -72,6 +96,11 @@ static func apply_world(world: Dictionary) -> bool:
                     absf(float(pair[0]) - float(pair[1])) > 0.000001):
                 return true # A non-frozen Sol is NOT silently migrated.
         candidates.append(moon_id)
+    # Navigation geometry is versioned inside the canonical World
+    # fingerprint. Old transits cannot quietly resume with a different
+    # physical origin/destination after a checkpoint reload.
+    if candidates.size() == FROZEN_SOL_SATELLITES.size():
+        world["navigation_geometry_profile"] = NAVIGATION_GEOMETRY_VERSION
     for moon_id in candidates:
         var moon: Dictionary = bodies[moon_id]
         var spec: Dictionary = FROZEN_SOL_SATELLITES[moon_id]
