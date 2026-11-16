@@ -68,8 +68,13 @@ func _run() -> void:
             var before: Dictionary = state.ships[id]["transit"]
             var p: Vector2 = Vector2(float(before["position"][0]),
                 float(before["position"][1]))
+            # The two corridors must stress different code paths.
+            # The left ships chase the CURRENT real target and require
+            # star avoidance; right ships use predictive N14 lead.
+            var use_forecast: bool = int(str(id).substr(7)) >= COUNT / 2
+            var forecast: Dictionary = sky if use_forecast else {}
             var outcome: String = motion.advance(state, str(id),
-                positions, tick, 1.0, 1, false, sky, 0.00001, star)
+                positions, tick, 1.0, 1, false, forecast, 0.00001, star)
             if outcome != "moving":
                 _fail("500 native flights returned " + outcome +
                     " for " + str(id) + " on tick " + str(tick))
