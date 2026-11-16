@@ -37,7 +37,8 @@ func _check() -> void:
         "fixture-moving-3": {
             "name": "Moving One", "class": "courier",
             "system_id": "system-sol", "location": "",
-            "transit": {"position": [3.0, 1.0], "to": "earth-station"}
+            "transit": {"position": [3.0, 1.0], "to": "earth-station",
+                "navigation_waypoints": [[3.2, 1.15], [3.4, 1.2]]}
         }
     }
     var original: String = JSON.stringify(fleet)
@@ -74,6 +75,16 @@ func _check() -> void:
         return
     if str(map.get("_selected_ship_id")) != "fixture-moving-3":
         _fail("selected ship highlight state not retained")
+        return
+    map.set_live_fleet(fleet)
+    var projected: Dictionary = map.get("_live_fleet")
+    if (projected["fixture-moving-3"]["transit"].get(
+            "navigation_waypoints", []) as Array).size() != 2:
+        _fail("selected vessel lost its real physical waypoint polyline")
+        return
+    if projected["fixture-ship-1"]["transit"].has(
+            "navigation_waypoints"):
+        _fail("nonselected vessel was given expensive trajectory data")
         return
     if JSON.stringify(fleet) != original:
         _fail("UI changed canonical source fleet")
