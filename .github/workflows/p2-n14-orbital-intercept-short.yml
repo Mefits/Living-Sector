@@ -12,6 +12,10 @@ on:
       - godot/scripts/sim/phase2/unified_ship_phase.gd
       - godot/scripts/sim/phase2/n158_production_runtime.gd
       - godot/tests/p2_native_orbital_intercept_check.gd
+      - godot/tests/p2_unified_ship_phase_check.gd
+      - godot/tests/n14_transit_check.gd
+      - godot/tests/n43_native_location_resolver_check.gd
+      - godot/tests/p2_ship_transit_fuel_check.gd
   workflow_dispatch:
 
 permissions:
