@@ -8,6 +8,7 @@ const MAX_TICK: int = 9007199254740991
 
 var _buckets: Dictionary = {}
 var _event_keys: Dictionary = {}
+var _sequences: Dictionary = {} # sequence -> event id, unique across pending records
 var _positions: Dictionary = {} # event id -> position in its bucket
 var _count: int = 0
 
@@ -37,6 +38,7 @@ func rebuild(events: Array) -> bool:
         keys[id] = key
     _buckets = buckets
     _event_keys = keys
+    _sequences = sequences
     _positions = positions
     _count = events.size()
     return true
@@ -45,7 +47,7 @@ func add(event: Dictionary) -> bool:
     if not _valid(event):
         return false
     var id: String = event["id"]
-    if _event_keys.has(id) or _count >= MAX_EVENTS:
+    if _event_keys.has(id) or _sequences.has(event["sequence"]) or _count >= MAX_EVENTS:
         return false
     var key: String = _key(int(event["due_tick"]), int(event["phase"]))
     if not _buckets.has(key):
@@ -54,6 +56,7 @@ func add(event: Dictionary) -> bool:
     _positions[id] = bucket.size()
     bucket.append(event.duplicate(true))
     _event_keys[id] = key
+    _sequences[event["sequence"]] = id
     _count += 1
     return true
 
@@ -65,6 +68,7 @@ func remove(event_id: String) -> bool:
     # Swap-with-last is safe: take_due sorts by the original stable comparator.
     # Avoid a linear scan and Array.remove_at shifts on each cancellation.
     var index: int = int(_positions[event_id])
+    var removed_sequence: int = int(bucket[index]["sequence"])
     var last: int = bucket.size() - 1
     if index != last:
         var moved: Dictionary = bucket[last]
@@ -73,6 +77,7 @@ func remove(event_id: String) -> bool:
     bucket.pop_back()
     if bucket.is_empty():
         _buckets.erase(key)
+    _sequences.erase(removed_sequence)
     _positions.erase(event_id)
     _event_keys.erase(event_id)
     _count -= 1
@@ -88,6 +93,7 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
         var event: Dictionary = item
         result.append(event.duplicate(true))
         _event_keys.erase(event["id"])
+        _sequences.erase(event["sequence"])
         _positions.erase(event["id"])
     _count -= bucket.size()
     _buckets.erase(key)
