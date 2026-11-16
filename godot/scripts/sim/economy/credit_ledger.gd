@@ -17,6 +17,9 @@ const ORDER_CHUNK_SIZE: int = 64
 var _receipt_partitions: Array = []
 var _receipt_order_chunks: Array = []
 var _receipt_count: int = 0
+## Exact per-kind counts, updated only on committed append or validated restore.
+## A fork owns its counter dictionary: never mutate the parent's counters.
+var _receipt_kind_counts: Dictionary = {}
 ## Only trusted private receipt records live in this flattened read cache.
 ## It is NEVER exposed to callers; snapshot() returns a detached deep copy.
 ## The flattened map is rebuilt once per changed receipt generation, and
@@ -54,6 +57,9 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 		order.append(id)
 		_receipt_order_chunks[last] = order
 	_receipt_count += 1
+	var kind: Variant = record.get("kind", null)
+	if kind is String:
+		_receipt_kind_counts[kind] = int(_receipt_kind_counts.get(kind, 0)) + 1
 	# Rebuilding is delayed until a real full N38/provenance snapshot.
 	# A fork that still sees older immutable shards retains its own cache.
 	_flat_receipt_cache = {}
@@ -229,6 +235,7 @@ func fork() -> RefCounted:
 	child.set("_receipt_partitions", _receipt_partitions.duplicate())
 	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
 	child.set("_receipt_count", _receipt_count)
+	child.set("_receipt_kind_counts", _receipt_kind_counts.duplicate())
 	child.set("_flat_receipt_cache", _flat_receipt_cache)
 	child.set("_flat_cache_count", _flat_cache_count)
 	return child
@@ -238,6 +245,14 @@ func fork() -> RefCounted:
 ## No live receipt row or collection is returned to the caller.
 func receipt_count() -> int:
 	return _receipt_count
+
+## O(1) exact count of immutable N9 receipts of a given kind. This is a
+## read-only diagnostic/provenance aggregate, not an authorization oracle.
+## Empty or unknown kinds return zero; the original receipt order is unchanged.
+func receipt_kind_count(kind: String) -> int:
+	if kind.is_empty():
+		return 0
+	return int(_receipt_kind_counts.get(kind, 0))
 
 ## O(1) operation-ID provenance lookup over the authoritative immutable
 ## receipt shards. A caller receives a fully detached record, never a mutable
@@ -301,6 +316,7 @@ func restore(data: Dictionary) -> bool:
 		partitions[i] = {}
 	var order_chunks: Array = []
 	var next_count: int = 0
+	var next_kind_counts: Dictionary = {}
 	for id in receipts:
 		var bucket: int = _bucket_index(str(id))
 		var target: Dictionary = partitions[bucket]
@@ -311,10 +327,14 @@ func restore(data: Dictionary) -> bool:
 		else:
 			(order_chunks[last] as Array).append(id)
 		next_count += 1
+		var kind: Variant = receipts[id].get("kind", null)
+		if kind is String:
+			next_kind_counts[kind] = int(next_kind_counts.get(kind, 0)) + 1
 	_balances = candidate.duplicate(true)
 	_receipt_partitions = partitions
 	_receipt_order_chunks = order_chunks
 	_receipt_count = next_count
+	_receipt_kind_counts = next_kind_counts
 	_flat_receipt_cache = {}
 	_flat_cache_count = -1
 	return true
