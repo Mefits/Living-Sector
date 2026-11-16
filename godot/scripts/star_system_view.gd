@@ -38,6 +38,12 @@ var _wheel_target_zoom: float = -1.0
 var _wheel_anchor: Vector2 = Vector2.ZERO
 var _focus_zoom_target: float = -1.0
 var _return_camera: bool = false
+## Wheel proximity chooses a real body; no artificial zoom-level scene swap.
+var _zoom_candidate_body_id: String = ""
+## The previously projected orbit offset lets the camera compensate *every*
+## body movement, even during fast N158 ticks and wheel interpolation.
+var _follow_orbit_offset: Vector2 = Vector2.ZERO
+var _follow_orbit_valid: bool = false
 ## U4: detached UI-only indices. The authoritative World is never mutated.
 var _body_index: Dictionary = {}
 var _facilities_by_body: Dictionary = {}
@@ -127,43 +133,59 @@ func _process(delta: float) -> void:
             _pan = Vector2.ZERO
             _return_camera = false
     elif _focus_zoom_target > 0.0 and not _focused_body_id.is_empty():
-        var body: Dictionary = _body_by_id(_focused_body_id)
-        if body.is_empty():
+        # Double-click animation changes zoom, but the tracking block below
+        # owns the camera position for both double-click and wheel focus.
+        _zoom = lerpf(_zoom, _focus_zoom_target, ease)
+        camera_changed = true
+        if absf(_zoom - _focus_zoom_target) < 0.01:
+            _zoom = _focus_zoom_target
             _focus_zoom_target = -1.0
-            _focused_body_id = ""
-        else:
-            _draw_now_usec = Time.get_ticks_usec()
-            _draw_body_positions.clear()
-            var point: Vector2 = _body_position(body, _orbit_scale())
-            var next_zoom_focus: float = lerpf(_zoom, _focus_zoom_target, ease)
-            var old_offset: Vector2 = point - _center() - _pan
-            var desired_pan: Vector2 = -old_offset * (next_zoom_focus / maxf(_zoom, 0.001))
-            _pan = _pan.lerp(desired_pan, ease)
-            _zoom = next_zoom_focus
-            camera_changed = true
-            if absf(_zoom - _focus_zoom_target) < 0.01 and _pan.distance_to(desired_pan) < 0.5:
-                _zoom = _focus_zoom_target
-                _focus_zoom_target = -1.0
     elif _wheel_target_zoom > 0.0:
         var next_zoom_wheel: float = lerpf(_zoom, _wheel_target_zoom, ease)
         var ratio: float = next_zoom_wheel / maxf(_zoom, 0.001)
-        _pan += (_wheel_anchor - _center()) * (1.0 - ratio)
+        # Follow mode anchors the real body; free zoom anchors the pointer.
+        if _focused_body_id.is_empty():
+            _pan += (_wheel_anchor - _center()) * (1.0 - ratio)
         _zoom = next_zoom_wheel
         camera_changed = true
         if absf(_zoom - _wheel_target_zoom) < 0.005:
+            _zoom = _wheel_target_zoom
             _wheel_target_zoom = -1.0
 
-    # When specifically focused via double-click, keep the SAME camera
-    # centered on the real moving planet, not a detached globe overlay.
-    if not _focused_body_id.is_empty() and _focus_zoom_target < 0.0 and not _return_camera and _wheel_target_zoom < 0.0:
+    # Enter follow automatically when the body under the zoom cursor reaches
+    # the SAME radius that begins drawing surface details. Never a new map.
+    if not _zoom_candidate_body_id.is_empty() and _focused_body_id.is_empty() and not _return_camera:
+        var candidate: Dictionary = _body_by_id(_zoom_candidate_body_id)
+        if not candidate.is_empty() and _body_size(candidate) >= DETAIL_RADIUS:
+            _focused_body_id = _zoom_candidate_body_id
+            _follow_orbit_valid = false
+
+    if not _focused_body_id.is_empty() and not _return_camera:
         var focused: Dictionary = _body_by_id(_focused_body_id)
-        if not focused.is_empty():
+        if focused.is_empty():
+            _focused_body_id = ""
+            _follow_orbit_valid = false
+        else:
+            # _body_position returns viewport_center + pan + orbit_offset.
+            # Project fresh each frame because native angles interpolate.
             _draw_now_usec = Time.get_ticks_usec()
             _draw_body_positions.clear()
-            var on_screen: Vector2 = _body_position(focused, _orbit_scale())
-            if on_screen.distance_to(_center()) > 0.5:
-                _pan += (_center() - on_screen) * ease
-                camera_changed = true
+            var screen_position: Vector2 = _body_position(focused, _orbit_scale())
+            var orbit_offset: Vector2 = screen_position - _center()
+            if _follow_orbit_valid:
+                # Cancel orbital motion exactly before centering; otherwise
+                # the body drifts out during accelerated simulated time.
+                _pan -= orbit_offset - _follow_orbit_offset
+            _follow_orbit_offset = orbit_offset
+            _follow_orbit_valid = true
+            var desired_pan: Vector2 = -orbit_offset
+            var remaining: Vector2 = desired_pan - _pan
+            if remaining.length() < 1.5:
+                _pan = desired_pan
+            else:
+                # Smooth *initial* acquisition, not orbital movement itself.
+                _pan += remaining * ease
+            camera_changed = true
 
     var now_usec: int = Time.get_ticks_usec()
     if camera_changed or (
@@ -187,6 +209,8 @@ func set_world(world: Dictionary) -> void:
     _wheel_target_zoom = -1.0
     _focus_zoom_target = -1.0
     _return_camera = false
+    _zoom_candidate_body_id = ""
+    _follow_orbit_valid = false
     # A newly opened system has no previous visual position. Snap to
     # the first real source snapshot; never glide between systems.
     _body_motion_from.clear()
@@ -302,6 +326,8 @@ func focus_body(body_id: String) -> bool:
     _focused_body_id = body_id
     _return_camera = false
     _wheel_target_zoom = -1.0
+    _zoom_candidate_body_id = ""
+    _follow_orbit_valid = false
     # One continuous camera, animated until the real body is large enough.
     var low: float = MIN_ZOOM
     var high: float = MAX_ZOOM
@@ -319,6 +345,8 @@ func focus_body(body_id: String) -> bool:
 
 func unfocus_body() -> void:
     _focused_body_id = ""
+    _zoom_candidate_body_id = ""
+    _follow_orbit_valid = false
     _focus_zoom_target = -1.0
     _wheel_target_zoom = -1.0
     _return_camera = true
@@ -328,6 +356,8 @@ func unfocus_body() -> void:
 
 func reset_view() -> void:
     _focused_body_id = ""
+    _zoom_candidate_body_id = ""
+    _follow_orbit_valid = false
     _focus_zoom_target = -1.0
     _wheel_target_zoom = -1.0
     _return_camera = true
@@ -683,8 +713,24 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     var prior_target: float = _wheel_target_zoom if _wheel_target_zoom > 0.0 else _zoom
     _wheel_target_zoom = clampf(prior_target * multiplier, MIN_ZOOM, MAX_ZOOM)
     _wheel_anchor = pointer
-    if _wheel_target_zoom < 20.0:
-        _focused_body_id = ""
+    if multiplier > 1.0:
+        # Identify by existing screen hit-test. Lock is activated only once
+        # the planet visually reaches detail scale, not before it.
+        var under_cursor: Dictionary = _nearest_pin(pointer)
+        if not under_cursor.is_empty():
+            _zoom_candidate_body_id = str(under_cursor.get("id", ""))
+    elif not _focused_body_id.is_empty():
+        var focused: Dictionary = _body_by_id(_focused_body_id)
+        if focused.is_empty() or _body_size_at_zoom(focused, _wheel_target_zoom) < DETAIL_RADIUS:
+            # Reverse zoom restores free panning naturally, without a jump
+            # to orbit/default view.
+            _focused_body_id = ""
+            _zoom_candidate_body_id = ""
+            _follow_orbit_valid = false
+    elif not _zoom_candidate_body_id.is_empty():
+        var candidate: Dictionary = _body_by_id(_zoom_candidate_body_id)
+        if candidate.is_empty() or _body_size_at_zoom(candidate, _wheel_target_zoom) < DETAIL_RADIUS:
+            _zoom_candidate_body_id = ""
     queue_redraw()
 
 
@@ -738,6 +784,12 @@ func _gui_input(event: InputEvent) -> void:
             accept_event()
     elif event is InputEventMouseMotion and _dragging:
         _drag_distance += event.relative.length()
+        if _drag_distance >= 7.0 and not _focused_body_id.is_empty():
+            # User pan intentionally releases follow; selection remains.
+            _focused_body_id = ""
+            _zoom_candidate_body_id = ""
+            _focus_zoom_target = -1.0
+            _follow_orbit_valid = false
         _pan += event.relative
         queue_redraw()
         accept_event()
