@@ -388,6 +388,66 @@ func verify_exact_operation_receipts(expected_rows: Array) -> bool:
 	return true
 
 
+## Read-only, bounded paid-leg provenance aggregate for a caller-supplied set
+## of operation IDs. Unlike a full N9 snapshot, touches only the requested
+## immutable receipts. It is NOT a transfer/authorization API: the N39 caller
+## still validates physical cargo, contract ownership and all cross-domain
+## invariants. Single-leg write-offs/wages are deliberately rejected here.
+## Fail closed on duplicates, malformed legs, negative credits or i64 overflow.
+## Returns detached account totals and signed net legs (always zero).
+func paid_leg_totals_for_operations(operation_ids: Array) -> Dictionary:
+	if operation_ids.is_empty():
+		return {"ok": false, "reason": "empty_proof"}
+	var seen: Dictionary = {}
+	var account_totals: Dictionary = {}
+	var debits: int = 0
+	var credits: int = 0
+	for id_value in operation_ids:
+		if not (id_value is String) or id_value.is_empty() or seen.has(id_value):
+			return {"ok": false, "reason": "invalid_or_duplicate_operation_id"}
+		seen[id_value] = true
+		if not _has_receipt_id(id_value):
+			return {"ok": false, "reason": "missing_operation_id"}
+		var receipt: Dictionary = _receipt_at(id_value)
+		if receipt.get("id") != id_value or not (receipt.get("legs") is Array):
+			return {"ok": false, "reason": "invalid_receipt"}
+		var legs: Array = receipt["legs"]
+		if legs.size() < 2:
+			return {"ok": false, "reason": "not_a_paid_transfer"}
+		var receipt_debits: int = 0
+		var receipt_credits: int = 0
+		for leg in legs:
+			if not (leg is Dictionary) or not leg.has("account") or not leg.has("delta"):
+				return {"ok": false, "reason": "invalid_leg"}
+			var account: Variant = leg["account"]
+			var amount: Variant = leg["delta"]
+			if not _valid_account(account) or typeof(amount) != TYPE_INT:
+				return {"ok": false, "reason": "invalid_leg"}
+			# -2^63 cannot be negated in a signed 64-bit credit total.
+			if amount == -MAX_CREDITS - 1:
+				return {"ok": false, "reason": "integer_overflow"}
+			var prior: int = int(account_totals.get(account, 0))
+			if amount > 0:
+				if prior > MAX_CREDITS - amount or credits > MAX_CREDITS - amount or (
+					receipt_credits > MAX_CREDITS - amount):
+					return {"ok": false, "reason": "integer_overflow"}
+				credits += amount
+				receipt_credits += amount
+			else:
+				if prior < -MAX_CREDITS - amount or debits > MAX_CREDITS + amount or (
+					receipt_debits > MAX_CREDITS + amount):
+					return {"ok": false, "reason": "integer_overflow"}
+				debits -= amount
+				receipt_debits -= amount
+			account_totals[account] = prior + amount
+		if receipt_debits == 0 or receipt_debits != receipt_credits:
+			return {"ok": false, "reason": "unbalanced_receipt"}
+	if debits != credits:
+		return {"ok": false, "reason": "unbalanced_batch"}
+	return {"ok": true, "operations": seen.size(), "debits": debits,
+		"credits": credits, "account_deltas": account_totals}
+
+
 func retains_receipts(candidate: Dictionary) -> bool:
 	for chunk in _receipt_order_chunks:
 		for id in chunk:
