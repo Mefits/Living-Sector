@@ -89,7 +89,7 @@ static func _native_dock_wait(ship: Dictionary, tick: int,
 static func _dispatch(action: Dictionary, _bb: Dictionary,
         world: Dictionary, graph: RefCounted, positions: Dictionary,
         ship_id: String, tick: int, scale: float,
-        multiplier: int = 1) -> Dictionary:
+        multiplier: int = 1, dock_ticks: Dictionary = {}) -> Dictionary:
     var kind: String = str(action.get("kind", ""))
     var ship: Dictionary = world["ships"][ship_id]
     var location: String = str(ship.get("location", ""))
@@ -310,10 +310,20 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     if kind == "DockDwell":
         if str(ship.get("docked_at", "")).is_empty():
             return {"status": Bt.RUNNING, "reason": "n21_dwell_requires_actual_dock"}
-        var dock_tick: int = -1
-        for receipt in world.get("dock_receipts", {}).values():
-            if str(receipt.get("ship_id", "")) == ship_id and str(receipt.get("action", "")) == "dock":
-                dock_tick = maxi(dock_tick, int(receipt.get("tick", -1)))
+        # The N84 pass may evaluate DockDwell for many ships. Build the
+        # latest authoritative N21 dock receipt cursor only on first use,
+        # then reuse it for this read-only proposal pass. Never persist it
+        # across ticks: N21 may undock/redock between paid ticks.
+        if not dock_ticks.has("_ready"):
+            for receipt in world.get("dock_receipts", {}).values():
+                if str(receipt.get("action", "")) != "dock":
+                    continue
+                var receipt_ship: String = str(receipt.get("ship_id", ""))
+                dock_ticks[receipt_ship] = maxi(
+                    int(dock_ticks.get(receipt_ship, -1)),
+                    int(receipt.get("tick", -1)))
+            dock_ticks["_ready"] = true
+        var dock_tick: int = int(dock_ticks.get(ship_id, -1))
         if dock_tick < 0:
             return {"status": Bt.RUNNING, "reason": "no_verified_n21_dock_time"}
         var dwell_seconds: int = maxi(0, int(action.get("seconds", 0)))
@@ -479,6 +489,8 @@ static func propose(world: Dictionary, graph: RefCounted,
     var ids: Array = staged["ships"].keys()
     ids.sort()
     var changed: bool = false
+    # Per-proposal scratch only; no World or N38 state is added.
+    var dock_ticks: Dictionary = {}
     for ship_id in ids:
         var ship: Dictionary = staged["ships"][ship_id]
         var contract_id: String = str(ship.get("active_contract_id", ""))
@@ -549,7 +561,7 @@ static func propose(world: Dictionary, graph: RefCounted,
         var detail: Dictionary = {"reason": ""}
         var executor: Callable = func(action: Dictionary, bb: Dictionary) -> Dictionary:
             var result: Dictionary = _dispatch(action, bb, staged, graph,
-                positions, str(ship_id), tick, scale, multiplier)
+                positions, str(ship_id), tick, scale, multiplier, dock_ticks)
             detail["reason"] = str(result.get("reason", ""))
             return result
         var next: Dictionary = Bt.tick(bt, executor, {})
