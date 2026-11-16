@@ -98,7 +98,9 @@ jobs:
             p2_perf_b_private_receipt_append_no_double_copy_check \
             p2_perf_pr262_head_c_occupancy_wrapper \
             p2_perf_d_n150_owned_order_compaction_20261116 \
-            p2_perf_e_same_seed_checkpoint_comparator; do
+            p2_perf_e_same_seed_checkpoint_comparator \
+            p2_late_growth_weak_parent_check \
+            p2_runtime_read_projection_check; do
             timeout --signal=TERM --kill-after=5s 25s \
               godot --headless --path godot --script "res://tests/$t.gd" \
               >"godot/logs/pr262-current-head/$t.log" 2>&1 || {
@@ -119,6 +121,24 @@ jobs:
             fi
           done
           echo "P2_PR262_HEAD_TARGETED_REGRESSIONS_PASS"
+      - name: Same-seed Astra two-fix 160 paid tick checkpoint parity, bounded
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 170s \
+            godot --headless --path godot \
+            --script res://tests/p2_perf_pr262_astra_fixes_160_parity.gd \
+            >godot/logs/pr262-current-head/astra-parity160.log 2>&1 || {
+              tail -n 100 godot/logs/pr262-current-head/astra-parity160.log; exit 1;
+            }
+          grep -q P2_ASTRA_TWO_FIXES_160_PARITY_PASS godot/logs/pr262-current-head/astra-parity160.log || {
+            tail -n 100 godot/logs/pr262-current-head/astra-parity160.log; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|P2_ASTRA_TWO_FIXES_160_PARITY_FAIL' godot/logs/pr262-current-head/astra-parity160.log; then
+            tail -n 100 godot/logs/pr262-current-head/astra-parity160.log; exit 1;
+          fi
+          grep P2_ASTRA_TWO_FIXES_160_PARITY_PASS godot/logs/pr262-current-head/astra-parity160.log
+
       - name: Upload short smoke diagnostics
         if: always()
         uses: actions/upload-artifact@v4
