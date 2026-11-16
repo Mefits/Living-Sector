@@ -41,6 +41,32 @@ func _test() -> void:
     if model.seed_fingerprint() == old_fingerprint:
         _fail("new physical orbit checkpoint identity not versioned")
         return
+    # Never guess which star a fictional moon belongs to. Other
+    # frozen systems remain bit-for-bit unchanged by the Sol profile.
+    for raw_system in seed["worlds"]:
+        if str(raw_system.get("system", {}).get("id", "")) == "system-sol":
+            continue
+        for raw_body in raw_system.get("bodies", []):
+            var imported: Dictionary = model.body_by_id(
+                str(raw_body.get("id", "")))
+            if imported.get("value", {}) != raw_body:
+                _fail("non-Sol native body was rewritten by satellite profile")
+                return
+
+    # All-or-nothing guard: a custom Sol with edited Callisto source
+    # must not acquire an unrequested physical Luna override.
+    var changed_seed: Dictionary = seed.duplicate(true)
+    for w in changed_seed["worlds"]:
+        if str(w.get("system", {}).get("id", "")) == "system-sol":
+            for b in w["bodies"]:
+                if str(b.get("id", "")) == "callisto":
+                    b["orbit_radius"] = 11.0
+    var custom_model: RefCounted = WorldModel.new()
+    if not custom_model.load_seed(changed_seed) or (
+            custom_model.body_by_id("luna").get("value", {}).has(
+            "parent_body_id")):
+        _fail("edited Sol unexpectedly acquired a partial moon migration")
+        return
     var derived_sol: Dictionary = _sol(model.worlds())
     if derived_sol.is_empty():
         _fail("derived World did not expose Sol")
