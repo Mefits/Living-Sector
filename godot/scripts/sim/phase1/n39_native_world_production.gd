@@ -314,7 +314,14 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         _world, tick, tick_scale, tick_multiplier)
     if not initial.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(initial.get("reason", "rejected"))}
-    var lifecycle_world: Dictionary = _copy_world("L196", true)
+    # N156/N130 stage owns only facilities, markets and populations.
+    # Payroll.pay_shift may update household wealth, while N130 restock
+    # updates market supply; all three must be detached BEFORE any writes.
+    # Other World domains are read-only here and remain authoritative.
+    var lifecycle_world: Dictionary = _copy_world("L196_owned_root", false)
+    lifecycle_world["facilities"] = _world["facilities"].duplicate(true)
+    lifecycle_world["markets"] = _world["markets"].duplicate(true)
+    lifecycle_world["populations"] = _world["populations"].duplicate(true)
     # Receipts accumulate indefinitely; cloning the whole N9 history on
     # every no-op orbit tick would make long-term simulation quadratic.
     # No new maintenance payments are possible unless there is a paid
