@@ -8,6 +8,7 @@ on:
       - .github/workflows/p2-perf-262-worker-gui-short.yml
       - godot/scripts/main.gd
       - godot/scripts/sim/phase2/n158_real_owner_thread_probe.gd
+      - godot/tests/p2_perf_e_real_owner_n158_parity_check.gd
   workflow_dispatch:
 
 permissions:
@@ -73,6 +74,39 @@ jobs:
             exit 1
           fi
           tail -n 45 godot/logs/p2-worker-gui/f5-worker.log
+      - name: Real worker frame-delta oracle vs direct N158 and N38
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 90s \
+            godot --headless --path godot \
+            --script res://tests/p2_perf_e_real_owner_n158_parity_check.gd \
+            > godot/logs/p2-worker-gui/threaded-frame-parity.log 2>&1 || {
+              tail -n 130 godot/logs/p2-worker-gui/threaded-frame-parity.log; exit 1;
+            }
+          grep -q P2_PERF_E_REAL_OWNER_N158_PARITY_PASS \
+            godot/logs/p2-worker-gui/threaded-frame-parity.log || {
+              tail -n 130 godot/logs/p2-worker-gui/threaded-frame-parity.log; exit 1;
+            }
+          tail -n 18 godot/logs/p2-worker-gui/threaded-frame-parity.log
+      - name: Original default F5 boot/save-load remains unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p2-default-user"
+          timeout --signal=TERM --kill-after=5s 60s \
+            env XDG_DATA_HOME="$RUNNER_TEMP/p2-default-user" \
+            godot --headless --path godot -- --p2-boot-check \
+            > godot/logs/p2-worker-gui/original-f5.log 2>&1 || {
+              tail -n 130 godot/logs/p2-worker-gui/original-f5.log; exit 1;
+            }
+          grep -q P2_BOOT_CHECK_PASS godot/logs/p2-worker-gui/original-f5.log || {
+            tail -n 130 godot/logs/p2-worker-gui/original-f5.log; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/p2-worker-gui/original-f5.log; then
+            tail -n 130 godot/logs/p2-worker-gui/original-f5.log; exit 1;
+          fi
+          tail -n 18 godot/logs/p2-worker-gui/original-f5.log
       - name: Preserve short-run diagnostics
         if: always()
         uses: actions/upload-artifact@v4
