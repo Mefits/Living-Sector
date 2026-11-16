@@ -84,6 +84,29 @@ func _initialize() -> void:
     var independent_nested: Dictionary = nested_array_old.duplicate(true)
     _expect(Guard.validate_owned_write(nested_array_old, independent_nested) == "",
         "accept_deep_detached_protected")
+    # Protected mutable storage must not leak into a different market.
+    # Distinct rows at each location are insufficient to detect this.
+    var multi_old: Dictionary = {"earth": _market(), "mars": _market()}
+    multi_old["mars"]["id"] = "mars"
+    var multi_detached: Dictionary = multi_old.duplicate(true)
+    _expect(Guard.validate_owned_write(multi_old, multi_detached) == "",
+        "cross_location_detached")
+    var cross_location: Dictionary = multi_old.duplicate(true)
+    cross_location["mars"]["history"]["foreign_stock"] = multi_old["earth"]["stock"]
+    _expect(Guard.validate_owned_write(multi_old, cross_location) ==
+        "market_write_aliased_protected_field",
+        "cross_location_protected_to_observation")
+    var cross_location_protected: Dictionary = multi_old.duplicate(true)
+    cross_location_protected["mars"]["stock"]["foreign"] = multi_old["earth"]["stock"]
+    _expect(Guard.validate_owned_write(multi_old, cross_location_protected) ==
+        "market_write_aliased_protected_field",
+        "cross_location_protected_to_protected")
+    var cross_location_independent: Dictionary = multi_old.duplicate(true)
+    cross_location_independent["mars"]["stock"]["foreign"] = (
+        multi_old["earth"]["stock"].duplicate(true))
+    _expect(Guard.validate_owned_write(multi_old, cross_location_independent) ==
+        "market_write_outside_observation",
+        "cross_location_detached_illegal_write")
     var detached_rows: Dictionary = old.duplicate(true)
     _expect(Guard.validate_owned_write(old, detached_rows) == "",
         "accept_detached_equal_rows")
