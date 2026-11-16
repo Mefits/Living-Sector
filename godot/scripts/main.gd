@@ -15,6 +15,8 @@ const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
+const WorkerN158 = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
+const ReadOnlyWorldModel = preload("res://scripts/sim/world_model.gd")
 
 var _model
 var _runner
@@ -55,6 +57,30 @@ var _presentation_elapsed: float = 0.0
 var _last_full_presentation_tick: int = -1
 const UI_DETAIL_INTERVAL: float = 0.45
 const UI_FLEET_MIN_TICKS: int = 4
+
+## Experimental E-only real Thread backend. False by default; never shares
+## the worker's live N158/N39/N9 with the SceneTree or view callbacks.
+var _worker_mode: bool = false
+var _worker_owner
+var _worker_booted: bool = false
+var _worker_failed: String = ""
+var _worker_loading: bool = false
+var _worker_frame_ticket: int = -1
+var _worker_tick: int = 0
+var _worker_speed: float = 0.25
+var _worker_paused: bool = false
+var _worker_elapsed: float = 0.0
+var _worker_last_view_usec: int = -1
+var _worker_calendar_text: String = ""
+var _worker_economy: Dictionary = {}
+var _worker_native: Dictionary = {}
+var _worker_summary: Dictionary = {}
+var _worker_fleet: Dictionary = {}
+var _worker_last_sim_ms: float = 0.0
+var _worker_view_dirty: bool = false
+var _worker_pending_actions: Dictionary = {}
+const WORKER_VIEW_INTERVAL_USEC: int = 450000
+const WORKER_MAX_DELTA: float = 0.125
 
 func _ready() -> void:
     _ui_profile_log = OS.get_cmdline_user_args().has("--p2-ui-profile") or (
@@ -280,23 +306,39 @@ func _ready() -> void:
         return
 
     _seed = data
-    _runner = TickRunner.new()
-    if not _runner.start_from_seed(_seed):
-        _status.text = "Ошибка индексации исходного мира"
-        _details.text = "Не удалось собрать физический мир P2: " + str(_runner.boot_error())
-        _startup_error = _details.text + " / " + str(_runner.boot_error())
-        push_error(_startup_error)
-        return
+    _worker_mode = OS.get_environment("LS_N158_WORKER_GUI") == "1" or (
+        OS.get_cmdline_user_args().has("--p2-worker-gui"))
+    if _worker_mode:
+        # This is a detached presentation WorldModel loaded from the frozen
+        # seed. It is NEVER a second N158 simulation or writable N39 World.
+        _model = ReadOnlyWorldModel.new()
+        if not _model.load_seed(_seed):
+            _startup_error = "Не удалось создать read-only UI карту"
+            _details.text = _startup_error
+            push_error(_startup_error)
+            return
+        _worker_owner = WorkerN158.new()
+        if not _worker_owner.launch(_seed):
+            _startup_error = "Не удалось запустить единственный N158 worker"
+            _details.text = _startup_error
+            push_error(_startup_error)
+            return
+        _sync_speed_control()
+    else:
+        _runner = TickRunner.new()
+        if not _runner.start_from_seed(_seed):
+            _status.text = "Ошибка индексации исходного мира"
+            _details.text = "Не удалось собрать физический мир P2: " + str(_runner.boot_error())
+            _startup_error = _details.text + " / " + str(_runner.boot_error())
+            push_error(_startup_error)
+            return
 
-    # Resume the one authoritative N158 World/ledger before building map/UI projections.
-    # A failed or incompatible checkpoint must never prevent a clean seed boot.
-    _restore_startup_checkpoint()
-    # The default OptionButton index is not the clock's authoritative speed.
-    # Synchronize it even on a fresh seed boot (without a saved checkpoint).
-    _sync_speed_control()
-    _model = _runner.world
-    _populate_ship_choices()
-    _runner.tick_completed.connect(_on_tick_completed)
+        # Restore ONLY the original owner here. Worker restores via its FIFO.
+        _restore_startup_checkpoint()
+        _sync_speed_control()
+        _model = _runner.world
+        _populate_ship_choices()
+        _runner.tick_completed.connect(_on_tick_completed)
     var stats: Dictionary = _model.seed_stats()
     _cached_seed_stats = stats.duplicate()
     _status.text = "Исходный Galaxy: %d систем · %d фракции · %d тел · %d объектов · %d корабля" % [
@@ -316,11 +358,14 @@ func _ready() -> void:
     else:
         _selected_system = ""
         _details.text = "В сохранённом мире нет доступных звёздных систем"
-    print("GODOT_P2_PAID_PRODUCTION_BOOT ", JSON.stringify(_runner.production_stats()))
+    if _worker_mode:
+        print("GODOT_P2_WORKER_GUI_OPT_IN owner=thread seed_ships=",
+            int(_cached_seed_stats.get("ships", 0)))
+    else:
+        print("GODOT_P2_PAID_PRODUCTION_BOOT ", JSON.stringify(_runner.production_stats()))
     _update_status()
-    # Opt-in end-to-end check executes the actual GUI scene and authoritative
-    # runtime, unlike source-only parser checks. Never run in normal gameplay.
-    if OS.get_cmdline_user_args().has("--p2-boot-check"):
+    # The old P2 boot smoke always runs against the default owner.
+    if not _worker_mode and OS.get_cmdline_user_args().has("--p2-boot-check"):
         call_deferred("_run_boot_check")
 
 func _run_boot_check() -> void:
@@ -432,6 +477,8 @@ func _checkpoint_recovery_suffix(result: Dictionary) -> String:
 
 
 func _populate_ship_choices() -> void:
+    if _worker_mode:
+        return # debug manual N14 commands are disabled for this backend
     if not ENABLE_DEBUG_MANUAL_FLEET_UI or _ship_choice == null or _runner == null:
         return
     var previous: String = ""
@@ -459,6 +506,8 @@ func _populate_ship_choices() -> void:
 
 
 func _depart_selected_ship() -> void:
+    if _worker_mode:
+        return # no unowned N14 direct command; fail closed
     if not ENABLE_DEBUG_MANUAL_FLEET_UI:
         return
     if _runner == null or not _fatal_restore_error.is_empty() or not _runtime_failure().is_empty():
@@ -485,6 +534,8 @@ func _depart_selected_ship() -> void:
 
 
 func _ship_logistics(action: String) -> void:
+    if _worker_mode:
+        return # no unowned N21 direct command; fail closed
     if not ENABLE_DEBUG_MANUAL_FLEET_UI:
         return
     if _runner == null or not _fatal_restore_error.is_empty() or not _runtime_failure().is_empty():
@@ -528,6 +579,13 @@ func _toggle_observer() -> void:
     _refresh_observer()
 
 func _refresh_observer() -> Dictionary:
+    if _worker_mode:
+        if _observer_panel == null or not _observer_panel.visible or (
+                _worker_economy.is_empty() or _worker_native.is_empty()):
+            return {}
+        _observer_panel.call("show_live_economy", _worker_tick,
+            _worker_economy, _worker_summary, _worker_fleet, _worker_native)
+        return _worker_economy
     if not _observer_panel or not _observer_panel.visible or not _runner:
         return {}
     # A read-only checkpoint projection lets the Observer distinguish a
@@ -546,6 +604,9 @@ func _refresh_observer() -> Dictionary:
     return economy
 
 func _process(delta: float) -> void:
+    if _worker_mode:
+        _worker_gui_process(delta)
+        return
     var began: int = Time.get_ticks_usec()
     # True monotonic time between GUI callbacks (including compositor and
     # previous blocking tick), rather than a possibly smoothed Engine delta.
@@ -620,6 +681,10 @@ func _active_draw_profile() -> Dictionary:
     return {}
 
 func _toggle_pause() -> void:
+    if _worker_mode:
+        if _worker_failed.is_empty():
+            _worker_send("resume" if _worker_paused else "pause")
+        return
     if not _runner or not _fatal_restore_error.is_empty():
         return
     if _runner.clock.paused and not _runtime_failure().is_empty():
@@ -631,6 +696,11 @@ func _toggle_pause() -> void:
     _update_status()
 
 func _step(count: int) -> void:
+    if _worker_mode:
+        if _worker_failed.is_empty():
+            _worker_send("pause")
+            _worker_send("step", {"count": count})
+        return
     if not _runner or not _fatal_restore_error.is_empty():
         return
     if not _runtime_failure().is_empty():
@@ -643,6 +713,10 @@ func _step(count: int) -> void:
     _update_status()
 
 func _change_speed(index: int) -> void:
+    if _worker_mode:
+        if _worker_failed.is_empty() and index >= 0 and index < SPEEDS.size():
+            _worker_send("speed", {"value": float(SPEEDS[index])})
+        return
     if not _runner or not _fatal_restore_error.is_empty() or index < 0 or index >= SPEEDS.size():
         return
     _runner.queue_control("speed", float(SPEEDS[index]))
@@ -650,6 +724,13 @@ func _change_speed(index: int) -> void:
     _update_status()
 
 func _save_game(save_path: String = "") -> void:
+    if _worker_mode:
+        if _worker_failed.is_empty():
+            var path: String = P2_SAVE_PATH if save_path.is_empty() else save_path
+            _worker_send("save", {"path": path})
+            _notice = "Сохранение N38 поставлено в очередь worker"
+            _update_status()
+        return
     if not _runner or not _fatal_restore_error.is_empty():
         return
     _runner.advance_frame(0.0)
@@ -663,6 +744,13 @@ func _save_game(save_path: String = "") -> void:
     _update_status()
 
 func _load_game(save_path: String = "") -> void:
+    if _worker_mode:
+        if _worker_failed.is_empty():
+            var path: String = P2_SAVE_PATH if save_path.is_empty() else save_path
+            _worker_loading = true
+            if _worker_send("load", {"path": path}) <= 0:
+                _worker_loading = false
+        return
     if not _runner:
         return
     var target: String = P2_SAVE_PATH if save_path.is_empty() else save_path
@@ -713,9 +801,10 @@ func _check_restore_rollback(result: Dictionary) -> void:
         push_error("P2 checkpoint rollback failed: " + reason)
 
 func _sync_speed_control() -> void:
-    if _speed_menu == null or _runner == null:
+    if _speed_menu == null or (_runner == null and not _worker_mode):
         return
-    var restored_speed: float = float(_runner.clock.world_speed)
+    var restored_speed: float = (_worker_speed if _worker_mode
+        else float(_runner.clock.world_speed))
     for index in range(SPEEDS.size()):
         if is_equal_approx(float(SPEEDS[index]), restored_speed):
             # Assigning selected does not dispatch item_selected or mutate time.
@@ -782,6 +871,9 @@ func _runtime_failure() -> Dictionary:
     return {}
 
 func _update_status(shared_economy: Dictionary = {}) -> void:
+    if _worker_mode:
+        _worker_update_status()
+        return
     if not _runner:
         return
     # Seed counts change only on explicit boot/N38 rebind, not on each
@@ -814,6 +906,20 @@ func _update_status(shared_economy: Dictionary = {}) -> void:
 
 func _refresh_selection(shared_economy: Dictionary = {},
         refresh_live_view: bool = true) -> void:
+    if _worker_mode:
+        if _model == null:
+            return
+        var current: Dictionary = _model.system_by_id(_selected_system)
+        if current.is_empty():
+            return
+        if _in_system:
+            if refresh_live_view:
+                _system_view.update_world(current)
+                _system_view.set_live_fleet(_worker_fleet)
+            _show_body_details(current, _worker_economy)
+        else:
+            _select_world(current, _worker_economy)
+        return
     if not _runner:
         return
     var selected: Dictionary = _model.system_by_id(_selected_system)
@@ -844,7 +950,8 @@ func _select_world(world: Dictionary, shared_economy: Dictionary = {}) -> void:
     _map.call("select_system", sid)
     if _in_system:
         _system_view.update_world(world)
-        _system_view.set_live_fleet(_runner.fleet_snapshot())
+        _system_view.set_live_fleet(_worker_fleet if _worker_mode
+            else _runner.fleet_snapshot())
         _show_body_details(world, shared_economy)
         return
     var bodies: Array = world.get("bodies", [])
@@ -988,7 +1095,8 @@ func _open_world(world: Dictionary) -> void:
     _map.visible = false
     _system_view.visible = true
     _system_view.set_world(current)
-    _system_view.call("set_live_fleet", _runner.fleet_snapshot())
+    _system_view.call("set_live_fleet", _worker_fleet if _worker_mode
+        else _runner.fleet_snapshot())
     _map.call("select_system", sid)
     _back_button.visible = true
     _back_button.text = "← К сектору"
@@ -1096,8 +1204,11 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
     lines.append("")
     lines.append("СТАНЦИИ И ПРЕДПРИЯТИЯ НА ТЕЛЕ")
     var economic: Dictionary = shared_economy
-    if economic.is_empty() and _runner != null:
-        economic = _runner.economy_snapshot()
+    if economic.is_empty():
+        if _worker_mode:
+            economic = _worker_economy
+        elif _runner != null:
+            economic = _runner.economy_snapshot()
     var live_facilities: Dictionary = economic.get("facilities", {})
     var locations: Dictionary = {}
     var count: int = 0
@@ -1182,7 +1293,8 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
 ## Read-only boot diagnostics for local Windows/Godot compatibility smoke.
 ## No gameplay mutation and no false claim that P2/P3 phases execute.
 func startup_health() -> Dictionary:
-    var booted: bool = _runner != null and _runner.is_started()
+    var booted: bool = (_worker_booted if _worker_mode
+        else (_runner != null and _runner.is_started()))
     var has_map: bool = _map != null and is_instance_valid(_map)
     var has_ui: bool = _status != null and _details != null and _pause_button != null
     var seed_ok: bool = booted and _model != null and _model.seed_stats().get("systems", 0) == 8
@@ -1194,8 +1306,11 @@ func startup_health() -> Dictionary:
         "seed_ok": seed_ok,
         "map_ready": has_map,
         "ui_ready": has_ui,
-        "tick": _runner.tick_count if booted else -1,
+        "tick": (_worker_tick if _worker_mode else _runner.tick_count) if booted else -1,
         "runtime_failure": _runtime_failure(),
         "fatal_restore_error": _fatal_restore_error,
-        "implemented_phases": _runner.implemented_phases() if booted else PackedStringArray()
+        "worker_enabled": _worker_mode,
+        "worker_failure": _worker_failed,
+        "implemented_phases": (PackedStringArray(["N158_worker"]) if _worker_mode
+            else (_runner.implemented_phases() if booted else PackedStringArray()))
     }
