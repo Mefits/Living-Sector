@@ -56,6 +56,20 @@ jobs:
             tail -n 140 "$RUNNER_TEMP/n14.log"; exit 1;
           fi
           grep 'P2 NATIVE ORBITAL INTERCEPT PASS' "$RUNNER_TEMP/n14.log"
+      - name: Run frozen N14/N43, real fuel and checkpoint regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test in n14_transit_check n43_native_location_resolver_check p2_ship_transit_fuel_check p2_unified_ship_phase_check; do
+            echo "N14_ORBIT_REGRESSION $test"
+            timeout --signal=TERM --kill-after=5s 40s godot --headless --path godot --script "res://tests/${test}.gd" >"$RUNNER_TEMP/${test}.log" 2>&1 || {
+              tail -n 140 "$RUNNER_TEMP/${test}.log"; exit 1;
+            }
+            if grep -Eq 'SCRIPT ERROR:|Parse Error:|FAIL:' "$RUNNER_TEMP/${test}.log"; then
+              tail -n 140 "$RUNNER_TEMP/${test}.log"; exit 1;
+            fi
+            grep -E 'PASS|pass' "$RUNNER_TEMP/${test}.log" | tail -n 3 || tail -n 6 "$RUNNER_TEMP/${test}.log"
+          done
       - name: Verify existing seamless Sol zoom
         shell: bash
         run: |
