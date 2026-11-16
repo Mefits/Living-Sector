@@ -26,6 +26,16 @@ static func posture(cache: Dictionary, ship_faction: String, seller_faction: Str
         cache[ship_faction] = ship_cache
     return seller_cache[reputation]
 
+## A proposal-scoped index shared only by offers with identical endpoints.
+## The caller discards roots after propose(); no World/graph alias is stored.
+static func offer_route_index(roots: Dictionary, source: String, destination: String) -> Dictionary:
+    if not roots.has(source):
+        roots[source] = {}
+    var destinations: Dictionary = roots[source]
+    if not destinations.has(destination):
+        destinations[destination] = {}
+    return destinations[destination]
+
 static func legs(cache: Dictionary, here: String, source: String, dest: String,
         graph: RefCounted, positions: Dictionary) -> Dictionary:
     # Cache only per-contract origin geometry, not inter-call paths.
