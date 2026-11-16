@@ -195,6 +195,26 @@ func _check() -> void:
             chasing.ships["courier-1"]["transit"] != {}):
         _fail("N14 arrival did not clear true transit")
         return
+    # Short CI cost sample: baseline calculation for one moving target.
+    # Not a Windows 50+ systems benchmark; only an order-of-magnitude
+    # signal before allowing this feature into the main simulation.
+    var bench_start: int = Time.get_ticks_usec()
+    var solved: int = 0
+    var sample_speed: float = 0.05 * Catalog.effective_speed(
+        "courier", "small")
+    for _sample in range(500):
+        var result: Dictionary = Intercept.aim_point(
+            Vector2(0.3, -0.1), sample_speed, basic,
+            Intercept.position_after(basic, 0.0))
+        if result.get("prediction_used", false):
+            solved += 1
+    if solved != 500:
+        _fail("fast forecast benchmark had missing intercepts")
+        return
+    var bench_us: int = Time.get_ticks_usec() - bench_start
+    print("P2 NATIVE ORBITAL INTERCEPT COST: 500 solves, ",
+        bench_us, " usec total, ", float(bench_us) / 500.0,
+        " usec/solve on Linux CI")
     print("P2 NATIVE ORBITAL INTERCEPT PASS: lead=", lead_arrival,
         " ticks pursuit=", chase_arrival,
         " ticks; live seed N43 parity, parented Moon, fuel, arrival")
