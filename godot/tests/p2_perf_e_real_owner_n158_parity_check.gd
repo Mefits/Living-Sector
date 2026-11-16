@@ -58,8 +58,14 @@ func _initialize() -> void:
         _fail("worker N38 save/load failed: " + str(outcome))
         return
     var loaded: Dictionary = Saves.load_runner(direct, _seed, save_path)
-    if not loaded.get("ok", false) or direct.tick_count != 5 or direct.checkpoint() != saved:
-        _fail("direct N38 restore failed or checkpoint changed")
+    if not loaded.get("ok", false) or direct.tick_count != 5:
+        _fail("direct N38 load rejected/tick mismatch: " + str(loaded)
+            + " tick=" + str(direct.tick_count))
+        return
+    var after_load: Dictionary = direct.checkpoint()
+    if after_load != saved:
+        _fail("direct N38 restart differs at "
+            + _first_difference(saved, after_load, "checkpoint", 0))
         return
     if not _compare(direct, "N38 restart at tick5"):
         return
@@ -150,3 +156,30 @@ func _fail(reason: String) -> void:
     push_error("P2_PERF_E_REAL_OWNER_N158_PARITY_FAIL: " + reason)
     _worker.close()
     quit(1)
+
+func _first_difference(left: Variant, right: Variant, path: String, depth: int) -> String:
+    if depth > 80:
+        return path + " depth"
+    if typeof(left) != typeof(right):
+        return path + " type=" + str(typeof(left)) + "/" + str(typeof(right))
+    if left is Dictionary:
+        if left.size() != right.size():
+            return path + " size=" + str(left.size()) + "/" + str(right.size())
+        for key in left:
+            if not right.has(key):
+                return path + " missing=" + str(key)
+            var nested: String = _first_difference(left[key], right[key],
+                path + "/" + str(key), depth + 1)
+            if not nested.is_empty():
+                return nested
+        return ""
+    if left is Array:
+        if left.size() != right.size():
+            return path + " size=" + str(left.size()) + "/" + str(right.size())
+        for i in range(left.size()):
+            var nested: String = _first_difference(left[i], right[i],
+                path + "/" + str(i), depth + 1)
+            if not nested.is_empty():
+                return nested
+        return ""
+    return "" if left == right else path + " mismatch:" + str(left) + "/" + str(right)
