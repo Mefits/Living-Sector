@@ -82,6 +82,9 @@ static func propose(world: Dictionary, graph: RefCounted,
     var candidates: Array = []
     var blocked: Array = []
     var already_assigned: Dictionary = {}
+    # Per-proposal geometry: contracts sharing source/destination can reuse
+    # the same here->legs index. Never persists across World/tick/N38 load.
+    var route_indices: Dictionary = {} # source -> destination -> here -> legs
     for contract_id in ids:
         var c: Dictionary = contracts[contract_id]
         if str(c.get("status", "")) != "posted" or str(c.get("contract_type", "")) != "delivery":
@@ -125,7 +128,12 @@ static func propose(world: Dictionary, graph: RefCounted,
             continue
         var winner: Dictionary = {}
         var ship_blockers: Dictionary = {}
-        var route_index: Dictionary = {} # This offer only.
+        if not route_indices.has(source):
+            route_indices[source] = {}
+        var by_destination: Dictionary = route_indices[source]
+        if not by_destination.has(dest):
+            by_destination[dest] = {}
+        var route_index: Dictionary = by_destination[dest]
         var fixed_offer: Dictionary = {}
         var fixed_controllers: Dictionary = {}
         for ship_id in ships:
