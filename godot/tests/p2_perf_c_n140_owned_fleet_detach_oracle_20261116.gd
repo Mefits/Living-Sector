@@ -54,6 +54,6 @@ static func run() -> Dictionary:
         if row.get("cargo") != original["ships"]["ship_a"]["cargo"] or (
                 row.get("fuel") != original["ships"]["ship_a"]["fuel"]):
             return {"ok": false, "reason": "cargo_fuel_changed_without_transit"}
-        if not str(row.get("transit", "")).is_empty():
+        if not (row.get("transit") is Dictionary) or not row["transit"].is_empty():
             return {"ok": false, "reason": "invented_transit"}
     return {"ok": true}
