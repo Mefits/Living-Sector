@@ -12,15 +12,19 @@ if not defined GODOT_EXE for /f "delims=" %%G in ('where godot.exe 2^>nul') do i
 if not defined GODOT_EXE goto missing
 if not exist "%GODOT_EXE%" goto missing
 
+REM Windows argument parsing treats a trailing backslash before a quote as an
+REM escaped quote; trim the final slash of %%~dp0 to avoid swallowing "--".
+set "GODOT_PROJECT=%~dp0"
+set "GODOT_PROJECT=%GODOT_PROJECT:~0,-1%"
 set "LS_N158_WORKER_GUI=1"
 echo.
 echo Living Sector - EXPERIMENTAL N158 WORKER GUI
 echo Godot: "%GODOT_EXE%"
-echo Project: "%~dp0"
+echo Project: "%GODOT_PROJECT%"
 echo Worker save slot: galaxy-067-p2-worker-experimental.json
 echo Normal save slot remains untouched.
 echo.
-"%GODOT_EXE%" --path "%~dp0" -- --p2-worker-gui
+"%GODOT_EXE%" --path "%GODOT_PROJECT%" -- --p2-worker-gui
 set "EXITCODE=%ERRORLEVEL%"
 if not "%EXITCODE%"=="0" echo Godot finished with error code %EXITCODE%.
 pause
