@@ -6,6 +6,7 @@ const Catalog = preload("res://scripts/sim/ship_catalog.gd")
 const OrbitalIntercept = preload("res://scripts/sim/ships/native_orbital_intercept.gd")
 const BASE_VELOCITY := 0.05 # Rust agents/ship/mod.rs SHIP_BASE_VELOCITY
 const ARRIVAL_THRESHOLD := 0.01 # Rust SHIP_ARRIVAL_THRESHOLD
+const ARRIVAL_FLOAT_EPSILON := 0.000001 # Vector2 float32 only: 0.1 ~= 2 * 0.05
 var _next_token: int = 1
 
 func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: String, positions: Dictionary, tick: int, tick_scale: float) -> bool:
@@ -92,7 +93,9 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 	if float(ship["fuel"]) < consumption:
 		transit["last_tick"] = tick
 		return "out_of_fuel"
-	if remaining <= velocity:
+	# Keep a tiny float32 tolerance: 0.1 - 0.05 is not exactly
+	# 0.05 in Vector2. This is a numerical boundary, not a free jump.
+	if remaining <= velocity + ARRIVAL_FLOAT_EPSILON:
 		ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
 		ship["location"] = target_id
 		ship["transit"] = {}
