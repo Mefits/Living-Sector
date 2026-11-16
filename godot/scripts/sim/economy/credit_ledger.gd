@@ -360,6 +360,34 @@ func verify_operation_provenance(expected_rows: Array) -> bool:
 	return true
 
 
+## Exact bounded N9 provenance oracle for transaction staging. Unlike
+## verify_operation_provenance(), this rejects omitted metadata as well as
+## forged metadata. An expected row must be the ENTIRE original receipt.
+## O(requested IDs), never a full history snapshot, and no mutable alias.
+## Empty proofs fail closed; no implicit authorization of an empty batch.
+func verify_exact_operation_receipts(expected_rows: Array) -> bool:
+	if expected_rows.is_empty():
+		return false
+	var seen: Dictionary = {}
+	for value in expected_rows:
+		if not (value is Dictionary):
+			return false
+		var row: Dictionary = value
+		var id: Variant = row.get("id", null)
+		if not (id is String) or id.is_empty() or seen.has(id):
+			return false
+		seen[id] = true
+		if not _has_receipt_id(id):
+			return false
+		var stored: Dictionary = _receipt_at(id)
+		if row.size() != stored.size():
+			return false
+		for field in stored:
+			if not row.has(field) or row[field] != stored[field]:
+				return false
+	return true
+
+
 func retains_receipts(candidate: Dictionary) -> bool:
 	for chunk in _receipt_order_chunks:
 		for id in chunk:
