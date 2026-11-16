@@ -108,14 +108,14 @@ static func advance(world: Dictionary, positions: Dictionary,
             if measured > 0.0 and is_finite(measured):
                 tolerance = measured
             arrival_cache[destination] = tolerance
-        var system_id: String = str(row.get("system_id", ""))
+        var origin_system_id: String = str(row.get("system_id", ""))
         var solar: Dictionary = {}
-        if solar_cache.has(system_id):
-            solar = solar_cache[system_id]
+        if solar_cache.has(origin_system_id):
+            solar = solar_cache[origin_system_id]
         elif resolver != null and resolver.has_method(
                 "verified_solar_exclusion"):
-            solar = resolver.verified_solar_exclusion(system_id)
-            solar_cache[system_id] = solar
+            solar = resolver.verified_solar_exclusion(origin_system_id)
+            solar_cache[origin_system_id] = solar
         var outcome: String = motion.advance(
             state, str(id), positions, tick, tick_scale * float(scale),
             scale, true, forecast, tolerance, solar)
