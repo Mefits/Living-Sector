@@ -278,15 +278,17 @@ static func advance(world: Dictionary, ledger: Variant,
     var keys: Array = staged["facilities"].keys()
     keys.sort()
     for fid in keys:
-        if _queue(staged["facilities"][fid]).is_empty():
+        var fac: Dictionary = staged["facilities"][fid]
+        # The stage already owns a detached facility queue. Avoid
+        # recursively copying the remaining FIFO for every head read.
+        if fac.get("dock_queue", []).is_empty():
             continue
         changed = _prune(staged, str(fid)) or changed
-        while not _queue(staged["facilities"][fid]).is_empty():
-            var fac: Dictionary = staged["facilities"][fid]
+        while not fac["dock_queue"].is_empty():
             if int(occupancy.get(str(fid), 0)) >= int(fac.get(
                     "docking_capacity", 0)):
                 break
-            var head: String = str(_queue(fac)[0])
+            var head: String = str(fac["dock_queue"][0])
             var fee: int = _fee(staged, str(fid), head, occupancy)
             if fee < 0 or int(staged["ships"][head].get("credits", -1)) < fee:
                 fac["dock_queue"].pop_front()
