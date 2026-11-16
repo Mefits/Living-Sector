@@ -69,6 +69,62 @@ func _check() -> void:
         _fail("camera mutation changed the frozen system")
         return
 
+    # Auto-follow must engage on wheel detail scale, without a second
+    # scene or requiring a double click. Simulate a real visible pin.
+    view.call("set_world", sol)
+    view.set("_draw_body_positions", {})
+    var earth_for_follow: Dictionary = {}
+    for value in sol.get("bodies", []):
+        if str(value.get("id", "")) == "earth":
+            earth_for_follow = value
+            break
+    if earth_for_follow.is_empty():
+        _fail("Earth missing for camera follow check")
+        return
+    var origin: Vector2 = view.call("_body_position", earth_for_follow,
+        float(view.call("_orbit_scale")))
+    view.set("_body_pins", [{"body": earth_for_follow, "position": origin,
+        "hit_radius": 25.0}])
+    view.call("_zoom_at", origin, 32.0)
+    for i in range(120):
+        view.call("_process", 1.0 / 60.0)
+    if not bool(view.call("is_body_focused")):
+        _fail("wheel detail did not auto-follow its real target")
+        return
+    var initial_centered: Vector2 = view.call("_body_position",
+        earth_for_follow, float(view.call("_orbit_scale")))
+    if initial_centered.distance_to(view.size * 0.5) > 2.0:
+        _fail("auto-follow did not converge to planet center")
+        return
+
+    # A physically different source angle should move the body, but not
+    # eject the focused planet from the viewport at any simulation speed.
+    var rotated: Dictionary = sol.duplicate(true)
+    for updated in rotated.get("bodies", []):
+        if str(updated.get("id", "")) == "earth":
+            updated["current_angle"] = fposmod(
+                float(updated.get("current_angle", 0.0)) + 90.0, 360.0)
+    view.call("update_world", rotated)
+    view.set("_body_motion_from", {})
+    for i in range(12):
+        view.call("_process", 1.0 / 60.0)
+    view.set("_draw_body_positions", {})
+    var focused_earth: Dictionary = (
+        view.get("_body_index") as Dictionary).get("earth", {})
+    var moved_center: Vector2 = view.call("_body_position", focused_earth,
+        float(view.call("_orbit_scale")))
+    if moved_center.distance_to(view.size * 0.5) > 2.0:
+        _fail("planet drifted from camera after a real orbit-angle change")
+        return
+
+    # Zooming back through the SAME detail threshold releases the lock.
+    view.call("_zoom_at", view.size * 0.5, 1.0 / 32.0)
+    if bool(view.call("is_body_focused")):
+        _fail("zoom-out failed to release the followed planet")
+        return
+    for i in range(120):
+        view.call("_process", 1.0 / 60.0)
+
     # Root-cause regression: all relative-orbit separation must obey the
     # SAME camera scale as full-system orbital distance. A moon must not
     # grow into its parent when zoom grows past the old sqrt(zoom) clamp.
