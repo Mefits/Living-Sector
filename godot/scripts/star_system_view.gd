@@ -285,6 +285,14 @@ func set_live_fleet(fleet: Dictionary) -> void:
             var point: Variant = transit.get("position", null)
             if point is Array and (point as Array).size() == 2:
                 visual_transit = {"position": [point[0], point[1]]}
+                # Selected ship only. Never copy hundreds of unrelated
+                # route receipts into the hot UI frame.
+                if str(sid) == _selected_ship_id:
+                    var points: Variant = transit.get(
+                        "navigation_waypoints", [])
+                    if points is Array and (points as Array).size() <= 8:
+                        visual_transit["navigation_waypoints"] = (
+                            points as Array).duplicate(true)
             else:
                 visual_transit = {"invalid_position": true}
         projected[sid] = {"location": str(ship.get("location", "")),
@@ -889,6 +897,27 @@ func _draw_real_native_transits(system: Dictionary,
         # At sector overview one simple marker per vessel; hundreds of
         # decorative arc strokes have no gameplay value. Keep a halo on
         # actual selected vessels and when zoomed to a local flight.
+        if str(sid) == _selected_ship_id:
+            var native_route: Variant = transit.get(
+                "navigation_waypoints", [])
+            if native_route is Array and not native_route.is_empty():
+                var line: PackedVector2Array = PackedVector2Array([screen])
+                for raw_point in native_route:
+                    if not (raw_point is Array) or raw_point.size() != 2:
+                        break
+                    var wp: Vector2 = Vector2(
+                        float(raw_point[0]), float(raw_point[1])) - offset
+                    var waypoint_distance: float = wp.length()
+                    var screen_waypoint: Vector2 = _center()
+                    if waypoint_distance > 0.0:
+                        screen_waypoint += Vector2(
+                            wp.x, -wp.y) / waypoint_distance * (
+                            _radius_transform(waypoint_distance) *
+                            scale * _zoom)
+                    line.append(screen_waypoint)
+                if line.size() > 1:
+                    draw_polyline(line, Color(0.51, 0.81, 0.90, 0.7),
+                        1.7, true)
         draw_circle(screen, 3.4, tone)
         if _zoom >= 4.0:
             draw_arc(screen, 5.0, 0.0, TAU, 12, tone, 1.0, true)
