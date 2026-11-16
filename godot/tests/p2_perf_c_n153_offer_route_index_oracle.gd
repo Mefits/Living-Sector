@@ -36,7 +36,7 @@ func _initialize() -> void:
     assert(is_equal_approx(float(at_source["steps"][0]["distance"]), 10.0))
     # Changing the returned per-ship steps must not mutate the outbound
     # scalar cache, or the next independent ship's fuel estimate.
-    at_source["steps"][0] = {"present": false, "distance": -1.0}
+    at_source["steps"][0]["distance"] = -1.0
     assert(is_equal_approx(float(again[1][0]["distance"]), 10.0))
     # Distinct destination and source must never inherit stale legs.
     var other: Dictionary = Index.offer_route_index(roots, "B", "D")
