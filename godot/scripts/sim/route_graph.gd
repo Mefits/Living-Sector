@@ -153,6 +153,16 @@ func has_location(location: String) -> bool:
 func outgoing(location: String) -> Array:
     return _edges.get(location, []).duplicate(true)
 
+## N4 route results contain only scalar metadata and a flat locations Array.
+## Detach that Array explicitly rather than recursively deep-copying every
+## string on each N153 cache hit. Neither caller nor cache owns the other's
+## mutable container. Negative routes have no locations Array.
+static func _detached_route(route: Dictionary) -> Dictionary:
+    var copy: Dictionary = route.duplicate()
+    if route.get("locations") is Array:
+        copy["locations"] = (route["locations"] as Array).duplicate()
+    return copy
+
 ## Cached results are returned as independent dictionaries so callers
 ## can never rewrite a later ship's deterministic route. Negative routes
 ## are cached too; successful graph reloads invalidate every cached pair.
@@ -160,7 +170,7 @@ func shortest_path(start: String, destination: String) -> Dictionary:
     var destinations: Dictionary = _path_cache.get(start, {})
     if destinations.has(destination):
         _path_hits += 1
-        return (destinations[destination] as Dictionary).duplicate(true)
+        return _detached_route(destinations[destination])
     _path_misses += 1
     var result: Dictionary = _shortest_path_uncached(start, destination)
     if _path_cache_size >= MAX_PATH_CACHE:
@@ -179,7 +189,7 @@ func shortest_path(start: String, destination: String) -> Dictionary:
             _path_cache_fifo_head = 0
     if not _path_cache.has(start):
         _path_cache[start] = {}
-    _path_cache[start][destination] = result.duplicate(true)
+    _path_cache[start][destination] = _detached_route(result)
     _path_cache_fifo.append([start, destination])
     _path_cache_size += 1
     return result
