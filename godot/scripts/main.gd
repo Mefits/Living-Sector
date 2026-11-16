@@ -323,10 +323,10 @@ func _ready() -> void:
         return
 
     _seed = data
-    # F5 does NOT read the editor's run/main_run_args from project.godot.
-    # This branch-scoped ProjectSettings flag is read by the actual game
-    # process, so a plain F5 reliably launches the experimental worker.
-    # Explicit legacy smoke/override always wins; never run two N158 owners.
+    # The PERF PR explicitly opts the regular F5 game into the isolated
+    # worker. Godot editor run arguments and unregistered project keys did not
+    # reach the game process. Explicit legacy override always wins.
+    # Only one N158/N39/N9 owner exists in either branch.
     var run_args: PackedStringArray = OS.get_cmdline_user_args()
     # PERF BRANCH ONLY. Godot Editor F5 does not forward project.godot
     # editor/main_run_args; likewise the unregistered custom project key
