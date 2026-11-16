@@ -249,6 +249,22 @@ func receipt_copy(operation_id: String) -> Dictionary:
 	return _receipt_at(operation_id).duplicate(true)
 
 
+## B-owned bounded provenance lookup for N39 consumers that already know the
+## operation IDs they need to verify. Unlike snapshot(), this never copies
+## unrelated historical receipts. Every returned row is detached from N9 and
+## from other returned rows; absent/duplicate/empty IDs fail closed.
+## No balances or receipt history are modified by this query.
+func receipts_for_operations(operation_ids: Array) -> Dictionary:
+	var found: Dictionary = {}
+	for value in operation_ids:
+		if not (value is String) or value.is_empty() or found.has(value):
+			return {"ok": false, "reason": "invalid_or_duplicate_operation_id"}
+		if not _has_receipt_id(value):
+			return {"ok": false, "reason": "missing_operation_id"}
+		found[value] = _receipt_at(value).duplicate(true)
+	return {"ok": true, "receipts": found}
+
+
 func retains_receipts(candidate: Dictionary) -> bool:
 	for chunk in _receipt_order_chunks:
 		for id in chunk:
