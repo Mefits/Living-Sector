@@ -21,7 +21,7 @@ func _initialize() -> void:
 	var before: Dictionary = ledger.receipt_storage_profile()
 	if not before.get("ok", false) or int(before["receipts"]) != 300 or (
 			int(before["largest_shard"]) <= 0) or (
-			int(before["occupied_shards"]) > 256):
+			int(before["occupied_shards"]) > Ledger.RECEIPT_PARTITIONS):
 		_fail("index counters")
 		return
 	var forked = ledger.fork()
