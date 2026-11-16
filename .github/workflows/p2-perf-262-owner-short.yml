@@ -6,6 +6,8 @@ on:
       - integration/perf-astra-5-workers-20261116
     paths:
       - .github/workflows/p2-perf-262-owner-short.yml
+      - godot/tests/p2_perf_e_real_owner_n158_parity_check.gd
+      - godot/scripts/sim/phase2/n158_real_owner_thread_probe.gd
   workflow_dispatch:
 
 permissions:
