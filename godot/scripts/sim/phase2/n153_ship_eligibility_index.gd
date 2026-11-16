@@ -40,7 +40,7 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
         graph: RefCounted, positions: Dictionary) -> Dictionary:
     # Cache only per-contract origin geometry, not inter-call paths.
     if cache.has(here):
-        return cache[here]
+        return _detached_legs(cache[here])
     var result: Dictionary = {}
     if not graph.has_location(source) or not graph.has_location(dest) or not graph.has_location(here):
         result = {"error": "native_route_endpoint_unmapped"}
@@ -74,6 +74,25 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
             result = {"inbound": inbound["locations"],
                 "outbound": outbound["locations"], "steps": steps}
     cache[here] = result
+    return _detached_legs(result)
+
+## A ship's fuel/cargo decision may inspect or modify its returned leg rows.
+## The proposal cache owns its arrays; never expose them to another bidder.
+## Rows are flat scalar dictionaries, so bounded one-level detachment is
+## sufficient and avoids recursively copying immutable location strings.
+static func _detached_legs(owned: Dictionary) -> Dictionary:
+    var result: Dictionary = owned.duplicate()
+    if owned.has("inbound"):
+        result["inbound"] = (owned["inbound"] as Array).duplicate()
+    if owned.has("outbound"):
+        result["outbound"] = (owned["outbound"] as Array).duplicate()
+    if owned.has("steps"):
+        var source_steps: Array = owned["steps"]
+        var steps: Array = []
+        steps.resize(source_steps.size())
+        for i in range(source_steps.size()):
+            steps[i] = (source_steps[i] as Dictionary).duplicate()
+        result["steps"] = steps
     return result
 
 ## N80's location resolver is read-only within one dispatch. Never
