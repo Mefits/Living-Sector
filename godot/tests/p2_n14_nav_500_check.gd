@@ -3,6 +3,9 @@ extends SceneTree
 ## but synthetic fleet fixture: NOT a full N39/N9/AI economic stress test.
 ## Both solar detours and open-space cached lead are exercised concurrently.
 const Transit = preload("res://scripts/sim/ship_transit.gd")
+const NativeData = preload("res://scripts/native_data.gd")
+const Model = preload("res://scripts/sim/world_model.gd")
+const Resolver = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const State = preload("res://scripts/sim/ship_state.gd")
 const Avoidance = preload("res://scripts/sim/ships/native_avoidance.gd")
 const Intercept = preload("res://scripts/sim/ships/native_orbital_intercept.gd")
@@ -20,6 +23,18 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+    var seed: Dictionary = NativeData.load_current_world()
+    var model: RefCounted = Model.new()
+    var resolver: RefCounted = Resolver.new()
+    if seed.has("error") or not model.load_seed(seed) or (
+            not resolver.load_seed(seed)):
+        _fail("cannot load real Sol native obstacles")
+        return
+    var planets: Array = resolver.verified_planet_obstacles(
+        "system-sol", model)
+    if planets.size() < 7 or planets.size() > 16:
+        _fail("bounded real planetary collision registry unavailable")
+        return
     var state: RefCounted = State.new()
     var motion: RefCounted = Transit.new()
     var start_locations: Dictionary = {}
@@ -74,7 +89,8 @@ func _run() -> void:
             var use_forecast: bool = int(str(id).substr(7)) >= COUNT / 2
             var forecast: Dictionary = sky if use_forecast else {}
             var outcome: String = motion.advance(state, str(id),
-                positions, tick, 1.0, 1, false, forecast, 0.00001, star)
+                positions, tick, 1.0, 1, false, forecast, 0.00001, star,
+                planets, "earth")
             if outcome != "moving":
                 _fail("500 native flights returned " + outcome +
                     " for " + str(id) + " on tick " + str(tick))
@@ -122,7 +138,8 @@ func _run() -> void:
         float(sorted.size()) * 0.95) - 1)]
     print("P2 N14 NAV 500 COST: ", COUNT, " genuine transit steps x ",
         STEPS, "; peak=", peak, " us; p95=", p95, " us;",
-        " star-detours=", waypoint_ships, "; open-lead=", lead_ships)
+        " star-detours=", waypoint_ships, "; open-lead=", lead_ships,
+        "; real-planet-obstacles=", planets.size())
     print("P2 N14 NAV 500 PASS: bounded solar arcs and cached",
         " predictions saved with 500 N14 ships, no collision, real fuel")
     quit(0)
