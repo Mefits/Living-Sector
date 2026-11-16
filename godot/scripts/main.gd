@@ -1527,12 +1527,12 @@ func _show_ship_details(fleet: Dictionary) -> bool:
     lines.append("")
     lines.append("Топливо: %.1f / %.1f" % [
         float(ship.get("fuel", 0.0)), float(ship.get("fuel_capacity", 0.0))])
-    lines.append("Груз: %d / %d" % [
-        int(ship.get("cargo", {}).values().reduce(
-            func(sum: int, quantity: Variant) -> int:
-                return sum + int(quantity), 0)),
-        int(ship.get("cargo_capacity", 0))])
     var cargo: Dictionary = ship.get("cargo", {})
+    var cargo_amount: int = 0
+    for quantity in cargo.values():
+        cargo_amount += int(quantity)
+    lines.append("Груз: %d / %d" % [
+        cargo_amount, int(ship.get("cargo_capacity", 0))])
     var materials: Array = cargo.keys()
     materials.sort()
     for material in materials:
