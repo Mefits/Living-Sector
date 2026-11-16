@@ -760,7 +760,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
             return false
         var proposal: Dictionary = ShipPhase.advance(current,
             locations["positions"], tick, clock.tick_scale(), _fleet_resolver,
-            _tick_multiplier)
+            _tick_multiplier, [], world,
+            calendar.native_time_units + clock.tick_scale())
         if not proposal.get("ok", false):
             _last_ship_result = proposal
             return false
