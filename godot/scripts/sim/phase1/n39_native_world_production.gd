@@ -2162,6 +2162,14 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         return {"ok": false, "reason": "n91_not_canonical_faction_tick"}
     if not _world.has("construction_sites"):
         return {"ok": true, "status": "N91_LEGACY_DISABLED", "assigned": []}
+    # N91 has no write-set when the source selector supplies no proposals.
+    # Avoid copying growing World histories and running Schema/accounts on
+    # every idle tick. The authoritative World was validated at its last
+    # commit; no mutable reference escapes and no N9 receipt is produced.
+    # Preserve the source success payload, including tick and status.
+    if proposals.is_empty():
+        return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
+            "tick": tick, "assigned": []}
     var staged: Dictionary = _copy_world("L2008", true)
     var updated: Array = []
     var used_sites: Dictionary = {}
