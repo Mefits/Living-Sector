@@ -239,6 +239,16 @@ func fork() -> RefCounted:
 func receipt_count() -> int:
 	return _receipt_count
 
+## O(1) operation-ID provenance lookup over the authoritative immutable
+## receipt shards. A caller receives a fully detached record, never a mutable
+## alias to a ledger shard. Missing IDs return an empty dictionary.
+## This is deliberately read-only; it cannot bypass commit/restore checks.
+func receipt_copy(operation_id: String) -> Dictionary:
+	if operation_id.is_empty() or not _has_receipt_id(operation_id):
+		return {}
+	return _receipt_at(operation_id).duplicate(true)
+
+
 func retains_receipts(candidate: Dictionary) -> bool:
 	for chunk in _receipt_order_chunks:
 		for id in chunk:
