@@ -94,7 +94,8 @@ func _run() -> void:
                     return
         elapsed.append(Time.get_ticks_usec() - started)
     if waypoint_ships < 100 or lead_ships < 100:
-        _fail("500-ship fixture did not test both navigation corridors")
+        _fail("500-ship fixture did not test both navigation corridors: detour=" +
+            str(waypoint_ships) + " lead=" + str(lead_ships))
         return
     var full: Array = state.snapshot()
     var recovered: RefCounted = State.new()
