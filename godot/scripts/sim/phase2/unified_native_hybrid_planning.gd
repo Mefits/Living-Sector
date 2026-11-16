@@ -71,17 +71,24 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
     if not (contracts is Dictionary):
         return {"ok": false, "reason": "n100_invalid_original_contract_board"}
     var commitments: Array = []
-    var contract_ids: Array = contracts.keys()
-    contract_ids.sort()
-    for cid in contract_ids:
+    # A faction needs only its own live commitments. Scanning the board is
+    # unavoidable without a versioned authoritative owner index, but sorting
+    # the entire growing global board once per faction is not. Sort only the
+    # matching IDs, retaining the original lexicographic source order.
+    var contract_ids: Array = []
+    for cid in contracts:
         var c: Dictionary = contracts[cid]
         var status: String = str(c.get("status", "")).to_lower()
         if status in ["paid", "expired"]:
             continue
         var owner: String = str(c.get("requestor_id", ""))
         var sponsorship: String = str(c.get("faction_id", ""))
-        if owner != faction and owner != "faction/" + faction and sponsorship != faction:
-            continue
+        if owner == faction or owner == "faction/" + faction or sponsorship == faction:
+            contract_ids.append(cid)
+    contract_ids.sort()
+    for cid in contract_ids:
+        var c: Dictionary = contracts[cid]
+        var status: String = str(c.get("status", "")).to_lower()
         commitments.append({
             "contract_id": str(cid), "status": status,
             "source": str(c.get("source_location", "")),
