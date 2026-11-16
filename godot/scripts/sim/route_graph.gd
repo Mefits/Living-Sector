@@ -17,8 +17,10 @@ const MAX_PATH_CACHE: int = 4096
 var _path_cache: Dictionary = {} # start -> {destination -> detached route}
 var _path_cache_size: int = 0
 # FIFO eviction avoids throwing away all hot routes on every 4097th query.
-# Queue entries are detached immutable string pairs, never World references.
-var _path_cache_fifo: Array = []
+# Two typed FIFO columns avoid allocating a mutable pair Array per cache miss.
+# Entries are scalar Strings, never World references.
+var _path_cache_fifo_starts: Array[String] = []
+var _path_cache_fifo_destinations: Array[String] = []
 var _path_cache_fifo_head: int = 0
 var _path_hits: int = 0
 var _path_misses: int = 0
@@ -137,7 +139,8 @@ func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
     # A failed load leaves the old immutable graph and its cache intact.
     # Clear the cache only after replacing the authoritative topology.
     _path_cache.clear()
-    _path_cache_fifo.clear()
+    _path_cache_fifo_starts.clear()
+    _path_cache_fifo_destinations.clear()
     _path_cache_fifo_head = 0
     _path_cache_size = 0
     _path_hits = 0
@@ -184,10 +187,9 @@ func shortest_path(start: String, destination: String) -> Dictionary:
     _path_misses += 1
     var result: Dictionary = _shortest_path_uncached(start, destination)
     if _path_cache_size >= MAX_PATH_CACHE:
-        var oldest: Array = _path_cache_fifo[_path_cache_fifo_head]
+        var old_start: String = _path_cache_fifo_starts[_path_cache_fifo_head]
+        var old_destination: String = _path_cache_fifo_destinations[_path_cache_fifo_head]
         _path_cache_fifo_head += 1
-        var old_start: String = str(oldest[0])
-        var old_destination: String = str(oldest[1])
         var old_destinations: Dictionary = _path_cache[old_start]
         old_destinations.erase(old_destination)
         if old_destinations.is_empty():
@@ -195,12 +197,14 @@ func shortest_path(start: String, destination: String) -> Dictionary:
         _path_cache_size -= 1
         # Compact occasionally: queue memory remains O(MAX_PATH_CACHE).
         if _path_cache_fifo_head >= MAX_PATH_CACHE:
-            _path_cache_fifo = _path_cache_fifo.slice(_path_cache_fifo_head)
+            _path_cache_fifo_starts = _path_cache_fifo_starts.slice(_path_cache_fifo_head)
+            _path_cache_fifo_destinations = _path_cache_fifo_destinations.slice(_path_cache_fifo_head)
             _path_cache_fifo_head = 0
     if not _path_cache.has(start):
         _path_cache[start] = {}
     _path_cache[start][destination] = _detached_route(result)
-    _path_cache_fifo.append([start, destination])
+    _path_cache_fifo_starts.append(start)
+    _path_cache_fifo_destinations.append(destination)
     _path_cache_size += 1
     return result
 
