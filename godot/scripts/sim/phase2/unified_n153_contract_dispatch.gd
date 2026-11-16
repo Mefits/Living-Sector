@@ -128,12 +128,7 @@ static func propose(world: Dictionary, graph: RefCounted,
             continue
         var winner: Dictionary = {}
         var ship_blockers: Dictionary = {}
-        if not route_indices.has(source):
-            route_indices[source] = {}
-        var by_destination: Dictionary = route_indices[source]
-        if not by_destination.has(dest):
-            by_destination[dest] = {}
-        var route_index: Dictionary = by_destination[dest]
+        var route_index: Dictionary = EligibilityIndex.offer_route_index(route_indices, source, dest)
         var fixed_offer: Dictionary = {}
         var fixed_controllers: Dictionary = {}
         for ship_id in ships:
