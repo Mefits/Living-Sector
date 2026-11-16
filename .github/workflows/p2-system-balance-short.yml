@@ -63,7 +63,7 @@ jobs:
           }
           if grep -Eq 'SCRIPT ERROR:|Parse Error:|P2 PHYSICAL SATELLITES FAIL:' "$RUNNER_TEMP/satellites.log"; then
             tail -n 120 "$RUNNER_TEMP/satellites.log"; exit 1;
-          }
+          fi
           grep 'P2 PHYSICAL SATELLITES PASS' "$RUNNER_TEMP/satellites.log"
       - name: Real N14 predictive transit and moon geometry regression
         shell: bash
