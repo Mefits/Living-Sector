@@ -30,23 +30,23 @@ func _initialize() -> void:
 	if child.retains_owned_receipts(parent):
 		_fail("parent changed but child claimed all receipts")
 		return
-	if not child.snapshot() == before:
+	if child.snapshot() != before:
 		_fail("parent mutated child")
 		return
 	var restored = Ledger.new()
 	if not restored.restore(before) or restored.snapshot() != before:
 		_fail("restore exact")
 		return
-	if not restored.retains_owned_receipts(child):
-		_fail("equal restored history")
+	if restored.retains_owned_receipts(child):
+		_fail("untrusted restored history accepted")
 		return
 	var fork2 = child.fork()
 	var replacement: Dictionary = child.snapshot()
 	if not child.restore(replacement):
 		_fail("same-count parent restore")
 		return
-	if not fork2.retains_owned_receipts(child):
-		_fail("fallback after same-count restore")
+	if fork2.retains_owned_receipts(child):
+		_fail("same-count restore bypassed identity oracle")
 		return
 	# A forged replacement row must be rejected by the full proof oracle.
 	var forged: Dictionary = replacement.duplicate(true)
