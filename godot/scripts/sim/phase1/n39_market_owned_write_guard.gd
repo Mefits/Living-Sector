@@ -23,14 +23,15 @@ static func validate_owned_write(before: Dictionary, after: Dictionary) -> Strin
             return "market_write_invalid_row"
         var old_row: Dictionary = before[location]
         var new_row: Dictionary = after[location]
-        # A protected container may be re-exposed through another field.
+        # Collect protected values once per row rather than rewalking every
+        # protected-field x proposed-field pair. The temporary Array only
+        # groups references; it never becomes part of the authoritative World.
+        var protected_values: Array = []
         for protected_field in old_row:
-            if protected_field in Observation.OBSERVATION_FIELDS:
-                continue
-            for new_field in new_row:
-                if _shares_mutable_storage(
-                        old_row[protected_field], new_row[new_field]):
-                    return "market_write_aliased_protected_field"
+            if protected_field not in Observation.OBSERVATION_FIELDS:
+                protected_values.append(old_row[protected_field])
+        if _shares_mutable_storage(protected_values, new_row):
+            return "market_write_aliased_protected_field"
         if old_row.size() != new_row.size():
             return "market_write_row_shape_changed"
         for key in old_row:
@@ -47,16 +48,16 @@ static func validate_owned_write(before: Dictionary, after: Dictionary) -> Strin
     # alone miss this cross-location mutable alias.
     for old_location in before:
         var protected_row: Dictionary = before[old_location]
+        var protected_values: Array = []
+        for protected_field in protected_row:
+            if protected_field not in Observation.OBSERVATION_FIELDS:
+                protected_values.append(protected_row[protected_field])
         for new_location in after:
             if old_location == new_location:
                 continue
             var proposed_row: Dictionary = after[new_location]
-            for protected_field in protected_row:
-                if protected_field in Observation.OBSERVATION_FIELDS:
-                    continue
-                if _shares_mutable_storage(
-                        protected_row[protected_field], proposed_row):
-                    return "market_write_aliased_protected_field"
+            if _shares_mutable_storage(protected_values, proposed_row):
+                return "market_write_aliased_protected_field"
     # The existing local proposal validator enforces N150's observation
     # shapes and prices; this guard enforces the complementary write-set.
     return Observation.validate_observation_proposal(
