@@ -1224,8 +1224,17 @@ func apply_native_n128_crew_xp(tick: int, source_command: Dictionary,
     var credited: int = int(outcome["skills"][skill]) - int(before["crew_skills"][skill])
     if credited < 0 or credited > int(amount):
         return {"ok": false, "fatal": true, "reason": "n128_skill_grant_overflow"}
-    var stage: Dictionary = _copy_world("L1102", true)
+    # N128 owns only the ship skill record and its immutable receipt map.
+    # Detach both domains before mutation; unrelated World history stays shared
+    # only inside this private, unpublished stage (never returned to callers).
+    var stage: Dictionary = _copy_world("n128_crew_xp_root", false)
+    stage["ships"] = _world["ships"].duplicate()
+    stage["ships"][ship_id] = before.duplicate(true)
     stage["ships"][ship_id]["crew_skills"] = outcome["skills"].duplicate(true)
+    if _world.has("native_crew_xp_receipts"):
+        if not (_world["native_crew_xp_receipts"] is Dictionary):
+            return {"ok": false, "fatal": true, "reason": "n128_corrupt_prior_receipts"}
+        stage["native_crew_xp_receipts"] = _world["native_crew_xp_receipts"].duplicate(true)
     if not (stage.get("native_crew_xp_receipts", {}) is Dictionary):
         return {"ok": false, "fatal": true, "reason": "n128_corrupt_prior_receipts"}
     if not stage.has("native_crew_xp_receipts"):
