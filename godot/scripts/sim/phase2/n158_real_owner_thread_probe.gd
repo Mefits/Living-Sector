@@ -6,6 +6,7 @@ extends RefCounted
 const Runner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
 const RequestMetrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
+const SizeProbe = preload("res://scripts/sim/phase2/n158_authoritative_size_probe.gd")
 
 var _thread: Thread = Thread.new()
 var _mutex: Mutex = Mutex.new()
@@ -198,6 +199,17 @@ func _owner_loop(seed: Dictionary) -> void:
                 if kind in ["load", "restore"] or bool(payload.get("observer", false)):
                     answer["native"] = sim.checkpoint().get(
                         "native_production", {})
+        # Four bounded measurements, only after a successfully paid source tick.
+        # Reuse the detached economy projection when it already exists.
+        # This snapshot is diagnostic and cannot change authoritative state.
+        if answer["ok"] and sim.tick_count > before_tick and (
+                SizeProbe.CHECKPOINTS.has(sim.tick_count)):
+            var size_start_usec: int = Time.get_ticks_usec()
+            var size_world: Dictionary = answer.get("economy", {})
+            if size_world.is_empty():
+                size_world = sim.economy_snapshot()
+            answer["size_probe"] = SizeProbe.measure(sim.tick_count, size_world)
+            answer["size_probe_wall_usec"] = Time.get_ticks_usec() - size_start_usec
         var projection_end_usec: int = Time.get_ticks_usec()
         answer["timing"] = RequestMetrics.summarize(before_tick, sim.tick_count,
             began_usec, advance_end_usec, projection_end_usec)
