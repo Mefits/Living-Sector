@@ -24,15 +24,16 @@ func _initialize() -> void:
     # A second paid offer with the same endpoints must not recalculate
     # geometry for the same ship location during this proposal.
     var again: Dictionary = Index.offer_route_index(roots, "B", "C")
-    assert(again.size() == 1)
+    assert(again.size() == 2)
+    assert(again.has(0))
     assert(Index.legs(again, "A", "B", "C", graph, positions) == a)
-    assert(roots["B"]["C"].size() == 1)
-    # Distinct destination and source must never inherit stale legs.
+    assert(roots["B"]["C"].size() == 2)
+    # A second ship location reuses the same outbound route, but computes\n    # its own inbound leg and fuel geometry.\n    var at_source: Dictionary = Index.legs(again, "B", "B", "C", graph, positions)\n    assert(at_source["outbound"] == a["outbound"])\n    assert(at_source["steps"].size() == 1)\n    assert(again.size() == 3)\n    # Distinct destination and source must never inherit stale legs.
     var other: Dictionary = Index.offer_route_index(roots, "B", "D")
     var d: Dictionary = Index.legs(other, "A", "B", "D", graph, positions)
     assert(d["outbound"] == ["B", "D"])
     assert(is_equal_approx(float(d["steps"][1]["distance"]), 20.0))
-    assert(other.size() == 1)
+    assert(other.size() == 2)
     assert(Index.offer_route_index(roots, "C", "B").is_empty())
     # World positions may change between ticks/restart: fresh proposal
     # roots must produce new geometry, never reuse old mutable World data.
