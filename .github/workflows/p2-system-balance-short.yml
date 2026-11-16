@@ -11,6 +11,8 @@ on:
       - godot/tests/p2_ship_selection_check.gd
       - godot/tests/p2_ship_scale_500_benchmark.gd
       - godot/scripts/sim/world_model.gd
+      - godot/scripts/sim/ships/native_avoidance.gd
+      - godot/tests/p2_native_navigation_check.gd
       - godot/scripts/sim/orbits/native_satellite_orbit_profiles.gd
       - godot/tests/p2_physical_satellite_orbits_check.gd
       - godot/scripts/sim/ship_transit.gd
@@ -82,6 +84,20 @@ jobs:
             tail -n 140 "$RUNNER_TEMP/ship_scale.log"; exit 1;
           fi
           grep 'P2 SHIP SCALE' "$RUNNER_TEMP/ship_scale.log"
+      - name: Physical station N43, solar exclusion and paid N14 detour
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 40s godot --headless --path godot --script res://tests/p2_native_navigation_check.gd >"$RUNNER_TEMP/navigation.log" 2>&1 || {
+            tail -n 150 "$RUNNER_TEMP/navigation.log"; exit 1;
+          }
+          grep -q 'P2 NATIVE NAVIGATION PASS' "$RUNNER_TEMP/navigation.log" || {
+            tail -n 120 "$RUNNER_TEMP/navigation.log"; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|P2 NATIVE NAVIGATION FAIL:' "$RUNNER_TEMP/navigation.log"; then
+            tail -n 120 "$RUNNER_TEMP/navigation.log"; exit 1;
+          fi
+          grep 'P2 NATIVE NAVIGATION PASS' "$RUNNER_TEMP/navigation.log"
       - name: Native Moon and Callisto parented physics and old-save rejection
         shell: bash
         run: |
@@ -138,6 +154,6 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/ship_ui.log" "$RUNNER_TEMP/ship_scale.log" "$RUNNER_TEMP/satellites.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log"; do
+          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/ship_ui.log" "$RUNNER_TEMP/ship_scale.log" "$RUNNER_TEMP/navigation.log" "$RUNNER_TEMP/satellites.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log"; do
             if test -f "$f"; then echo "--- $f"; tail -n 140 "$f"; fi
           done
