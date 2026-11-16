@@ -69,6 +69,33 @@ func _initialize() -> void:
     var mixed_snapshot: Dictionary = Guard.capture_protected_fields(mixed_live)
     _expect(Guard.validate_protected_snapshot(mixed_snapshot, mixed_live) ==
         "market_write_invalid_row", "snapshot_rejects_mixed_invalid_rows")
+    # Combined shadow validation is alias-safe and rejects malformed N150
+    # observations even when all protected fields remain unchanged.
+    var shadow_live: Dictionary = {"earth": _market()}
+    var shadow_before: Dictionary = Guard.capture_protected_fields(shadow_live)
+    _expect(Guard.validate_shadow_boundary(shadow_before, shadow_live) == "",
+        "shadow_valid")
+    shadow_live["earth"]["prices"]["ore"] = -4.0
+    _expect(Guard.validate_shadow_boundary(shadow_before, shadow_live) ==
+        "invalid_market_price", "shadow_invalid_price")
+    shadow_live["earth"]["prices"]["ore"] = 10.0
+    shadow_live["earth"]["history"]["crisis_notified"]["ore"] = "yes"
+    _expect(Guard.validate_shadow_boundary(shadow_before, shadow_live) ==
+        "invalid_native_market_crisis_flag", "shadow_invalid_flag")
+    shadow_live["earth"]["history"]["crisis_notified"]["ore"] = true
+    shadow_live["earth"]["stock"]["ore"] = 19.0
+    _expect(Guard.validate_shadow_boundary(shadow_before, shadow_live) ==
+        "market_write_outside_observation", "shadow_protected_mutation")
+    shadow_live["earth"]["stock"]["ore"] = 20.0
+    shadow_live["earth"]["id"] = "mars"
+    _expect(Guard.validate_shadow_boundary(shadow_before, shadow_live) ==
+        "market_write_outside_observation", "shadow_identity_mutation")
+    var no_identity: Dictionary = {"earth": {"credits": 100}}
+    var no_id_live: Dictionary = {"earth": {"credits": 100,
+        "prices": {}, "demand": {}, "seed_demand": {},
+        "consumption_window": {}, "orders": {}, "history": {}}}
+    _expect(Guard.validate_shadow_boundary(no_identity, no_id_live) ==
+        "market_write_missing_protected_identity", "shadow_missing_identity")
     # Local acceptance must NEVER stand in for the full Schema oracle:
     # this deliberately incomplete World is rejected by the original.
     _expect(Schema.validate({"markets": observation}) != "",
