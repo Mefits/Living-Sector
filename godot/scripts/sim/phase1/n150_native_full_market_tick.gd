@@ -173,9 +173,13 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		var entries = windows[slug]
 		if not (entries is Array):
 			return _fail("invalid_native_consumption_window")
-		var kept: Array = []
+		# The market was deep-copied at entry. Compact its owned window
+		# directly instead of allocating a new array on every paid tick.
+		# Preserve relative order and floating-point summation order.
+		var write_at: int = 0
 		var amount: float = 0.0
-		for entry in entries:
+		for read_at in range(entries.size()):
+			var entry: Variant = entries[read_at]
 			# Native source stores (tick, quantity) tuple. Adapter projects
 			# {tick:int,qty:float} without fabricating history entries.
 			if not (entry is Dictionary) or typeof(entry.get("tick")) != TYPE_INT or 					not _num(entry.get("qty")):
@@ -185,9 +189,11 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 			# result is already a deep-owned market snapshot; copying each
 			# retained sample again is redundant. The returned market remains
 			# detached from the caller, including nested sample payloads.
-			kept.append(entry)
+			entries[write_at] = entry
+			write_at += 1
 			amount += float(entry["qty"])
-		windows[slug] = kept
+		entries.resize(write_at)
+		windows[slug] = entries
 		if amount > 0.0:
 			observed[slug] = amount
 	var all_commodities := {}
