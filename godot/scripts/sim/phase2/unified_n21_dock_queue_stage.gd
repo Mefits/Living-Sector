@@ -68,8 +68,12 @@ static func _prune(world: Dictionary, fid: String) -> bool:
     var fac: Dictionary = world["facilities"][fid]
     var before: Array = _queue(fac)
     var after: Array = []
+    # Preserve first occurrence/FIFO order without a growing linear
+    # after.has() scan for every queued ship (quadratic on late ticks).
+    var seen: Dictionary = {}
     for sid in before:
-        if _valid_waiter(world, fid, str(sid)) and not after.has(sid):
+        if not seen.has(sid) and _valid_waiter(world, fid, str(sid)):
+            seen[sid] = true
             after.append(sid)
     if after == before:
         return false
