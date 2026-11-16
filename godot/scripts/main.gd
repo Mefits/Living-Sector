@@ -26,6 +26,7 @@ var _seed: Dictionary = {}
 var _cached_seed_stats: Dictionary = {}
 var _selected_system: String = "system-sol"
 var _selected_body_id: String = ""
+var _selected_ship_id: String = ""
 var _in_system: bool = false
 var _notice: String = ""
 var _startup_error: String = ""
@@ -287,6 +288,7 @@ func _ready() -> void:
     _system_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _system_view.connect("body_selected", _on_body_selected)
     _system_view.connect("body_open_requested", _on_body_open_requested)
+    _system_view.connect("ship_selected", _on_ship_selected)
 
     var details_panel := PanelContainer.new()
     details_panel.custom_minimum_size = Vector2(355, 0)
@@ -1420,6 +1422,7 @@ func _open_world(world: Dictionary) -> void:
         return
     _selected_system = sid
     _selected_body_id = ""
+    _selected_ship_id = ""
     _in_system = true
     _map.visible = false
     _system_view.visible = true
@@ -1447,12 +1450,14 @@ func _return_to_sector() -> void:
     _back_button.text = "← К сектору"
     _open_button.visible = true
     _selected_body_id = ""
+    _selected_ship_id = ""
     _refresh_selection()
 
 
 func _on_body_selected(body: Dictionary) -> void:
     if not _in_system or _model == null:
         return
+    _selected_ship_id = ""
     _selected_body_id = str(body.get("id", ""))
     var current: Dictionary = _model.system_by_id(_selected_system)
     if not current.is_empty():
@@ -1462,6 +1467,7 @@ func _on_body_selected(body: Dictionary) -> void:
 func _on_body_open_requested(body: Dictionary) -> void:
     if not _in_system or _model == null or _system_view == null:
         return
+    _selected_ship_id = ""
     var id: String = str(body.get("id", ""))
     if id.is_empty() or not _system_view.focus_body(id):
         return
@@ -1472,7 +1478,84 @@ func _on_body_open_requested(body: Dictionary) -> void:
         _show_body_details(current)
 
 
+## Both moving vessels and docked fleets use their authentic N39 ship
+## snapshot. Never mint a UI ship, modify AI or call the worker thread.
+func _on_ship_selected(ship_id: String) -> void:
+    if not _in_system or _model == null or _system_view == null:
+        return
+    _selected_ship_id = ship_id
+    _selected_body_id = ""
+    var current: Dictionary = _model.system_by_id(_selected_system)
+    if not current.is_empty():
+        var fleet: Dictionary = (_worker_fleet if _worker_mode else (
+            _runner.fleet_snapshot() if _runner != null else {}))
+        _show_ship_details(fleet)
+
+
+func _show_ship_details(fleet: Dictionary) -> bool:
+    if _selected_ship_id.is_empty():
+        return false
+    if not fleet.has(_selected_ship_id):
+        # Selected vessel may be destroyed/retired between UI snapshots.
+        _selected_ship_id = ""
+        return false
+    var ship: Dictionary = fleet[_selected_ship_id]
+    var lines: Array[String] = [
+        "КОРАБЛЬ",
+        str(ship.get("name", _selected_ship_id)),
+        "ID: " + _selected_ship_id,
+        "Класс: " + str(ship.get("class", "—")),
+        "Фракция: " + str(ship.get("faction_id", "—")),
+        "Система: " + str(ship.get("system_id", "—")),
+        ""
+    ]
+    var transit: Dictionary = ship.get("transit", {})
+    if transit.is_empty():
+        lines.append("Статус: в локации")
+        lines.append("Локация: " + str(ship.get("location", "—")))
+        var docked: String = str(ship.get("docked_at", ""))
+        if not docked.is_empty():
+            lines.append("Пристыкован: " + docked)
+    else:
+        lines.append("Статус: в полёте")
+        lines.append("Откуда: " + str(transit.get("from", "—")))
+        lines.append("Куда: " + str(transit.get("to", "—")))
+        lines.append("Отправление: тик " + str(transit.get("departure_tick", "—")))
+        lines.append("Последнее движение: тик " + str(transit.get("last_tick", "—")))
+        lines.append("Ориентир прибытия: тик " + str(transit.get("arrival_tick", "—")))
+        lines.append("Перелёт: физический N14, координаты не выдуманы")
+    lines.append("")
+    lines.append("Топливо: %.1f / %.1f" % [
+        float(ship.get("fuel", 0.0)), float(ship.get("fuel_capacity", 0.0))])
+    lines.append("Груз: %d / %d" % [
+        int(ship.get("cargo", {}).values().reduce(
+            func(sum: int, quantity: Variant) -> int:
+                return sum + int(quantity), 0)),
+        int(ship.get("cargo_capacity", 0))])
+    var cargo: Dictionary = ship.get("cargo", {})
+    var materials: Array = cargo.keys()
+    materials.sort()
+    for material in materials:
+        if float(cargo[material]) > 0.0:
+            lines.append(" • %s: %s" % [str(material), str(cargo[material])])
+    lines.append("Средства: %s CR" % str(ship.get("credits", "—")))
+    var task: Variant = ship.get("task", null)
+    if task != null and str(task) != "":
+        lines.append("Задача: " + str(task))
+    _details.text = "\n".join(lines)
+    return true
+
+
 func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> void:
+    if not _selected_ship_id.is_empty():
+        var fleet: Dictionary = shared_economy.get("ships", {})
+        if fleet.is_empty():
+            if _worker_mode:
+                fleet = _worker_fleet
+            elif _runner != null:
+                fleet = _runner.fleet_snapshot()
+        if _show_ship_details(fleet):
+            return
     var system: Dictionary = world.get("system", {})
     var bodies: Array = world.get("bodies", [])
     var lines: Array[String] = []
@@ -1499,7 +1582,7 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
                 str(body.get("name", "?")), str(body.get("type", "?")),
                 str(body.get("biome", "?"))])
         lines.append("")
-        lines.append("Кораблей в исходной системе: %d (движение ещё не подключено)" %
+        lines.append("Кораблей в исходной системе: %d · клик по кораблю открывает детали" %
             (world.get("ships", []) as Array).size())
         _details.text = "\n".join(lines)
         return
