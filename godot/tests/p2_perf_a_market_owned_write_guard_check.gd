@@ -40,6 +40,25 @@ func _initialize() -> void:
     cross_key_new["earth"]["audit"]["b"] = cross_key_old["earth"]["audit"]["a"]
     _expect(Guard.validate_owned_write(cross_key_old, cross_key_new) ==
         "market_write_aliased_protected_field", "reject_reparented_nested_alias")
+    # Cross-type nesting: the same mutable stock Dictionary may be moved
+    # under an Array in a different protected field, or vice versa.
+    var cross_type_old: Dictionary = {"earth": _market()}
+    cross_type_old["earth"]["audit"] = {"nested": {"token": [1, 2]}}
+    var cross_type_new: Dictionary = cross_type_old.duplicate(true)
+    cross_type_new["earth"]["audit"]["nested"] = [
+        cross_type_old["earth"]["audit"]["nested"]]
+    _expect(Guard.validate_owned_write(cross_type_old, cross_type_new) ==
+        "market_write_aliased_protected_field", "reject_dictionary_under_array")
+    var reverse_type_old: Dictionary = {"earth": _market()}
+    reverse_type_old["earth"]["audit"] = [[1, 2]]
+    var reverse_type_new: Dictionary = reverse_type_old.duplicate(true)
+    reverse_type_new["earth"]["audit"] = {
+        "nested": reverse_type_old["earth"]["audit"]}
+    _expect(Guard.validate_owned_write(reverse_type_old, reverse_type_new) ==
+        "market_write_aliased_protected_field", "reject_array_under_dictionary")
+    var cross_type_detached: Dictionary = cross_type_new.duplicate(true)
+    _expect(Guard.validate_owned_write(cross_type_old, cross_type_detached) ==
+        "market_write_outside_observation", "cross_type_detached_still_illegal")
     var detached_reparent: Dictionary = cross_key_new.duplicate(true)
     _expect(Guard.validate_owned_write(cross_key_old, detached_reparent) ==
         "market_write_outside_observation", "detached_reparent_is_still_write_violation")
