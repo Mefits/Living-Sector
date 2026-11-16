@@ -23,12 +23,14 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
         if not (world.get(field) is Dictionary):
             return {"ok": false, "reason": "n100_missing_real_" + field}
     var facilities: Array = []
-    var facility_ids: Array = world["facilities"].keys()
+    var facility_ids: Array = []
+    for fid in world["facilities"]:
+        if str(world["facilities"][fid].get("faction", "")) == faction:
+            facility_ids.append(fid)
     facility_ids.sort()
     for fid in facility_ids:
         var f: Dictionary = world["facilities"][fid]
-        if str(f.get("faction", "")) == faction:
-            facilities.append({"facility_id": str(fid),
+        facilities.append({"facility_id": str(fid),
                 "location_id": str(f.get("location", "")),
                 "facility_type": str(f.get("type", ""))})
     var markets: Array = []
@@ -48,12 +50,13 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
             "demand": m.get("demand", {}).duplicate(true),
             "prices": m.get("prices", {}).duplicate(true)})
     var ships: Array = []
-    var ship_ids: Array = world["ships"].keys()
+    var ship_ids: Array = []
+    for sid in world["ships"]:
+        if str(world["ships"][sid].get("faction_id", "")) == faction:
+            ship_ids.append(sid)
     ship_ids.sort()
     for sid in ship_ids:
         var ship: Dictionary = world["ships"][sid]
-        if str(ship.get("faction_id", "")) != faction:
-            continue
         var cargo_total: int = 0
         for amount in ship.get("cargo", {}).values():
             if typeof(amount) != TYPE_INT or int(amount) < 0:
