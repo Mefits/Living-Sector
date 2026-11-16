@@ -170,6 +170,7 @@ func _process(delta: float) -> void:
             # Project fresh each frame because native angles interpolate.
             _draw_now_usec = Time.get_ticks_usec()
             _draw_body_positions.clear()
+            var pan_before_follow: Vector2 = _pan
             var screen_position: Vector2 = _body_position(focused, _orbit_scale())
             var orbit_offset: Vector2 = screen_position - _center()
             if _follow_orbit_valid:
@@ -185,7 +186,10 @@ func _process(delta: float) -> void:
             else:
                 # Smooth *initial* acquisition, not orbital movement itself.
                 _pan += remaining * ease
-            camera_changed = true
+            # Following a stationary body while paused must not force a
+            # continuous redraw or unnecessary FPS/CPU load.
+            if _pan.distance_to(pan_before_follow) > 0.005:
+                camera_changed = true
 
     var now_usec: int = Time.get_ticks_usec()
     if camera_changed or (
@@ -784,8 +788,9 @@ func _gui_input(event: InputEvent) -> void:
             accept_event()
     elif event is InputEventMouseMotion and _dragging:
         _drag_distance += event.relative.length()
-        if _drag_distance >= 7.0 and not _focused_body_id.is_empty():
-            # User pan intentionally releases follow; selection remains.
+        if _drag_distance >= 7.0:
+            # Manual navigation takes precedence over both acquired focus
+            # and a pending wheel-to-detail focus.
             _focused_body_id = ""
             _zoom_candidate_body_id = ""
             _focus_zoom_target = -1.0
