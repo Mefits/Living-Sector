@@ -108,8 +108,14 @@ static func _retain_orders(orders: Array, tick: int, expiry: int, already_owned:
 	# tick_one_market already owns a deep duplicate of the entire market.
 	# Recopying each retained order there is redundant and grows with the
 	# complete pending-order history. Standalone callers keep detached output.
-	var remaining: Array = []
-	for order in orders:
+	# The paid N150 path owns the entire market snapshot already. Compact
+	# retained orders in-place, preserving source order without allocating
+	# another array proportional to the growing pending-order list.
+	# Standalone callers still receive an independently deep-owned array.
+	var remaining: Array = [] if not already_owned else orders
+	var write_at: int = 0
+	for read_at in range(orders.size()):
+		var order: Variant = orders[read_at]
 		if not (order is Dictionary) or not (order.get("agent_id") is String) or 				typeof(order.get("placed_at_tick")) != TYPE_INT:
 			return _fail("invalid_actual_order")
 		if str(order["agent_id"]).begins_with("market-"):
@@ -121,7 +127,13 @@ static func _retain_orders(orders: Array, tick: int, expiry: int, already_owned:
 		# Godot int64 overflow in pathological malformed snapshots.
 		var age: int = tick - placed
 		if age < 0 or age < expiry:
-			remaining.append(order if already_owned else order.duplicate(true))
+			if already_owned:
+				remaining[write_at] = order
+				write_at += 1
+			else:
+				remaining.append(order.duplicate(true))
+	if already_owned:
+		remaining.resize(write_at)
 	return {"ok": true, "orders": remaining}
 
 static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
