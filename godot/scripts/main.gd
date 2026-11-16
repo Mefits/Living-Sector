@@ -81,6 +81,15 @@ var _worker_view_dirty: bool = false
 var _worker_pending_actions: Dictionary = {}
 const WORKER_VIEW_INTERVAL_USEC: int = 450000
 const WORKER_MAX_DELTA: float = 0.125
+## Headless GUI acceptance is opt-in and NEVER runs in normal gameplay.
+var _worker_smoke: bool = false
+var _worker_smoke_stage: int = 0
+var _worker_smoke_begin_msec: int = 0
+var _worker_smoke_step_done: bool = false
+var _worker_smoke_view_done: bool = false
+var _worker_smoke_save_done: bool = false
+var _worker_smoke_load_done: bool = false
+var _worker_smoke_path: String = ""
 
 func _ready() -> void:
     _ui_profile_log = OS.get_cmdline_user_args().has("--p2-ui-profile") or (
@@ -309,6 +318,9 @@ func _ready() -> void:
     _worker_mode = OS.get_environment("LS_N158_WORKER_GUI") == "1" or (
         OS.get_cmdline_user_args().has("--p2-worker-gui"))
     if _worker_mode:
+        _worker_smoke = OS.get_cmdline_user_args().has(
+            "--p2-worker-gui-check")
+        _worker_smoke_begin_msec = Time.get_ticks_msec()
         # This is a detached presentation WorldModel loaded from the frozen
         # seed. It is NEVER a second N158 simulation or writable N39 World.
         _model = ReadOnlyWorldModel.new()
@@ -700,6 +712,9 @@ func _worker_gui_process(delta: float) -> void:
     if _worker_view_dirty:
         _worker_view_dirty = false
         _worker_present()
+    if _worker_smoke:
+        _worker_gui_smoke_pump()
+        return
     # One in-flight frame, no unbounded FIFO. Delayed GUI frames are bounded
     # like SourceClock.consume_frame; elapsed that cannot be simulated is
     # dropped, never converted into fake catch-up ticks.
@@ -775,7 +790,8 @@ func _worker_receive(result: Dictionary) -> void:
         _worker_paused = bool(result["paused"])
     if result.has("speed"):
         _worker_speed = float(result["speed"])
-    if result.has("sim_usec"):
+    if result.has("sim_usec") and (kind != "frame" or
+            bool(result.get("advanced", false))):
         _worker_last_sim_ms = float(result["sim_usec"]) / 1000.0
     if result.get("angles") is Dictionary:
         if not _model.restore_orbital_snapshot(result["angles"]):
@@ -804,8 +820,92 @@ func _worker_receive(result: Dictionary) -> void:
         _sync_speed_control()
     elif kind == "speed":
         _sync_speed_control()
+    if _worker_smoke:
+        match kind:
+            "step":
+                _worker_smoke_step_done = true
+            "frame":
+                _worker_smoke_view_done = not _worker_native.is_empty()
+            "save":
+                _worker_smoke_save_done = true
+            "load":
+                _worker_smoke_load_done = true
     if kind != "frame" or result.has("economy") or result.has("angles"):
         _worker_update_status()
+
+func _worker_gui_smoke_pump() -> void:
+    if not _worker_failed.is_empty():
+        push_error("P2_WORKER_GUI_BOOT_CHECK_FAIL: " + _worker_failed)
+        get_tree().quit(1)
+        _worker_smoke = false
+        return
+    if Time.get_ticks_msec() - _worker_smoke_begin_msec > 25000:
+        push_error("P2_WORKER_GUI_BOOT_CHECK_FAIL: command timeout " +
+            str(_worker_smoke_stage))
+        get_tree().quit(1)
+        _worker_smoke = false
+        return
+    if not _worker_booted or _worker_loading:
+        return
+    match _worker_smoke_stage:
+        0:
+            if _worker_send("pause") <= 0 or _worker_send(
+                    "step", {"count": 2}) <= 0:
+                _worker_failed = "smoke step command rejected"
+                return
+            _worker_smoke_stage = 1
+        1:
+            if _worker_smoke_step_done:
+                if _worker_tick != 2 or _worker_economy.is_empty():
+                    _worker_failed = "real paid step did not commit two ticks"
+                    return
+                if _worker_send("frame", {"delta": 0.0, "view": true,
+                        "observer": true}) <= 0:
+                    _worker_failed = "full detached observer frame rejected"
+                    return
+                _worker_smoke_stage = 2
+        2:
+            if _worker_smoke_view_done:
+                if _worker_tick != 2 or _worker_native.is_empty() or (
+                        _worker_fleet.size() != 24):
+                    _worker_failed = "torn/missing N39/N9/ship FrameView"
+                    return
+                var sol: Dictionary = _model.system_by_id("system-sol")
+                if sol.is_empty():
+                    _worker_failed = "read-only system model unavailable"
+                    return
+                _open_world(sol)
+                if not _in_system or not _system_view.visible:
+                    _worker_failed = "real GUI map navigation failed"
+                    return
+                _return_to_sector()
+                if _in_system or not _map.visible:
+                    _worker_failed = "real GUI return navigation failed"
+                    return
+                _worker_smoke_path = ("user://tests/p2-worker-gui-" +
+                    str(Time.get_ticks_usec()) + ".json")
+                if _worker_send("save", {"path": _worker_smoke_path}) <= 0:
+                    _worker_failed = "worker N38 save rejected"
+                    return
+                _worker_smoke_stage = 3
+        3:
+            if _worker_smoke_save_done:
+                _worker_loading = true
+                if _worker_send("load", {"path": _worker_smoke_path}) <= 0:
+                    _worker_failed = "worker N38 load rejected"
+                    return
+                _worker_smoke_stage = 4
+        4:
+            if _worker_smoke_load_done:
+                var health: Dictionary = startup_health()
+                if _worker_tick != 2 or not health.get("ok", false) or (
+                        _worker_native.is_empty() or _worker_fleet.size() != 24):
+                    _worker_failed = "worker GUI N38 restart or startup health drift"
+                    return
+                print("P2_WORKER_GUI_BOOT_CHECK_PASS tick=2 ships=24",
+                    " worker_thread=true n38_restart=true gui_navigation=true")
+                _worker_smoke = false
+                get_tree().quit(0)
 
 func _worker_present() -> void:
     if _model == null:
@@ -1475,7 +1575,7 @@ func startup_health() -> Dictionary:
     var has_ui: bool = _status != null and _details != null and _pause_button != null
     var seed_ok: bool = booted and _model != null and _model.seed_stats().get("systems", 0) == 8
     return {
-        "ok": booted and has_map and has_ui and seed_ok and _startup_error.is_empty() and _fatal_restore_error.is_empty(),
+        "ok": booted and has_map and has_ui and seed_ok and _startup_error.is_empty() and _fatal_restore_error.is_empty() and _worker_failed.is_empty(),
         "error": _startup_error,
         "godot_version": Engine.get_version_info().get("string", "unknown"),
         "booted": booted,
