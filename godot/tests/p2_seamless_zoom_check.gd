@@ -127,6 +127,42 @@ func _check() -> void:
 
     view.call("set_world", sol)
 
+    # Progressive surface LOD must never pop in as an opaque overlay.
+    # Same relative 2-notch transition for small moons and gas giants;
+    # no special radius/zoom exception for Earth or Luna.
+    var lod_samples: Array = [
+        {"id": "lod-rock", "type": "planet", "biome": "terrestrial"},
+        {"id": "lod-giant", "type": "planet", "biome": "gas_giant"},
+        {"id": "lod-moon", "type": "moon", "biome": "lifeless"}
+    ]
+    for lod_body in lod_samples:
+        var start_zoom: float = float(view.call(
+            "_surface_detail_start_zoom", lod_body))
+        view.set("_zoom", start_zoom)
+        var first_radius: float = float(view.call("_body_size", lod_body))
+        if absf(first_radius - 24.0) > 0.03:
+            _fail("LOD threshold not aligned with current body size")
+            return
+        if absf(float(view.call("_surface_detail_alpha", lod_body))) > 0.01:
+            _fail("surface detail appeared at full opacity at threshold")
+            return
+        view.set("_zoom", start_zoom * 1.32)
+        var halfway: float = float(view.call(
+            "_surface_detail_alpha", lod_body))
+        if absf(halfway - 0.5) > 0.02:
+            _fail("surface did not blend halfway after one wheel notch")
+            return
+        view.set("_zoom", start_zoom * 1.32 * 1.32)
+        if absf(1.0 - float(view.call(
+                "_surface_detail_alpha", lod_body))) > 0.02:
+            _fail("surface did not reach original detail after two notches")
+            return
+        view.set("_zoom", start_zoom / 1.32)
+        if float(view.call("_surface_detail_alpha", lod_body)) > 0.01:
+            _fail("surface stays detailed below first appearance")
+            return
+    view.call("set_world", sol)
+
     # Root-cause regression: all relative-orbit separation must obey the
     # SAME camera scale as full-system orbital distance. A moon must not
     # grow into its parent when zoom grows past the old sqrt(zoom) clamp.
