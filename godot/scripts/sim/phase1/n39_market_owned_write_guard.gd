@@ -23,6 +23,13 @@ static func validate_owned_write(before: Dictionary, after: Dictionary) -> Strin
             return "market_write_invalid_row"
         var old_row: Dictionary = before[location]
         var new_row: Dictionary = after[location]
+        # A shallow row copy can still share protected nested storage.
+        for protected_field in old_row:
+            if protected_field in Observation.OBSERVATION_FIELDS:
+                continue
+            if new_row.has(protected_field) and _shares_mutable_storage(
+                    old_row[protected_field], new_row[protected_field]):
+                return "market_write_aliased_protected_field"
         if old_row.size() != new_row.size():
             return "market_write_row_shape_changed"
         for key in old_row:
@@ -38,6 +45,25 @@ static func validate_owned_write(before: Dictionary, after: Dictionary) -> Strin
     # shapes and prices; this guard enforces the complementary write-set.
     return Observation.validate_observation_proposal(
         {"markets": before}, after, -1, 0)
+
+## Detect shared mutable storage at any depth of a protected value.
+## Value equality alone cannot prove the baseline is independent.
+static func _shares_mutable_storage(old_value: Variant, new_value: Variant) -> bool:
+    if old_value is Dictionary and new_value is Dictionary:
+        if is_same(old_value, new_value):
+            return true
+        for key in old_value:
+            if new_value.has(key) and _shares_mutable_storage(
+                    old_value[key], new_value[key]):
+                return true
+    elif old_value is Array and new_value is Array:
+        if is_same(old_value, new_value):
+            return true
+        for index in range(mini(old_value.size(), new_value.size())):
+            if _shares_mutable_storage(old_value[index], new_value[index]):
+                return true
+    return false
+
 
 ## Capture only protected market fields before N150 executes. This detached
 ## boundary detects in-place writes even when before/after World aliases point
