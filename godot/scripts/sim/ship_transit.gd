@@ -8,6 +8,9 @@ const NativeAvoidance = preload("res://scripts/sim/ships/native_avoidance.gd")
 const BASE_VELOCITY := 0.05 # Rust agents/ship/mod.rs SHIP_BASE_VELOCITY
 const ARRIVAL_THRESHOLD := 0.01 # Rust SHIP_ARRIVAL_THRESHOLD
 const ARRIVAL_FLOAT_EPSILON := 0.000001 # Vector2 float32 only: 0.1 ~= 2 * 0.05
+## Cap the 24-bisection N14 prediction work at one solve per several
+## real fired ticks, preserving deterministic target/arrival checks.
+const LEAD_REPLAN_TICKS: int = 4
 var _next_token: int = 1
 
 func depart(state: RefCounted, graph: RefCounted, ship_id: String, destination: String, positions: Dictionary, tick: int, tick_scale: float) -> bool:
@@ -96,9 +99,32 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 	var lead: Dictionary = {}
 	var aim: Vector2 = target
 	if not plan_used and not target_ephemeris.is_empty():
-		lead = OrbitalIntercept.aim_point(
-			position, BASE_VELOCITY * speed, target_ephemeris, target)
-		aim = lead["point"]
+		var saved_point: Variant = transit.get("cached_lead_point", null)
+		var reuse: bool = (saved_point is Array and
+			(saved_point as Array).size() == 2 and
+			int(transit.get("lead_replan_tick", -1)) > tick)
+		if reuse:
+			if not ((saved_point[0] is float or saved_point[0] is int) and
+					(saved_point[1] is float or saved_point[1] is int)):
+				reuse = false
+			else:
+				aim = Vector2(float(saved_point[0]), float(saved_point[1]))
+				if not (is_finite(aim.x) and is_finite(aim.y)) or (
+						position.distance_to(aim) <= velocity * 1.1):
+					reuse = false
+		if not reuse:
+			lead = OrbitalIntercept.aim_point(
+				position, BASE_VELOCITY * speed, target_ephemeris, target)
+			aim = lead["point"]
+			if bool(lead.get("prediction_used", false)):
+				transit["cached_lead_point"] = [aim.x, aim.y]
+				transit["lead_replan_tick"] = tick + LEAD_REPLAN_TICKS
+			else:
+				transit.erase("cached_lead_point")
+				transit.erase("lead_replan_tick")
+	else:
+		transit.erase("cached_lead_point")
+		transit.erase("lead_replan_tick")
 
 	if not plan_used and not solar_exclusion.is_empty():
 		var center: Variant = solar_exclusion.get("center", null)
@@ -144,6 +170,10 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 			route.remove_at(0)
 		if route.is_empty():
 			transit.erase("navigation_waypoints")
+			# Recompute moving-target prediction only when the detour has
+			# actually been traversed; never use a stale pre-star aim.
+			transit.erase("cached_lead_point")
+			transit.erase("lead_replan_tick")
 		else:
 			transit["navigation_waypoints"] = route
 		ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
