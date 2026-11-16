@@ -1,5 +1,24 @@
 # Living Sector · Пять автономных смен оптимизации Астры (16.11.2026)
 
+## СРОЧНЫЙ ПРИОРИТЕТ: позднетиковая деградация 137→839 мс (16.11, обновление задач)
+
+**Перекрывает любые устаревшие task examples, перечисленные ниже.** Цель — измеренное ускорение оплаченных тиков при сохранении всего source behavior, не новые доки, FIFO safety helpers, UI/worker или дополнительные InterpPos костыли.
+
+Реальный CI профилирования: https://github.com/Mefits/Living-Sector/actions/runs/43856475886 — 8-минутный bounded прогон, чистый seed Rust, Godot 4.7.2 Linux, `LS_PROFILE_NATIVE_PHASES=1`: последние 100 paid ticks `tick100 avg 137ms`, `tick300 avg 284.55ms`, `tick600 avg 469.61ms`, `tick900 avg 786.21ms`, `tick969 avg 839.31ms`. **До tick2600 не дошёл**: wall budget 480 s. Windows worker: ~147ms/request tick585 → ~1430ms/request tick2329, UI ~60FPS; request elapsed НЕ приравнивать автоматически 1 paid tick. Сопоставлять same seed/phase/profile и counters, не Windows FPS с Linux.
+
+**Фиксированное разделение направлений (автозадачи A–E уже обновлены):**
+
+| Исполнитель | Фактический узкий путь | Порядок работы |
+| --- | --- | --- |
+| **A — N39 World** | `deep:L129` ~2929 World snapshots / 34.66s на tick601–900 | Найти повторный snapshot с доказанным владением / отсутствие intervening mutation, исправить фактический caller в A-owned owned stages; full Schema oracle, alias/rollback |
+| **C — ships+dock_queue** | ships 117.65s и dock_queue 26.49s за 300 ticks (601–900) | Профиль по source ship/contract/dock функциями, исправить реально растущий C-owned путь, cached-vs-oracle, paid legs, tie-break; N39 caller согласовать с A |
+| **D — markets+factions** | markets 39.43s, factions 39.34s за 300 ticks | Обнаружить рост списков, повторных full scans и event due на реальном D-owned пути, внести measured optimization и negative ordering oracle |
+| **B — ledger/N38** | потенциальный рост receipts/journal/save bytes, не установлен | Измерить delta receipts, snapshot/scan cost, encoded N38; исправлять только подтверждённый B-owned hotpath; не создавать неиспользуемые индексы |
+| **E — измерения/приёмка** | worker/UI уже реализованы, платные тики продолжают замедляться | Единые counters true CPU/paid tick vs elapsed worker request+DTO, size receipts/contracts/dock/events, bounded early/late benchmark, parity gates; не писать новый GUI |
+
+**Договор результата:** не считать «производительностью» commit, new regression без runtime, or green 2-tick boot. На каждом checkpoint показывать phase cost (avg/p95 ms per *paid tick*), вызовы и время конкретного site, объёмы растущих данных, before/after same seed и exact N9/N39/N38/BT/RNG/cargo/contract parity. Аварийные диагностические CI ≤12 мин, никаких 420/900/2600 × несколько вариантов в одном job; не повторять 35-минутный отменённый run. Если runtime нет — писать безопасный код/targeted тест через GitHub connector, честно CODE_UNVERIFIED/TEST_ADDED_NOT_RUN.
+
+
 > **Контроль E (обновлено 16.11):** opt-in worker **уже подключён к `main.gd`**, а не только прототип. По умолчанию оставлен прямой backend, эксперимент `LS_N158_WORKER_GUI=1` или `godot/run-worker-gui-windows.cmd`. GitHub Actions [#43842795997](https://github.com/Mefits/Living-Sector/actions/runs/43842795997) PASS: оригинальный F5, threaded F5+N38, direct/thread replay 9 тиков и 5 delta, live SceneTree 32 paid ticks/576 GUI frames/4.0s/UI p95 1.65 ms (Linux headless). **Windows FPS при тике ~601 пока НЕ измерен; по умолчанию НЕ включать.** Handoff: `godot/docs/performance/handoffs/20261116-perf-e-worker-main-f5-32ticks-verified.md`. Не дублировать этот блок; следующее — Windows F5 FPS/parity, затем opt-in 420/N38 restart.
 
 
