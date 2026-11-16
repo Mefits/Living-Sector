@@ -542,7 +542,7 @@ func apply_native_shipyard_refit(tick: int, ship_id: String,
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n108_invalid_native_ship_after_refit:" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L423", stage)
-    var balances: Dictionary = staged_money.snapshot().get("balances", {})
+    var balances: Dictionary = staged_money.balances_snapshot()
     if accounts.size() != balances.size() or staged_money.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n108_native_money_was_created"}
     for account in accounts:
@@ -1255,9 +1255,15 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
     if not _ready or tick != _last_tick + 1 or tick < 1:
         return {"ok": false, "reason": "n149_not_native_ship_phase"}
     var before_world: Dictionary = _world
-    var before_bank: Dictionary = _ledger.snapshot()
-    var result: Dictionary = NativeN149Crew.stage(
-        before_world, before_bank, tick, tick_scale, multiplier, n140_fired)
+    var legacy: bool = OS.get_environment("LS_LATE_CREW_LEGACY") == "1"
+    var before_bank: Dictionary = _ledger.snapshot() if legacy else {}
+    var result: Dictionary
+    if legacy:
+        result = NativeN149Crew.stage(before_world, before_bank,
+            tick, tick_scale, multiplier, n140_fired)
+    else:
+        result = NativeN149Crew.stage_owned(before_world, _ledger,
+            tick, tick_scale, multiplier, n140_fired)
     if not result.get("ok", false):
         return result
     var after_ships: Dictionary = result["ships"]
@@ -1289,10 +1295,14 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
     var invalid: String = _measured_schema_validate("L1168", next_world)
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n149_schema_" + invalid}
-    var new_bank: Dictionary = result["ledger_snapshot"]
-    var staged_ledger := Ledger.new()
-    if not staged_ledger.restore(new_bank):
-        return {"ok": false, "fatal": true, "reason": "n149_invalid_single_n9_receipts"}
+    var staged_ledger: RefCounted
+    if legacy:
+        staged_ledger = Ledger.new()
+        if not staged_ledger.restore(result["ledger_snapshot"]):
+            return {"ok": false, "fatal": true, "reason": "n149_invalid_single_n9_receipts"}
+    else:
+        staged_ledger = result["owned_ledger"]
+    var new_balances: Dictionary = staged_ledger.balances_snapshot()
     var wages: int = int(result.get("wages_total", -1))
     if wages < 0 or staged_ledger.total() != _ledger.total() - wages:
         return {"ok": false, "fatal": true, "reason": "n149_wage_total_not_source_accrual"}
@@ -1301,19 +1311,21 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
         if int(record.get("wages", 0)) > 0:
             due_receipts += 1
             var wage_id: String = "n149:crew:" + str(record["ship_id"]) + ":" + str(tick)
-            var receipt: Variant = new_bank["receipts"].get(wage_id, null)
+            var receipt: Variant = staged_ledger.receipt_copy(wage_id)
             if not (receipt is Dictionary) or str(receipt.get("kind", "")) != "native_ship_crew_wages" or int(receipt.get("wages_credits_accrued", -1)) != int(record["wages"]):
                 return {"ok": false, "fatal": true, "reason": "n149_missing_native_paid_crew_evidence"}
-    if new_bank["receipts"].size() != before_bank["receipts"].size() + due_receipts:
+    if staged_ledger.receipt_count() != _ledger.receipt_count() + due_receipts:
         return {"ok": false, "fatal": true, "reason": "n149_expected_wage_receipts_missing"}
-    for rid in before_bank["receipts"]:
-        if new_bank["receipts"].get(rid, null) != before_bank["receipts"][rid]:
+    if legacy:
+        if not _ledger.retains_receipts(result["ledger_snapshot"]["receipts"]):
             return {"ok": false, "fatal": true, "reason": "n149_mutated_existing_n9_receipt"}
+    elif not staged_ledger.retains_owned_receipts(_ledger):
+        return {"ok": false, "fatal": true, "reason": "n149_mutated_existing_n9_receipt"}
     var accounts: Dictionary = _measured_schema_accounts("L1191", next_world)
-    if accounts.size() != new_bank["balances"].size():
+    if accounts.size() != new_balances.size():
         return {"ok": false, "fatal": true, "reason": "n149_added_unauthorized_wallet"}
     for account in accounts:
-        if new_bank["balances"].get(account, null) != accounts[account]:
+        if new_balances.get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true, "reason": "n149_n9_ship_wallet_mismatch"}
     _world = next_world
     _ledger = staged_ledger
@@ -1329,7 +1341,7 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
 ## facilities, ships or N9 by itself. N38 owns snapshot of these fields.
 ## Optional diagnostic only; no timing work or branching of native
 ## economy when LS_PROFILE_NATIVE_PHASES is disabled.
-func _commit_native_n21(proposal: Dictionary) -> Dictionary:
+func _commit_native_n21(proposal: Dictionary, owned: RefCounted = null) -> Dictionary:
     # Explicit callers may opt into stale-proposal prevention; the original
     # Rust N21 staged apply (without expected_n21_version) is untouched.
     if proposal.has("expected_n21_version") and (
@@ -1337,7 +1349,7 @@ func _commit_native_n21(proposal: Dictionary) -> Dictionary:
             int(proposal["expected_n21_version"]) != n21_write_version()):
         return {"ok": false, "reason": "n21_stale_write_version"}
     if not _profile_copy_enabled:
-        var original: Dictionary = _commit_native_n21_unprofiled(proposal)
+        var original: Dictionary = _commit_native_n21_unprofiled(proposal, owned)
         if original.get("ok", false):
             _n21_commit_generation += 1
         return original
@@ -1348,7 +1360,7 @@ func _commit_native_n21(proposal: Dictionary) -> Dictionary:
             _world, proposal["world"], proposal["ledger_snapshot"])
         _n21_shadow_checks += 1
     var began: int = Time.get_ticks_usec()
-    var outcome: Dictionary = _commit_native_n21_unprofiled(proposal)
+    var outcome: Dictionary = _commit_native_n21_unprofiled(proposal, owned)
     _profile_n21_commit_calls += 1
     _profile_n21_commit_usec += maxi(0, Time.get_ticks_usec() - began)
     # A local validator is never allowed to change original N21 refusal
@@ -1361,12 +1373,21 @@ func _commit_native_n21(proposal: Dictionary) -> Dictionary:
         _n21_commit_generation += 1
     return outcome
 
-func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
+func _commit_native_n21_unprofiled(proposal: Dictionary, owned: RefCounted = null) -> Dictionary:
     if not proposal.get("ok", false) or not (proposal.get("world") is Dictionary) or (
-            not (proposal.get("ledger_snapshot") is Dictionary)):
+            (owned == null and not (proposal.get("ledger_snapshot") is Dictionary))):
         return {"ok": false, "reason": "n21_invalid_staged_source_world"}
+    if owned != null and not is_same(proposal.get("ledger_snapshot"), owned):
+        return {"ok": false, "reason": "n21_invalid_owned_transaction"}
     var future: Dictionary = proposal["world"]
-    var money: Dictionary = proposal["ledger_snapshot"]
+    var money: Dictionary = proposal["ledger_snapshot"] if owned == null else {
+        "balances": owned.balances_snapshot(), "receipts": {}}
+    if owned != null:
+        # The provenance validator needs only NEW dock payment IDs. Existing
+        # N9 history is proved independently by immutable COW retention below.
+        for op in future.get("dock_receipts", {}):
+            if not _world.get("dock_receipts", {}).has(op) and owned.has_receipt(str(op)):
+                money["receipts"][op] = owned.receipt_copy(str(op))
     if future.size() != _world.size():
         return {"ok": false, "reason": "n21_changed_world_domain"}
     for key in _world:
@@ -1411,16 +1432,16 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     for op in _world.get("dock_receipts", {}):
         if future["dock_receipts"].get(op, null) != _world["dock_receipts"][op]:
             return {"ok": false, "reason": "n21_rewrote_paid_dock_receipt"}
-    var checked := Ledger.new()
-    if not checked.restore(money) or checked.total() != _ledger.total():
+    var checked: RefCounted = Ledger.new() if owned == null else owned
+    if (owned == null and not checked.restore(money)) or checked.total() != _ledger.total():
         return {"ok": false, "reason": "n21_ledger_money_not_conservative"}
     # The external proposal is still validated by checked.restore().
     # Compare EVERY previous immutable N9 receipt in-place instead of
     # duplicating the old history only to inspect it for equality.
-    if not (money.get("receipts") is Dictionary) or (
-            money["receipts"].size() < _ledger.receipt_count()):
+    if not (money.get("receipts") is Dictionary) or checked.receipt_count() < _ledger.receipt_count():
         return {"ok": false, "reason": "n21_paid_receipt_missing"}
-    if not _ledger.retains_receipts(money["receipts"]):
+    if (owned == null and not _ledger.retains_receipts(money["receipts"])) or (
+            owned != null and not checked.retains_owned_receipts(_ledger)):
         return {"ok": false, "reason": "n21_replayed_or_edited_n9_receipt"}
     var schema_error: String = _measured_schema_validate("L1281", future)
     if not schema_error.is_empty():
@@ -1453,7 +1474,7 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     for domain in ["ships", "facilities", "dock_receipts"]:
         committed[domain] = future[domain].duplicate(true)
     _world = committed
-    _ledger = checked
+    _ledger = checked.fork() if owned != null else checked
     return {"ok": true, "status": str(proposal.get("status", "")),
         "changed": bool(proposal.get("changed", false)),
         "receipt": proposal.get("receipt", {}).duplicate(true),
@@ -1464,12 +1485,14 @@ func apply_native_n21_request(tick: int, ship_id: String,
         preferred_type: String = "", preferred_id: String = "") -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1:
         return {"ok": false, "reason": "n21_not_current_single_ship_phase"}
+    var owned: RefCounted = null if OS.get_environment("LS_LATE_DOCK_LEGACY") == "1" else _ledger.fork()
+    var bank: Variant = _ledger.snapshot() if owned == null else owned
     var proposed: Dictionary = {}
     if operation == "dock":
-        proposed = N21Source.request(_world, _ledger.snapshot(), ship_id,
+        proposed = N21Source.request(_world, bank, ship_id,
             location, tick, preferred_type, preferred_id)
     elif operation == "undock":
-        proposed = N21Source.release(_world, _ledger.snapshot(),
+        proposed = N21Source.release(_world, bank,
             ship_id, location, tick)
     else:
         return {"ok": false, "reason": "n21_unknown_source_dock_action"}
@@ -1478,7 +1501,7 @@ func apply_native_n21_request(tick: int, ship_id: String,
     # do not pass an unsuccessful proposal into the paid commit gate.
     if not proposed.get("ok", false):
         return proposed
-    return _commit_native_n21(proposed)
+    return _commit_native_n21(proposed, owned)
 
 ## Manual UI Dock is an explicit command in the current committed
 ## native tick, not an arbitrary N15 cargo transfer. No free port may
@@ -1504,8 +1527,9 @@ func apply_native_n21_manual_dock(tick: int, ship_id: String,
 func apply_native_n21_dock_queue(tick: int) -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1:
         return {"ok": false, "reason": "n21_not_original_dock_queue_phase"}
-    return _commit_native_n21(N21Source.advance(
-        _world, _ledger.snapshot(), tick))
+    var owned: RefCounted = null if OS.get_environment("LS_LATE_DOCK_LEGACY") == "1" else _ledger.fork()
+    var bank: Variant = _ledger.snapshot() if owned == null else owned
+    return _commit_native_n21(N21Source.advance(_world, bank, tick), owned)
 
 
 ## Frozen Rust SimCommand::ReleaseContract (N146) is applied AFTER
@@ -2252,7 +2276,7 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
     if not issue.is_empty():
         return {"ok": false, "fatal": true, "reason": "n91_invalid_world_" + issue}
     var balances: Dictionary = _measured_schema_accounts("L2082", staged)
-    if balances.size() != _ledger.snapshot().get("balances", {}).size():
+    if balances.size() != _ledger.balances_snapshot().size():
         return {"ok": false, "fatal": true, "reason": "n91_wallet_count_changed"}
     for account in balances:
         if _ledger.balance(str(account)) != int(balances[account]):
@@ -2545,7 +2569,7 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
         if new_receipts.get(receipt_id, null) != prior_receipts[receipt_id]:
             return {"ok": false, "fatal": true, "reason": "n144_modified_existing_payment"}
     var expected: Dictionary = _measured_schema_accounts("L2375", staged)
-    var actual: Dictionary = ledger.snapshot().get("balances", {})
+    var actual: Dictionary = ledger.balances_snapshot()
     if expected.size() != actual.size():
         return {"ok": false, "fatal": true, "reason": "n144_n9_wrong_wallet_count"}
     for wallet in expected:
@@ -2808,7 +2832,7 @@ func apply_native_colony_prepare_docks(tick: int, graph: RefCounted) -> Dictiona
         return {"ok": false, "fatal": true,
             "reason": "n151_dock_changed_real_economy"}
     var accounts: Dictionary = _measured_schema_accounts("L2638", staged)
-    var balances: Dictionary = staged_ledger.snapshot().get("balances", {})
+    var balances: Dictionary = staged_ledger.balances_snapshot()
     if accounts.size() != balances.size():
         return {"ok": false, "fatal": true,
             "reason": "n151_dock_money_account_cardinality"}
@@ -3113,7 +3137,7 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "n141_invalid_world_" + error}
     var expected: Dictionary = _measured_schema_accounts("L2943", staged)
-    var wallet_values: Dictionary = ledger.snapshot()["balances"]
+    var wallet_values: Dictionary = ledger.balances_snapshot()
     if wallet_values.size() != expected.size() or ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n141_money_supply_modified"}
     for id in expected:
@@ -3392,7 +3416,7 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "research_world_" + error}
     var expected: Dictionary = _measured_schema_accounts("L3222", staged)
-    var actual: Dictionary = staged_ledger.snapshot().get("balances", {})
+    var actual: Dictionary = staged_ledger.balances_snapshot()
     if expected.size() != actual.size() or staged_ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "research_money_not_conserved"}
     for account in expected:
@@ -3536,7 +3560,7 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
     if not reason.is_empty():
         return {"ok": false, "fatal": true, "reason": "construction_world_" + reason}
     var expected: Dictionary = _measured_schema_accounts("L3366", after)
-    var balances: Dictionary = next_money.snapshot()["balances"]
+    var balances: Dictionary = next_money.balances_snapshot()
     if expected.size() != balances.size() or next_money.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "construction_money_not_conserved"}
     for acc in expected:
@@ -4174,7 +4198,7 @@ func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary
     if next_ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n151_unbalanced_migration_money"}
     var accounts: Dictionary = _measured_schema_accounts("L4004", next_world)
-    if accounts.size() != next_ledger.snapshot()["balances"].size():
+    if accounts.size() != next_ledger.balances_snapshot().size():
         return {"ok": false, "fatal": true, "reason": "n151_new_or_missing_migration_accounts"}
     for account in accounts:
         if int(accounts[account]) != next_ledger.balance(str(account)):
@@ -4664,7 +4688,7 @@ func _run_shipyard_modules(tick: int, multiplier: int,
         if not error.is_empty():
             return {"ok": false, "reason": "n154_paid_module_invalid_world:" + error}
         var accounts: Dictionary = _measured_schema_accounts("L4479", staged)
-        var balances: Dictionary = ledger_copy.snapshot().get("balances", {})
+        var balances: Dictionary = ledger_copy.balances_snapshot()
         if balances.size() != accounts.size() or ledger_copy.total() != _ledger.total():
             return {"ok": false, "reason": "n154_module_wages_destroyed_money"}
         for account in accounts:
@@ -4953,7 +4977,7 @@ func apply_native_n121_execution(tick: int, faction: String,
         return {"ok": false, "fatal": true,
             "reason": "n121_canonical_n39_schema_" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L4768", staged)
-    var balances: Dictionary = ledger_next.snapshot().get("balances", {})
+    var balances: Dictionary = ledger_next.balances_snapshot()
     if accounts.size() != balances.size() or ledger_next.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n121_fabricated_n9_wallet"}
     for account in accounts:
@@ -5182,7 +5206,7 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n129_world_schema:" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L4997", staged)
-    var actual: Dictionary = wallets.snapshot().get("balances", {})
+    var actual: Dictionary = wallets.balances_snapshot()
     if accounts.size() != actual.size() or wallets.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n129_native_total_not_conserved"}
     for account in accounts:
@@ -5386,7 +5410,7 @@ func restore(saved: Dictionary) -> bool:
                 {"account": Schema.household_account(to), "delta": quantity}]
             if str(receipt.get("id", "")) != transfer_id or int(receipt.get("tick", -1)) != int(last_migration["tick"]) or str(receipt.get("kind", "")) != "native_population_migration" or receipt.get("legs", []) != expected_legs:
                 return false
-    if staged_ledger.snapshot()["balances"].size() != expected.size():
+    if staged_ledger.balances_snapshot().size() != expected.size():
         return false
     for id in staged_world["facilities"]:
         var shift: Dictionary = staged_world["facilities"][id].get("work_shift", {})

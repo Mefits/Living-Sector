@@ -2583,8 +2583,14 @@ func _normalize_native_snapshot(saved: Dictionary) -> bool:
             return false
         if f.has("work_shift") and not f["work_shift"].is_empty():
             var shift: Dictionary = f["work_shift"]
-            if not _normalize_row(shift, ["tick", "wages", "input_payment", "processing_fee"]):
+            if not _normalize_row(shift, ["tick"]):
                 return false
+            # Colony staffing stores only tick + workers. Paid production
+            # adds these fields; normalize them when present, never invent
+            # wages or reject a schema-valid original colony checkpoint.
+            for payment in ["wages", "input_payment", "processing_fee"]:
+                if shift.has(payment) and not _normalize_number_at(shift, payment):
+                    return false
             if not (shift.get("workers") is Dictionary):
                 return false
             if shift.has("last_recipe_ticks") and not (shift["last_recipe_ticks"] is Dictionary):

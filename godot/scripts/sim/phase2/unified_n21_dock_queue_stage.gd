@@ -105,7 +105,7 @@ static func _fee(world: Dictionary, fid: String, ship_id: String,
         float(treaty.get("fee_factor", 1.0)))
     return discounted if discounted >= 0 else -1
 
-static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
+static func _admit(world: Dictionary, ledger: Variant, fid: String,
         sid: String, tick: int, cause: String,
         occupancy: Dictionary = {}) -> Dictionary:
     var fac: Dictionary = world["facilities"][fid]
@@ -121,10 +121,10 @@ static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
     var op_id: String = "n21:dock:" + sid + ":" + str(tick)
     if world.get("dock_receipts", {}).has(op_id):
         return _bad("duplicate_real_dock_receipt")
-    var paid: Dictionary = ledger.duplicate(true)
+    var paid: Variant = ledger.duplicate(true) if ledger is Dictionary else ledger
     if price > 0:
-        var bank := Bank.new()
-        if not bank.restore(ledger):
+        var bank: RefCounted = Bank.new() if ledger is Dictionary else ledger
+        if ledger is Dictionary and not bank.restore(ledger):
             return _bad("n9_original_bank_restore_failed")
         # N39 Schema.facility_account(fid) is "facility/" + fid.
         # A colon key is NOT a real wallet and wrongly rejected every
@@ -133,7 +133,7 @@ static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
             "facility/" + fid, price, tick, "native_n21_dock")
         if not moved.get("ok", false):
             return _bad("n9_original_dock_debit_rejected")
-        paid = bank.snapshot()
+        paid = bank.snapshot() if ledger is Dictionary else bank
     ship["credits"] = int(ship["credits"]) - price
     ship["docked_at"] = fid
     if occupancy.has(fid):
@@ -154,7 +154,7 @@ static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
         "world": world, "ledger_snapshot": paid,
         "receipt": receipt, "fee": price}
 
-static func request(world: Dictionary, ledger: Dictionary,
+static func request(world: Dictionary, ledger: Variant,
         ship_id: String, location: String, tick: int,
         preferred_type: String = "", preferred_id: String = "") -> Dictionary:
     if tick < 1 or ship_id.is_empty() or location.is_empty() or (
@@ -168,7 +168,7 @@ static func request(world: Dictionary, ledger: Dictionary,
             not current["transit"].is_empty() or
             not str(current.get("docked_at", "")).is_empty()):
         return _bad("request_ship_not_waiting_at_actual_location")
-    var staged: Dictionary = world.duplicate(true)
+    var staged: Dictionary = _stage_world(world, ledger)
     var options: Array = _candidates(staged, location, preferred_type, preferred_id)
     if options.is_empty():
         return {"ok": true, "changed": false, "status": "no_real_dock",
@@ -220,7 +220,7 @@ static func request(world: Dictionary, ledger: Dictionary,
         "facility_id": shortest, "world": staged,
         "ledger_snapshot": ledger}
 
-static func release(world: Dictionary, ledger: Dictionary,
+static func release(world: Dictionary, ledger: Variant,
         ship_id: String, location: String, tick: int) -> Dictionary:
     if tick < 1 or not world.get("ships", {}).has(ship_id):
         return _bad("unknown_source_release_actor")
@@ -230,7 +230,7 @@ static func release(world: Dictionary, ledger: Dictionary,
             str(ship.get("location", "")) != location or
             str(world["facilities"][fid].get("location", "")) != location):
         return _bad("no_real_physical_dock_to_release")
-    var staged: Dictionary = world.duplicate(true)
+    var staged: Dictionary = _stage_world(world, ledger)
     staged["ships"][ship_id]["docked_at"] = ""
     staged["ships"][ship_id]["dock_attempt_start_tick"] = null
     var op_id: String = "n21:undock:" + ship_id + ":" + str(tick)
@@ -242,10 +242,10 @@ static func release(world: Dictionary, ledger: Dictionary,
         "fee": 0, "financial_receipt": ""}
     staged["dock_receipts"][op_id] = receipt.duplicate(true)
     return {"ok": true, "changed": true, "status": "undocked",
-        "world": staged, "ledger_snapshot": ledger.duplicate(true),
+        "world": staged, "ledger_snapshot": ledger.duplicate(true) if ledger is Dictionary else ledger,
         "receipt": receipt}
 
-static func advance(world: Dictionary, ledger: Dictionary,
+static func advance(world: Dictionary, ledger: Variant,
         tick: int) -> Dictionary:
     if tick < 1 or not (world.get("facilities") is Dictionary) or (
             not (world.get("ships") is Dictionary)):
@@ -263,8 +263,8 @@ static func advance(world: Dictionary, ledger: Dictionary,
         return {"ok": true, "changed": false, "world": world,
             "ledger_snapshot": ledger, "events": [], "tick": tick,
             "status": "SOURCE_N21_FIFO_EMPTY"}
-    var staged: Dictionary = world.duplicate(true)
-    var bank: Dictionary = ledger.duplicate(true)
+    var staged: Dictionary = _stage_world(world, ledger)
+    var bank: Variant = ledger.duplicate(true) if ledger is Dictionary else ledger
     var events: Array = []
     var changed: bool = false
     # Count occupied docks once per paid tick. The old queue loop scanned
@@ -306,3 +306,14 @@ static func advance(world: Dictionary, ledger: Dictionary,
     return {"ok": true, "changed": changed, "world": staged,
         "ledger_snapshot": bank, "events": events, "tick": tick,
         "status": "SOURCE_N21_FIFO_DOCK_QUEUE"}
+
+## Owned N39 staging writes only these domains. Public snapshot callers
+## keep the original detached full-world contract. Unrelated domains are
+## read-only inside this module and checked again by N39 before commit.
+static func _stage_world(world: Dictionary, ledger: Variant) -> Dictionary:
+    if ledger is Dictionary:
+        return world.duplicate(true)
+    var staged: Dictionary = world.duplicate()
+    for domain in ["ships", "facilities", "dock_receipts"]:
+        staged[domain] = world[domain].duplicate(true)
+    return staged

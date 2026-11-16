@@ -1,0 +1,61 @@
+name: Paid history early-late exact replay
+on:
+  workflow_dispatch:
+  push:
+    branches: [integration/perf-astra-5-workers-20261116]
+    paths: [.github/workflows/p2-late-growth-owned.yml]
+permissions:
+  contents: read
+concurrency:
+  group: p2-paid-history-replay
+  cancel-in-progress: false
+jobs:
+  bounded-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 32
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot 4.7.2
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot"
+          curl --fail --location --retry 2 --max-time 150 --silent --show-error https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+      - name: Focused financial and ownership regressions
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/late-growth
+          for test in p2_late_growth_owned_check p2_late_growth_owned_dock_check p2_n9_owned_fork_history_check p2_n21_ledger_history_guard_check p2_parallel_a_n21_source_paid_check p2_n38_n21_paid_fee_type_roundtrip_check; do
+            timeout 40 godot --headless --path godot --script res://tests/$test.gd > godot/logs/late-growth/$test.log 2>&1
+            grep PASS godot/logs/late-growth/$test.log
+          done
+      - name: Genuine checkpoints in at most three independent 8 minute chunks
+        run: |
+          set -euo pipefail
+          resume=""
+          for chunk in 1 2 3; do
+            LS_LATE_RESUME="$resume" LS_PROFILE_LEDGER=1 LS_PROFILE_NATIVE_PHASES=1 timeout 510 godot --headless --path godot --script res://tests/p2_late_growth_capture.gd > godot/logs/late-growth/capture-$chunk.log 2>&1
+            grep P2_PERF_E_LATE_TICK_BOUNDED_PASS godot/logs/late-growth/capture-$chunk.log
+            resume=$(python -c 'import pathlib; p=max(pathlib.Path("godot/logs/late-growth").glob("ls-late-*.bin"),key=lambda p:int(p.stem.rsplit("-",1)[1]));print(p.resolve())')
+            if test -f godot/logs/late-growth/ls-late-2600.bin; then break; fi
+          done
+          echo "LATE_CHECKPOINT=$resume" >> "$GITHUB_ENV"
+      - name: Identical early and late 32 tick replays
+        run: |
+          set -euo pipefail
+          for checkpoint in "$PWD/godot/logs/late-growth/ls-late-100.bin" "$LATE_CHECKPOINT"; do
+            for mode in legacy owned; do
+              flag=0; if test "$mode" = legacy; then flag=1; fi
+              LS_LATE_RESUME="$checkpoint" LS_LATE_LABEL="$mode" LS_LATE_CREW_LEGACY="$flag" LS_LATE_DOCK_LEGACY="$flag" LS_PROFILE_LEDGER=1 timeout 170 godot --headless --path godot --script res://tests/p2_late_growth_replay.gd > "godot/logs/late-growth/replay-$mode-$(basename "$checkpoint").log" 2>&1
+            done
+          done
+          python godot/tests/compare_late_growth_replays.py godot/logs/late-growth
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paid-history-replay-linux
+          path: godot/logs/late-growth/
+          retention-days: 7

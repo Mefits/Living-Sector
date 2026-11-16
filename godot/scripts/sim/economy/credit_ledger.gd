@@ -258,6 +258,14 @@ func pay_native_ship_crew(operation_id: String, ship_account: String,
 
 
 func snapshot() -> Dictionary:
+	if OS.get_environment("LS_PROFILE_LEDGER") != "1":
+		return _profile_inner_snapshot()
+	var began: int = Time.get_ticks_usec()
+	var result: Dictionary = _profile_inner_snapshot()
+	_record_profile("snapshot", began)
+	return result
+
+func _profile_inner_snapshot() -> Dictionary:
 	# The N38 version-1 envelope and ORIGINAL insertion order are retained.
 	# Export is intentionally full and detached at a real save/proof boundary.
 	return {"version": 1, "balances": _balances.duplicate(true),
@@ -272,6 +280,14 @@ func snapshot() -> Dictionary:
 ## NOT historical receipt count. No old receipt map is writable by child.
 ## External N38 restore remains strict and re-validates all history.
 func fork() -> RefCounted:
+	if OS.get_environment("LS_PROFILE_LEDGER") != "1":
+		return _profile_inner_fork()
+	var began: int = Time.get_ticks_usec()
+	var result: RefCounted = _profile_inner_fork()
+	_record_profile("fork", began)
+	return result
+
+func _profile_inner_fork() -> RefCounted:
 	var child: RefCounted = get_script().new()
 	child.set("_balances", _balances.duplicate(true))
 	child.set("_receipt_partitions", _receipt_partitions.duplicate())
@@ -538,6 +554,14 @@ func balances_snapshot() -> Dictionary:
 	return _balances.duplicate(true)
 
 func restore(data: Dictionary) -> bool:
+	if OS.get_environment("LS_PROFILE_LEDGER") != "1":
+		return _profile_inner_restore(data)
+	var began: int = Time.get_ticks_usec()
+	var result: bool = _profile_inner_restore(data)
+	_record_profile("restore", began)
+	return result
+
+func _profile_inner_restore(data: Dictionary) -> bool:
 	if data.get("version") != 1 or not (data.get("balances") is Dictionary) or not (data.get("receipts") is Dictionary):
 		return false
 	var candidate: Dictionary = data["balances"]
@@ -586,3 +610,26 @@ func _valid_account(value: Variant) -> bool:
 
 func _valid_amount(value: Variant) -> bool:
 	return typeof(value) == TYPE_INT and value >= 0
+
+# Opt-in bounded aggregate timings; never part of N9 state or N38.
+static var profile_cost: Dictionary = {}
+static func _record_profile(kind: String, began: int) -> void:
+	var row: Dictionary = profile_cost.get(kind, {"calls": 0, "usec": 0})
+	row["calls"] += 1
+	row["usec"] += Time.get_ticks_usec() - began
+	profile_cost[kind] = row
+
+## Proof for internal COW transactions. Unchanged shards retain identity;
+## changed shards must retain every original immutable row. A restored or
+## replaced history cannot acquire this proof merely by matching its count.
+func retains_owned_receipts(parent: RefCounted) -> bool:
+	if parent.get_script() != get_script() or _receipt_count < parent.receipt_count():
+		return false
+	var old: Array = parent.get("_receipt_partitions")
+	for i in range(RECEIPT_PARTITIONS):
+		if is_same(_receipt_partitions[i], old[i]):
+			continue
+		for id in old[i]:
+			if not is_same((_receipt_partitions[i] as Dictionary).get(id), old[i][id]):
+				return false
+	return true

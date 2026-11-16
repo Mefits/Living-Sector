@@ -6,3 +6,5 @@ base: 1c8b4b2bf7411505876927d730d390ebb3ca10e8
 scope: credit_ledger.gd profiling; n39_native_world_production.gd measured growing call sites; n158_production_runtime.gd only if profiling identifies a growing read path; new p2_late_growth_* tests and own handoff.
 
 Do not edit these central files concurrently. No main.gd, UI, interpolation, balance, AI cadence or N38 format changes. Inspect the existing 2600-tick Actions probe first. Short replay windows from genuine early/late checkpoints, exact state and negative tests before publishing changes. Remains in PR262, no merge to base.
+
+Continuation: owned N149 and N21 staging implemented; read-only balance queries avoid exporting history. N158 change limited to restoring the original staffing-only colony work_shift (tick/workers). Owned paid-dock and legacy tamper guards pass locally on 4.6.3. Rebased onto 863cb906, retaining C occupancy and B 1024 partitions. Bounded early/late A/B currently running; do not change these call sites until the final handoff.

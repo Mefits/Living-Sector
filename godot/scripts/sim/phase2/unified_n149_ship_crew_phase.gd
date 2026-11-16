@@ -36,6 +36,26 @@ static func stage(world: Dictionary, ledger_snapshot: Dictionary,
     var money := Ledger.new()
     if not money.restore(ledger_snapshot):
         return _fail("n149_invalid_n9_snapshot")
+    var result: Dictionary = _stage_owned(world, money, tick, tick_scale, multiplier, n140_fired)
+    if result.get("ok", false):
+        result["ledger_snapshot"] = money.snapshot()
+        result.erase("owned_ledger")
+    return result
+
+## Internal N39 entry: an isolated append-only transaction, never an imported save.
+static func stage_owned(world: Dictionary, ledger: RefCounted,
+        tick: int, tick_scale: float, multiplier: int,
+        n140_fired: Dictionary) -> Dictionary:
+    if tick < 1 or multiplier < 1 or not is_finite(tick_scale) or tick_scale < 0.0:
+        return _fail("n149_invalid_source_clock")
+    if not (world.get("ships") is Dictionary):
+        return _fail("n149_no_live_canonical_fleet")
+    return _stage_owned(world, ledger.fork(), tick, tick_scale, multiplier, n140_fired)
+
+static func _stage_owned(world: Dictionary, money: RefCounted,
+        tick: int, tick_scale: float, multiplier: int,
+        n140_fired: Dictionary) -> Dictionary:
+    var original_total: int = money.total()
     var next_ships: Dictionary = world["ships"].duplicate(true)
     var ids: Array = n140_fired.keys()
     ids.sort()
@@ -115,10 +135,10 @@ static func stage(world: Dictionary, ledger_snapshot: Dictionary,
             "efficiency": float(ship["crew_efficiency"]),
             "task": str(ship["crew"]["current_task"]),
             "skipped_ticks": int(n140_fired[sid])})
-    if money.total() != _total_balances(ledger_snapshot) - wages_total:
+    if money.total() != original_total - wages_total:
         return _fail("n149_nonconservative_native_wage_outflow")
     return {"ok": true, "changed": changed, "ships": next_ships,
-        "ledger_snapshot": money.snapshot(), "records": records,
+        "owned_ledger": money, "records": records,
         "wages_total": wages_total, "food_consumed": food_total,
         "fired_count": ids.size(), "tick": tick}
 
