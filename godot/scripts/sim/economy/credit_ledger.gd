@@ -21,6 +21,12 @@ const ORDER_CHUNK_SIZE: int = 64
 var _receipt_partitions: Array = []
 var _receipt_order_chunks: Array = []
 var _receipt_count: int = 0
+## Trusted fork lineage: only used to narrow an existing full provenance proof.
+## Generation changes on every append/restore, including equal-count restore.
+var _receipt_generation: int = 0
+var _fork_source: RefCounted = null
+var _fork_source_generation: int = -1
+var _fork_changed_shards: Dictionary = {}
 ## Exact per-kind counts, updated only on committed append or validated restore.
 ## A fork owns its counter dictionary: never mutate the parent's counters.
 var _receipt_kind_counts: Dictionary = {}
@@ -91,6 +97,9 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	# those immutable records. No caller receives this private row directly.
 	detached[id] = record
 	_receipt_partitions[bucket] = detached
+	_receipt_generation += 1
+	if _fork_source != null:
+		_fork_changed_shards[bucket] = true
 	var last: int = _receipt_order_chunks.size() - 1
 	if last < 0 or (_receipt_order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
 		_receipt_order_chunks.append([id])
@@ -308,6 +317,10 @@ func _profile_inner_fork() -> RefCounted:
 	child.set("_receipt_partitions", _receipt_partitions.duplicate())
 	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
 	child.set("_receipt_count", _receipt_count)
+	child.set("_receipt_generation", _receipt_generation)
+	child.set("_fork_source", self)
+	child.set("_fork_source_generation", _receipt_generation)
+	child.set("_fork_changed_shards", {})
 	child.set("_receipt_kind_counts", _receipt_kind_counts.duplicate())
 	child.set("_flat_receipt_cache", _flat_receipt_cache)
 	child.set("_flat_cache_count", _flat_cache_count)
@@ -615,6 +628,10 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 	_receipt_partitions = partitions
 	_receipt_order_chunks = order_chunks
 	_receipt_count = next_count
+	_receipt_generation += 1
+	_fork_source = null
+	_fork_source_generation = -1
+	_fork_changed_shards = {}
 	_receipt_kind_counts = next_kind_counts
 	_flat_receipt_cache = {}
 	_flat_cache_count = -1
@@ -641,6 +658,23 @@ func retains_owned_receipts(parent: RefCounted) -> bool:
 	if parent.get_script() != get_script() or _receipt_count < parent.receipt_count():
 		return false
 	var old: Array = parent.get("_receipt_partitions")
+	# A direct child knows precisely which immutable COW shards it detached.
+	# Parent generation must still match the fork point: a later parent append
+	# or even same-count restore invalidates the shortcut. All other cases use
+	# the original exhaustive oracle, including unrelated/ancestor ledgers.
+	if is_same(_fork_source, parent) and (
+			_fork_source_generation == int(parent.get("_receipt_generation"))):
+		for bucket_value in _fork_changed_shards:
+			var bucket: int = int(bucket_value)
+			if bucket < 0 or bucket >= RECEIPT_PARTITIONS:
+				return false
+			if not (_receipt_partitions[bucket] is Dictionary):
+				return false
+			for id in old[bucket]:
+				if not is_same((_receipt_partitions[bucket] as Dictionary).get(id),
+						old[bucket][id]):
+					return false
+		return true
 	for i in range(RECEIPT_PARTITIONS):
 		if is_same(_receipt_partitions[i], old[i]):
 			continue
