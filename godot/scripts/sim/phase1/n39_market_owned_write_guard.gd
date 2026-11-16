@@ -42,6 +42,21 @@ static func validate_owned_write(before: Dictionary, after: Dictionary) -> Strin
             # physical capacity mutations; never compare by object identity.
             if old_row[key] != new_row[key]:
                 return "market_write_outside_observation"
+    # A protected container from one market must not be reparented into
+    # another location's observation or protected fields. Per-row checks
+    # alone miss this cross-location mutable alias.
+    for old_location in before:
+        var protected_row: Dictionary = before[old_location]
+        for new_location in after:
+            if old_location == new_location:
+                continue
+            var proposed_row: Dictionary = after[new_location]
+            for protected_field in protected_row:
+                if protected_field in Observation.OBSERVATION_FIELDS:
+                    continue
+                if _shares_mutable_storage(
+                        protected_row[protected_field], proposed_row):
+                    return "market_write_aliased_protected_field"
     # The existing local proposal validator enforces N150's observation
     # shapes and prices; this guard enforces the complementary write-set.
     return Observation.validate_observation_proposal(
