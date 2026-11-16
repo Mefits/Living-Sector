@@ -25,6 +25,22 @@ func _initialize() -> void:
     if not is_equal_approx(Motion.alpha(1000, 100, 1300), 1.0):
         _fail("stalled sim must halt visual movement instead of extrapolate")
         return
+    # Regression: at late N158 tick a source frame can take ~1.4 s.
+    # 650ms interpolation used to complete and then visibly freeze until the
+    # next real snapshot. Its duration now follows the observed cadence.
+    var slow_duration: int = Motion.sample_duration(1000000, 2400000)
+    if slow_duration < 1400000 or slow_duration > 2000000 or (
+            Motion.alpha(2400000, slow_duration, 3200000) >= 1.0):
+        _fail("slow 1.4s source commits still freeze at former 650ms cap")
+        return
+    if Motion.sample_duration(1000000, 1100000) < 100000 or (
+            Motion.sample_duration(1000000, 9000000) != 3500000):
+        _fail("adaptive smoothing did not respect bounded source interval")
+        return
+    if Motion.sample_duration(-1, 3000000) != 160000 or (
+            Motion.sample_duration(4000000, 3000000) != 160000):
+        _fail("first or reversed source timestamps must use safe initial tween")
+        return
     if not Motion.valid_xy([0.0, 8]) or Motion.valid_xy([1.0]) or (
             Motion.valid_xy([INF, 1.0])):
         _fail("transit XY validation admits invalid/malformed data")
