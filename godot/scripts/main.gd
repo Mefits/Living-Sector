@@ -328,13 +328,17 @@ func _ready() -> void:
     # process, so a plain F5 reliably launches the experimental worker.
     # Explicit legacy smoke/override always wins; never run two N158 owners.
     var run_args: PackedStringArray = OS.get_cmdline_user_args()
-    var worker_setting: bool = bool(ProjectSettings.get_setting(
-        "living_sector/performance/experimental_n158_worker_gui", false))
+    # PERF BRANCH ONLY. Godot Editor F5 does not forward project.godot
+    # editor/main_run_args; likewise the unregistered custom project key
+    # was absent from headless runtime. Enable this isolated integration
+    # by construction in this DRAFT PR, never silently merge as default.
+    # The explicit legacy override below remains authoritative.
+    const PERF_BRANCH_WORKER_F5: bool = true
     var request_worker: bool = OS.get_environment("LS_N158_WORKER_GUI") == "1" or (
         run_args.has("--p2-worker-gui"))
     var request_legacy: bool = OS.get_environment("LS_N158_WORKER_GUI") == "0" or (
         run_args.has("--p2-default-gui") or run_args.has("--p2-boot-check"))
-    _worker_mode = (worker_setting or request_worker) and not request_legacy
+    _worker_mode = (PERF_BRANCH_WORKER_F5 or request_worker) and not request_legacy
     if _worker_mode:
         title.text = "LIVING SECTOR / GODOT P2 · WORKER (ЭКСПЕРИМЕНТ)"
         _worker_smoke = OS.get_cmdline_user_args().has(
