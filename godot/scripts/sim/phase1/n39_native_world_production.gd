@@ -1575,7 +1575,14 @@ func apply_native_n104_release_contract(tick: int, ship_id: String,
     if expected_accounts != actual_money.get("balances", {}):
         return {"ok": false, "fatal": true,
             "reason": "n104_release_changed_prepaid_n9_escrow"}
-    _world = next.duplicate(true)
+    # The source stage has passed full Schema and the explicit N104 write-set
+    # check above. Reuse authoritative untouched domains rather than cloning
+    # the entire growing World; detach every domain the stage may own/write.
+    # Never publish a mutable container borrowed from candidate["world"].
+    var committed: Dictionary = _copy_world("n104_release_commit", false)
+    for domain in ["ships", "contract_board", "faction_relations"]:
+        committed[domain] = next[domain].duplicate(true)
+    _world = committed
     return {"ok": true, "changed": true, "tick": tick,
         "contract_id": contract_id, "ship_id": ship_id,
         "status": "N104_SOURCE_REPOSTED_FOR_N153",
