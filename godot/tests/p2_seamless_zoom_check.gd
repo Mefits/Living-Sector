@@ -112,7 +112,8 @@ func _check() -> void:
             var screen_point: Vector2 = view.call("_body_position", child, orbit_scale)
             var separation: float = screen_point.distance_to(earth_point)
             var expected: float = float(view.call("_satellite_orbit_radius", child, earth))
-            if absf(separation - expected) > 0.02:
+            # Vector2 is float32; large positions at ×512 need a relative epsilon.
+            if absf(separation - expected) > maxf(0.05, expected * 0.00005):
                 _fail("child/parent projection mismatch at zoom " + str(z))
                 return
             var footprint: float = float(view.call("_body_size", earth)) + (
