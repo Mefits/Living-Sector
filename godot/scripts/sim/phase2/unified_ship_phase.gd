@@ -64,6 +64,8 @@ static func advance(world: Dictionary, positions: Dictionary,
     # Cache by destination; all ships use the same committed World/orbit
     # snapshot, with no additional World copy, clock or guessed motion.
     var forecast_cache: Dictionary = {}
+    var arrival_cache: Dictionary = {}
+    var solar_cache: Dictionary = {}
     for id in ids:
         var row: Dictionary = state.ships[id]
         # A skipped Rust ship cannot move, burn fuel, observe prices,
@@ -96,10 +98,28 @@ static func advance(world: Dictionary, positions: Dictionary,
                             actual) < 0.0005):
                     forecast = candidate
             forecast_cache[destination] = forecast
+        var tolerance: float = ShipTransit.ARRIVAL_THRESHOLD
+        if arrival_cache.has(destination):
+            tolerance = float(arrival_cache[destination])
+        elif resolver != null and resolver.has_method(
+                "arrival_tolerance_for_location"):
+            var measured: float = float(
+                resolver.arrival_tolerance_for_location(destination))
+            if measured > 0.0 and is_finite(measured):
+                tolerance = measured
+            arrival_cache[destination] = tolerance
+        var system_id: String = str(row.get("system_id", ""))
+        var solar: Dictionary = {}
+        if solar_cache.has(system_id):
+            solar = solar_cache[system_id]
+        elif resolver != null and resolver.has_method(
+                "verified_solar_exclusion"):
+            solar = resolver.verified_solar_exclusion(system_id)
+            solar_cache[system_id] = solar
         var outcome: String = motion.advance(
             state, str(id), positions, tick, tick_scale * float(scale),
-            scale, true, forecast)
-        if not (outcome in ["arrived", "moving", "out_of_fuel"]):
+            scale, true, forecast, tolerance, solar)
+        if not (outcome in ["arrived", "moving", "out_of_fuel", "holding"]):
             return {"ok": false, "reason": "native_ship_" + outcome,
                 "ship": str(id)}
         if outcome == "arrived":
