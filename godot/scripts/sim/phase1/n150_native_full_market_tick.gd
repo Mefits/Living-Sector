@@ -170,7 +170,10 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 				return _fail("invalid_consumption_sample")
 			if int(entry["tick"]) < cutoff:
 				continue
-			kept.append(entry.duplicate(true))
+			# result is already a deep-owned market snapshot; copying each
+			# retained sample again is redundant. The returned market remains
+			# detached from the caller, including nested sample payloads.
+			kept.append(entry)
 			amount += float(entry["qty"])
 		windows[slug] = kept
 		if amount > 0.0:
