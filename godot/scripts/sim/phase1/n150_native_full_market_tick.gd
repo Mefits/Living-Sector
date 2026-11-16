@@ -104,7 +104,10 @@ static func posted_price_or_base(pricing: Dictionary, commodity: String,
 		return _fail("missing_authoritative_commodity_base_price")
 	return {"ok":true, "price":float(base)}
 
-static func _retain_orders(orders: Array, tick: int, expiry: int) -> Dictionary:
+static func _retain_orders(orders: Array, tick: int, expiry: int, already_owned: bool = false) -> Dictionary:
+	# tick_one_market already owns a deep duplicate of the entire market.
+	# Recopying each retained order there is redundant and grows with the
+	# complete pending-order history. Standalone callers keep detached output.
 	var remaining: Array = []
 	for order in orders:
 		if not (order is Dictionary) or not (order.get("agent_id") is String) or 				typeof(order.get("placed_at_tick")) != TYPE_INT:
@@ -118,7 +121,7 @@ static func _retain_orders(orders: Array, tick: int, expiry: int) -> Dictionary:
 		# Godot int64 overflow in pathological malformed snapshots.
 		var age: int = tick - placed
 		if age < 0 or age < expiry:
-			remaining.append(order.duplicate(true))
+			remaining.append(order if already_owned else order.duplicate(true))
 	return {"ok": true, "orders": remaining}
 
 static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
@@ -216,7 +219,7 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 			trends.pop_front()
 	var expiry: int = maxi(ORDER_EXPIRY_MIN, int(orders["order_expiry_ticks"]))
 	for side in ["pending_buys", "pending_sells"]:
-		var filtered := _retain_orders(orders[side], tick, expiry)
+		var filtered := _retain_orders(orders[side], tick, expiry, true)
 		if not bool(filtered.get("ok", false)):
 			return filtered
 		orders[side] = filtered["orders"]
