@@ -127,3 +127,5 @@ jobs:
           path: godot/logs/pr262-current-head/
           if-no-files-found: warn
           retention-days: 7
+
+# Recheck latest performance commits on 2026-11-16 (N39/N9/N21/N150).
