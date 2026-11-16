@@ -323,9 +323,20 @@ func _ready() -> void:
         return
 
     _seed = data
-    _worker_mode = OS.get_environment("LS_N158_WORKER_GUI") == "1" or (
-        OS.get_cmdline_user_args().has("--p2-worker-gui"))
+    # F5 does NOT read the editor's run/main_run_args from project.godot.
+    # This branch-scoped ProjectSettings flag is read by the actual game
+    # process, so a plain F5 reliably launches the experimental worker.
+    # Explicit legacy smoke/override always wins; never run two N158 owners.
+    var run_args: PackedStringArray = OS.get_cmdline_user_args()
+    var worker_setting: bool = bool(ProjectSettings.get_setting(
+        "living_sector/performance/experimental_n158_worker_gui", false))
+    var request_worker: bool = OS.get_environment("LS_N158_WORKER_GUI") == "1" or (
+        run_args.has("--p2-worker-gui"))
+    var request_legacy: bool = OS.get_environment("LS_N158_WORKER_GUI") == "0" or (
+        run_args.has("--p2-default-gui") or run_args.has("--p2-boot-check"))
+    _worker_mode = (worker_setting or request_worker) and not request_legacy
     if _worker_mode:
+        title.text = "LIVING SECTOR / GODOT P2 · WORKER (ЭКСПЕРИМЕНТ)"
         _worker_smoke = OS.get_cmdline_user_args().has(
             "--p2-worker-gui-check")
         _worker_smoke_begin_msec = Time.get_ticks_msec()
