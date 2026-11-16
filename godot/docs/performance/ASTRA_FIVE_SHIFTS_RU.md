@@ -1,5 +1,8 @@
 # Living Sector · Пять автономных смен оптимизации Астры (16.11.2026)
 
+> **Контроль E (обновлено 16.11):** opt-in worker **уже подключён к `main.gd`**, а не только прототип. По умолчанию оставлен прямой backend, эксперимент `LS_N158_WORKER_GUI=1` или `godot/run-worker-gui-windows.cmd`. GitHub Actions [#43842795997](https://github.com/Mefits/Living-Sector/actions/runs/43842795997) PASS: оригинальный F5, threaded F5+N38, direct/thread replay 9 тиков и 5 delta, live SceneTree 32 paid ticks/576 GUI frames/4.0s/UI p95 1.65 ms (Linux headless). **Windows FPS при тике ~601 пока НЕ измерен; по умолчанию НЕ включать.** Handoff: `godot/docs/performance/handoffs/20261116-perf-e-worker-main-f5-32ticks-verified.md`. Не дублировать этот блок; следующее — Windows F5 FPS/parity, затем opt-in 420/N38 restart.
+
+
 > Рабочий координационный документ. Не является доказательством ускорения. Обновлять при каждом крупном проверенном блоке. Источник: независимый `Living-Sector-Performance-Architecture-Audit-RU(2).md` (15.11), страница «Оптимизация» https://www.tldraw.com/f/Dzo-huxLVMxka2COuru0w , реальные Windows профили и PR #250–#261.
 
 ## Задача и область работ
