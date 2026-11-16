@@ -6,6 +6,8 @@ on:
       - integration/perf-astra-5-workers-20261116
     paths:
       - .github/workflows/p2-perf-e-visual-motion-short.yml
+      - godot/scripts/ui_source_motion_interpolator.gd
+      - godot/tests/p2_perf_e_visual_interpolation_check.gd
   workflow_dispatch:
 
 permissions:
