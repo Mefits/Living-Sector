@@ -68,17 +68,22 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
     if not _due_counts.has(_due_key(tick, phase)):
         return []
     var result: Array[Dictionary] = []
-    var remaining: Array[Dictionary] = []
-    for event in _pending:
+    # Compact in place, preserving the surviving storage order. Rebuild only
+    # positions that actually move; no second O(E) array or full map rebuild.
+    var write_index: int = 0
+    var original_size: int = _pending.size()
+    for read_index in range(original_size):
+        var event: Dictionary = _pending[read_index]
         if int(event["due_tick"]) == tick and int(event["phase"]) == phase:
             result.append(event)
             _ids.erase(event["id"])
+            _positions.erase(event["id"])
         else:
-            remaining.append(event)
-    _pending = remaining
-    _positions.clear()
-    for i in range(_pending.size()):
-        _positions[str(_pending[i]["id"])] = i
+            if write_index != read_index:
+                _pending[write_index] = event
+                _positions[str(event["id"])] = write_index
+            write_index += 1
+    _pending.resize(write_index)
     _due_counts.erase(_due_key(tick, phase))
     result.sort_custom(Callable(self, "_less"))
     return result.duplicate(true)
