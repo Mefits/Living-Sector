@@ -5211,7 +5211,9 @@ func apply_native_body_territory(tick: int, multiplier: int,
     var native: Dictionary = NativeDiplomacy.territory(_world, orbits)
     if not native.get("ok", false):
         return native
-    var staged: Dictionary = _copy_world("L5034", true)
+    # Only the detached territory map and scalar cadence are written. Other
+    # domains remain read-only throughout validation and atomic publication.
+    var staged: Dictionary = _copy_world("L5034", false)
     staged["body_territory"] = native["bodies"].duplicate(true)
     staged["territory_last_tick"] = tick
     var invalid: String = _measured_schema_validate("L5037", staged)
@@ -5247,7 +5249,9 @@ func apply_native_faction_relations(tick: int, multiplier: int) -> Dictionary:
     var last: int = int(_world["faction_relations_last_tick"])
     if tick <= last:
         return {"ok": false, "reason": "n150_duplicate_or_replayed_relations_pass"}
-    var staged: Dictionary = _copy_world("L5070", true)
+    # The proposal is detached before publication; Schema and accounts
+    # inspect shared domains but never mutate them. No World-wide deep copy.
+    var staged: Dictionary = _copy_world("L5070", false)
     staged["faction_relations"] = plan["pairs"].duplicate(true)
     staged["faction_relations_last_tick"] = tick
     var invalid: String = _measured_schema_validate("L5073", staged)
