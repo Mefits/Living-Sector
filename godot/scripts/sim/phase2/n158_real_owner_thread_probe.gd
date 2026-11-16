@@ -5,6 +5,7 @@ extends RefCounted
 ## verified. Only detached scalars, checkpoints and bounded view data cross.
 const Runner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
+const RequestMetrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
 
 var _thread: Thread = Thread.new()
 var _mutex: Mutex = Mutex.new()
@@ -175,7 +176,10 @@ func _owner_loop(seed: Dictionary) -> void:
         answer["tick"] = sim.tick_count
         answer["paused"] = sim.clock.paused
         answer["speed"] = sim.clock.world_speed
-        answer["sim_usec"] = maxi(0, Time.get_ticks_usec() - began_usec)
+        var advance_end_usec: int = Time.get_ticks_usec()
+        # Legacy sim_usec excludes FrameView construction, but also includes
+        # command handling; do not present it as thread CPU or per-tick cost.
+        answer["sim_usec"] = maxi(0, advance_end_usec - began_usec)
         answer["advanced"] = sim.tick_count != before_tick
         if answer["ok"] and kind in ["frame", "step", "load", "restore"] and (
                 kind != "frame" or answer["advanced"] or
@@ -194,6 +198,9 @@ func _owner_loop(seed: Dictionary) -> void:
                 if kind in ["load", "restore"] or bool(payload.get("observer", false)):
                     answer["native"] = sim.checkpoint().get(
                         "native_production", {})
+        var projection_end_usec: int = Time.get_ticks_usec()
+        answer["timing"] = RequestMetrics.summarize(before_tick, sim.tick_count,
+            began_usec, advance_end_usec, projection_end_usec)
         _publish(answer)
     # sim is released on this same owner thread. No live reference escapes.
 
