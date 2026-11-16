@@ -50,6 +50,8 @@ func require_restart_verification() -> bool:
 func verify_restart(tick: int, restored: Dictionary) -> bool:
     if not _failure.is_empty():
         return false
+    if not _restart_pending:
+        return _reject(tick, "restart_not_requested")
     if tick != _last_tick or _history.is_empty():
         return _reject(tick, "restart_boundary_mismatch")
     if not _valid_detached(restored, 0):
