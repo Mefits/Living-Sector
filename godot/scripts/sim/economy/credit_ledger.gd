@@ -343,6 +343,12 @@ func verify_operation_provenance(expected_rows: Array) -> bool:
 			return false
 		if stored.get("tick") != expected["tick"] or stored.get("legs") != expected["legs"]:
 			return false
+		# Optional receipt metadata (write-offs, crew accrual and future
+		# provenance fields) is part of the proof too. Never accept a forged
+		# field just because the ordinary payment legs happen to match.
+		for field in expected:
+			if not stored.has(field) or stored[field] != expected[field]:
+				return false
 	return true
 
 
