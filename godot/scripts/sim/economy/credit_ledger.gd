@@ -12,7 +12,11 @@ var _balances: Dictionary = {}
 ## affected partition and the final at-most-64-ID order chunk, preserving
 ## all previous snapshots and the original insertion order on N38 export.
 ## No receipt data is shared with untrusted caller dictionaries.
-const RECEIPT_PARTITIONS: int = 256
+## Wider bounded COW fanout: each real paid append copies one shard.
+## 1024 reduces old-receipt rows copied per append by ~4x at equal journal
+## size vs 256; fork copies a fixed 1024-entry header, N38 stays version 1.
+## Benchmark required: this is an unverified throughput trade-off.
+const RECEIPT_PARTITIONS: int = 1024
 const ORDER_CHUNK_SIZE: int = 64
 var _receipt_partitions: Array = []
 var _receipt_order_chunks: Array = []
