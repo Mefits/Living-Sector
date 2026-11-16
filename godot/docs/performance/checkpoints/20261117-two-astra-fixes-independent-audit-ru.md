@@ -64,3 +64,14 @@ GitHub Actions: https://github.com/Mefits/Living-Sector/actions/runs/43972442164
 - Новый `p2_perf_pr262_astra_fixes_160_parity.gd`: PASS, **5 из 5 точных SHA контрольных состояний** после тиков 1,32,64,120,160. A/B: `LS_RUNTIME_FULL_WORLD_READS=1`, `LS_LATE_CONTRACT_LEGACY=1`, `LS_LATE_FUNDING_LEGACY=1` против defaults. Старое 14.37 с, оптимизированное 11.15 с, sequential same-job Godot Linux. Это один короткий real-tick парный прогон; **не** измерение 900/2600/Windows, не доказательство отсутствия долгосрочных утечек. Профилирование `LS_PROFILE_NATIVE_PHASES=1` здесь не включено.
 
 Не сравнивать 500-tick 40.43s с предыдущими 65.74s как точный процент ускорения: разная нагрузка облачных CI хостов. Статические оставшиеся кандидаты выше не изменены.
+
+## Изменения пяти смен на момент следующей сверки
+
+Смены A–E завершили последние зарегистрированные итерации с кодом/тестами (не только планами):
+- A: N39 GrantCrewXp / N128 owned stage, `777c299d` + oracle `86f4f72f`. Отдельный targeted пока НЕ выполнен.
+- B: N9 Ledger.snapshot balances — shallow-копирование валидированных scalar wallets, `a62f21a7`, тест `e8b99d7f`. Отдельный targeted пока НЕ выполнен.
+- C: N14/N84 ShipState.restore — удалена одна дублирующая глубокая копия флота, `d5e4d775`, тест `29e48210`. Отдельный targeted пока НЕ выполнен.
+- D: Head-owned facility/ship IDs фильтруются перед сортировкой, `481a34aa`, тест `18c4bcb3`. **Этот коммит опубликован ПОСЛЕ успешного CI `9f7cd85`, поэтому текущий HEAD (с D) ещё НЕ проверен этим прогоном.**
+- E: компаратор same-seed запрещает пустые/неполные paid windows, `be4b830d` + `8e7ad32d`; существующие E regressions прошли в текущем CI.
+
+Статусы CODE_COMMITTED/TEST_ADDED не равны TEST_EXECUTED. Источники: GitHub history, результаты пяти автоматизированных чатов. Новая независимая CI #43972442164 непосредственно подтвердила два фикса Астры, Worker/N38 и 500 real paid ticks; отдельные последние unit A/B/C/D не были включены в её targeted список.
