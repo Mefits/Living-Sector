@@ -78,3 +78,21 @@ static func validate_protected_snapshot(snapshot: Dictionary,
         if protected_count != protected.size():
             return "market_write_removed_protected_field"
     return ""
+
+## Combined shadow boundary: validate protected ownership AND the existing N150
+## observation rules without retaining an alias to the live World. The synthetic
+## baseline contains only detached identity fields; no N9, receipts or ships.
+## This is a diagnostic gate, not permission to skip full Schema.validate.
+static func validate_shadow_boundary(snapshot: Dictionary,
+        markets: Dictionary) -> String:
+    var ownership_error: String = validate_protected_snapshot(snapshot, markets)
+    if not ownership_error.is_empty():
+        return ownership_error
+    var baseline: Dictionary = {}
+    for location in snapshot:
+        var protected: Dictionary = snapshot[location]
+        if not protected.has("id"):
+            return "market_write_missing_protected_identity"
+        baseline[location] = {"id": protected["id"]}
+    return Observation.validate_observation_proposal(
+        {"markets": baseline}, markets, -1, 0)
