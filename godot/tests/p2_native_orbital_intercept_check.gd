@@ -187,7 +187,7 @@ func _check() -> void:
             str(lead_arrival) + " versus " + str(chase_arrival))
         return
     if float(leading.ships["courier-1"]["fuel"]) < 0.0 or (
-            float(leading.ships["courier-1"]["fuel"]) > (
+            float(leading.ships["courier-1"]["fuel"]) < (
             float(chasing.ships["courier-1"]["fuel"]))):
         _fail("real N14 fuel accounting invalid")
         return
