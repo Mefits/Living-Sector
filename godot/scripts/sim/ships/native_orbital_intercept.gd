@@ -41,6 +41,15 @@ static func position_after(trajectory: Dictionary, native_dt: float) -> Vector2:
     return result
 
 
+## Conservative upper bound for the velocity of a nested circular
+## target (triangle inequality for all orbital components).
+static func maximum_orbital_speed(trajectory: Dictionary) -> float:
+    var upper: float = 0.0
+    for component in trajectory.get("components", []):
+        upper += TAU * float(component["radius"]) / float(component["period"])
+    return upper
+
+
 ## Earliest catch at constant ship speed: solve
 ##   distance(ship, destination(t)) = speed * t .
 ## Check the earliest root, not a single extrapolated waypoint. Return
@@ -56,28 +65,45 @@ static func intercept(ship_position: Vector2, speed: float,
     if ship_position.distance_to(current) <= 0.000001:
         return {"ok": true, "time": 0.0, "point": current}
     var low: float = 0.0
-    var low_value: float = ship_position.distance_to(current)
-    # A bounded scan brackets the *earliest* intersection even if
-    # the destination changes direction in its orbit.
-    for sample in range(1, BRACKET_SAMPLES + 1):
-        var high: float = horizon * float(sample) / float(BRACKET_SAMPLES)
-        var destination: Vector2 = position_after(trajectory, high)
-        var high_value: float = ship_position.distance_to(destination) - speed * high
-        if high_value <= 0.0 and low_value > 0.0:
-            for _i in range(BISECTION_STEPS):
-                var mid: float = (low + high) * 0.5
-                var test: float = ship_position.distance_to(
-                    position_after(trajectory, mid)) - speed * mid
-                if test > 0.0:
-                    low = mid
-                else:
-                    high = mid
-            var when: float = (low + high) * 0.5
-            return {"ok": true, "time": when,
-                "point": position_after(trajectory, when)}
-        low = high
-        low_value = high_value
-    return {"ok": false, "reason": "no_solution_in_horizon"}
+    var high: float = horizon
+    var bound: float = maximum_orbital_speed(trajectory)
+    if speed > bound:
+        # f(t) = distance(ship, target(t)) - speed * t decreases
+        # strictly because |target_velocity| <= bound < ship_speed.
+        # Thus the first root is unique: skip the expensive 64-point
+        # orbital scan entirely and bisect its proven bracket.
+        var high_value: float = ship_position.distance_to(
+            position_after(trajectory, high)) - speed * high
+        if high_value > 0.0:
+            return {"ok": false, "reason": "no_solution_in_horizon"}
+    else:
+        # A slower ship can have several intercept windows. Scan to
+        # bracket the FIRST root; never pick an arbitrary late crossing.
+        var low_value: float = ship_position.distance_to(current)
+        var found: bool = false
+        for sample in range(1, BRACKET_SAMPLES + 1):
+            high = horizon * float(sample) / float(BRACKET_SAMPLES)
+            var destination: Vector2 = position_after(trajectory, high)
+            var high_value: float = (
+                ship_position.distance_to(destination) - speed * high)
+            if high_value <= 0.0 and low_value > 0.0:
+                found = true
+                break
+            low = high
+            low_value = high_value
+        if not found:
+            return {"ok": false, "reason": "no_solution_in_horizon"}
+    for _i in range(BISECTION_STEPS):
+        var mid: float = (low + high) * 0.5
+        var test: float = ship_position.distance_to(
+            position_after(trajectory, mid)) - speed * mid
+        if test > 0.0:
+            low = mid
+        else:
+            high = mid
+    var when: float = (low + high) * 0.5
+    return {"ok": true, "time": when,
+        "point": position_after(trajectory, when)}
 
 
 ## When we cannot predict the target safely, keep the original Rust
@@ -87,8 +113,15 @@ static func aim_point(ship_position: Vector2, speed: float,
     if not valid_trajectory(trajectory):
         return {"point": actual_target, "prediction_used": false}
     # Limit the scan to a bounded useful horizon in native time.
-    var estimate: float = ship_position.distance_to(actual_target) / maxf(speed, 0.000001)
-    var horizon: float = clampf(estimate * 3.0 + 10.0, 10.0, 2048.0)
+    var distance_now: float = ship_position.distance_to(actual_target)
+    var estimate: float = distance_now / maxf(speed, 0.000001)
+    var horizon: float = estimate * 3.0 + 10.0
+    var bound: float = maximum_orbital_speed(trajectory)
+    if bound < speed:
+        # Enough time for a guaranteed catch, as long as it fits the
+        # intentionally bounded native forecast horizon.
+        horizon = maxf(horizon, distance_now / (speed - bound) + 1.0)
+    horizon = clampf(horizon, 10.0, 2048.0)
     var result: Dictionary = intercept(ship_position, speed,
         trajectory, horizon)
     if not result.get("ok", false):
