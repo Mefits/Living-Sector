@@ -24,16 +24,26 @@ func _initialize() -> void:
     # A second paid offer with the same endpoints must not recalculate
     # geometry for the same ship location during this proposal.
     var again: Dictionary = Index.offer_route_index(roots, "B", "C")
-    assert(again.size() == 2)
+    assert(again.size() == 3)
     assert(again.has(0))
     assert(Index.legs(again, "A", "B", "C", graph, positions) == a)
-    assert(roots["B"]["C"].size() == 2)
-    # A second ship location reuses the same outbound route, but computes\n    # its own inbound leg and fuel geometry.\n    var at_source: Dictionary = Index.legs(again, "B", "B", "C", graph, positions)\n    assert(at_source["outbound"] == a["outbound"])\n    assert(at_source["steps"].size() == 1)\n    assert(again.size() == 3)\n    # Distinct destination and source must never inherit stale legs.
+    assert(roots["B"]["C"].size() == 3)
+    # A second ship location reuses outbound geometry, not inbound geometry.
+    var at_source: Dictionary = Index.legs(again, "B", "B", "C", graph, positions)
+    assert(at_source["outbound"] == a["outbound"])
+    assert(at_source["steps"].size() == 1)
+    assert(again.size() == 4)
+    assert(is_equal_approx(float(at_source["steps"][0]["distance"]), 10.0))
+    # Changing the returned per-ship steps must not mutate the outbound
+    # scalar cache, or the next independent ship's fuel estimate.
+    at_source["steps"][0] = {"present": false, "distance": -1.0}
+    assert(is_equal_approx(float(again[1][0]["distance"]), 10.0))
+    # Distinct destination and source must never inherit stale legs.
     var other: Dictionary = Index.offer_route_index(roots, "B", "D")
     var d: Dictionary = Index.legs(other, "A", "B", "D", graph, positions)
     assert(d["outbound"] == ["B", "D"])
     assert(is_equal_approx(float(d["steps"][1]["distance"]), 20.0))
-    assert(other.size() == 2)
+    assert(other.size() == 3)
     assert(Index.offer_route_index(roots, "C", "B").is_empty())
     # World positions may change between ticks/restart: fresh proposal
     # roots must produce new geometry, never reuse old mutable World data.
