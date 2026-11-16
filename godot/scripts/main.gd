@@ -1489,6 +1489,9 @@ func _on_ship_selected(ship_id: String) -> void:
     if not current.is_empty():
         var fleet: Dictionary = (_worker_fleet if _worker_mode else (
             _runner.fleet_snapshot() if _runner != null else {}))
+        # Refresh only the selected ship's bounded physical route
+        # from the real detached N39 snapshot, not all 500 trajectories.
+        _system_view.set_live_fleet(fleet)
         _show_ship_details(fleet)
 
 
@@ -1524,6 +1527,14 @@ func _show_ship_details(fleet: Dictionary) -> bool:
         lines.append("Последнее движение: тик " + str(transit.get("last_tick", "—")))
         lines.append("Ориентир прибытия: тик " + str(transit.get("arrival_tick", "—")))
         lines.append("Перелёт: физический N14, координаты не выдуманы")
+        var detour: Variant = transit.get("navigation_waypoints", [])
+        if detour is Array and not detour.is_empty():
+            lines.append("Облёт: " + str(transit.get(
+                "navigation_obstacle_id", "препятствия")) +
+                " · осталось точек: " + str(detour.size()))
+        var hold_reason: String = str(transit.get("navigation_hold", ""))
+        if not hold_reason.is_empty():
+            lines.append("Ожидание безопасного курса: " + hold_reason)
     lines.append("")
     lines.append("Топливо: %.1f / %.1f" % [
         float(ship.get("fuel", 0.0)), float(ship.get("fuel_capacity", 0.0))])
