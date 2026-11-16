@@ -5,10 +5,12 @@ config/name="Living Sector — Godot P2 Integration"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 
-# F5 in the editor uses the experimental N158 worker on this PERF branch.
-# Standalone launches remain on the original backend without explicit flags.
-[editor]
-run/main_run_args="-- --p2-worker-gui"
+# In the PERF branch plain F5 must run the isolated N158 worker.
+# This is read by the GAME, unlike editor-only run/main_run_args.
+# To force the original runner: LS_N158_WORKER_GUI=0 or --p2-default-gui.
+# Experimental worker uses an isolated N38 save slot.
+[living_sector]
+performance/experimental_n158_worker_gui=true
 
 [display]
 window/size/viewport_width=1366
