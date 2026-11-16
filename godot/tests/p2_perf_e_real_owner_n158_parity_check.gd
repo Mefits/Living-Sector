@@ -78,6 +78,28 @@ func _initialize() -> void:
         return
     if not _control(direct, "step", {"count": 1}):
         return
+    # Exercise the SAME real clock.consume_frame(delta) on both owners,
+    # including sub-tick frames and a frame large enough to commit paid N39.
+    if not _control(direct, "resume"):
+        return
+    var frame_deltas: Array[float] = [0.02, 0.04, 0.08, 0.125, 0.125]
+    for frame_delta in frame_deltas:
+        direct.advance_frame(frame_delta)
+        if not direct.last_phase_failure().is_empty():
+            _fail("direct N158 frame phase rejected")
+            return
+        if not _execute("frame", {"delta": frame_delta, "view": true,
+                "observer": true}):
+            return
+        if not _compare(direct, "real GUI frame %.3f" % frame_delta):
+            return
+    # Illegal catch-up deltas, live references and dangerous save paths are
+    # rejected before the sole N158 worker can examine them.
+    if _worker.submit("frame", {"delta": -0.1}) != -1 or (
+            _worker.submit("frame", {"delta": 0.4}) != -1) or (
+            _worker.submit("frame", {"delta": 0.1, "view": "yes"}) != -1):
+        _fail("invalid worker GUI frame input admitted")
+        return
     var corrupt_ticket: int = _worker.submit("restore", {"checkpoint": {"native_production": {}}})
     var corrupt: Dictionary = _wait_for(corrupt_ticket)
     if corrupt.get("ok", true) or not str(corrupt.get("error", "")).contains("restore_rejected"):
@@ -89,7 +111,7 @@ func _initialize() -> void:
         _fail("failed restore did not freeze single owner")
         return
     _worker.close()
-    print("P2_PERF_E_REAL_OWNER_N158_PARITY_PASS paid_ticks=6 checkpoint=exact n38_restart=true forged_restore_frozen=true")
+    print("P2_PERF_E_REAL_OWNER_N158_PARITY_PASS paid_ticks=9 frames=5 checkpoint=exact n38_restart=true forged_restore_frozen=true")
     quit(0)
 
 func _control(direct, kind: String, payload: Dictionary = {}) -> bool:
