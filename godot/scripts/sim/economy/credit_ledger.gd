@@ -254,6 +254,38 @@ func receipt_kind_count(kind: String) -> int:
 		return 0
 	return int(_receipt_kind_counts.get(kind, 0))
 
+## B-owned read-only bounded diagnostic for late-tick ledger growth.
+## No receipt snapshots, row duplication or full-history traversal. Reports
+## shard sizes to expose the cost of copy-on-write _append_receipt(), where
+## each new commit currently duplicates its selected existing shard.
+## This is an instrumentation API, not a financial authorization boundary.
+func receipt_storage_profile() -> Dictionary:
+	var largest_shard: int = 0
+	var occupied_shards: int = 0
+	var sum_squared_shard_sizes: int = 0
+	var indexed_receipts: int = 0
+	for shard_value in _receipt_partitions:
+		if not (shard_value is Dictionary):
+			return {"ok": false, "reason": "invalid_shard"}
+		var size: int = (shard_value as Dictionary).size()
+		if size > 0:
+			occupied_shards += 1
+		largest_shard = maxi(largest_shard, size)
+		indexed_receipts += size
+		# For a uniform next receipt ID, the expected old rows copied by
+		# a COW shard detach are sum(n_i^2)/sum(n_i). Integer math only.
+		sum_squared_shard_sizes += size * size
+	if indexed_receipts != _receipt_count:
+		return {"ok": false, "reason": "count_mismatch"}
+	return {"ok": true, "receipts": _receipt_count,
+		"occupied_shards": occupied_shards,
+		"largest_shard": largest_shard,
+		"mean_shard_rows": float(_receipt_count) / float(RECEIPT_PARTITIONS),
+		"estimated_cow_rows_per_append": float(sum_squared_shard_sizes) /
+			float(maxi(1, indexed_receipts)),
+		"order_chunks": _receipt_order_chunks.size(),
+		"flat_cache_valid": _flat_cache_count == _receipt_count}
+
 ## O(1) operation-ID provenance lookup over the authoritative immutable
 ## receipt shards. A caller receives a fully detached record, never a mutable
 ## alias to a ledger shard. Missing IDs return an empty dictionary.
