@@ -45,8 +45,17 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
     if not graph.has_location(source) or not graph.has_location(dest) or not graph.has_location(here):
         result = {"error": "native_route_endpoint_unmapped"}
     else:
+        # Integer cache key cannot collide with a ship location (String).
+        # Source->destination is invariant for every ship in this one
+        # proposal; preserve the original inbound-then-outbound ordering
+        # for the first lookup and never persist this across ticks/N38.
         var inbound: Dictionary = graph.shortest_path(here, source)
-        var outbound: Dictionary = graph.shortest_path(source, dest)
+        var outbound: Dictionary = {}
+        if cache.has(0):
+            outbound = cache[0]
+        else:
+            outbound = graph.shortest_path(source, dest)
+            cache[0] = outbound
         if not inbound.get("reachable", false) or not outbound.get("reachable", false):
             result = {"error": "unreachable_directed_route"}
         elif not positions.has(here) or not positions.has(source) or not positions.has(dest):
