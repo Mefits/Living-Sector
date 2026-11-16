@@ -80,13 +80,14 @@ static func _prune(world: Dictionary, fid: String) -> bool:
     fac["dock_queue"] = after
     return true
 
-static func _fee(world: Dictionary, fid: String, ship_id: String) -> int:
+static func _fee(world: Dictionary, fid: String, ship_id: String,
+        occupancy: Dictionary = {}) -> int:
     var fac: Dictionary = world["facilities"][fid]
     var ship: Dictionary = world["ships"][ship_id]
     var cap: int = int(fac.get("docking_capacity", 0))
     if cap <= 0:
         return -1
-    var occupied: int = _occupants(world, fid)
+    var occupied: int = int(occupancy[fid]) if occupancy.has(fid) else _occupants(world, fid)
     var raw_condition: Variant = fac.get("condition", 1.0)
     if not (raw_condition is int or raw_condition is float) or (
             not is_finite(float(raw_condition))):
@@ -105,14 +106,15 @@ static func _fee(world: Dictionary, fid: String, ship_id: String) -> int:
     return discounted if discounted >= 0 else -1
 
 static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
-        sid: String, tick: int, cause: String) -> Dictionary:
+        sid: String, tick: int, cause: String,
+        occupancy: Dictionary = {}) -> Dictionary:
     var fac: Dictionary = world["facilities"][fid]
     var ship: Dictionary = world["ships"][sid]
-    if int(fac.get("docking_capacity", 0)) <= _occupants(world, fid) or (
+    if int(fac.get("docking_capacity", 0)) <= (int(occupancy[fid]) if occupancy.has(fid) else _occupants(world, fid)) or (
             not str(ship.get("docked_at", "")).is_empty() or
             str(ship.get("location", "")) != str(fac.get("location", ""))):
         return _bad("source_dock_not_really_available")
-    var price: int = _fee(world, fid, sid)
+    var price: int = _fee(world, fid, sid, occupancy)
     if price < 0 or int(ship.get("credits", -1)) < price or (
             int(fac.get("credits", -1)) > MAX_I64 - price):
         return _bad("source_dock_fee_unaffordable")
@@ -134,6 +136,8 @@ static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
         paid = bank.snapshot()
     ship["credits"] = int(ship["credits"]) - price
     ship["docked_at"] = fid
+    if occupancy.has(fid):
+        occupancy[fid] = int(occupancy[fid]) + 1
     ship["dock_attempt_start_tick"] = null
     fac["credits"] = int(fac["credits"]) + price
     fac["dirty"] = true
@@ -263,6 +267,14 @@ static func advance(world: Dictionary, ledger: Dictionary,
     var bank: Dictionary = ledger.duplicate(true)
     var events: Array = []
     var changed: bool = false
+    # Count occupied docks once per paid tick. The old queue loop scanned
+    # every ship for each admission and fee calculation (Q * ships).
+    # This cache is invocation-local, never persisted across N38/World changes.
+    var occupancy: Dictionary = {}
+    for ship in staged["ships"].values():
+        var dock_id: String = str(ship.get("docked_at", ""))
+        if not dock_id.is_empty():
+            occupancy[dock_id] = int(occupancy.get(dock_id, 0)) + 1
     var keys: Array = staged["facilities"].keys()
     keys.sort()
     for fid in keys:
@@ -271,11 +283,11 @@ static func advance(world: Dictionary, ledger: Dictionary,
         changed = _prune(staged, str(fid)) or changed
         while not _queue(staged["facilities"][fid]).is_empty():
             var fac: Dictionary = staged["facilities"][fid]
-            if _occupants(staged, str(fid)) >= int(fac.get(
+            if int(occupancy.get(str(fid), 0)) >= int(fac.get(
                     "docking_capacity", 0)):
                 break
             var head: String = str(_queue(fac)[0])
-            var fee: int = _fee(staged, str(fid), head)
+            var fee: int = _fee(staged, str(fid), head, occupancy)
             if fee < 0 or int(staged["ships"][head].get("credits", -1)) < fee:
                 fac["dock_queue"].pop_front()
                 staged["ships"][head]["dock_attempt_start_tick"] = null
@@ -284,7 +296,7 @@ static func advance(world: Dictionary, ledger: Dictionary,
                 changed = true
                 continue
             var placed: Dictionary = _admit(
-                staged, bank, str(fid), head, tick, "fifo_tick")
+                staged, bank, str(fid), head, tick, "fifo_tick", occupancy)
             if not placed.get("ok", false):
                 return placed
             staged = placed["world"]
