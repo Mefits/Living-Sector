@@ -24,7 +24,10 @@ static func _load(world: Dictionary) -> Dictionary:
             return {"ok": false, "reason": "invalid_ship_transit"}
         if not trans.is_empty():
             max_token = maxi(max_token, int(trans.get("token", -1)))
-        rows.append(ship.duplicate(true))
+        # ShipState.restore validates and deep-copies each record into its own
+        # fleet. Passing the read-only source row avoids a redundant full
+        # copy before N14/N84 without exposing World to transit mutations.
+        rows.append(ship)
     if not fleet.restore(rows):
         return {"ok": false, "reason": "invalid_ship_state"}
     var transit = ShipTransit.new()
