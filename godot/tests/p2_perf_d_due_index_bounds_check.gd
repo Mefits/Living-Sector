@@ -23,15 +23,18 @@ func _initialize() -> void:
     assert(fast.pending_count() == before)
     assert(fast.remove("a"))
     assert(queue.cancel("a"))
-    assert(fast.add(_event("reuse_sequence", MAX_TICK, 1)))
     assert(queue.schedule("reuse_sequence", MAX_TICK, 2, "station", "arrival", {"nested": {"value": 1}}))
-    # The queue allocates a new insertion sequence; index reuses a cancelled
-    # sequence only for this synthetic fixture. Both still sort by entity + sequence.
+    var latest: Dictionary = queue.snapshot()
+    var replacement: Dictionary = {}
+    for event in latest["pending"]:
+        if event["id"] == "reuse_sequence":
+            replacement = event
+            break
+    assert(not replacement.is_empty())
+    assert(fast.add(replacement))
     var expected: Array[Dictionary] = queue.take_due(MAX_TICK, 2)
     var actual: Array[Dictionary] = fast.take_due(MAX_TICK, 2)
-    assert(actual.size() == expected.size())
-    assert(actual[0]["id"] == "b")
-    assert(actual[1]["id"] == "reuse_sequence")
+    assert(actual == expected)
     assert(fast.pending_count() == 0)
     assert(not fast.remove("b"))
     assert(fast.rebuild(queue.snapshot()["pending"]))
