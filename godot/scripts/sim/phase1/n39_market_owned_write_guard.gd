@@ -38,7 +38,9 @@ static func capture_protected_fields(markets: Dictionary) -> Dictionary:
     var snapshot: Dictionary = {}
     for location in markets:
         if not (markets[location] is Dictionary):
-            return {}
+            # Retain malformed locations so validation fails closed.
+            snapshot[location] = null
+            continue
         var protected: Dictionary = {}
         var row: Dictionary = markets[location]
         for field in row:
@@ -60,7 +62,7 @@ static func validate_protected_snapshot(snapshot: Dictionary,
     for location in snapshot:
         if not markets.has(location):
             return "market_write_removed_location"
-        if not (markets[location] is Dictionary):
+        if not (snapshot[location] is Dictionary) or not (markets[location] is Dictionary):
             return "market_write_invalid_row"
         var row: Dictionary = markets[location]
         var protected: Dictionary = snapshot[location]
