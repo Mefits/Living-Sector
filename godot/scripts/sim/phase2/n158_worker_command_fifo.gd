@@ -78,5 +78,17 @@ func _valid_payload(kind: String, payload: Dictionary) -> bool:
         "save", "load":
             return payload.size() == 1 and payload.has("slot") and (
                 typeof(payload["slot"]) == TYPE_STRING
-            ) and not String(payload["slot"]).is_empty() and String(payload["slot"]).length() <= 128
+            ) and _valid_slot(String(payload["slot"]))
     return false
+
+## Save/load tokens are opaque identifiers, never paths or URLs. Reject
+## separators, traversal, whitespace and control characters at the UI edge.
+func _valid_slot(slot: String) -> bool:
+    if slot.is_empty() or slot.length() > 128:
+        return false
+    for index in range(slot.length()):
+        var code: int = slot.unicode_at(index)
+        if not ((code >= 48 and code <= 57) or (code >= 65 and code <= 90)
+                or (code >= 97 and code <= 122) or code == 45 or code == 95):
+            return false
+    return true
