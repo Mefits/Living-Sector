@@ -7,6 +7,9 @@ on:
     paths:
       - .github/workflows/p2-system-balance-short.yml
       - godot/scripts/star_system_view.gd
+      - godot/scripts/sim/world_model.gd
+      - godot/scripts/sim/orbits/native_satellite_orbit_profiles.gd
+      - godot/tests/p2_physical_satellite_orbits_check.gd
       - godot/scripts/sim/ship_transit.gd
       - godot/scripts/sim/ships/native_orbital_intercept.gd
       - godot/scripts/sim/ships/native_location_resolver.gd
@@ -48,6 +51,20 @@ jobs:
           timeout --signal=TERM --kill-after=5s 90s godot --headless --path godot --editor --import --quit >"$RUNNER_TEMP/parse.log" 2>&1 || {
             tail -n 140 "$RUNNER_TEMP/parse.log"; exit 1;
           }
+      - name: Native Moon and Callisto parented physics and old-save rejection
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 40s godot --headless --path godot --script res://tests/p2_physical_satellite_orbits_check.gd >"$RUNNER_TEMP/satellites.log" 2>&1 || {
+            tail -n 150 "$RUNNER_TEMP/satellites.log"; exit 1;
+          }
+          grep -q 'P2 PHYSICAL SATELLITES PASS' "$RUNNER_TEMP/satellites.log" || {
+            tail -n 120 "$RUNNER_TEMP/satellites.log"; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|P2 PHYSICAL SATELLITES FAIL:' "$RUNNER_TEMP/satellites.log"; then
+            tail -n 120 "$RUNNER_TEMP/satellites.log"; exit 1;
+          }
+          grep 'P2 PHYSICAL SATELLITES PASS' "$RUNNER_TEMP/satellites.log"
       - name: Real N14 predictive transit and moon geometry regression
         shell: bash
         run: |
@@ -90,6 +107,6 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log"; do
+          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/satellites.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log"; do
             if test -f "$f"; then echo "--- $f"; tail -n 140 "$f"; fi
           done
