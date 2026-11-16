@@ -168,11 +168,14 @@ static func request(world: Dictionary, ledger: Variant,
             not current["transit"].is_empty() or
             not str(current.get("docked_at", "")).is_empty()):
         return _bad("request_ship_not_waiting_at_actual_location")
-    var staged: Dictionary = _stage_world(world, ledger)
-    var options: Array = _candidates(staged, location, preferred_type, preferred_id)
+    # Candidate discovery only reads facility metadata. On the common
+    # no-dock path, avoid copying the entire growing World/N9 history.
+    # Keep the same source candidate ordering and stage before any writes.
+    var options: Array = _candidates(world, location, preferred_type, preferred_id)
     if options.is_empty():
         return {"ok": true, "changed": false, "status": "no_real_dock",
             "world": world, "ledger_snapshot": ledger}
+    var staged: Dictionary = _stage_world(world, ledger)
     for fid in options:
         if not staged["facilities"][fid].has("dock_queue"):
             # Genuine legacy P2 checkpoint or original N154 site with
