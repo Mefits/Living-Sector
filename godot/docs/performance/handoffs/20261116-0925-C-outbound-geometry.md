@@ -2,8 +2,8 @@
 
 Branch: `integration/perf-astra-5-workers-20261116`, draft PR #262.
 
-CODE COMMIT: `065fee79972ad1133ac919b5a47a71e747b01d64`
-TEST COMMIT: `de2b7d77ee6288dd55bd7e64a4a3ac05694c95b6`
+CODE COMMITS: `065fee79972ad1133ac919b5a47a71e747b01d64`, `b303bdb83b7d3837cd08d8d51f834d66051ac283`, `1b378992c9433b0ed84e2b886263c5da3a416eef`
+TEST COMMITS: `de2b7d77ee6288dd55bd7e64a4a3ac05694c95b6`, `f8976c075a5a241ab98841a3452d14c7a67dfb2f`
 
 Files:
 - `godot/scripts/sim/phase2/n153_ship_eligibility_index.gd`: within one N153 proposal and one source/destination index, compute outbound per-edge world geometry once and reuse its scalar rows across different ship locations. Inbound geometry stays individual. Maintain inbound-before-outbound steps, missing-position sentinel, and the original _ready_ship fuel/geometry validation priority. No persistent cache, no new World or Ledger.
@@ -11,6 +11,6 @@ Files:
 
 TEST EXECUTED: NOT RUN (Godot unavailable); CODE_UNVERIFIED / TEST_ADDED_NOT_RUN. GitHub Actions not triggered. No TPS/FPS improvement measured. Source-only verification: all referenced helpers/preloads already exist; existing N153 signatures unchanged.
 
-Risk: GDScript Array.append_array copies elements by reference. Cached outbound rows are dictionaries, so modifying a nested step dictionary in a consumer could alias across ship bids; current _ready_ship only reads rows. Test deliberately replaces an Array element (not a nested dictionary). Before accepting broader mutation callers, either deep-copy cached outbound row dictionaries or guarantee read-only boundary with additional oracle.
+Mutable-alias protection: outbound scalar rows are deep-copied on append into each ship's steps Array; the negative oracle mutates a nested distance dictionary and checks the cached outbound row is unchanged. Runtime proof still pending.
 
 NEXT: execute N153 oracle in Godot, compare original vs optimized paid-contract decisions/fuel/cargo/order and N38 restart; profile ship-bid geometry at 24/100/500 ships before further indexes.
