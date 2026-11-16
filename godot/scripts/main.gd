@@ -1338,7 +1338,7 @@ func _select_world(world: Dictionary, shared_economy: Dictionary = {}) -> void:
                 int(population.get("food_satisfaction", 0)),
                 int(population.get("overall_sentiment", 0))
             ])
-        if _runner.has_method("last_population_result"):
+        if not _worker_mode and _runner != null and _runner.has_method("last_population_result"):
             var population_result: Dictionary = _runner.last_population_result()
             if population_result.get("ok", false) and local_population_count > 0:
                 lines.append(" Последняя общая оплаченная фаза населения: тик %d · покупок %d" % [
