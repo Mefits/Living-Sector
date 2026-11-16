@@ -313,7 +313,10 @@ func _profile_inner_fork() -> RefCounted:
 	# Fork owns a detached header from the parent; initializing 1024 empty
 	# shard dictionaries first is pure allocation overhead at every stage.
 	var child: RefCounted = get_script().new(true)
-	child.set("_balances", _balances.duplicate(true))
+	# All authoritative wallet values are validated i64 integers. A shallow
+	# dictionary copy fully isolates the fork; deep recursion is unnecessary
+	# on this paid transaction path and must not copy growing receipt history.
+	child.set("_balances", _balances.duplicate())
 	child.set("_receipt_partitions", _receipt_partitions.duplicate())
 	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
 	child.set("_receipt_count", _receipt_count)
