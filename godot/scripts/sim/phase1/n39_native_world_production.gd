@@ -5481,3 +5481,116 @@ func native_construction_funding_snapshot() -> Dictionary:
         if not receipts.has(id) and _ledger.has_receipt(id):
             receipts[id] = _ledger.receipt_copy(id)
     return {"receipts": receipts}
+
+## Fresh detached runtime projections. No cache, no cross-commit reuse,
+## and no reference into canonical World escapes. Unknown/malformed rows
+## are preserved for the same downstream validators, not repaired here.
+## LS_RUNTIME_FULL_WORLD_READS=1 is the full-copy oracle for replay tests.
+func native_runtime_read_snapshot(kind: String) -> Dictionary:
+    if not _ready:
+        return {}
+    if OS.get_environment("LS_RUNTIME_FULL_WORLD_READS") == "1":
+        return world_snapshot()
+    var domains: Array = []
+    var row_fields: Dictionary = {}
+    match kind:
+        "ship_motion":
+            domains = ["ships", "ship_next_token"]
+        "market_tick", "market_crisis":
+            domains = ["markets", "facilities"]
+        "population":
+            domains = ["populations", "markets", "facilities"]
+            row_fields = {
+                "markets": ["id", "owner", "supply", "prices", "consumption_window"],
+                "facilities": ["credits"]}
+        "station_demand":
+            domains = ["markets", "facilities"]
+            row_fields = {
+                "markets": ["owner", "supply", "prices", "consumption_window"],
+                "facilities": ["location", "credits", "faction"]}
+        "engineer_dispatch":
+            domains = ["ships", "construction_sites", "construction_receipts",
+                "cargo_receipts", "contract_board", "facilities", "markets"]
+        "faction_ids":
+            domains = ["faction_treasuries"]
+        _:
+            # An unrecognized caller cannot silently receive an empty World.
+            return world_snapshot()
+    var began: int = Time.get_ticks_usec() if _profile_copy_enabled else 0
+    var result: Dictionary = {}
+    for domain in domains:
+        if not _world.has(domain):
+            continue
+        var value: Variant = _world[domain]
+        if row_fields.has(domain) and value is Dictionary:
+            var rows: Dictionary = {}
+            for id in value:
+                rows[id] = _runtime_read_row(value[id], row_fields[domain])
+            result[domain] = rows
+        else:
+            result[domain] = _runtime_read_copy(value)
+    if _profile_copy_enabled:
+        _record_timing(_profile_copy_sites, "runtime_read:" + kind,
+            maxi(0, Time.get_ticks_usec() - began))
+    return result
+
+func _runtime_read_copy(value: Variant) -> Variant:
+    if value is Dictionary or value is Array:
+        return value.duplicate(true)
+    return value
+
+func _runtime_read_row(value: Variant, fields: Array) -> Variant:
+    if not (value is Dictionary):
+        return _runtime_read_copy(value)
+    # Keep malformed/incomplete rows intact, including nonempty-row checks.
+    for field in fields:
+        if not value.has(field):
+            return value.duplicate(true)
+    var row: Dictionary = {}
+    for field in fields:
+        if value.has(field):
+            row[field] = _runtime_read_copy(value[field])
+    return row
+
+## N146 checks one ship/contract plus physical dock facts, not every
+## historical market sample, cargo receipt and unrelated ship memory.
+## Called anew for EACH command, including after earlier command commits.
+func native_dock_read_snapshot(ship_id: String, contract_id: String) -> Dictionary:
+    if not _ready:
+        return {}
+    if OS.get_environment("LS_RUNTIME_FULL_WORLD_READS") == "1":
+        return world_snapshot()
+    var began: int = Time.get_ticks_usec() if _profile_copy_enabled else 0
+    var result: Dictionary = {}
+    if _world.has("ships"):
+        result["ships"] = {}
+        if _world["ships"].has(ship_id):
+            result["ships"][ship_id] = _world["ships"][ship_id].duplicate(true)
+    var contracts: Dictionary = _world.get("contract_board", {}).get("contracts", {})
+    result["contract_board"] = {"contracts": {}}
+    if contracts.has(contract_id):
+        result["contract_board"]["contracts"][contract_id] = contracts[contract_id].duplicate(true)
+    for domain in ["facilities", "markets"]:
+        if not _world.has(domain):
+            continue
+        var rows: Dictionary = {}
+        var fields: Array = (["owner"] if domain == "markets"
+            else ["location", "type", "docking_capacity", "abandoned"])
+        for id in _world[domain]:
+            rows[id] = _runtime_read_row(_world[domain][id], fields)
+        result[domain] = rows
+    # Passenger colony docking scans all current sites; retain that scan
+    # and its exact named construction-dock receipts, without the archive.
+    if _world.has("construction_sites"):
+        result["construction_sites"] = _world["construction_sites"].duplicate(true)
+    var evidence: Dictionary = {}
+    var receipts: Dictionary = _world.get("construction_receipts", {})
+    for site_id in _world.get("construction_sites", {}):
+        var proof_id: String = "n151_colony_dock:" + str(site_id)
+        if receipts.has(proof_id):
+            evidence[proof_id] = _runtime_read_copy(receipts[proof_id])
+    result["construction_receipts"] = evidence
+    if _profile_copy_enabled:
+        _record_timing(_profile_copy_sites, "runtime_read:dock_command",
+            maxi(0, Time.get_ticks_usec() - began))
+    return result
