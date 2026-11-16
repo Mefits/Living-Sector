@@ -46,7 +46,20 @@ func load_seed(seed: Dictionary) -> bool:
                 return false
             if float(radius) < 0.0:
                 return false
-            staged_bodies[bid] = {"system_id": sid, "radius": float(radius), "offset": offset}
+            var period: Variant = body.get("orbit_period", null)
+            if not _finite_number(period) or float(period) <= 0.0:
+                return false
+            var parent_id: String = str(body.get("parent_body_id", ""))
+            var local_radius: Variant = body.get("satellite_orbit_radius_native", null)
+            if not parent_id.is_empty() and (
+                    str(body.get("type", "")) != "moon" or
+                    not _finite_number(local_radius) or float(local_radius) <= 0.0):
+                return false
+            staged_bodies[bid] = {
+                "system_id": sid, "radius": float(radius), "period": float(period),
+                "offset": offset, "parent_id": parent_id,
+                "local_radius": float(local_radius) if not parent_id.is_empty() else 0.0
+            }
             system_bodies[bid] = true
         for source in source_world.get("facilities", []):
             if not (source is Dictionary):
@@ -67,6 +80,24 @@ func load_seed(seed: Dictionary) -> bool:
             if not _register(staged_locations, str(site.get("name", "")),
                     str(site.get("body", "")), sid, false, system_bodies):
                 return false
+    # Explicit future parent-relative metadata must be internally valid:
+    # same source system, no missing parents, no orbital cycles/deep chains.
+    # The frozen Rust seed has no parent IDs, hence retains original geometry.
+    for bid in staged_bodies:
+        var seen: Dictionary = {}
+        var current: String = str(bid)
+        var depth: int = 0
+        while not current.is_empty():
+            if seen.has(current) or not staged_bodies.has(current):
+                return false
+            seen[current] = true
+            depth += 1
+            if depth > 4:
+                return false
+            var info: Dictionary = staged_bodies[current]
+            if str(info["system_id"]) != str(staged_bodies[bid]["system_id"]):
+                return false
+            current = str(info.get("parent_id", ""))
     # Native Rust spawner::chart_colony_routes registers empty planet
     # endpoints before any ship, market, household or facility exists.
     # An unbuilt colony target is the real planet's moving orbit, not
@@ -147,48 +178,138 @@ func source_system_offset_for_body(body_id: String) -> Array:
     return [source.x, source.y]
 
 
-## The actual frozen BodyOrbit::universe_position for one source
-## BodyIdentity. Native GateJump uses this plus DefaultHasher of the
-## ORIGINAL facility id, never FNV(location), route cost or screen pixels.
+## Build genuine native world positions from the same orbital angles
+## for both N14, physical docking and predictive ephemerides. The frozen
+## seed has only heliocentric orbits: no synthetic lunar offset is inferred.
+func _resolve_body_position(body_id: String, angles: Dictionary,
+        known: Dictionary, ancestors: Dictionary) -> Variant:
+    if known.has(body_id):
+        return known[body_id]
+    if ancestors.has(body_id) or not _bodies.has(body_id):
+        return null
+    var info: Dictionary = _bodies[body_id]
+    var angle: Variant = angles.get(body_id, null)
+    if not _finite_number(angle) or float(angle) < 0.0 or float(angle) >= 360.0:
+        return null
+    var theta: float = deg_to_rad(float(angle))
+    var center: Vector2 = info["offset"]
+    var radius: float = float(info["radius"])
+    var parent_id: String = str(info.get("parent_id", ""))
+    if not parent_id.is_empty():
+        var nested_ancestors: Dictionary = ancestors.duplicate()
+        nested_ancestors[body_id] = true
+        var parent_position: Variant = _resolve_body_position(
+            parent_id, angles, known, nested_ancestors)
+        if not (parent_position is Vector2):
+            return null
+        center = parent_position
+        radius = float(info["local_radius"])
+    var result: Vector2 = center + Vector2(cos(theta), sin(theta)) * radius
+    known[body_id] = result
+    return result
+
+
+func _body_positions_from_angles(angles: Dictionary) -> Dictionary:
+    if angles.size() != _bodies.size():
+        return {"ok": false, "error": "body_angle_count_mismatch"}
+    var known: Dictionary = {}
+    for bid in _bodies:
+        if not (_resolve_body_position(str(bid), angles,
+                known, {}) is Vector2):
+            return {"ok": false, "error": "invalid_body_orbit"}
+    return {"ok": true, "positions": known}
+
+
+## The same native body position used by the route resolver and N14.
 func body_universe_position(body_id: String, model: RefCounted) -> Dictionary:
     if not _loaded or model == null or not _bodies.has(body_id) or not (
             model.has_method("orbital_snapshot")):
         return {"ok": false, "reason": "unknown_original_body_or_model"}
-    if model.has_method("seed_fingerprint") and model.seed_fingerprint() != _fingerprint:
+    if model.has_method("seed_fingerprint") and (
+            model.seed_fingerprint() != _fingerprint):
         return {"ok": false, "reason": "wrong_original_seed"}
-    var actual: Variant = model.orbital_snapshot().get(body_id, null)
-    if not _finite_number(actual) or float(actual) < 0.0 or float(actual) >= 360.0:
-        return {"ok": false, "reason": "invalid_current_body_orbit"}
-    var source: Dictionary = _bodies[body_id]
-    var center: Vector2 = source["offset"] + Vector2(
-        cos(deg_to_rad(float(actual))),
-        sin(deg_to_rad(float(actual)))) * float(source["radius"])
-    return {"ok": true, "position": center}
+    var known: Dictionary = {}
+    var result: Variant = _resolve_body_position(
+        body_id, model.orbital_snapshot(), known, {})
+    if not (result is Vector2):
+        return {"ok": false, "reason": "invalid_body_orbit"}
+    return {"ok": true, "position": result}
+
+
+## Map current committed World orbital angles to a deterministic,
+## forward-predictable N14 trajectory WITHOUT mutating World or clock.
+## Physical parent-relative components are enabled only by explicit
+## parent_body_id + satellite_orbit_radius_native seed metadata.
+func _components_for_body(body_id: String, angles: Dictionary,
+        seen: Dictionary) -> Array:
+    if not _bodies.has(body_id) or seen.has(body_id):
+        return []
+    var info: Dictionary = _bodies[body_id]
+    var angle: Variant = angles.get(body_id, null)
+    if not _finite_number(angle) or float(angle) < 0.0 or float(angle) >= 360.0:
+        return []
+    var result: Array = []
+    var parent_id: String = str(info.get("parent_id", ""))
+    if not parent_id.is_empty():
+        var next_seen: Dictionary = seen.duplicate()
+        next_seen[body_id] = true
+        result = _components_for_body(parent_id, angles, next_seen)
+        if result.is_empty():
+            return []
+    var r: float = float(info["local_radius"]) if not parent_id.is_empty() else (
+        float(info["radius"]))
+    result.append({"radius": r, "angle": float(angle),
+        "period": float(info["period"])})
+    return result
+
+
+func ephemeris_for_location(location: String, model: RefCounted,
+        elapsed_native_units: float, origin_known: bool = true) -> Dictionary:
+    if not _loaded or not _locations.has(location) or model == null or (
+            not model.has_method("orbital_snapshot")) or (
+            not model.has_method("seed_fingerprint")) or (
+            model.seed_fingerprint() != _fingerprint):
+        return {"ok": false, "reason": "unmapped_or_unverified_location"}
+    if not origin_known or not _finite_number(elapsed_native_units) or (
+            elapsed_native_units < 0.0):
+        return {"ok": false, "reason": "unknown_native_time"}
+    var info: Dictionary = _locations[location]
+    var body_id: String = str(info["body_id"])
+    var orbits: Array = _components_for_body(
+        body_id, model.orbital_snapshot(), {})
+    if orbits.is_empty():
+        return {"ok": false, "reason": "missing_body_ephemeris"}
+    if bool(info["station"]):
+        orbits.append({"radius": FACILITY_ORBIT_RADIUS,
+            "angle": fposmod(
+                float(initial_facility_angle(location)) +
+                360.0 * elapsed_native_units / FACILITY_ORBIT_PERIOD, 360.0),
+            "period": FACILITY_ORBIT_PERIOD})
+    if orbits.size() > 4:
+        return {"ok": false, "reason": "ephemeris_depth_exceeded"}
+    return {"ok": true, "trajectory": {
+        "center": _bodies[body_id]["offset"],
+        "components": orbits
+    }}
+
 
 ## Derive every mapped location from CURRENT orbital angles and committed
-## native elapsed time, not from route length, seed angle, or a UI projection.
-## If an old checkpoint lacks the clock origin, station phase is unknown.
+## native elapsed time, not from route length, seed angle, or UI projection.
 func positions_from_world(model: RefCounted, elapsed_native_units: float,
         origin_known: bool = true) -> Dictionary:
     if not _loaded or model == null or not model.has_method("orbital_snapshot"):
         return {"ok": false, "error": "uninitialized_resolver"}
-    if not origin_known or not _finite_number(elapsed_native_units) or elapsed_native_units < 0.0:
+    if not origin_known or not _finite_number(elapsed_native_units) or (
+            elapsed_native_units < 0.0):
         return {"ok": false, "error": "unknown_or_invalid_native_time"}
-    if not model.has_method("seed_fingerprint") or model.seed_fingerprint() != _fingerprint:
+    if not model.has_method("seed_fingerprint") or (
+            model.seed_fingerprint() != _fingerprint):
         return {"ok": false, "error": "seed_fingerprint_mismatch"}
-    var angles: Dictionary = model.orbital_snapshot()
-    if angles.size() != _bodies.size():
-        return {"ok": false, "error": "body_count_mismatch"}
-    var body_positions: Dictionary = {}
-    for bid in _bodies:
-        var angle: Variant = angles.get(bid, null)
-        if not _finite_number(angle) or float(angle) < 0.0 or float(angle) >= 360.0:
-            return {"ok": false, "error": "missing_or_invalid_body_angle"}
-        var info: Dictionary = _bodies[bid]
-        var theta: float = deg_to_rad(float(angle))
-        var offset: Vector2 = info["offset"]
-        var radius: float = float(info["radius"])
-        body_positions[bid] = offset + Vector2(cos(theta), sin(theta)) * radius
+    var computed: Dictionary = _body_positions_from_angles(
+        model.orbital_snapshot())
+    if not computed.get("ok", false):
+        return computed
+    var body_positions: Dictionary = computed["positions"]
     var positions: Dictionary = {}
     for loc in _locations:
         var info: Dictionary = _locations[loc]
@@ -196,11 +317,14 @@ func positions_from_world(model: RefCounted, elapsed_native_units: float,
         if bool(info["station"]):
             var initial_angle: float = float(initial_facility_angle(str(loc)))
             var phase: float = deg_to_rad(fposmod(
-                initial_angle + 360.0 * elapsed_native_units / FACILITY_ORBIT_PERIOD, 360.0))
-            positions[loc] = body_center + Vector2(cos(phase), sin(phase)) * FACILITY_ORBIT_RADIUS
+                initial_angle +
+                360.0 * elapsed_native_units / FACILITY_ORBIT_PERIOD, 360.0))
+            positions[loc] = body_center + Vector2(
+                cos(phase), sin(phase)) * FACILITY_ORBIT_RADIUS
         else:
             positions[loc] = body_center
     return {"ok": true, "positions": positions}
+
 
 ## Exact FNV-1a u32 wrapping used in frozen Rust facility components.
 static func initial_facility_angle(location: String) -> int:
