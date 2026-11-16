@@ -6,6 +6,7 @@ extends Control
 
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
+signal ship_selected(ship_id: String)
 
 const MIN_ZOOM: float = 0.45
 const MAX_ZOOM: float = 512.0
@@ -75,6 +76,9 @@ var _body_index: Dictionary = {}
 var _facilities_by_body: Dictionary = {}
 var _body_ids_by_location: Dictionary = {}
 var _ships_by_body: Dictionary = {}
+var _ship_ids_by_body: Dictionary = {}
+var _ship_pins: Array = []
+var _selected_ship_id: String = ""
 var _max_orbit_radius: float = 1.0
 ## Per-draw screen projection, invalidated on EVERY draw. Includes zoom,
 ## pan, viewport size and source angles; never reused across real ticks.
@@ -128,7 +132,11 @@ func _rebuild_facility_index() -> void:
 
 func _rebuild_ship_index() -> void:
     _ships_by_body.clear()
-    for raw in _live_fleet.values():
+    _ship_ids_by_body.clear()
+    var ids: Array = _live_fleet.keys()
+    ids.sort()
+    for sid in ids:
+        var raw: Variant = _live_fleet[sid]
         if not (raw is Dictionary):
             continue
         var ship: Dictionary = raw
@@ -138,6 +146,9 @@ func _rebuild_ship_index() -> void:
         var location: String = str(ship.get("location", ""))
         for bid in _body_ids_by_location.get(location, []):
             _ships_by_body[bid] = int(_ships_by_body.get(bid, 0)) + 1
+            if not _ship_ids_by_body.has(bid):
+                _ship_ids_by_body[bid] = []
+            (_ship_ids_by_body[bid] as Array).append(str(sid))
 
 
 func _ready() -> void:
@@ -233,6 +244,8 @@ func set_world(world: Dictionary) -> void:
     _rebuild_body_index()
     _rebuild_facility_index()
     _selected_body_id = ""
+    _selected_ship_id = ""
+    _ship_pins.clear()
     _focused_body_id = ""
     _zoom = 1.0
     _pan = Vector2.ZERO
@@ -298,6 +311,9 @@ func set_live_fleet(fleet: Dictionary) -> void:
     _last_ship_commit_usec = now_usec
     _ship_motion_from = moving_origins
     _live_fleet = projected
+    if not _selected_ship_id.is_empty() and not _live_fleet.has(
+            _selected_ship_id):
+        _selected_ship_id = ""
     _rebuild_ship_index()
     queue_redraw()
 
@@ -338,9 +354,17 @@ func update_world(world: Dictionary) -> void:
         queue_redraw()
 
 func select_body(body_id: String) -> void:
-    if _selected_body_id == body_id:
+    if _selected_body_id == body_id and _selected_ship_id.is_empty():
         return
     _selected_body_id = body_id
+    _selected_ship_id = ""
+    queue_redraw()
+
+func select_ship(ship_id: String) -> void:
+    if not _live_fleet.has(ship_id):
+        return
+    _selected_ship_id = ship_id
+    _selected_body_id = ""
     queue_redraw()
 
 
@@ -639,6 +663,7 @@ func _orbit_line_alpha(is_satellite: bool) -> float:
 func _draw_system() -> void:
     draw_rect(Rect2(Vector2.ZERO, size), BACKGROUND, true)
     _body_pins.clear()
+    _ship_pins.clear()
     if _world.is_empty():
         return
     var system: Dictionary = _world.get("system", {})
@@ -713,12 +738,21 @@ func _draw_system() -> void:
         if local_ships > 0:
             # The marker represents real ships AT this location; active
             # transits are in the live observer, not fake diagram pixels.
+            var fleet_marker: Vector2 = position + Vector2(
+                -visual_radius - 10.0, 0.0)
+            _ship_pins.append({"position": fleet_marker,
+                "ship_ids": (_ship_ids_by_body.get(bid, []) as Array).duplicate(),
+                "hit_radius": 12.0})
             var ship_marker: PackedVector2Array = PackedVector2Array([
                 position + Vector2(-visual_radius - 13.0, -3.0),
                 position + Vector2(-visual_radius - 7.0, 0.0),
                 position + Vector2(-visual_radius - 13.0, 3.0)
             ])
             draw_colored_polygon(ship_marker, Color("#7abacb"))
+            if (_ship_ids_by_body.get(bid, []) as Array).has(
+                    _selected_ship_id):
+                draw_arc(fleet_marker, 9.0, 0.0, TAU, 18,
+                    Color("#fff0b0"), 1.5, true)
             draw_string(font, position + Vector2(-visual_radius - 25.0, 16.0),
                 str(local_ships), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("#7abacb"))
         var label_offset: Vector2 = Vector2(visual_radius + 8.0, -8.0)
@@ -845,6 +879,11 @@ func _draw_real_native_transits(system: Dictionary,
             tone = Color("#ddc287")
         draw_circle(screen, 3.4, tone)
         draw_arc(screen, 5.0, 0.0, TAU, 12, tone, 1.0, true)
+        if str(sid) == _selected_ship_id:
+            draw_arc(screen, 9.0, 0.0, TAU, 20,
+                Color("#fff0b0"), 1.6, true)
+        _ship_pins.append({"position": screen,
+            "ship_ids": [str(sid)], "hit_radius": 12.0})
 
 
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
@@ -874,7 +913,34 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     queue_redraw()
 
 
+## Ship markers take priority over overlapping planet glyphs.
+## Repeated clicks on an aggregate docked marker cycle real vessel IDs.
+func _pick_ship(pointer: Vector2) -> bool:
+    var chosen: Dictionary = {}
+    var nearest: float = INF
+    for pin in _ship_pins:
+        var distance: float = pointer.distance_to(pin["position"])
+        if distance <= float(pin.get("hit_radius", 12.0)) and (
+                distance < nearest):
+            nearest = distance
+            chosen = pin
+    if chosen.is_empty():
+        return false
+    var ids: Array = chosen.get("ship_ids", [])
+    if ids.is_empty():
+        return false
+    var index: int = ids.find(_selected_ship_id)
+    var next_id: String = str(ids[(index + 1) % ids.size()])
+    if not _live_fleet.has(next_id):
+        return false
+    select_ship(next_id)
+    ship_selected.emit(next_id)
+    return true
+
+
 func _pick(pointer: Vector2, open_body: bool = false) -> void:
+    if _pick_ship(pointer):
+        return
     var chosen: Dictionary = {}
     var nearest: float = INF
     for pin in _body_pins:
