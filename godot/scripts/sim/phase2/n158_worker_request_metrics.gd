@@ -120,6 +120,19 @@ static func compare_checkpoint_pair(baseline: Dictionary, candidate: Dictionary)
             "projection_wall_avg_usec", "request_wall_avg_usec"]:
         if not baseline.has(field) or not candidate.has(field):
             return {"accepted": false, "reason": "missing_" + field}
+    # A missing or placeholder fingerprint must never certify source parity.
+    # The caller must supply an authoritative N38/BT/RNG-derived digest.
+    for side in [baseline, candidate]:
+        if typeof(side["source_fingerprint"]) != TYPE_STRING or String(side["source_fingerprint"]).strip_edges().is_empty():
+            return {"accepted": false, "reason": "invalid_source_fingerprint"}
+        if side.get("time_kind", "") != "elapsed_wall_not_cpu":
+            return {"accepted": false, "reason": "invalid_time_kind"}
+        if typeof(side["from_tick"]) != TYPE_INT or typeof(side["to_tick"]) != TYPE_INT:
+            return {"accepted": false, "reason": "invalid_tick_boundary"}
+        if not CHECKPOINTS.has(int(side["to_tick"])) or int(side["from_tick"]) != maxi(1, int(side["to_tick"]) - 99):
+            return {"accepted": false, "reason": "invalid_tick_window"}
+        if typeof(side["observed_paid_ticks"]) != TYPE_INT or typeof(side["expected_paid_ticks"]) != TYPE_INT:
+            return {"accepted": false, "reason": "invalid_tick_coverage"}
     if baseline["complete"] != true or candidate["complete"] != true:
         return {"accepted": false, "reason": "incomplete_window"}
     for field in ["from_tick", "to_tick", "observed_paid_ticks", "expected_paid_ticks",
