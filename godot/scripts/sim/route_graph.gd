@@ -31,6 +31,8 @@ func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
     var edges: Dictionary = {}
     var nodes: Dictionary = {}
     var count: int = 0
+    # Per-origin positions preserve SQL upsert order without rescanning edges.
+    var edge_positions: Dictionary = {}
     for world in worlds:
         if not (world is Dictionary):
             return false
@@ -69,14 +71,15 @@ func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
                     var target: String = str(pair[1])
                     if not edges.has(origin):
                         edges[origin] = []
-                    var updated: bool = false
-                    for existing in edges[origin]:
-                        if str(existing["to"]) == target:
-                            existing["distance"] = distance
-                            existing["system_id"] = sid
-                            updated = true
-                            break
-                    if not updated:
+                    if not edge_positions.has(origin):
+                        edge_positions[origin] = {}
+                    var positions: Dictionary = edge_positions[origin]
+                    if positions.has(target):
+                        var index: int = int(positions[target])
+                        edges[origin][index]["distance"] = distance
+                        edges[origin][index]["system_id"] = sid
+                    else:
+                        positions[target] = edges[origin].size()
                         edges[origin].append({
                             "to": target, "distance": distance, "system_id": sid})
                         count += 1
@@ -107,13 +110,12 @@ func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
                 return false
             if not edges.has(origin):
                 edges[origin] = []
-            var exists: bool = false
-            for active in edges[origin]:
-                if str(active["to"]) == dest:
-                    exists = true
-                    break
-            if exists:
+            if not edge_positions.has(origin):
+                edge_positions[origin] = {}
+            var positions: Dictionary = edge_positions[origin]
+            if positions.has(dest):
                 continue # SQL INSERT OR IGNORE preserves explicit seed edge
+            positions[dest] = edges[origin].size()
             edges[origin].append({"to": dest,
                 "distance": float(native["distance"]),
                 "system_id": str(native["system_id"])})
