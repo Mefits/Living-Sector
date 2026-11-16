@@ -1,0 +1,67 @@
+name: P2 Sol map geometry UI short check
+
+on:
+  push:
+    branches:
+      - feature/p2-seamless-orbit-planet-zoom-20261116
+    paths:
+      - .github/workflows/p2-sol-geometry-ui-short.yml
+      - godot/scripts/star_system_view.gd
+      - godot/tests/p2_seamless_zoom_check.gd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sol-view:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download repository baseline Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 135 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+      - name: Import project scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot --editor --import --quit \
+            > "$RUNNER_TEMP/sol-import.log" 2>&1 || {
+              tail -n 90 "$RUNNER_TEMP/sol-import.log"
+              exit 1
+            }
+      - name: Sol geometry and seamless camera regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 35s godot --headless --path godot \
+            --script res://tests/p2_seamless_zoom_check.gd \
+            > "$RUNNER_TEMP/sol-geometry.log" 2>&1 || {
+              tail -n 120 "$RUNNER_TEMP/sol-geometry.log"
+              exit 1
+            }
+          grep -q 'P2 SEAMLESS ZOOM PASS' "$RUNNER_TEMP/sol-geometry.log" || {
+            tail -n 120 "$RUNNER_TEMP/sol-geometry.log"
+            exit 1
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|P2 SEAMLESS ZOOM FAIL:' "$RUNNER_TEMP/sol-geometry.log"; then
+            tail -n 120 "$RUNNER_TEMP/sol-geometry.log"
+            exit 1
+          fi
+          grep 'P2 SEAMLESS ZOOM PASS' "$RUNNER_TEMP/sol-geometry.log"
+      - name: Print useful diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          test ! -f "$RUNNER_TEMP/sol-import.log" || tail -n 90 "$RUNNER_TEMP/sol-import.log"
+          test ! -f "$RUNNER_TEMP/sol-geometry.log" || tail -n 120 "$RUNNER_TEMP/sol-geometry.log"
