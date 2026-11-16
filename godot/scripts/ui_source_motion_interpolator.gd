@@ -29,9 +29,9 @@ static func orbit_angle(previous: float, current: float,
 
 static func transit_position(previous: Variant, current: Variant,
         fraction: float) -> Variant:
-    if not _valid_xy(current):
+    if not valid_xy(current):
         return current
-    if not _valid_xy(previous):
+    if not valid_xy(previous):
         return (current as Array).duplicate()
     var start: Array = previous
     var target: Array = current
@@ -39,7 +39,7 @@ static func transit_position(previous: Variant, current: Variant,
     return [lerpf(float(start[0]), float(target[0]), t),
         lerpf(float(start[1]), float(target[1]), t)]
 
-static func _valid_xy(value: Variant) -> bool:
+static func valid_xy(value: Variant) -> bool:
     if not (value is Array) or value.size() != 2:
         return false
     for item in value:
