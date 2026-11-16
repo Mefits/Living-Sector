@@ -17,6 +17,8 @@ func bind_authoritative(runner: RefCounted) -> bool:
         return false
     if not runner.is_started() or not String(runner.last_phase_failure()).is_empty():
         return false
+    if runner.clock == null:
+        return false
     _runner = runner
     return true
 
@@ -46,7 +48,11 @@ func tick_executor() -> Dictionary:
 ## Only scalar presentation data crosses the UI boundary. No World, clock,
 ## ledger, ship, RefCounted or mutable model object is exposed.
 func projection_executor(tick: int) -> Dictionary:
-    if _runner == null or tick != int(_runner.tick_count):
+    if _busy or _runner == null or _runner.clock == null:
+        return {}
+    if not _runner.is_started() or not String(_runner.last_phase_failure()).is_empty():
+        return {}
+    if tick != int(_runner.tick_count):
         return {}
     return {
         "tick": tick,
