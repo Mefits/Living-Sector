@@ -1,17 +1,45 @@
 extends Control
-## Read-only 2D view of one original Galaxy 0.6.7 system.
-## Orbit radii are compressed for readability; native orbital angles are live.
-## Station markers use native facility anchors. Fleet markers show ACTUAL
-## ship locations from the same World; in-flight positions are not painted
-## onto the visually compressed orbit map as if they were exact.
+## Read-only continuous camera over a Galaxy 0.6.7 system.
+## Display radii are schematic but all orbital screen separations use one
+## camera zoom. Native N14/N39 positions and orbital angles are untouched.
+## Facility markers remain attached to real source body identities.
 
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
 
 const MIN_ZOOM: float = 0.45
-const MAX_ZOOM: float = 32.0
+const MAX_ZOOM: float = 512.0
+const FOCUS_GLOBE_RADIUS: float = 165.0
+const CAMERA_EASING: float = 12.0
+const DETAIL_RADIUS: float = 24.0
+const SURFACE_REVEAL_WHEEL_STEPS: float = 2.0
 const WHEEL_ZOOM: float = 1.32
+## Agreed Sol Lab 01 baseline: compress EMPTY map space, not world physics.
+const ORBIT_COMPRESSION: float = 0.65
+## Recursive local-space visual projection for parented satellites.
+## Smaller than the stellar exponent so moons emerge during planet zoom;
+## the parent/satellite relation comes from physical distance metadata.
+const SATELLITE_COMPRESSION: float = 0.50
+const KM_PER_AU: float = 149597870.7
+## The frozen Sol seed encodes Earth orbit_radius=2 for 1 AU.
+const SOL_NATIVE_UNITS_PER_AU: float = 2.0
+## Data-only Sol presentation metadata absent from frozen native seed.
+## No simulation change: later replace with body.parent_body_id and local orbit.
+const SOL_SATELLITE_ORBIT_KM: Dictionary = {
+    "luna": 384400.0,
+    "callisto": 1882700.0
+}
+const SOL_BODY_RADII_KM: Dictionary = {
+    "mercury": 2439.7, "venus": 6051.8, "earth": 6371.0,
+    "luna": 1737.4, "mars": 3389.5, "jupiter": 69911.0,
+    "saturn": 58232.0, "callisto": 2410.3
+}
 const BACKGROUND: Color = Color("#0b1421")
+## Orbit paths are orientation guides, not the main visual subject.
+## Suppress them near planet detail scale without changing any geometry.
+const ORBIT_LINE_OPACITY: float = 0.30
+const SATELLITE_ORBIT_LINE_OPACITY: float = 0.25
+const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
 ## Native Galaxy 0.6.7 stores heliocentric radius/period/angle for ALL
@@ -21,9 +49,6 @@ const KNOWN_VISUAL_MOON_PARENTS: Dictionary = {
     "luna": "earth",
     "callisto": "jupiter"
 }
-const SEMANTIC_FOCUS_ZOOM: float = 5.0
-const GLOBE_MIN_ZOOM: float = 0.85
-const GLOBE_MAX_ZOOM: float = 1.8
 
 var _world: Dictionary = {}
 var _live_fleet: Dictionary = {}
@@ -34,8 +59,17 @@ var _dragging: bool = false
 var _drag_distance: float = 0.0
 var _body_pins: Array = []
 var _focused_body_id: String = ""
-var _globe_zoom: float = 1.0
-var _globe_pan: Vector2 = Vector2.ZERO
+## Camera-only animation; never writes into physical World/N39.
+var _wheel_target_zoom: float = -1.0
+var _wheel_anchor: Vector2 = Vector2.ZERO
+var _focus_zoom_target: float = -1.0
+var _return_camera: bool = false
+## Wheel proximity chooses a real body; no artificial zoom-level scene swap.
+var _zoom_candidate_body_id: String = ""
+## The previously projected orbit offset lets the camera compensate *every*
+## body movement, even during fast N158 ticks and wheel interpolation.
+var _follow_orbit_offset: Vector2 = Vector2.ZERO
+var _follow_orbit_valid: bool = false
 ## U4: detached UI-only indices. The authoritative World is never mutated.
 var _body_index: Dictionary = {}
 var _facilities_by_body: Dictionary = {}
@@ -111,13 +145,81 @@ func _ready() -> void:
     clip_contents = true
 
 
-func _process(_delta: float) -> void:
-    # Only redraw the UI during an active visual transition. This does
-    # not advance orbital physics or any real N158/N39 ship position.
-    if not visible or is_body_focused():
+func _process(delta: float) -> void:
+    if not visible:
         return
+    var camera_changed: bool = false
+    var ease: float = 1.0 - exp(-clampf(delta, 0.0, 0.1) * CAMERA_EASING)
+    if _return_camera:
+        _zoom = lerpf(_zoom, 1.0, ease)
+        _pan = _pan.lerp(Vector2.ZERO, ease)
+        camera_changed = true
+        if absf(_zoom - 1.0) < 0.005 and _pan.length() < 0.5:
+            _zoom = 1.0
+            _pan = Vector2.ZERO
+            _return_camera = false
+    elif _focus_zoom_target > 0.0 and not _focused_body_id.is_empty():
+        # Double-click animation changes zoom, but the tracking block below
+        # owns the camera position for both double-click and wheel focus.
+        _zoom = lerpf(_zoom, _focus_zoom_target, ease)
+        camera_changed = true
+        if absf(_zoom - _focus_zoom_target) < 0.01:
+            _zoom = _focus_zoom_target
+            _focus_zoom_target = -1.0
+    elif _wheel_target_zoom > 0.0:
+        var next_zoom_wheel: float = lerpf(_zoom, _wheel_target_zoom, ease)
+        var ratio: float = next_zoom_wheel / maxf(_zoom, 0.001)
+        # Follow mode anchors the real body; free zoom anchors the pointer.
+        if _focused_body_id.is_empty():
+            _pan += (_wheel_anchor - _center()) * (1.0 - ratio)
+        _zoom = next_zoom_wheel
+        camera_changed = true
+        if absf(_zoom - _wheel_target_zoom) < 0.005:
+            _zoom = _wheel_target_zoom
+            _wheel_target_zoom = -1.0
+
+    # Enter follow automatically when the body under the zoom cursor reaches
+    # the SAME radius that begins drawing surface details. Never a new map.
+    if not _zoom_candidate_body_id.is_empty() and _focused_body_id.is_empty() and not _return_camera:
+        var candidate: Dictionary = _body_by_id(_zoom_candidate_body_id)
+        if not candidate.is_empty() and _body_size(candidate) >= DETAIL_RADIUS:
+            _focused_body_id = _zoom_candidate_body_id
+            _follow_orbit_valid = false
+
+    if not _focused_body_id.is_empty() and not _return_camera:
+        var focused: Dictionary = _body_by_id(_focused_body_id)
+        if focused.is_empty():
+            _focused_body_id = ""
+            _follow_orbit_valid = false
+        else:
+            # _body_position returns viewport_center + pan + orbit_offset.
+            # Project fresh each frame because native angles interpolate.
+            _draw_now_usec = Time.get_ticks_usec()
+            _draw_body_positions.clear()
+            var pan_before_follow: Vector2 = _pan
+            var screen_position: Vector2 = _body_position(focused, _orbit_scale())
+            var orbit_offset: Vector2 = screen_position - _center()
+            if _follow_orbit_valid:
+                # Cancel orbital motion exactly before centering; otherwise
+                # the body drifts out during accelerated simulated time.
+                _pan -= orbit_offset - _follow_orbit_offset
+            _follow_orbit_offset = orbit_offset
+            _follow_orbit_valid = true
+            var desired_pan: Vector2 = -orbit_offset
+            var remaining: Vector2 = desired_pan - _pan
+            if remaining.length() < 1.5:
+                _pan = desired_pan
+            else:
+                # Smooth *initial* acquisition, not orbital movement itself.
+                _pan += remaining * ease
+            # Following a stationary body while paused must not force a
+            # continuous redraw or unnecessary FPS/CPU load.
+            if _pan.distance_to(pan_before_follow) > 0.005:
+                camera_changed = true
+
     var now_usec: int = Time.get_ticks_usec()
-    if (not _body_motion_from.is_empty() and
+    if camera_changed or (
+            not _body_motion_from.is_empty() and
             VisualMotion.alpha(_body_motion_started_usec,
                 _body_motion_duration_usec, now_usec) < 1.0) or (
             not _ship_motion_from.is_empty() and
@@ -134,8 +236,11 @@ func set_world(world: Dictionary) -> void:
     _focused_body_id = ""
     _zoom = 1.0
     _pan = Vector2.ZERO
-    _globe_zoom = 1.0
-    _globe_pan = Vector2.ZERO
+    _wheel_target_zoom = -1.0
+    _focus_zoom_target = -1.0
+    _return_camera = false
+    _zoom_candidate_body_id = ""
+    _follow_orbit_valid = false
     # A newly opened system has no previous visual position. Snap to
     # the first real source snapshot; never glide between systems.
     _body_motion_from.clear()
@@ -247,11 +352,22 @@ func focus_body(body_id: String) -> bool:
     var body: Dictionary = _body_by_id(body_id)
     if body.is_empty():
         return false
-    # A single real world object is shown at globe scale. No extra World.
     _selected_body_id = body_id
     _focused_body_id = body_id
-    _globe_zoom = 1.0
-    _globe_pan = Vector2.ZERO
+    _return_camera = false
+    _wheel_target_zoom = -1.0
+    _zoom_candidate_body_id = ""
+    _follow_orbit_valid = false
+    # One continuous camera, animated until the real body is large enough.
+    var low: float = MIN_ZOOM
+    var high: float = MAX_ZOOM
+    for i in range(20):
+        var mid: float = (low + high) * 0.5
+        if _body_size_at_zoom(body, mid) < FOCUS_GLOBE_RADIUS:
+            low = mid
+        else:
+            high = mid
+    _focus_zoom_target = high
     _dragging = false
     queue_redraw()
     return true
@@ -259,19 +375,22 @@ func focus_body(body_id: String) -> bool:
 
 func unfocus_body() -> void:
     _focused_body_id = ""
-    _globe_pan = Vector2.ZERO
-    _globe_zoom = 1.0
+    _zoom_candidate_body_id = ""
+    _follow_orbit_valid = false
+    _focus_zoom_target = -1.0
+    _wheel_target_zoom = -1.0
+    _return_camera = true
     _dragging = false
     queue_redraw()
 
 
 func reset_view() -> void:
-    if is_body_focused():
-        _globe_zoom = 1.0
-        _globe_pan = Vector2.ZERO
-    else:
-        _zoom = 1.0
-        _pan = Vector2.ZERO
+    _focused_body_id = ""
+    _zoom_candidate_body_id = ""
+    _follow_orbit_valid = false
+    _focus_zoom_target = -1.0
+    _wheel_target_zoom = -1.0
+    _return_camera = true
     queue_redraw()
 
 
@@ -287,6 +406,10 @@ func _known_moon_parent(body: Dictionary) -> Dictionary:
         KNOWN_VISUAL_MOON_PARENTS.get(str(body.get("id", "")), "")))
     var parent: Dictionary = _body_by_id(parent_id)
     if parent.is_empty() or str(parent.get("type", "")) != "planet":
+        return {}
+    # Do not guess a local orbit from the child and parent's
+    # heliocentric radii in the frozen Rust seed.
+    if _satellite_orbit_native_radius(body) <= 0.0:
         return {}
     return parent
 
@@ -330,7 +453,7 @@ func _body_color(body: Dictionary) -> Color:
 
 func _radius_transform(radius: float) -> float:
     # Deliberate nonlinear display compression, NOT physical distance.
-    return pow(maxf(radius, 0.0), 0.62)
+    return pow(maxf(radius, 0.0), ORBIT_COMPRESSION)
 
 
 func _orbit_scale() -> float:
@@ -373,8 +496,11 @@ func _body_position(body: Dictionary, scale: float) -> Vector2:
     var parent: Dictionary = _known_moon_parent(body)
     var position: Vector2 = Vector2.ZERO
     if not parent.is_empty():
+        # The satellite has its OWN local orbital coordinate frame.
+        # Native seed heliocentric orbit_radius never means moon distance.
         position = _body_position(parent, scale) + Vector2(
-            cos(radians), -sin(radians)) * _moon_visual_orbit(body, parent)
+            cos(radians), -sin(radians)) * (
+                _satellite_orbit_radius(body, parent, scale))
     else:
         var orbit: float = _radius_transform(float(
             body.get("orbit_radius", 0.0))) * scale * _zoom
@@ -384,30 +510,104 @@ func _body_position(body: Dictionary, scale: float) -> Vector2:
     return position
 
 
-func _moon_visual_orbit(body: Dictionary, parent: Dictionary) -> float:
-    # Deliberately schematic screen separation. Parent is now the moving
-    # center; the LIVE native current_angle still advances from TickRunner.
-    # Frozen orbit_period is NOT a true month, so never label it as one.
-    var delta: float = absf(float(body.get("orbit_radius", 0.0)) -
-        float(parent.get("orbit_radius", 0.0)))
-    var base: float = 26.0 + minf(delta, 1.0) * 18.0
-    return maxf(_body_size(parent) + 16.0,
-        base * clampf(sqrt(_zoom), 1.0, 5.0))
+func _satellite_orbit_native_radius(body: Dictionary) -> float:
+    # A future body may specify this directly; no need for any known ID.
+    var native_radius: float = float(body.get("satellite_orbit_radius_native", 0.0))
+    if is_finite(native_radius) and native_radius > 0.0:
+        return native_radius
+    # The original Sol seed has no planetocentric moon radii. Supply
+    # real astronomical LOCAL orbit distances to the visual layer only.
+    var system: Dictionary = _world.get("system", {})
+    var bid: String = str(body.get("id", ""))
+    if str(system.get("id", "")) == "system-sol" and (
+            SOL_SATELLITE_ORBIT_KM.has(bid)):
+        return float(SOL_SATELLITE_ORBIT_KM[bid]) / KM_PER_AU * (
+            SOL_NATIVE_UNITS_PER_AU)
+    return 0.0
+
+
+func _satellite_orbit_radius(body: Dictionary, _parent: Dictionary,
+        scale: float) -> float:
+    var local_native_radius: float = _satellite_orbit_native_radius(body)
+    if local_native_radius <= 0.0:
+        return 0.0
+    # Hierarchical map LOD: project a LOCAL radius under its parent,
+    # not a fake delta of heliocentric radii (old Luna-as-Mars bug).
+    # Display-only compression is intentional and identical for all moons.
+    return pow(local_native_radius, SATELLITE_COMPRESSION) * scale * _zoom
+
+
+func _satellite_visibility(body: Dictionary, parent: Dictionary,
+        scale: float) -> float:
+    # On overview scale, an actual moon separation is subpixel. Hide
+    # overlapping map glyphs until the viewer zooms into the parent.
+    var separation: float = _satellite_orbit_radius(body, parent, scale)
+    var combined_radius: float = _body_size(body) + _body_size(parent)
+    return clampf((separation - combined_radius + 3.0) / 14.0, 0.0, 1.0)
+
+
+func _overview_body_radius(body: Dictionary) -> float:
+    var kind: String = str(body.get("type", ""))
+    if kind in ["asteroid", "belt"]:
+        return 4.5
+    var system: Dictionary = _world.get("system", {})
+    var id: String = str(body.get("id", ""))
+    if str(system.get("id", "")) == "system-sol" and (
+            SOL_BODY_RADII_KM.has(id)):
+        # Readable, gently compressed physical size hierarchy.
+        # The star remains larger than Jupiter at orbital overview.
+        var known_km: float = float(SOL_BODY_RADII_KM[id])
+        var symbolic: float = 3.25 + 3.25 * pow(known_km / 6371.0, 0.33)
+        return minf(4.0, symbolic) if kind == "moon" else symbolic
+    if kind == "moon":
+        return 4.0
+    if str(body.get("biome", "")) == "gas_giant":
+        return 10.0
+    return 6.5
+
+
+func _body_size_at_zoom(body: Dictionary, at_zoom: float) -> float:
+    # Symbol at sector scale; continuous larger globe at near scale.
+    var scale: float = sqrt(maxf(at_zoom, 0.64))
+    if at_zoom > 32.0:
+        scale = sqrt(32.0) * pow(at_zoom / 32.0, 1.12)
+    var base: float = _overview_body_radius(body)
+    if str(body.get("type", "")) in ["asteroid", "belt"]:
+        return base * minf(scale, 6.0)
+    return base * scale
 
 
 func _body_size(body: Dictionary) -> float:
-    # The old diagram zoomed the orbit position but kept every planet at
-    # 4–10 pixels, so close-up still looked distant. Symbol radius is
-    # deliberately schematic and grows sublinearly, never by physical size.
-    var symbol_scale: float = clampf(sqrt(_zoom), 0.8, 5.0)
-    var kind: String = str(body.get("type", ""))
-    if kind == "moon":
-        return 4.0 * symbol_scale
-    if kind == "asteroid" or kind == "belt":
-        return 4.5 * symbol_scale
-    if str(body.get("biome", "")) == "gas_giant":
-        return 10.0 * symbol_scale
-    return 6.5 * symbol_scale
+    return _body_size_at_zoom(body, _zoom)
+
+
+func _surface_detail_start_zoom(body: Dictionary) -> float:
+    # Invert the SAME visual-size function used for the globe. No per-planet
+    # threshold values: gas giants, rocky planets and moons all receive the
+    # same two-wheel-step fade after they cross DETAIL_RADIUS.
+    var size_at_one: float = _body_size_at_zoom(body, 1.0)
+    var threshold_at_low_zoom: float = pow(DETAIL_RADIUS / size_at_one, 2.0)
+    if threshold_at_low_zoom <= 32.0:
+        return threshold_at_low_zoom
+    return 32.0 * pow(
+        DETAIL_RADIUS / (size_at_one * sqrt(32.0)), 1.0 / 1.12)
+
+
+func _surface_detail_alpha(body: Dictionary) -> float:
+    var first_zoom: float = _surface_detail_start_zoom(body)
+    if _zoom <= first_zoom:
+        return 0.0
+    # Logarithmic camera steps make a wheel notch visually consistent
+    # regardless of the body's size or current orbital zoom level.
+    var steps: float = log(_zoom / first_zoom) / log(WHEEL_ZOOM)
+    var t: float = clampf(steps / SURFACE_REVEAL_WHEEL_STEPS, 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t) # smoothstep: no abrupt alpha edges
+
+
+func _surface_tint(hex: String, opacity: float) -> Color:
+    var tint: Color = Color(hex)
+    tint.a = opacity
+    return tint
 
 
 func _facility_count(body_id: String) -> int:
@@ -420,13 +620,20 @@ func _draw() -> void:
     var started: int = Time.get_ticks_usec()
     _draw_now_usec = started
     _draw_body_positions.clear()
-    if is_body_focused():
-        _draw_body_focus()
-    else:
-        _draw_system()
+    _draw_system()
     _last_draw_usec = maxi(0, Time.get_ticks_usec() - started)
     _max_draw_usec = maxi(_max_draw_usec, _last_draw_usec)
     _draw_calls += 1
+
+
+func _orbit_line_alpha(is_satellite: bool) -> float:
+    var base: float = (
+        SATELLITE_ORBIT_LINE_OPACITY if is_satellite else ORBIT_LINE_OPACITY)
+    # At close zoom, orbit circles become visual clutter, especially while
+    # following a moving planet. Fade them rather than cutting them off.
+    var near_fade: float = minf(
+        1.0, ORBIT_FADE_BEGIN_ZOOM / maxf(_zoom, ORBIT_FADE_BEGIN_ZOOM))
+    return base * near_fade
 
 
 func _draw_system() -> void:
@@ -445,14 +652,19 @@ func _draw_system() -> void:
     for body in bodies:
         var parent: Dictionary = _known_moon_parent(body)
         if not parent.is_empty():
-            draw_arc(_body_position(parent, scale),
-                _moon_visual_orbit(body, parent), 0.0, TAU,
-                72, Color("#35495a"), 1.0, true)
+            var moon_fade: float = _satellite_visibility(body, parent, scale)
+            if moon_fade > 0.01:
+                draw_arc(_body_position(parent, scale),
+                    _satellite_orbit_radius(body, parent, scale), 0.0, TAU,
+                    72, Color(0.23, 0.32, 0.42,
+                        _orbit_line_alpha(true) * moon_fade), 1.0, true)
             continue
         var radius: float = _radius_transform(float(body.get("orbit_radius", 0.0))) * scale * _zoom
         if radius > 1.0:
-            draw_arc(star, radius, 0.0, TAU, 96, Color("#26394a"), 1.0, true)
-    var star_size: float = 13.0 * clampf(sqrt(_zoom), 0.8, 4.0)
+            draw_arc(star, radius, 0.0, TAU, 96,
+                Color(0.18, 0.26, 0.35, _orbit_line_alpha(false)), 1.0, true)
+    # A small, legible symbol: no giant Sun covering Mercury's orbit.
+    var star_size: float = 13.5 * clampf(sqrt(_zoom), 0.8, 4.0)
     draw_circle(star, star_size, _star_color(str(system.get("star_type", ""))))
     draw_circle(star, star_size + 5.0, Color("#526575"), false, 1.0, true)
     draw_string(font, star + Vector2(star_size + 8.0, -15.0), str(system.get("name", "")),
@@ -463,7 +675,16 @@ func _draw_system() -> void:
         var picked: bool = bid == _selected_body_id
         var visual_radius: float = _body_size(body)
         var kind: String = str(body.get("type", ""))
+        var moon_parent: Dictionary = _known_moon_parent(body)
+        var moon_fade: float = 1.0
+        if not moon_parent.is_empty():
+            moon_fade = _satellite_visibility(body, moon_parent, scale)
+            if moon_fade < 0.001:
+                # The moon still exists, but cannot be distinguished
+                # from its parent at this overview magnification.
+                continue
         var color: Color = _body_color(body)
+        color.a *= moon_fade
         if kind == "asteroid" or kind == "belt":
             var vertices: PackedVector2Array = PackedVector2Array([
                 position + Vector2(0.0, -visual_radius),
@@ -474,9 +695,14 @@ func _draw_system() -> void:
             draw_colored_polygon(vertices, color)
         else:
             draw_circle(position, visual_radius, color)
+            if visual_radius >= DETAIL_RADIUS:
+                var detail_opacity: float = _surface_detail_alpha(body) * moon_fade
+                if detail_opacity > 0.001:
+                    _draw_globe_detail(body, position, visual_radius,
+                        detail_opacity)
         if picked:
             draw_arc(position, visual_radius + 7.0, 0.0, TAU, 40,
-                Color("#a7eafa"), 1.8, true)
+                Color(0.65, 0.92, 0.98, moon_fade), 1.8, true)
         var attached: int = _facility_count(bid)
         if attached > 0:
             # A small outlined square denotes a real seed facility/station
@@ -496,10 +722,14 @@ func _draw_system() -> void:
             draw_string(font, position + Vector2(-visual_radius - 25.0, 16.0),
                 str(local_ships), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("#7abacb"))
         var label_offset: Vector2 = Vector2(visual_radius + 8.0, -8.0)
-        draw_string(font, position + label_offset, str(body.get("name", bid)),
-            HORIZONTAL_ALIGNMENT_LEFT, -1, 13,
+        var label_color: Color = (
             Color("#f2f7fa") if picked else Color("#a9bbc8"))
-        _body_pins.append({"body": body, "position": position, "hit_radius": maxf(22.0, visual_radius + 9.0)})
+        label_color.a *= moon_fade
+        draw_string(font, position + label_offset, str(body.get("name", bid)),
+            HORIZONTAL_ALIGNMENT_LEFT, -1, 13, label_color)
+        if moon_fade >= 0.5:
+            _body_pins.append({"body": body, "position": position,
+                "hit_radius": maxf(22.0, visual_radius + 9.0)})
     # Draw ONLY ships with a real committed N14 transit.position. The
     # radial display is compressed by the same source orbit transform as
     # the planets; there is no fabricated travel or per-frame motion.
@@ -508,8 +738,59 @@ func _draw_system() -> void:
         "%s  /  %d тел  /  масштаб ×%.1f" % [str(system.get("name", "?")), bodies.size(), _zoom],
         HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#dce8ee"))
     draw_string(font, Vector2(14.0, size.y - 14.0),
-        "ЛКМ: выбрать · двойной клик / крупное колесо: глобус · колесо: орбиты · схематичный масштаб",
+        "Колесо: бесшовный масштаб до поверхности · двойной клик: приблизить планету · условные расстояния",
         HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#7d9cad"))
+
+
+## Surface placeholders grow in place on the very same orbital map.
+## No imaginary T1 industries or second terrain simulation are shown.
+func _draw_globe_detail(body: Dictionary, center: Vector2, radius: float,
+        opacity: float) -> void:
+    # Major terrain fades in first; small lakes, bands and craters follow.
+    # Both layers reach the original full-strength colors after two notches.
+    var subtle_opacity: float = clampf((opacity - 0.15) / 0.85, 0.0, 1.0)
+    var biome: String = str(body.get("biome", ""))
+    if biome == "terrestrial":
+        var land_a: PackedVector2Array = PackedVector2Array([
+            center + Vector2(-0.70, -0.35) * radius,
+            center + Vector2(-0.34, -0.72) * radius,
+            center + Vector2(0.09, -0.73) * radius,
+            center + Vector2(0.26, -0.44) * radius,
+            center + Vector2(0.08, -0.12) * radius,
+            center + Vector2(-0.26, -0.03) * radius,
+            center + Vector2(-0.43, 0.30) * radius,
+            center + Vector2(-0.67, 0.20) * radius
+        ])
+        var land_b: PackedVector2Array = PackedVector2Array([
+            center + Vector2(0.37, -0.05) * radius,
+            center + Vector2(0.66, 0.00) * radius,
+            center + Vector2(0.86, 0.35) * radius,
+            center + Vector2(0.56, 0.65) * radius,
+            center + Vector2(0.20, 0.75) * radius,
+            center + Vector2(0.10, 0.30) * radius
+        ])
+        draw_colored_polygon(land_a, _surface_tint("#789c7d", opacity))
+        draw_colored_polygon(land_b, _surface_tint("#9bb38a", opacity))
+        draw_circle(center + Vector2(-0.17, 0.41) * radius,
+            radius * 0.15, _surface_tint("#5689a3", subtle_opacity))
+    elif biome == "gas_giant":
+        for band in [-0.70, -0.39, -0.06, 0.22, 0.57]:
+            var y: float = float(band) * radius
+            var half: float = sqrt(maxf(0.0, radius * radius - y * y)) * 0.92
+            draw_line(center + Vector2(-half, y),
+                center + Vector2(half, y), _surface_tint("#917d70", opacity),
+                maxf(2.0, radius * 0.065))
+    elif biome in ["lifeless", "ice"]:
+        draw_circle(center + Vector2(-0.32, -0.20) * radius,
+            radius * 0.16, _surface_tint("#809aad", subtle_opacity))
+        draw_circle(center + Vector2(0.36, 0.31) * radius,
+            radius * 0.10, _surface_tint("#90a9bd", subtle_opacity))
+    elif biome in ["molten", "desert"]:
+        draw_arc(center + Vector2(0.10, -0.15) * radius,
+            radius * 0.51, 0.50, 2.75, 44, _surface_tint("#e4b08c", opacity),
+            maxf(2.0, radius * 0.02))
+    draw_arc(center, radius, 0.18 * PI, 1.15 * PI, 70,
+        _surface_tint("#192a39", opacity), maxf(1.0, radius * 0.025))
 
 
 ## Visual-only projection of N14's physical absolute world position.
@@ -567,10 +848,29 @@ func _draw_real_native_transits(system: Dictionary,
 
 
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
-    var previous: float = _zoom
-    _zoom = clampf(_zoom * multiplier, MIN_ZOOM, MAX_ZOOM)
-    var ratio: float = _zoom / previous
-    _pan += (pointer - _center()) * (1.0 - ratio)
+    _return_camera = false
+    _focus_zoom_target = -1.0
+    var prior_target: float = _wheel_target_zoom if _wheel_target_zoom > 0.0 else _zoom
+    _wheel_target_zoom = clampf(prior_target * multiplier, MIN_ZOOM, MAX_ZOOM)
+    _wheel_anchor = pointer
+    if multiplier > 1.0:
+        # Identify by existing screen hit-test. Lock is activated only once
+        # the planet visually reaches detail scale, not before it.
+        var under_cursor: Dictionary = _nearest_pin(pointer)
+        if not under_cursor.is_empty():
+            _zoom_candidate_body_id = str(under_cursor.get("id", ""))
+    elif not _focused_body_id.is_empty():
+        var focused: Dictionary = _body_by_id(_focused_body_id)
+        if focused.is_empty() or _body_size_at_zoom(focused, _wheel_target_zoom) < DETAIL_RADIUS:
+            # Reverse zoom restores free panning naturally, without a jump
+            # to orbit/default view.
+            _focused_body_id = ""
+            _zoom_candidate_body_id = ""
+            _follow_orbit_valid = false
+    elif not _zoom_candidate_body_id.is_empty():
+        var candidate: Dictionary = _body_by_id(_zoom_candidate_body_id)
+        if candidate.is_empty() or _body_size_at_zoom(candidate, _wheel_target_zoom) < DETAIL_RADIUS:
+            _zoom_candidate_body_id = ""
     queue_redraw()
 
 
@@ -602,15 +902,9 @@ func _nearest_pin(pointer: Vector2) -> Dictionary:
 
 
 func _gui_input(event: InputEvent) -> void:
-    if is_body_focused():
-        _focus_input(event)
-        return
     if event is InputEventMouseButton:
         if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-            if _zoom >= SEMANTIC_FOCUS_ZOOM and not _nearest_pin(event.position).is_empty():
-                _pick(event.position, true)
-            else:
-                _zoom_at(event.position, WHEEL_ZOOM)
+            _zoom_at(event.position, WHEEL_ZOOM)
             accept_event()
         elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
             _zoom_at(event.position, 1.0 / WHEEL_ZOOM)
@@ -630,105 +924,14 @@ func _gui_input(event: InputEvent) -> void:
             accept_event()
     elif event is InputEventMouseMotion and _dragging:
         _drag_distance += event.relative.length()
+        if _drag_distance >= 7.0:
+            # Manual navigation takes precedence over both acquired focus
+            # and a pending wheel-to-detail focus.
+            _focused_body_id = ""
+            _zoom_candidate_body_id = ""
+            _focus_zoom_target = -1.0
+            _follow_orbit_valid = false
         _pan += event.relative
-        queue_redraw()
-        accept_event()
-
-## Semantic level 3: decorative 2D globe, NOT a fabricated terrain/colony
-## simulation. No nine slots, no fake building coordinates. Native physical
-## body and real facility/resource data remain in the existing inspector.
-func _draw_body_focus() -> void:
-    draw_rect(Rect2(Vector2.ZERO, size), BACKGROUND, true)
-    var body: Dictionary = _body_by_id(_focused_body_id)
-    if body.is_empty():
-        return
-    var font: Font = get_theme_default_font()
-    var biome: String = str(body.get("biome", ""))
-    var radius: float = maxf(105.0, minf(205.0, minf(size.x, size.y) * 0.29)) * _globe_zoom
-    var center: Vector2 = size * 0.5 + _globe_pan
-    var base: Color = _body_color(body)
-    draw_circle(center, radius + 2.0, Color("#283b4b"))
-    draw_circle(center, radius, base)
-    if biome == "terrestrial":
-        # Minimal, source-independent surface illustration: NOT a map of
-        # actual native land or claimed building locations.
-        var land: Color = Color("#789c7d")
-        var shape_a: PackedVector2Array = PackedVector2Array([
-            center + Vector2(-0.70, -0.35) * radius,
-            center + Vector2(-0.34, -0.72) * radius,
-            center + Vector2(0.09, -0.73) * radius,
-            center + Vector2(0.26, -0.44) * radius,
-            center + Vector2(0.08, -0.12) * radius,
-            center + Vector2(-0.26, -0.03) * radius,
-            center + Vector2(-0.43, 0.30) * radius,
-            center + Vector2(-0.67, 0.20) * radius
-        ])
-        var shape_b: PackedVector2Array = PackedVector2Array([
-            center + Vector2(0.37, -0.05) * radius,
-            center + Vector2(0.66, 0.00) * radius,
-            center + Vector2(0.86, 0.35) * radius,
-            center + Vector2(0.56, 0.65) * radius,
-            center + Vector2(0.20, 0.75) * radius,
-            center + Vector2(0.10, 0.30) * radius
-        ])
-        draw_colored_polygon(shape_a, land)
-        draw_colored_polygon(shape_b, Color("#9bb38a"))
-        draw_circle(center + Vector2(-0.17, 0.41) * radius,
-            0.15 * radius, Color("#5689a3"))
-    elif biome == "gas_giant":
-        for band in [-0.70, -0.39, -0.06, 0.22, 0.57]:
-            var y: float = float(band) * radius
-            var half: float = sqrt(maxf(0.0, radius * radius - y * y)) * 0.92
-            draw_line(center + Vector2(-half, y),
-                center + Vector2(half, y), Color("#917d70"), maxf(2.0, radius * 0.065))
-    elif biome in ["lifeless", "ice"]:
-        draw_circle(center + Vector2(-0.32, -0.20) * radius,
-            0.16 * radius, Color("#809aad"))
-        draw_circle(center + Vector2(0.36, 0.31) * radius,
-            0.10 * radius, Color("#90a9bd"))
-    elif biome in ["molten", "desert"]:
-        draw_arc(center + Vector2(0.10, -0.15) * radius,
-            radius * 0.51, 0.50, 2.75, 44, Color("#e4b08c"), maxf(2.0, radius * 0.02))
-    # A muted visible terminator, without gradients or glossy highlights.
-    draw_arc(center, radius, 0.18 * PI, 1.15 * PI, 70,
-        Color("#192a39"), maxf(2.0, radius * 0.025))
-    var name: String = str(body.get("name", _focused_body_id))
-    draw_string(font, Vector2(18.0, 31.0),
-        name + "  /  " + str(body.get("type", "?")), HORIZONTAL_ALIGNMENT_LEFT,
-        -1, 19, Color("#ebf2f4"))
-    var parent: Dictionary = _known_moon_parent(body)
-    if not parent.is_empty():
-        draw_string(font, Vector2(18.0, 54.0),
-            "Спутник " + str(parent.get("name", "планеты")) +
-            " · орбита вокруг планеты показана условно",
-            HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#a9c5d4"))
-    elif str(body.get("type", "")) == "moon":
-        draw_string(font, Vector2(18.0, 54.0),
-            "Родитель неизвестен в источнике — орбита не моделируется",
-            HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#d7b88c"))
-    draw_string(font, Vector2(18.0, size.y - 40.0),
-        "Биом: " + biome + "  ·  объектов: " + str(_facility_count(_focused_body_id)),
-        HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#cbdce6"))
-    draw_string(font, Vector2(18.0, size.y - 17.0),
-        "Колесо: размер глобуса · ЛКМ: сдвиг · назад: к орбитам · поверхность схематична",
-        HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#819cae"))
-
-
-func _focus_input(event: InputEvent) -> void:
-    if event is InputEventMouseButton:
-        if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-            _globe_zoom = clampf(_globe_zoom * 1.16, GLOBE_MIN_ZOOM, GLOBE_MAX_ZOOM)
-            queue_redraw()
-            accept_event()
-        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-            _globe_zoom = clampf(_globe_zoom / 1.16, GLOBE_MIN_ZOOM, GLOBE_MAX_ZOOM)
-            queue_redraw()
-            accept_event()
-        elif event.button_index == MOUSE_BUTTON_LEFT:
-            _dragging = event.pressed
-            accept_event()
-    elif event is InputEventMouseMotion and _dragging:
-        _globe_pan += event.relative
         queue_redraw()
         accept_event()
 
