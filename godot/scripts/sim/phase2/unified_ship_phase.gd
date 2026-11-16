@@ -51,7 +51,11 @@ static func advance(world: Dictionary, positions: Dictionary,
         world, positions, tick, tick_multiplier, observers)
     if not gate.get("ok", false):
         return gate
-    state.ships = gate["ships"].duplicate(true)
+    # N140.stage already returns a deep-detached fleet (its out copy).
+    # This stage exclusively owns the returned rows until the final N39
+    # publication copy. A second full-fleet deep copy here is redundant.
+    # Never assign world["ships"] directly: motion mutates these rows.
+    state.ships = gate["ships"]
     var fired: Dictionary = gate["fired"]
     var ids: Array = state.ships.keys()
     ids.sort()
