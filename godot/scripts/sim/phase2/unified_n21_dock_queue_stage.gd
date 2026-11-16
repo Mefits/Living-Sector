@@ -179,31 +179,38 @@ static func request(world: Dictionary, ledger: Variant,
             # FacilityStorage default not serialized yet.
             staged["facilities"][fid]["dock_queue"] = []
         _prune(staged, str(fid))
+    # Request can inspect many dock candidates. Build occupancy once instead
+    # of rescanning every ship for each candidate and its fee calculation.
+    var occupancy: Dictionary = {}
+    for candidate_ship in staged["ships"].values():
+        var dock_id: String = str(candidate_ship.get("docked_at", ""))
+        if not dock_id.is_empty():
+            occupancy[dock_id] = int(occupancy.get(dock_id, 0)) + 1
     for fid in options:
         var q: Array = _queue(staged["facilities"][fid])
         if not q.has(ship_id):
             continue
-        if str(q[0]) != ship_id or _occupants(staged, str(fid)) >= int(
+        if str(q[0]) != ship_id or int(occupancy.get(str(fid), 0)) >= int(
                 staged["facilities"][fid]["docking_capacity"]):
             return {"ok": true, "changed": staged != world,
                 "status": "queued", "world": staged,
                 "ledger_snapshot": ledger}
-        var fee: int = _fee(staged, str(fid), ship_id)
+        var fee: int = _fee(staged, str(fid), ship_id, occupancy)
         if fee < 0 or int(staged["ships"][ship_id]["credits"]) < fee:
             staged["facilities"][fid]["dock_queue"].erase(ship_id)
             staged["ships"][ship_id]["dock_attempt_start_tick"] = null
             return {"ok": true, "changed": true, "status": "evicted_insolvent",
                 "world": staged, "ledger_snapshot": ledger}
-        return _admit(staged, ledger, str(fid), ship_id, tick, "request_head")
+        return _admit(staged, ledger, str(fid), ship_id, tick, "request_head", occupancy)
     for fid in options:
         var fac: Dictionary = staged["facilities"][fid]
         var q: Array = _queue(fac)
-        var occupied: int = _occupants(staged, str(fid))
+        var occupied: int = int(occupancy.get(str(fid), 0))
         if occupied + q.size() >= int(fac["docking_capacity"]):
             continue
-        var fee: int = _fee(staged, str(fid), ship_id)
+        var fee: int = _fee(staged, str(fid), ship_id, occupancy)
         if fee >= 0 and int(staged["ships"][ship_id]["credits"]) >= fee:
-            return _admit(staged, ledger, str(fid), ship_id, tick, "request_fast_path")
+            return _admit(staged, ledger, str(fid), ship_id, tick, "request_fast_path", occupancy)
     var shortest: String = ""
     var shortest_count: int = MAX_I64
     for fid in options:
