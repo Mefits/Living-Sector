@@ -26,6 +26,23 @@ func _initialize() -> void:
     nested_array_after["earth"]["audit"]["entries"] = nested_array_old["earth"]["audit"]["entries"]
     _expect(Guard.validate_owned_write(nested_array_old, nested_array_after) ==
         "market_write_aliased_protected_field", "reject_deep_array_alias")
+    # A protected container must not be reparented under another field,
+    # including an observation field, where N150 could mutate it in place.
+    var reparent_old: Dictionary = {"earth": _market()}
+    reparent_old["earth"]["stock"]["ore"] = {"nested": [1, 2]}
+    var reparent_new: Dictionary = reparent_old.duplicate(true)
+    reparent_new["earth"]["history"]["leaked_stock"] = reparent_old["earth"]["stock"]
+    _expect(Guard.validate_owned_write(reparent_old, reparent_new) ==
+        "market_write_aliased_protected_field", "reject_protected_to_observation_alias")
+    var cross_key_old: Dictionary = {"earth": _market()}
+    cross_key_old["earth"]["audit"] = {"a": {"items": [1, 2]}}
+    var cross_key_new: Dictionary = cross_key_old.duplicate(true)
+    cross_key_new["earth"]["audit"]["b"] = cross_key_old["earth"]["audit"]["a"]
+    _expect(Guard.validate_owned_write(cross_key_old, cross_key_new) ==
+        "market_write_aliased_protected_field", "reject_reparented_nested_alias")
+    var detached_reparent: Dictionary = cross_key_new.duplicate(true)
+    _expect(Guard.validate_owned_write(cross_key_old, detached_reparent) ==
+        "market_write_outside_observation", "detached_reparent_is_still_write_violation")
     var independent_nested: Dictionary = nested_array_old.duplicate(true)
     _expect(Guard.validate_owned_write(nested_array_old, independent_nested) == "",
         "accept_deep_detached_protected")
