@@ -6,6 +6,8 @@ const NativeData = preload("res://scripts/native_data.gd")
 const TickRunner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const SaveState = preload("res://scripts/sim/save_state.gd")
 const P2_SAVE_PATH: String = "user://saves/galaxy-067-p2-integration.json"
+## Keep opt-in worker testing from overwriting the known-good default save.
+const P2_WORKER_SAVE_PATH: String = "user://saves/galaxy-067-p2-worker-experimental.json"
 const SPEEDS = [0.25, 1.0, 2.0, 4.0, 8.0, 16.0]
 ## User decision 13.11.2026: observer-first autonomous sector. Keep the
 ## N14/N21/N15 manual tools as an explicit later-game debug feature.
@@ -762,11 +764,11 @@ func _worker_receive(result: Dictionary) -> void:
         _worker_booted = true
         _worker_tick = int(result.get("tick", 0))
         # Use SaveState on the SAME owner thread; no GUI-owned second N158.
-        if (FileAccess.file_exists(P2_SAVE_PATH) or
-                FileAccess.file_exists(P2_SAVE_PATH + ".bak") or
-                FileAccess.file_exists(P2_SAVE_PATH + ".pending")):
+        if (FileAccess.file_exists(P2_WORKER_SAVE_PATH) or
+                FileAccess.file_exists(P2_WORKER_SAVE_PATH + ".bak") or
+                FileAccess.file_exists(P2_WORKER_SAVE_PATH + ".pending")):
             _worker_loading = true
-            if _worker_send("load", {"path": P2_SAVE_PATH}) <= 0:
+            if _worker_send("load", {"path": P2_WORKER_SAVE_PATH}) <= 0:
                 _worker_loading = false
         _worker_update_status()
         return
@@ -1002,7 +1004,7 @@ func _change_speed(index: int) -> void:
 func _save_game(save_path: String = "") -> void:
     if _worker_mode:
         if _worker_failed.is_empty():
-            var path: String = P2_SAVE_PATH if save_path.is_empty() else save_path
+            var path: String = P2_WORKER_SAVE_PATH if save_path.is_empty() else save_path
             _worker_send("save", {"path": path})
             _notice = "Сохранение N38 поставлено в очередь worker"
             _update_status()
@@ -1022,7 +1024,7 @@ func _save_game(save_path: String = "") -> void:
 func _load_game(save_path: String = "") -> void:
     if _worker_mode:
         if _worker_failed.is_empty():
-            var path: String = P2_SAVE_PATH if save_path.is_empty() else save_path
+            var path: String = P2_WORKER_SAVE_PATH if save_path.is_empty() else save_path
             _worker_loading = true
             if _worker_send("load", {"path": path}) <= 0:
                 _worker_loading = false
