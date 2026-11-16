@@ -12,6 +12,7 @@ const MAX_ZOOM: float = 512.0
 const FOCUS_GLOBE_RADIUS: float = 165.0
 const CAMERA_EASING: float = 12.0
 const DETAIL_RADIUS: float = 24.0
+const SURFACE_REVEAL_WHEEL_STEPS: float = 2.0
 const WHEEL_ZOOM: float = 1.32
 const BACKGROUND: Color = Color("#0b1421")
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
@@ -509,6 +510,35 @@ func _body_size(body: Dictionary) -> float:
     return _body_size_at_zoom(body, _zoom)
 
 
+func _surface_detail_start_zoom(body: Dictionary) -> float:
+    # Invert the SAME visual-size function used for the globe. No per-planet
+    # threshold values: gas giants, rocky planets and moons all receive the
+    # same two-wheel-step fade after they cross DETAIL_RADIUS.
+    var size_at_one: float = _body_size_at_zoom(body, 1.0)
+    var threshold_at_low_zoom: float = pow(DETAIL_RADIUS / size_at_one, 2.0)
+    if threshold_at_low_zoom <= 32.0:
+        return threshold_at_low_zoom
+    return 32.0 * pow(
+        DETAIL_RADIUS / (size_at_one * sqrt(32.0)), 1.0 / 1.12)
+
+
+func _surface_detail_alpha(body: Dictionary) -> float:
+    var first_zoom: float = _surface_detail_start_zoom(body)
+    if _zoom <= first_zoom:
+        return 0.0
+    # Logarithmic camera steps make a wheel notch visually consistent
+    # regardless of the body's size or current orbital zoom level.
+    var steps: float = log(_zoom / first_zoom) / log(WHEEL_ZOOM)
+    var t: float = clampf(steps / SURFACE_REVEAL_WHEEL_STEPS, 0.0, 1.0)
+    return t * t * (3.0 - 2.0 * t) # smoothstep: no abrupt alpha edges
+
+
+func _surface_tint(hex: String, opacity: float) -> Color:
+    var tint: Color = Color(hex)
+    tint.a = opacity
+    return tint
+
+
 func _facility_count(body_id: String) -> int:
     return int(_facilities_by_body.get(body_id, 0))
 
@@ -571,7 +601,10 @@ func _draw_system() -> void:
         else:
             draw_circle(position, visual_radius, color)
             if visual_radius >= DETAIL_RADIUS:
-                _draw_globe_detail(body, position, visual_radius)
+                var detail_opacity: float = _surface_detail_alpha(body)
+                if detail_opacity > 0.001:
+                    _draw_globe_detail(body, position, visual_radius,
+                        detail_opacity)
         if picked:
             draw_arc(position, visual_radius + 7.0, 0.0, TAU, 40,
                 Color("#a7eafa"), 1.8, true)
@@ -612,7 +645,11 @@ func _draw_system() -> void:
 
 ## Surface placeholders grow in place on the very same orbital map.
 ## No imaginary T1 industries or second terrain simulation are shown.
-func _draw_globe_detail(body: Dictionary, center: Vector2, radius: float) -> void:
+func _draw_globe_detail(body: Dictionary, center: Vector2, radius: float,
+        opacity: float) -> void:
+    # Major terrain fades in first; small lakes, bands and craters follow.
+    # Both layers reach the original full-strength colors after two notches.
+    var subtle_opacity: float = clampf((opacity - 0.15) / 0.85, 0.0, 1.0)
     var biome: String = str(body.get("biome", ""))
     if biome == "terrestrial":
         var land_a: PackedVector2Array = PackedVector2Array([
@@ -633,28 +670,28 @@ func _draw_globe_detail(body: Dictionary, center: Vector2, radius: float) -> voi
             center + Vector2(0.20, 0.75) * radius,
             center + Vector2(0.10, 0.30) * radius
         ])
-        draw_colored_polygon(land_a, Color("#789c7d"))
-        draw_colored_polygon(land_b, Color("#9bb38a"))
+        draw_colored_polygon(land_a, _surface_tint("#789c7d", opacity))
+        draw_colored_polygon(land_b, _surface_tint("#9bb38a", opacity))
         draw_circle(center + Vector2(-0.17, 0.41) * radius,
-            radius * 0.15, Color("#5689a3"))
+            radius * 0.15, _surface_tint("#5689a3", subtle_opacity))
     elif biome == "gas_giant":
         for band in [-0.70, -0.39, -0.06, 0.22, 0.57]:
             var y: float = float(band) * radius
             var half: float = sqrt(maxf(0.0, radius * radius - y * y)) * 0.92
             draw_line(center + Vector2(-half, y),
-                center + Vector2(half, y), Color("#917d70"),
+                center + Vector2(half, y), _surface_tint("#917d70", opacity),
                 maxf(2.0, radius * 0.065))
     elif biome in ["lifeless", "ice"]:
         draw_circle(center + Vector2(-0.32, -0.20) * radius,
-            radius * 0.16, Color("#809aad"))
+            radius * 0.16, _surface_tint("#809aad", subtle_opacity))
         draw_circle(center + Vector2(0.36, 0.31) * radius,
-            radius * 0.10, Color("#90a9bd"))
+            radius * 0.10, _surface_tint("#90a9bd", subtle_opacity))
     elif biome in ["molten", "desert"]:
         draw_arc(center + Vector2(0.10, -0.15) * radius,
-            radius * 0.51, 0.50, 2.75, 44, Color("#e4b08c"),
+            radius * 0.51, 0.50, 2.75, 44, _surface_tint("#e4b08c", opacity),
             maxf(2.0, radius * 0.02))
     draw_arc(center, radius, 0.18 * PI, 1.15 * PI, 70,
-        Color("#192a39"), maxf(1.0, radius * 0.025))
+        _surface_tint("#192a39", opacity), maxf(1.0, radius * 0.025))
 
 
 ## Visual-only projection of N14's physical absolute world position.
