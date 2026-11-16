@@ -280,6 +280,34 @@ func receipts_for_operations(operation_ids: Array) -> Dictionary:
 	return {"ok": true, "receipts": found}
 
 
+## Read-only proof for a bounded set of known operation IDs. N39 can check
+## committed kind/tick/legs without exporting a deep copy of the entire N9
+## history or exposing mutable internal receipts. Every requested field is
+## compared against the original immutable row; no partial success is returned.
+## Expected rows must explicitly contain id, kind, tick and legs.
+func verify_operation_provenance(expected_rows: Array) -> bool:
+	var seen: Dictionary = {}
+	for expected in expected_rows:
+		if not (expected is Dictionary):
+			return false
+		if not expected.has("id") or not expected.has("kind") or not expected.has("tick") or not expected.has("legs"):
+			return false
+		var id: Variant = expected["id"]
+		if not (id is String) or id.is_empty() or seen.has(id):
+			return false
+		if not (expected["kind"] is String) or typeof(expected["tick"]) != TYPE_INT:
+			return false
+		if not (expected["legs"] is Array) or not _has_receipt_id(id):
+			return false
+		seen[id] = true
+		var stored: Dictionary = _receipt_at(id)
+		if stored.get("id") != id or stored.get("kind") != expected["kind"]:
+			return false
+		if stored.get("tick") != expected["tick"] or stored.get("legs") != expected["legs"]:
+			return false
+	return true
+
+
 func retains_receipts(candidate: Dictionary) -> bool:
 	for chunk in _receipt_order_chunks:
 		for id in chunk:
