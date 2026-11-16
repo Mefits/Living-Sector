@@ -30,6 +30,24 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
     facility_ids.sort()
     for id in facility_ids:
         assignments[id] = 0
+    # Build read-only ordered rosters once per due cycle. These are local to this
+    # proposal, so ownership/movement/removal on the next tick cannot go stale.
+    var population_roster: Dictionary = {}
+    var population_ids: Array = world["populations"].keys()
+    population_ids.sort()
+    for pop_id in population_ids:
+        var pop: Dictionary = world["populations"][pop_id]
+        var pop_key: String = str(pop.get("faction", "")) + "|" + str(pop.get("location", ""))
+        if not population_roster.has(pop_key):
+            population_roster[pop_key] = []
+        population_roster[pop_key].append(pop_id)
+    var facility_roster: Dictionary = {}
+    for fid in facility_ids:
+        var facility: Dictionary = world["facilities"][fid]
+        var facility_key: String = str(facility.get("faction", "")) + "|" + str(facility.get("location", ""))
+        if not facility_roster.has(facility_key):
+            facility_roster[facility_key] = []
+        facility_roster[facility_key].append(fid)
     var occupied: Dictionary = Payroll.occupied(world, tick, external_workers)
     var views: Array = []
     var market_locations: Array = world["markets"].keys()
@@ -44,23 +62,19 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         var faction: String = str(station.get("faction", ""))
         if faction.is_empty():
             return {"ok": false, "reason": "n18_station_without_original_faction"}
+        var key: String = faction + "|" + location
         var total_population: int = 0
         var real_workforce: int = 0
         var working: int = 0
-        var population_ids: Array = world["populations"].keys()
-        population_ids.sort()
-        for pop_id in population_ids:
+        for pop_id in population_roster.get(key, []):
             var p: Dictionary = world["populations"][pop_id]
-            if str(p.get("faction", "")) == faction and str(p.get("location", "")) == location:
-                var people: int = maxi(0, int(p.get("count", 0)))
-                total_population += people
-                real_workforce += int(people * 3 / 5)
-                working += int(occupied.get(pop_id, 0))
+            var people: int = maxi(0, int(p.get("count", 0)))
+            total_population += people
+            real_workforce += int(people * 3 / 5)
+            working += int(occupied.get(pop_id, 0))
         var jobs: Array = []
-        for id in facility_ids:
+        for id in facility_roster.get(key, []):
             var f: Dictionary = world["facilities"][id]
-            if str(f.get("faction", "")) != faction or str(f.get("location", "")) != location:
-                continue
             var body_id: String = str(f.get("body_id", ""))
             var resource: Dictionary = world.get("bodies", {}).get(body_id, {})
             var shift: Dictionary = f.get("work_shift", {})
@@ -90,7 +104,6 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
             "limits": market.get("limits", {}).duplicate(true),
             "shortages": market.get("history", {}).get("shortage_ticks", {}).duplicate(true),
             "head_priority": actual_priority, "facilities": jobs}
-        var key: String = faction + "|" + location
         var planner = Admin.new()
         if snapshots.has(key) and not planner.restore(snapshots[key]):
             return {"ok": false, "reason": "n18_corrupted_native_administrator_memory"}
