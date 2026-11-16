@@ -70,7 +70,8 @@ func _initialize() -> void:
         ok = _check(world == original, "borrowed input mutated at tick " + str(tick)) and ok
         if actual.get("ok", false):
             actual["updates"]["earth"]["orders"]["pending_buys"][0]["meta"]["nested"].append(99)
-            actual["updates"]["earth"]["consumption_window"]["ore"][0]["meta"]["nested"].append(99)
+            if not actual["updates"]["earth"]["consumption_window"]["ore"].is_empty():
+                actual["updates"]["earth"]["consumption_window"]["ore"][0]["meta"]["nested"].append(99)
             ok = _check(world == original, "nested output aliases caller at tick " + str(tick)) and ok
     var invalid: Dictionary = world.duplicate(true)
     invalid["markets"]["earth"]["orders"]["pending_buys"][0]["placed_at_tick"] = "bad"
