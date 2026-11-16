@@ -81,7 +81,12 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	var old_shard_rows: int = (_receipt_partitions[bucket] as Dictionary).size() if _profile_append else 0
 	var detached: Dictionary = (
 		_receipt_partitions[bucket] as Dictionary).duplicate()
-	detached[id] = record.duplicate(true)
+	# All callers construct a private record and return only a detached copy.
+	# commit() already detached the untrusted legs before creating this row;
+	# duplicating the entire row here repeated the deep copy on every paid leg.
+	# Published shards remain immutable after assignment and fork shares only
+	# those immutable records. No caller receives this private row directly.
+	detached[id] = record
 	_receipt_partitions[bucket] = detached
 	var last: int = _receipt_order_chunks.size() - 1
 	if last < 0 or (_receipt_order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
