@@ -1,0 +1,95 @@
+name: Living Sector SystemBalance geometry and orbital intercept short gate
+
+on:
+  push:
+    branches:
+      - feature/SystemBalance
+    paths:
+      - .github/workflows/p2-system-balance-short.yml
+      - godot/scripts/star_system_view.gd
+      - godot/scripts/sim/ship_transit.gd
+      - godot/scripts/sim/ships/native_orbital_intercept.gd
+      - godot/scripts/sim/ships/native_location_resolver.gd
+      - godot/scripts/sim/phase2/unified_ship_phase.gd
+      - godot/scripts/sim/phase2/n158_production_runtime.gd
+      - godot/tests/p2_seamless_zoom_check.gd
+      - godot/tests/p2_native_orbital_intercept_check.gd
+      - godot/tests/p2_unified_ship_phase_check.gd
+      - godot/tests/n14_transit_check.gd
+      - godot/tests/n43_native_location_resolver_check.gd
+      - godot/tests/p2_ship_transit_fuel_check.gd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  intercept:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install original Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot"
+          curl --fail --location --retry 3 --connect-timeout 15 --max-time 150 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+      - name: Import all scripts to detect parser errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 90s godot --headless --path godot --editor --import --quit >"$RUNNER_TEMP/parse.log" 2>&1 || {
+            tail -n 140 "$RUNNER_TEMP/parse.log"; exit 1;
+          }
+      - name: Real N14 predictive transit and moon geometry regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 40s godot --headless --path godot --script res://tests/p2_native_orbital_intercept_check.gd >"$RUNNER_TEMP/n14.log" 2>&1 || {
+            tail -n 150 "$RUNNER_TEMP/n14.log"; exit 1;
+          }
+          grep -q 'P2 NATIVE ORBITAL INTERCEPT PASS' "$RUNNER_TEMP/n14.log" || {
+            tail -n 140 "$RUNNER_TEMP/n14.log"; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|P2 NATIVE ORBITAL INTERCEPT FAIL:' "$RUNNER_TEMP/n14.log"; then
+            tail -n 140 "$RUNNER_TEMP/n14.log"; exit 1;
+          fi
+          grep -E 'P2 NATIVE ORBITAL INTERCEPT (COST|PASS)' "$RUNNER_TEMP/n14.log"
+      - name: Run frozen N14/N43, real fuel and checkpoint regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test in n14_transit_check n43_native_location_resolver_check p2_ship_transit_fuel_check p2_unified_ship_phase_check; do
+            echo "N14_ORBIT_REGRESSION $test"
+            timeout --signal=TERM --kill-after=5s 40s godot --headless --path godot --script "res://tests/${test}.gd" >"$RUNNER_TEMP/${test}.log" 2>&1 || {
+              tail -n 140 "$RUNNER_TEMP/${test}.log"; exit 1;
+            }
+            if grep -Eq 'SCRIPT ERROR:|Parse Error:|FAIL:' "$RUNNER_TEMP/${test}.log"; then
+              tail -n 140 "$RUNNER_TEMP/${test}.log"; exit 1;
+            fi
+            grep -E 'PASS|pass' "$RUNNER_TEMP/${test}.log" | tail -n 3 || tail -n 6 "$RUNNER_TEMP/${test}.log"
+          done
+      - name: Verify existing seamless Sol zoom
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 30s godot --headless --path godot --script res://tests/p2_seamless_zoom_check.gd >"$RUNNER_TEMP/sol.log" 2>&1 || {
+            tail -n 120 "$RUNNER_TEMP/sol.log"; exit 1;
+          }
+          grep -q 'P2 SEAMLESS ZOOM PASS' "$RUNNER_TEMP/sol.log" || {
+            tail -n 120 "$RUNNER_TEMP/sol.log"; exit 1;
+          }
+      - name: Logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log"; do
+            if test -f "$f"; then echo "--- $f"; tail -n 140 "$f"; fi
+          done
