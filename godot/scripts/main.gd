@@ -674,6 +674,182 @@ func _process(delta: float) -> void:
             output["draw_cpu"] = _active_draw_profile()
             print("P2_UI_FRAME " + JSON.stringify(output))
 
+
+## Experimental F5 backend: every simulation mutation happens on the worker.
+## _model is a separate, SEED-ONLY display map. Only the worker's detached,
+## completed orbit/economy/N38 snapshots are projected into SceneTree UI.
+func _worker_send(kind: String, payload: Dictionary = {}) -> int:
+    if _worker_owner == null or not _worker_failed.is_empty():
+        return -1
+    var ticket: int = _worker_owner.submit(kind, payload)
+    if ticket <= 0:
+        _notice = "Worker отклонил команду " + kind
+        _worker_update_status()
+    return ticket
+
+func _worker_gui_process(delta: float) -> void:
+    var start_usec: int = Time.get_ticks_usec()
+    var old_tick: int = _worker_tick
+    if _worker_owner == null:
+        return
+    for _i in range(16):
+        var outcome: Dictionary = _worker_owner.poll_answer()
+        if outcome.is_empty():
+            break
+        _worker_receive(outcome)
+    if _worker_view_dirty:
+        _worker_view_dirty = false
+        _worker_present()
+    # One in-flight frame, no unbounded FIFO. Delayed GUI frames are bounded
+    # like SourceClock.consume_frame; elapsed that cannot be simulated is
+    # dropped, never converted into fake catch-up ticks.
+    _worker_elapsed = minf(0.25, _worker_elapsed + maxf(delta, 0.0))
+    if _worker_booted and not _worker_loading and (
+            _worker_failed.is_empty() and _worker_frame_ticket < 0):
+        var now_usec: int = Time.get_ticks_usec()
+        var view_due: bool = _worker_economy.is_empty() or (
+            _worker_last_view_usec < 0 or
+            now_usec - _worker_last_view_usec >= WORKER_VIEW_INTERVAL_USEC)
+        var admitted_delta: float = minf(_worker_elapsed, WORKER_MAX_DELTA)
+        var frame_request: Dictionary = {
+            "delta": admitted_delta, "view": view_due,
+            "observer": view_due and _observer_panel != null and
+                _observer_panel.visible}
+        var ticket: int = _worker_send("frame", frame_request)
+        if ticket > 0:
+            _worker_frame_ticket = ticket
+            _worker_elapsed = 0.0
+            if view_due:
+                _worker_last_view_usec = now_usec
+    var cpu_usec: int = maxi(0, Time.get_ticks_usec() - start_usec)
+    _frame_profiler.capture(maxf(delta, 0.0), cpu_usec, 0, cpu_usec,
+        maxi(0, _worker_tick - old_tick))
+    if _frame_profiler.display_due() and _perf_label != null:
+        _perf_label.text = "WORKER · FPS %d · тик %d · sim %.1f мс (фон)" % [
+            Engine.get_frames_per_second(), _worker_tick, _worker_last_sim_ms]
+        _perf_label.tooltip_text = (
+            "Экспериментальный N158 worker: 1 authoritative World/N9/Clock; " +
+            "кадры SceneTree не вызывают advance_frame. Последний sim_ms " +
+            "из worker; это НЕ измерение GPU и не подтверждение TPS.")
+
+func _worker_receive(result: Dictionary) -> void:
+    var kind: String = str(result.get("kind", ""))
+    var ticket: int = int(result.get("ticket", -1))
+    if ticket == _worker_frame_ticket:
+        _worker_frame_ticket = -1
+    if kind == "boot":
+        if not bool(result.get("ok", false)):
+            _worker_failed = "Ошибка запуска N158 worker: " + str(
+                result.get("error", "unknown"))
+            push_error(_worker_failed)
+            _worker_update_status()
+            return
+        _worker_booted = true
+        _worker_tick = int(result.get("tick", 0))
+        # Use SaveState on the SAME owner thread; no GUI-owned second N158.
+        if (FileAccess.file_exists(P2_SAVE_PATH) or
+                FileAccess.file_exists(P2_SAVE_PATH + ".bak") or
+                FileAccess.file_exists(P2_SAVE_PATH + ".pending")):
+            _worker_loading = true
+            if _worker_send("load", {"path": P2_SAVE_PATH}) <= 0:
+                _worker_loading = false
+        _worker_update_status()
+        return
+    if kind == "load":
+        _worker_loading = false
+    if not bool(result.get("ok", false)):
+        if kind == "save":
+            _notice = "N38 сохранение отклонено: " + str(
+                result.get("error", "unknown"))
+        else:
+            # Fail closed: the owner may be mid-recovery or have rejected a
+            # native transaction. Never send more ticks or pretend success.
+            _worker_failed = "N158 worker: " + kind + " — " + str(
+                result.get("error", "rejected"))
+            push_error(_worker_failed)
+        _worker_update_status()
+        return
+    if result.has("tick"):
+        _worker_tick = int(result["tick"])
+    if result.has("paused"):
+        _worker_paused = bool(result["paused"])
+    if result.has("speed"):
+        _worker_speed = float(result["speed"])
+    if result.has("sim_usec"):
+        _worker_last_sim_ms = float(result["sim_usec"]) / 1000.0
+    if result.get("angles") is Dictionary:
+        if not _model.restore_orbital_snapshot(result["angles"]):
+            _worker_failed = "Повреждён detached orbital FrameView"
+            push_error(_worker_failed)
+            _worker_update_status()
+            return
+        _worker_view_dirty = true
+    if result.has("calendar_text"):
+        _worker_calendar_text = str(result["calendar_text"])
+    if result.get("economy") is Dictionary:
+        _worker_economy = result["economy"]
+        _worker_fleet = _worker_economy.get("ships", {})
+        _worker_summary = result.get("summary", {})
+        # Never show N38 history from a DIFFERENT completed economic frame.
+        _worker_native = result.get("native", {})
+        _worker_view_dirty = true
+    if kind == "save":
+        _notice = "N38 сохранено на единственном N158 worker (тик %d)" % _worker_tick
+    elif kind == "load":
+        _notice = "N38 восстановлено на worker (тик %d)" % _worker_tick
+        _last_full_presentation_tick = -1
+        _last_orbit_presentation_tick = -1
+        _worker_last_view_usec = -1
+        _worker_view_dirty = true
+        _sync_speed_control()
+    elif kind == "speed":
+        _sync_speed_control()
+    if kind != "frame" or result.has("economy") or result.has("angles"):
+        _worker_update_status()
+
+func _worker_present() -> void:
+    if _model == null:
+        return
+    if _in_system and _system_view != null:
+        var current: Dictionary = _model.system_by_id(_selected_system)
+        if not current.is_empty():
+            _system_view.update_world(current)
+            _system_view.set_live_fleet(_worker_fleet)
+    _refresh_observer()
+    _refresh_selection(_worker_economy, false)
+    _worker_update_status()
+
+func _worker_update_status() -> void:
+    if _status == null or _pause_button == null:
+        return
+    var totals: Dictionary = _cached_seed_stats
+    var loading: String = " · загрузка..." if _worker_loading else ""
+    var running: String = "Пауза" if _worker_paused else "Идёт время"
+    _status.text = ("WORKER · %d систем · %d фракции · %d тел  |  " +
+        "Тик %d  |  ×%s  |  %s%s") % [
+        int(totals.get("systems", 0)), int(totals.get("factions", 0)),
+        int(totals.get("bodies", 0)), _worker_tick,
+        str(_worker_speed), running, loading]
+    if not _worker_calendar_text.is_empty():
+        _status.text += "  |  " + _worker_calendar_text
+    if not _worker_summary.is_empty():
+        _status.text += "  |  Native: %d рын. / %d предприятий" % [
+            int(_worker_summary.get("markets", 0)),
+            int(_worker_summary.get("facilities", 0))]
+    if not _worker_failed.is_empty():
+        _status.text += "  |  ОШИБКА: " + _worker_failed
+    if not _notice.is_empty():
+        _status.text += "  |  " + _notice
+    _pause_button.text = ("Ошибка worker" if not _worker_failed.is_empty()
+        else ("Продолжить" if _worker_paused else "Пауза"))
+    _status.tooltip_text = _status.text
+
+## Never call Thread.wait_to_finish from _process or a per-frame signal.
+func _exit_tree() -> void:
+    if _worker_owner != null:
+        _worker_owner.close()
+        _worker_owner = null
+
 func _active_draw_profile() -> Dictionary:
     var view: Variant = _system_view if _in_system else _map
     if view != null and view.has_method("draw_profile"):
