@@ -25,7 +25,7 @@ func _initialize() -> void:
         staged[domain] = source[domain].duplicate(true)
         if staged[domain] is Dictionary:
             staged[domain]["__invalid_owned_write__"] = {"invalid": true}
-        if Schema.validate(staged).is_empty():
+        # Wrong domain type must be rejected regardless of allowed keys.\n        staged[domain] = 42\n        if Schema.validate(staged).is_empty():
             _fail("full oracle accepted malformed " + domain)
             return
         if source[domain].has("__invalid_owned_write__"):
