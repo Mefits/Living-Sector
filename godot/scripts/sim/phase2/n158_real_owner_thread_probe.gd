@@ -176,12 +176,16 @@ func _owner_loop(seed: Dictionary) -> void:
         answer["paused"] = sim.clock.paused
         answer["speed"] = sim.clock.world_speed
         answer["sim_usec"] = maxi(0, Time.get_ticks_usec() - began_usec)
-        if answer["ok"] and kind in ["frame", "step", "load", "restore"]:
+        answer["advanced"] = sim.tick_count != before_tick
+        if answer["ok"] and kind in ["frame", "step", "load", "restore"] and (
+                kind != "frame" or answer["advanced"] or
+                bool(payload.get("view", false)) or
+                bool(payload.get("observer", false))):
             # Read only after the full phase/transaction commit. The UI never
             # touches sim, sim.world, production or live Ledger directly.
             answer["calendar_text"] = sim.calendar.display_text(sim.tick_count)
             answer["angles"] = sim.world.orbital_snapshot()
-            if kind in ["load", "restore"] or (kind == "frame" and (
+            if kind in ["load", "restore", "step"] or (kind == "frame" and (
                     bool(payload.get("view", false)) or
                     bool(payload.get("observer", false)))):
                 var economy: Dictionary = sim.economy_snapshot()
@@ -190,7 +194,6 @@ func _owner_loop(seed: Dictionary) -> void:
                 if kind in ["load", "restore"] or bool(payload.get("observer", false)):
                     answer["native"] = sim.checkpoint().get(
                         "native_production", {})
-        answer["advanced"] = sim.tick_count != before_tick
         _publish(answer)
     # sim is released on this same owner thread. No live reference escapes.
 
