@@ -1,9 +1,8 @@
 extends Control
 ## Read-only continuous camera over a Galaxy 0.6.7 system.
-## Orbit radii are compressed for readability; native orbital angles are live.
-## Station markers use native facility anchors. Fleet markers show ACTUAL
-## ship locations from the same World; in-flight positions are not painted
-## onto the visually compressed orbit map as if they were exact.
+## Display radii are schematic but all orbital screen separations use one
+## camera zoom. Native N14/N39 positions and orbital angles are untouched.
+## Facility markers remain attached to real source body identities.
 
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
@@ -434,7 +433,7 @@ func _body_position(body: Dictionary, scale: float) -> Vector2:
     var position: Vector2 = Vector2.ZERO
     if not parent.is_empty():
         position = _body_position(parent, scale) + Vector2(
-            cos(radians), -sin(radians)) * _moon_visual_orbit(body, parent)
+            cos(radians), -sin(radians)) * _satellite_orbit_radius(body, parent)
     else:
         var orbit: float = _radius_transform(float(
             body.get("orbit_radius", 0.0))) * scale * _zoom
@@ -444,15 +443,17 @@ func _body_position(body: Dictionary, scale: float) -> Vector2:
     return position
 
 
-func _moon_visual_orbit(body: Dictionary, parent: Dictionary) -> float:
-    # Deliberately schematic screen separation. Parent is now the moving
-    # center; the LIVE native current_angle still advances from TickRunner.
-    # Frozen orbit_period is NOT a true month, so never label it as one.
+func _satellite_orbit_radius(body: Dictionary, parent: Dictionary) -> float:
+    # The frozen seed has HELIOCENTRIC orbits, not a native parent-relative
+    # radius. This is a schematic base spacing at zoom=1, not a physical
+    # Earth-Moon distance. Apply the SAME camera zoom as to stellar orbits.
+    # Never derive orbital separation from the rendered radius of either
+    # body: that mixes two coordinate spaces and causes overlap at high zoom.
+    # Works for any parent_body_id relationship, not only known moons.
     var delta: float = absf(float(body.get("orbit_radius", 0.0)) -
         float(parent.get("orbit_radius", 0.0)))
     var base: float = 26.0 + minf(delta, 1.0) * 18.0
-    return maxf(_body_size(parent) + 16.0,
-        base * clampf(sqrt(_zoom), 1.0, 5.0))
+    return base * _zoom
 
 
 func _body_size_at_zoom(body: Dictionary, at_zoom: float) -> float:
@@ -507,7 +508,7 @@ func _draw_system() -> void:
         var parent: Dictionary = _known_moon_parent(body)
         if not parent.is_empty():
             draw_arc(_body_position(parent, scale),
-                _moon_visual_orbit(body, parent), 0.0, TAU,
+                _satellite_orbit_radius(body, parent), 0.0, TAU,
                 72, Color("#35495a"), 1.0, true)
             continue
         var radius: float = _radius_transform(float(body.get("orbit_radius", 0.0))) * scale * _zoom
