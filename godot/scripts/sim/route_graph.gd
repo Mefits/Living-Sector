@@ -88,9 +88,15 @@ func load_worlds(worlds: Array, native_seeded_db: bool = false) -> bool:
                 # tests and callers must not infer the Rust DB migration.
                 if not edges.has(from_id):
                     edges[from_id] = []
-                for existing in edges[from_id]:
-                    if existing["to"] == to_id:
-                        return false
+                # Raw N4 rejects duplicates (unlike native SQL upsert).
+                # Reuse the per-origin membership index instead of scanning
+                # every prior outgoing edge for each new route.
+                if not edge_positions.has(from_id):
+                    edge_positions[from_id] = {}
+                var raw_positions: Dictionary = edge_positions[from_id]
+                if raw_positions.has(to_id):
+                    return false
+                raw_positions[to_id] = edges[from_id].size()
                 edges[from_id].append({
                     "to": to_id, "distance": distance, "system_id": sid})
                 count += 1
