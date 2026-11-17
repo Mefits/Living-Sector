@@ -138,7 +138,11 @@ func _run() -> void:
             _fail("departing ship reentered schematic planet disc")
             return
         if last_radius >= 0.0 and radial < last_radius - 1.0:
-            _fail("departing ship made an inward loop at max zoom")
+            _fail("departing ship made an inward loop at max zoom: " +
+                str(dist) + " native, screen radial=" +
+                str(radial) + " previous=" + str(last_radius) +
+                " body_offset=" + str((dock_record["body_screen"] as Vector2
+                    ).distance_to(dock_record["body_global_screen"])))
             return
         last_radius = radial
     var canonical: RefCounted = ShipState.new()
