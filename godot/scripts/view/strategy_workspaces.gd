@@ -482,8 +482,9 @@ func _metric_strip(parent: Node, pairs: Array) -> void:
 
 func _table(parent: Node, headings: Array, rows: Array,
         route: String = "", tab: String = "", kind: String = "") -> void:
-    var columns: int = maxi(1, headings.size())
-    # All rows must share one column grid. Individual auto-sized HBoxes
+    var layout: Array[Vector2] = LSComponents.table_column_profile(headings)
+    # All rows share the exact same minimum widths and stretch ratios.
+    # Individual auto-sized HBoxes
     # caused headings and values to drift, especially in Fleet/Economy.
     # Scroll horizontally on compact viewports rather than crop N39 data.
     var scroller := ScrollContainer.new()
@@ -493,10 +494,13 @@ func _table(parent: Node, headings: Array, rows: Array,
     parent.add_child(scroller)
     var grid_body := VBoxContainer.new()
     grid_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    grid_body.custom_minimum_size.x = 178.0 + 118.0 * float(columns - 1)
+    var grid_min_width := 18.0 + 7.0 * float(layout.size() - 1)
+    for column in layout:
+        grid_min_width += column.x
+    grid_body.custom_minimum_size.x = grid_min_width
     grid_body.add_theme_constant_override("separation", 0)
     scroller.add_child(grid_body)
-    _table_row(grid_body, headings, columns, true, Callable())
+    _table_row(grid_body, headings, layout, true, Callable())
     var shown: int = 0
     for item in rows:
         if not (item is Dictionary):
@@ -513,7 +517,7 @@ func _table(parent: Node, headings: Array, rows: Array,
         elif not route.is_empty():
             callback = func() -> void:
                 navigate_requested.emit(route, tab, str(item.get("id", "")))
-        _table_row(grid_body, cells, columns, false, callback, shown)
+        _table_row(grid_body, cells, layout, false, callback, shown)
         shown += 1
         if shown >= 60:
             _note(parent, "Показаны первые 60 записей. Используйте поиск.")
@@ -521,7 +525,7 @@ func _table(parent: Node, headings: Array, rows: Array,
     if shown == 0:
         _note(parent, "Нет подтверждённых записей для выбранного раздела.")
 
-func _table_row(parent: Node, cells: Array, columns: int,
+func _table_row(parent: Node, cells: Array, layout: Array[Vector2],
         heading: bool, callback: Callable, row_index: int = 0) -> void:
     var container: Control = LSComponents.table_row(
         heading, row_index % 2 != 0, callback)
@@ -532,7 +536,15 @@ func _table_row(parent: Node, cells: Array, columns: int,
     row.custom_minimum_size.y = 15 if heading else 20
     row.add_theme_constant_override("separation", 7)
     container.add_child(row)
-    for i in range(columns):
+    # PanelContainer positions children within its Theme margins. A Button
+    # is NOT a Container: its children need explicit full-width anchors.
+    # Without this, clickable rows collapse to their minimum content width,
+    # drifting away from the header at larger window sizes.
+    if container is Button:
+        row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+        row.offset_left = 9
+        row.offset_right = -9
+    for i in range(layout.size()):
         var text_value: String = str(cells[i]) if i < cells.size() else "—"
         var tint: Color = Color("#536F75") if heading else Color("#809398")
         if not heading and i > 0:
@@ -548,8 +560,8 @@ func _table_row(parent: Node, cells: Array, columns: int,
         cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         # Identical minimums for header and every data row make the columns
         # line up while leaving room for long names and real N39 statuses.
-        cell.custom_minimum_size.x = 150.0 if i == 0 else 90.0
-        cell.size_flags_stretch_ratio = 1.5 if i == 0 else 1.0
+        cell.custom_minimum_size.x = layout[i].x
+        cell.size_flags_stretch_ratio = layout[i].y
         cell.tooltip_text = text_value
         row.add_child(cell)
 
