@@ -18,6 +18,15 @@ func _initialize() -> void:
     assert(t.get_type_variation_base(&"LSSectionPanel") == &"PanelContainer")
     assert(t.get_type_variation_base(&"LSMetricPanel") == &"PanelContainer")
     assert(t.get_type_variation_base(&"LSActiveTabButton") == &"LSTabButton")
+    for chrome in [&"LSWorkspaceHeader", &"LSWorkspaceToolbar",
+            &"LSSearchFrame", &"LSSectionHeader", &"LSWindowIconFrame",
+            &"LSRowHeader", &"LSRowPlainEven", &"LSRowPlainOdd"]:
+        assert(t.get_type_variation_base(chrome) == &"PanelContainer")
+        assert(t.has_stylebox(&"panel", chrome))
+    for variation in [&"LSRowActionEven", &"LSRowActionOdd"]:
+        assert(t.get_type_variation_base(variation) == &"Button")
+        assert(t.has_stylebox(&"normal", variation))
+        assert(t.has_stylebox(&"hover", variation))
     assert(t.has_stylebox(&"normal", &"Button"))
     assert(t.has_stylebox(&"panel", &"PanelContainer"))
     assert(t.get_font_size(&"font_size", &"LSTabButton") == 8)
@@ -48,6 +57,20 @@ func _initialize() -> void:
     var value_label: Label = LSComponents.metric_text("123", &"LSMetricValue")
     panel.add_child(value_label)
     assert(value_label.get_theme_font_size(&"font_size") == 13)
+    var clicked: Array[String] = []
+    var row_action: Button = LSComponents.table_row(
+        false, true, func() -> void: clicked.append("row")) as Button
+    root.add_child(row_action)
+    assert(row_action.theme_type_variation == &"LSRowActionOdd")
+    row_action.pressed.emit()
+    assert(clicked == ["row"])
+    var row_header: PanelContainer = LSComponents.table_row(
+        true, false, Callable()) as PanelContainer
+    root.add_child(row_header)
+    assert(row_header.theme_type_variation == &"LSRowHeader")
+    var workspace_header: PanelContainer = LSComponents.chrome_panel(&"LSWorkspaceHeader")
+    root.add_child(workspace_header)
+    assert(workspace_header.get_theme_stylebox(&"panel") is StyleBoxFlat)
     root.free()
     print("FIGMA_V1_NATIVE_THEME_PASS")
     quit()
