@@ -163,7 +163,11 @@ func _build_left() -> void:
         {"text":"ЭКН", "tip":"Экономика рынков", "action":"economy"},
         {"text":"ФЛТ", "tip":"Корабли и груз", "action":"fleet"},
         {"text":"ОБЪ", "tip":"Показать/скрыть список объектов", "action":"outliner"},
-        {"text":"ДАН", "tip":"Подробные данные N39", "action":"technical"}
+        {"text":"ДАН", "tip":"Подробные данные N39", "action":"technical"},
+        {"text":"КАР", "tip":"Сектор / система", "action":"map"},
+        {"text":"ЦЕН", "tip":"Центрировать карту", "action":"center"},
+        {"text":"СОХ", "tip":"Сохранить игру", "action":"save"},
+        {"text":"ЗАГ", "tip":"Загрузить игру", "action":"load"}
     ]:
         var action: String = str(entry["action"])
         var btn := _button(str(entry["text"]), _activate.bind(action), 11)
@@ -257,6 +261,21 @@ func _close_window() -> void:
     _window_mode = ""
 
 func _activate(kind: String) -> void:
+    if kind in ["map", "center", "save", "load"]:
+        if _game != null:
+            match kind:
+                "map":
+                    if bool(_game.get("_in_system")):
+                        _game.call("_return_to_sector")
+                    else:
+                        _game.call("_open_selected_system")
+                "center":
+                    _game.call("_reset_map")
+                "save":
+                    _game.call("_save_game")
+                "load":
+                    _game.call("_load_game")
+        return
     if kind == "outliner":
         _toggle_outliner()
         return
@@ -280,6 +299,8 @@ func _select_body(id: String) -> void:
             _game.call("_on_body_selected", item)
             break
     _mode = "colony"
+    _update_metrics()
+    _brand_scope.text = "КОЛОНИЯ · " + id.to_upper() + " ▾"
 
 func _select_facility(id: String) -> void:
     if _game == null:
@@ -466,7 +487,7 @@ func _update_window() -> void:
     if _window == null or not _window.visible:
         return
     var title: String = {
-        "colony":"КОЛОНИЯ", "economy":"ЭКОНОМИКА СЕКТОРА",
+        "colony":"КОЛОНИЯ", "economy":"ЭКОНОМИКА",
         "fleet":"ФЛОТ И ЛОГИСТИКА", "facility":"ПРЕДПРИЯТИЕ",
         "ship":"КОРАБЛЬ", "technical":"ДАННЫЕ N39"
     }.get(_window_mode, "ОБЗОР")
@@ -495,7 +516,7 @@ func _update_window() -> void:
                         str(ship.get("location", "—")),
                         str(ship.get("cargo", "—"))])
         _window_text.text = "\n\n".join(lines)
-    elif _tab == "Производство":
+    elif _tab == "Производство" or _window_mode == "facility":
         _window_text.text = _production_text()
     else:
         var projection: Dictionary = _quantities()
