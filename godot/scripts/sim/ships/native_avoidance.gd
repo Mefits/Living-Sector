@@ -59,10 +59,20 @@ static func plan(start: Vector2, target: Vector2,
         outer_radius / origin_distance, 0.0, 1.0))
     var tangent_goal: float = acos(clampf(
         outer_radius / goal_distance, 0.0, 1.0))
-    var best_length: float = INF
-    var best_points: Array = []
-    # Evaluate both winding directions, deterministic tie preference.
-    for winding in [1.0, -1.0]:
+    # The tangent-line lengths are identical in both winding
+    # directions. Therefore the shorter angular sweep is the shortest
+    # geometric curve: build/check it FIRST, and evaluate the other
+    # winding only if the first is physically unsafe. This avoids
+    # duplicate trigonometry for hundreds of ships departing at once.
+    var ccw: float = fposmod(
+        angle_goal - tangent_goal -
+        (angle_origin + tangent_origin), TAU)
+    var cw: float = fposmod(
+        (angle_origin - tangent_origin) -
+        (angle_goal + tangent_goal), TAU)
+    var winding_order: Array = (
+        [1.0, -1.0] if ccw <= cw else [-1.0, 1.0])
+    for winding in winding_order:
         var from_angle: float = angle_origin + winding * tangent_origin
         var to_angle: float = angle_goal - winding * tangent_goal
         var sweep: float = (
@@ -81,24 +91,17 @@ static func plan(start: Vector2, target: Vector2,
             candidates.append([point.x, point.y])
         var current: Vector2 = start
         var valid: bool = true
-        var travel: float = 0.0
         for pair in candidates:
-            var next_point: Vector2 = Vector2(float(pair[0]),
-                float(pair[1]))
+            var next_point: Vector2 = Vector2(
+                float(pair[0]), float(pair[1]))
             if segment_crosses(current, next_point, center, radius):
                 valid = false
                 break
-            travel += current.distance_to(next_point)
             current = next_point
-        if not valid or segment_crosses(current, target, center, radius):
-            continue
-        travel += current.distance_to(target)
-        if travel < best_length:
-            best_length = travel
-            best_points = candidates
-    if best_points.is_empty():
-        return {"ok": false, "reason": "no_safe_tangent_arc"}
-    return {"ok": true, "points": best_points}
+        if valid and not segment_crosses(
+                current, target, center, radius):
+            return {"ok": true, "points": candidates}
+    return {"ok": false, "reason": "no_safe_tangent_arc"}
 
 
 static func valid_stored_points(points: Variant) -> bool:
