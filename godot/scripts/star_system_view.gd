@@ -94,7 +94,7 @@ var _station_draw_records: Array = []
 ## At most one ephemeral UI interpolation per actual arrival receipt.
 var _recent_arrivals: Dictionary = {}
 var _native_station_time: float = 0.0
-var _native_station_time_from: float = 0.0
+var _station_phase_from_deg: float = 0.0
 var _station_time_started_usec: int = -1
 var _station_time_duration_usec: int = 0
 var _last_station_sample_usec: int = -1
@@ -285,7 +285,7 @@ func set_world(world: Dictionary) -> void:
     _recent_arrivals.clear()
     _live_facility_status.clear()
     _native_station_time = 0.0
-    _native_station_time_from = 0.0
+    _station_phase_from_deg = 0.0
     _station_time_started_usec = -1
     _focused_body_id = ""
     _zoom = 1.0
@@ -480,7 +480,7 @@ func set_native_station_time(native_units: float) -> void:
     if is_equal_approx(_native_station_time, native_units):
         return
     var now: int = Time.get_ticks_usec()
-    _native_station_time_from = _visual_station_time(now)
+    _station_phase_from_deg = _visual_station_time(now)
     _native_station_time = native_units
     _station_time_duration_usec = VisualMotion.sample_duration(
         _last_station_sample_usec, now, 160000)
@@ -490,18 +490,18 @@ func set_native_station_time(native_units: float) -> void:
 
 
 func _visual_station_time(now: int) -> float:
+    # Returns *degrees*, not native calendar units. Prior code stored a
+    # smoothed angle and converted it AGAIN as time on the next snapshot:
+    # source of jitter/jumps on accelerated ticks.
+    var current_phase_deg: float = fposmod(
+        _native_station_time * 360.0 /
+        SolOrbits.STATION_ORBIT_PERIOD_NATIVE, 360.0)
     if _station_time_started_usec < 0:
-        return fposmod(_native_station_time * 360.0 /
-            N43.FACILITY_ORBIT_PERIOD, 360.0)
+        return current_phase_deg
     var alpha: float = VisualMotion.alpha(_station_time_started_usec,
         _station_time_duration_usec, now)
-    # Interpolate orbital PHASE rather than huge absolute time when
-    # accelerated ticks skip multiple station revolutions.
-    var from_angle: float = fposmod(
-        _native_station_time_from * 360.0 / N43.FACILITY_ORBIT_PERIOD, 360.0)
-    var current_angle: float = fposmod(
-        _native_station_time * 360.0 / N43.FACILITY_ORBIT_PERIOD, 360.0)
-    return VisualMotion.orbit_angle(from_angle, current_angle, alpha)
+    return VisualMotion.orbit_angle(
+        _station_phase_from_deg, current_phase_deg, alpha)
 
 
 func set_live_facilities(facilities: Dictionary) -> void:
@@ -967,8 +967,14 @@ func _draw_physical_sol_assets(scale: float) -> void:
             continue
         var physical_compressed: float = pow(
             local_native, SATELLITE_COMPRESSION) * scale * _zoom
+        # Keep the station off the enlarged planet glyph without
+        # confusing this presentation gap with physical N43 altitude.
+        # At close zoom the old +20px gap is roughly doubled; distant
+        # overview keeps a compact readable station near the planet.
+        var orbit_gap_px: float = lerpf(18.0, 40.0,
+            clampf((_zoom - 1.0) / 8.0, 0.0, 1.0))
         var display_radius: float = maxf(
-            body_radius + 20.0, physical_compressed)
+            body_radius + orbit_gap_px, physical_compressed)
         var pos: Vector2 = body_pos + direction * display_radius
         var native_info: Dictionary = _station_native_location(
             str(facility["location"]))
@@ -990,25 +996,31 @@ func _draw_physical_sol_assets(scale: float) -> void:
             draw_arc(body_pos, display_radius, 0, TAU, 60,
                 Color(0.35, 0.51, 0.59, 0.24), 1.0, true)
         var tone: Color = Color("#e6c48d")
+        # Small overview glyph, larger close-up station and clickable
+        # target. Never scale per ship or create new SceneTree nodes.
+        var station_lod: float = clampf((_zoom - 1.0) / 11.0,
+            0.0, 1.0)
+        var icon_scale: float = lerpf(0.78, 1.38, station_lod)
         if str(facility["id"]) == _selected_facility_id:
-            draw_arc(pos, 12.0, 0, TAU, 24,
+            draw_arc(pos, 12.0 * icon_scale, 0, TAU, 24,
                 Color("#fff4c5"), 1.6, true)
-        # Compact industrial hub: central hull, two radial docking arms,
-        # solar collectors. The icon is visual, not a fake N39 module.
-        draw_rect(Rect2(pos - Vector2(5, 4), Vector2(10, 8)),
-            tone, true)
-        draw_line(pos + Vector2(-12, 0), pos + Vector2(12, 0),
-            tone, 1.5)
-        draw_rect(Rect2(pos + Vector2(-16, -3), Vector2(6, 6)),
-            Color("#6ca1ba"), true)
-        draw_rect(Rect2(pos + Vector2(10, -3), Vector2(6, 6)),
-            Color("#6ca1ba"), true)
+        # Visual industrial hub, 1 actual source N39 station ID.
+        draw_rect(Rect2(pos - Vector2(5, 4) * icon_scale,
+            Vector2(10, 8) * icon_scale), tone, true)
+        draw_line(pos + Vector2(-12, 0) * icon_scale,
+            pos + Vector2(12, 0) * icon_scale, tone, 1.5)
+        draw_rect(Rect2(pos + Vector2(-16, -3) * icon_scale,
+            Vector2(6, 6) * icon_scale), Color("#6ca1ba"), true)
+        draw_rect(Rect2(pos + Vector2(10, -3) * icon_scale,
+            Vector2(6, 6) * icon_scale), Color("#6ca1ba"), true)
         _facility_pins.append({"id": str(facility["id"]),
-            "position": pos, "hit_radius": 15.0})
+            "position": pos,
+            "hit_radius": lerpf(15.0, 24.0, station_lod)})
         var docked_ids: Array = _ship_ids_by_location.get(
             str(facility["location"]), [])
         if not docked_ids.is_empty():
-            var docked_marker: Vector2 = pos + Vector2(-11, -11)
+            var docked_marker: Vector2 = pos + (
+                Vector2(-11, -11) * icon_scale)
             draw_circle(docked_marker, 3.0, Color("#85d1e0"))
             if docked_ids.has(_selected_ship_id):
                 draw_arc(docked_marker, 7.0, 0, TAU, 16,
@@ -1016,7 +1028,7 @@ func _draw_physical_sol_assets(scale: float) -> void:
             _ship_pins.append({"position": docked_marker,
                 "ship_ids": docked_ids.duplicate(), "hit_radius": 9.0})
         if _zoom >= 7.0 or _focused_body_id == str(facility["body"]):
-            draw_string(font, pos + Vector2(17, -9),
+            draw_string(font, pos + Vector2(17, -9) * icon_scale,
                 "Орбитальная станция", HORIZONTAL_ALIGNMENT_LEFT,
                 -1, 12, Color("#dfc8a4"))
     # Ground facilities are *real* N39 enterprise IDs, not synthetic
@@ -1148,7 +1160,7 @@ func _station_native_location(location: String) -> Dictionary:
     var displayed_angle: float = _visual_station_time(
         Time.get_ticks_usec())
     var display_native_units: float = displayed_angle * (
-        N43.FACILITY_ORBIT_PERIOD / 360.0)
+        SolOrbits.STATION_ORBIT_PERIOD_NATIVE / 360.0)
     return StationShipProjection.station_native_position(
         _body_index, offset, str(source["body"]), location,
         display_native_units)
