@@ -29,6 +29,10 @@ var _receipt_generation: int = 0
 var _fork_source: WeakRef = null
 var _fork_source_generation: int = -1
 var _fork_changed_shards: Dictionary = {}
+# Experimental: a shard detached by this generation may accept another
+# append without recopying, until a fork shares it. Disabled until parity CI.
+var _reuse_private_shards: bool = OS.get_environment("LS_N9_PRIVATE_SHARD_REUSE") == "1"
+var _private_shards: Dictionary = {}
 ## Exact per-kind counts, updated only on committed append or validated restore.
 ## A fork owns its counter dictionary: never mutate the parent's counters.
 var _receipt_kind_counts: Dictionary = {}
@@ -91,7 +95,14 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	# new dictionary is private to this ledger, including after a fork;
 	# populated shards still require COW to protect parent/child history.
 	var old_shard: Dictionary = _receipt_partitions[bucket]
-	var detached: Dictionary = {} if old_shard.is_empty() else old_shard.duplicate()
+	var detached: Dictionary
+	if _reuse_private_shards and _private_shards.has(bucket):
+		# Only this ledger owns the dictionary since its last fork.
+		detached = old_shard
+	else:
+		detached = {} if old_shard.is_empty() else old_shard.duplicate()
+		if _reuse_private_shards:
+			_private_shards[bucket] = true
 	# All callers construct a private record and return only a detached copy.
 	# commit() already detached the untrusted legs before creating this row;
 	# duplicating the entire row here repeated the deep copy on every paid leg.
@@ -316,6 +327,9 @@ func fork() -> RefCounted:
 	return result
 
 func _profile_inner_fork() -> RefCounted:
+	# The new child shares every current shard. Invalidate ownership on
+	# the parent as well: it may still receive operations after this fork.
+	_private_shards.clear()
 	# Fork owns a detached header from the parent; initializing 1024 empty
 	# shard dictionaries first is pure allocation overhead at every stage.
 	var child: RefCounted = get_script().new(true)
@@ -326,6 +340,8 @@ func _profile_inner_fork() -> RefCounted:
 	child.set("_receipt_partitions", _receipt_partitions.duplicate())
 	child.set("_receipt_order_chunks", _receipt_order_chunks.duplicate())
 	child.set("_receipt_count", _receipt_count)
+	child.set("_reuse_private_shards", _reuse_private_shards)
+	child.set("_private_shards", {})
 	child.set("_receipt_generation", _receipt_generation)
 	child.set("_fork_source", weakref(self))
 	child.set("_fork_source_generation", _receipt_generation)
@@ -655,6 +671,7 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 	_fork_source = null
 	_fork_source_generation = -1
 	_fork_changed_shards = {}
+	_private_shards = {}
 	_receipt_kind_counts = next_kind_counts
 	_flat_receipt_cache = {}
 	_flat_cache_count = -1
