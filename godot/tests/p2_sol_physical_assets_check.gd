@@ -2,6 +2,7 @@ extends SceneTree
 ## Stage 1: real Sol orbital station + physically distinct Earth surface
 ## facilities as ONE read-only spatial projection of frozen N39 objects.
 const NativeData = preload("res://scripts/native_data.gd")
+const N43_FOR_TEST = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 const Model = preload("res://scripts/sim/world_model.gd")
 const Assets = preload("res://scripts/sim/phase2/sol_physical_assets_projection.gd")
 const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
@@ -95,7 +96,7 @@ func _test() -> void:
     var station_screen: Vector2 = ids["facility-earth-station"]
     var expected_angle: float = fposmod(float(
         N43.initial_facility_angle("earth-station")) +
-        360.0 * native_units / N43.FACILITY_ORBIT_PERIOD, 360.0)
+        360.0 * native_units / N43_FOR_TEST.STATION_ORBIT_PERIOD_NATIVE, 360.0)
     var diff: Vector2 = station_screen - body_screen
     var target_direction: Vector2 = Vector2(cos(deg_to_rad(
         expected_angle)), -sin(deg_to_rad(expected_angle)))
