@@ -13,6 +13,7 @@ on:
       - godot/tests/p2_system_balance_colony_roads_check.gd
       - godot/tests/p2_sol_moon_closeup_lod_check.gd
       - godot/tests/p2_strategy_ui_systembalance_check.gd
+      - godot/tests/p2_strategy_ui_layout_scene_check.gd
   workflow_dispatch:
 permissions:
   contents: read
@@ -81,6 +82,29 @@ jobs:
           tail -n 55 strategy.log
           ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Assertion failed' strategy.log
           grep -q 'SYSTEMBALANCE_FIGMA_HUD_MERGE_PASS' strategy.log
+      - name: Open real Figma strategy Control scene and click through colony panels
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout 40s godot --headless --path godot --script res://tests/p2_strategy_ui_layout_scene_check.gd > scene.log 2>&1; then
+            tail -n 120 scene.log
+            exit 1
+          fi
+          tail -n 60 scene.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Assertion failed' scene.log
+          grep -q 'SYSTEMBALANCE_FIGMA_LAYOUT_SCENE_PASS' scene.log
+      - name: Actual worker GUI boot through unified strategy and colony HUD
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/strategy-worker"
+          if ! timeout 70s env XDG_DATA_HOME="$RUNNER_TEMP/strategy-worker" godot --headless --path godot -- --p2-worker-gui-check > worker.log 2>&1; then
+            tail -n 120 worker.log
+            exit 1
+          fi
+          tail -n 60 worker.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Assertion failed' worker.log
+          grep -q 'P2_WORKER_GUI_BOOT_CHECK_PASS' worker.log
       - name: Test parented Sol moon close-up size and orbit display
         shell: bash
         run: |
@@ -104,5 +128,7 @@ jobs:
             cards.log
             moon.log
             strategy.log
+            scene.log
+            worker.log
           if-no-files-found: ignore
           retention-days: 4
