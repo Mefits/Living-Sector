@@ -436,7 +436,8 @@ func set_native_station_time(native_units: float) -> void:
 
 func _visual_station_time(now: int) -> float:
     if _station_time_started_usec < 0:
-        return _native_station_time
+        return fposmod(_native_station_time * 360.0 /
+            N43.FACILITY_ORBIT_PERIOD, 360.0)
     var alpha: float = VisualMotion.alpha(_station_time_started_usec,
         _station_time_duration_usec, now)
     # Interpolate orbital PHASE rather than huge absolute time when
