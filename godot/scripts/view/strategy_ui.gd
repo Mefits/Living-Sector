@@ -93,6 +93,8 @@ var _selection_summary: Label
 var _tabs_signature: String = ""
 var _cards_signature: String = ""
 var _ui_scale_menu: OptionButton
+var _scale_button: Button
+var _scale_popup: PopupMenu
 var _status_text: String = ""
 var _diagnostic_text: String = ""
 var _selected_name: String = ""
@@ -473,7 +475,7 @@ func _build_left() -> void:
     var bottom := VBoxContainer.new()
     bottom.add_theme_constant_override("separation", 2)
     column.add_child(bottom)
-    var objects := _button("Объекты", _toggle_outliner, 9)
+    var objects := _button("Список", _toggle_outliner, 9)
     objects.tooltip_text = "Показать или скрыть правый аутлайнер"
     objects.custom_minimum_size.y = 29
     bottom.add_child(objects)
@@ -481,22 +483,30 @@ func _build_left() -> void:
     _tools_button.tooltip_text = "Журнал, карта, сохранение и загрузка"
     _tools_button.custom_minimum_size.y = 29
     bottom.add_child(_tools_button)
+    # OptionButton inside a 64px PanelContainer forced its minimum width
+    # to 98px. Keep the compatibility picker for tests, but render a
+    # compact scale button and a native popup outside layout sizing.
     _ui_scale_menu = OptionButton.new()
-    _ui_scale_menu.tooltip_text = "Размер интерфейса 125–200%; сохраняется"
-    _ui_scale_menu.add_theme_font_size_override("font_size", 11)
-    _ui_scale_menu.add_theme_color_override("font_color", TEXT)
-    _ui_scale_menu.add_theme_stylebox_override("normal", _style(BG2))
-    _ui_scale_menu.add_theme_stylebox_override("hover",
-        _style(Color("#183239"), TEAL))
-    _ui_scale_menu.add_theme_stylebox_override("pressed",
-        _style(Color("#183239"), TEAL))
-    _ui_scale_menu.custom_minimum_size.y = 30
+    _ui_scale_menu.visible = false
     for percent in [125, 140, 160, 180, 200]:
         _ui_scale_menu.add_item("%d%%" % percent)
     _ui_scale_menu.select(clampi(int(_game.get("_ui_scale_index"))
         if _game != null else 2, 0, _ui_scale_menu.item_count - 1))
     _ui_scale_menu.item_selected.connect(_set_ui_scale)
-    bottom.add_child(_ui_scale_menu)
+    add_child(_ui_scale_menu)
+    _scale_button = _button(
+        _ui_scale_menu.get_item_text(_ui_scale_menu.selected),
+        _show_scale_choices, 10)
+    _scale_button.custom_minimum_size.y = 29
+    _scale_button.tooltip_text = "Выбор размера интерфейса (125–200%)"
+    bottom.add_child(_scale_button)
+    _scale_popup = PopupMenu.new()
+    for i in range(_ui_scale_menu.item_count):
+        _scale_popup.add_radio_check_item(
+            _ui_scale_menu.get_item_text(i), i)
+        _scale_popup.set_item_checked(i, i == _ui_scale_menu.selected)
+    _scale_popup.id_pressed.connect(_choose_scale)
+    _rail.add_child(_scale_popup)
     _tools_menu = PopupMenu.new()
     for name in [
         "Аутлайнер", "Технические данные N39", "Наблюдение",
@@ -505,6 +515,19 @@ func _build_left() -> void:
         _tools_menu.add_item(name)
     _tools_menu.id_pressed.connect(_on_tools_selected)
     _rail.add_child(_tools_menu)
+
+func _show_scale_choices() -> void:
+    if _scale_button == null or _scale_popup == null:
+        return
+    var origin: Vector2 = _scale_button.get_screen_transform().origin
+    _scale_popup.position = Vector2i(origin + Vector2(RAIL_W + 4, -80))
+    _scale_popup.popup()
+
+func _choose_scale(index: int) -> void:
+    if _ui_scale_menu == null or index < 0 or index >= _ui_scale_menu.item_count:
+        return
+    _ui_scale_menu.select(index)
+    _set_ui_scale(index)
 
 func _show_nav_tools() -> void:
     if _tools_button == null or _tools_menu == null:
@@ -872,6 +895,13 @@ func update_performance(fps: int, sim_ms: float, ui_ms: float,
         details)
 
 func _set_ui_scale(index: int) -> void:
+    if _ui_scale_menu != null and index >= 0 and index < _ui_scale_menu.item_count:
+        _ui_scale_menu.select(index)
+        if _scale_button != null:
+            _scale_button.text = _ui_scale_menu.get_item_text(index)
+        if _scale_popup != null:
+            for i in range(_scale_popup.item_count):
+                _scale_popup.set_item_checked(i, i == index)
     if _game != null:
         _game.call("_change_ui_scale", index)
 
