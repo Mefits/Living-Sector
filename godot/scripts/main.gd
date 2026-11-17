@@ -728,6 +728,11 @@ func _process(delta: float) -> void:
             int(report["frame_over_16_7ms_window"]),
             int(report["advance_over_16_7ms_window"]),
             int(report["ui_over_16_7ms_window"])]
+        if _strategy_ui != null:
+            _strategy_ui.update_performance(Engine.get_frames_per_second(),
+                float(report["advance_p95_ms"]),
+                float(report["ui_p95_ms"]), false,
+                _perf_label.tooltip_text)
     if _ui_profile_log:
         _ui_profile_log_elapsed += maxf(wall_frame_delta, 0.0)
         if _ui_profile_log_elapsed >= 5.0:
@@ -801,6 +806,11 @@ func _worker_gui_process(delta: float) -> void:
             "Экспериментальный N158 worker: 1 authoritative World/N9/Clock; " +
             "кадры SceneTree не вызывают advance_frame. Последний sim_ms " +
             "из worker; это НЕ измерение GPU и не подтверждение TPS.")
+        if _strategy_ui != null:
+            var worker_ui: Dictionary = _frame_profiler.summary()
+            _strategy_ui.update_performance(Engine.get_frames_per_second(),
+                _worker_last_sim_ms, float(worker_ui.get("process_p95_ms", 0)),
+                true, _perf_label.tooltip_text)
     if _worker_live_check and _worker_booted:
         _worker_live_frames += 1
         _worker_live_cpu_us.append(cpu_usec)
