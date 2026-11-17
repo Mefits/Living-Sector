@@ -128,6 +128,11 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		transit.erase("cached_lead_point")
 		transit.erase("lead_replan_tick")
 
+	# A one-step arrival must be based on the ACTUAL destination,
+	# never a distant predictive lead point. The following obstacle
+	# preflight then covers the exact final physical segment as well.
+	if remaining <= velocity + ARRIVAL_FLOAT_EPSILON:
+		aim = target
 	# One prepared obstacle list is supplied per real N140 system tick,
 	# not rebuilt for each of 500 ships. Do not confuse display marker
 	# radii with real native physical avoidance clearances.
