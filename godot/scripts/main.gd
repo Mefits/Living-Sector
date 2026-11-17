@@ -1260,7 +1260,7 @@ func _refresh_selection(shared_economy: Dictionary = {},
                     _worker_native_time_units)
             if _worker_economy.has("facilities"):
                 _system_view.set_live_facilities(
-                    _worker_economy["facilities"])
+                    _worker_economy["facilities"], _worker_tick)
             _show_body_details(current, _worker_economy)
         else:
             _select_world(current, _worker_economy)
@@ -1277,7 +1277,7 @@ func _refresh_selection(shared_economy: Dictionary = {},
                     _runner.calendar.native_time_units)
             if shared_economy.has("facilities"):
                 _system_view.set_live_facilities(
-                    shared_economy["facilities"])
+                    shared_economy["facilities"], _runner.tick_count)
             _show_body_details(selected, shared_economy)
         else:
             _select_world(selected, shared_economy)
