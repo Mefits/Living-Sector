@@ -736,37 +736,15 @@ func _satellite_orbit_native_radius(body: Dictionary) -> float:
     return 0.0
 
 
-## The near-planet view transitions from map SYMBOLS to relative moon/planet
-## sizes. This affects drawing only: never N43, N14 or actual orbit radii.
-## Start above 40px so entering focus at DETAIL_RADIUS (24px) is smooth.
-func _satellite_closeup_weight(body: Dictionary,
-        parent: Dictionary, at_zoom: float) -> float:
-    if str(parent.get("id", "")) != _focused_body_id:
-        return 0.0
-    var moon_id: String = str(body.get("id", ""))
-    var parent_id: String = str(parent.get("id", ""))
-    if not (SolOrbits.SOL_BODY_RADII_KM.has(moon_id) and
-            SolOrbits.SOL_BODY_RADII_KM.has(parent_id)):
-        return 0.0
-    return smoothstep(40.0, 100.0, _body_size_at_zoom(parent, at_zoom))
-
-
-func _satellite_orbit_radius(body: Dictionary, parent: Dictionary,
+func _satellite_orbit_radius(body: Dictionary, _parent: Dictionary,
         scale: float) -> float:
     var local_native_radius: float = _satellite_orbit_native_radius(body)
     if local_native_radius <= 0.0:
         return 0.0
     # Hierarchical map LOD: project a LOCAL radius under its parent,
     # not a fake delta of heliocentric radii (old Luna-as-Mars bug).
-    var compressed: float = pow(local_native_radius,
-        SATELLITE_COMPRESSION) * scale * _zoom
-    var detail: float = _satellite_closeup_weight(body, parent, _zoom)
-    if detail <= 0.0:
-        return compressed
-    # Real 384400km would place the moon dozens of Earth radii offscreen.
-    # Keep a legible STRATEGIC inset but avoid near-touching giant moons.
-    var min_screen_orbit: float = _body_size(parent) * 3.8
-    return lerpf(compressed, maxf(compressed, min_screen_orbit), detail)
+    # Display-only compression is intentional and identical for all moons.
+    return pow(local_native_radius, SATELLITE_COMPRESSION) * scale * _zoom
 
 
 func _satellite_visibility(body: Dictionary, parent: Dictionary,
@@ -806,22 +784,7 @@ func _body_size_at_zoom(body: Dictionary, at_zoom: float) -> float:
     var base: float = _overview_body_radius(body)
     if str(body.get("type", "")) in ["asteroid", "belt"]:
         return base * minf(scale, 6.0)
-    var normal_radius: float = base * scale
-    if str(body.get("type", "")) == "moon":
-        var parent: Dictionary = _known_moon_parent(body)
-        if not parent.is_empty():
-            var detail: float = _satellite_closeup_weight(
-                body, parent, at_zoom)
-            if detail > 0.0:
-                var moon_km: float = float(SolOrbits.SOL_BODY_RADII_KM[
-                    str(body["id"])])
-                var parent_km: float = float(SolOrbits.SOL_BODY_RADII_KM[
-                    str(parent["id"])])
-                var ratio: float = moon_km / maxf(parent_km, 1.0)
-                var relative_radius: float = (
-                    _body_size_at_zoom(parent, at_zoom) * ratio)
-                return lerpf(normal_radius, relative_radius, detail)
-    return normal_radius
+    return base * scale
 
 
 func _body_size(body: Dictionary) -> float:
