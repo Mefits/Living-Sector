@@ -135,7 +135,10 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 		_receipt_kind_counts[kind] = int(_receipt_kind_counts.get(kind, 0)) + 1
 	# Rebuilding is delayed until a real full N38/provenance snapshot.
 	# A fork that still sees older immutable shards retains its own cache.
-	_flat_receipt_cache = {}
+	# A cache already invalidated by an earlier paid append must not be
+	# replaced with another empty Dictionary on every subsequent append.
+	# Preserve the old detached cache until the next full snapshot rebuild;
+	# only the generation marker controls whether it can be read.
 	_flat_cache_count = -1
 	if _profile_append:
 		var elapsed: int = maxi(0, Time.get_ticks_usec() - started_usec)
