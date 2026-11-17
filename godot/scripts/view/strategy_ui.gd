@@ -428,8 +428,14 @@ func _build_left() -> void:
     # Figma Make .leftnav: width 64px, rows 58px, icon + Russian caption
     # + numeric keyboard hint. Physical readability comes from UI scaling.
     _rail = _panel()
-    _rail.add_theme_stylebox_override("panel",
-        _style(Color("#08131C"), Color("#294049"), 0, 0, 1, 0))
+    # Figma uses ~5px horizontal padding. With Godot's 8px native
+    # scrollbar width and a 48px nav item, the old 8+8 padding forced
+    # 72px instead of the required 64px.
+    var rail_style := _style(Color("#08131C"),
+        Color("#294049"), 0, 0, 1, 0)
+    rail_style.content_margin_left = 4
+    rail_style.content_margin_right = 4
+    _rail.add_theme_stylebox_override("panel", rail_style)
     _rail.anchor_bottom = 1.0
     _rail.offset_top = TOP_H
     _rail.offset_right = RAIL_W
