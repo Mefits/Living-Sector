@@ -3,6 +3,7 @@ const QuickData = preload("res://scripts/view/colony_quick_projection.gd")
 const ContextData = preload("res://scripts/view/colony_context_projection.gd")
 const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
+const FullWorkspaces = preload("res://scripts/view/strategy_workspaces.gd")
 ## Living Sector strategy HUD — Figma-inspired, read-only presentation.
 ## The game owns the map, authoritative economy, orders and clock.
 ## Never requests a new world_snapshot or invents per-tick trends.
@@ -49,6 +50,9 @@ var _outliner: PanelContainer
 var _outliner_list: VBoxContainer
 var _outliner_signature: String = ""
 var _window: PanelContainer
+var _workspace_ui
+var _workspace_history: Array[Dictionary] = []
+var _workspace_focus: String = ""
 var _window_title: Label
 var _window_text: RichTextLabel
 var _window_tabs: HFlowContainer
@@ -198,7 +202,10 @@ func _build_left() -> void:
     for entry in [
         {"text":"КОЛ", "tip":"Открыть колонию", "action":"colony"},
         {"text":"ЭКН", "tip":"Экономика рынков", "action":"economy"},
-        {"text":"ФЛТ", "tip":"Корабли и груз", "action":"fleet"},
+        {"text":"СТР", "tip":"Проекты, материалы, поставщики", "action":"construction"},
+        {"text":"ИСС", "tip":"Исследования и открытия", "action":"research"},
+        {"text":"ФЛТ", "tip":"Корабли, контракты, грузы, маршруты", "action":"fleet"},
+        {"text":"УПР", "tip":"Автономное управление фракциями", "action":"administration"},
         {"text":"ОБЪ", "tip":"Показать/скрыть список объектов", "action":"outliner"},
         {"text":"ДАН", "tip":"Подробные данные N39", "action":"technical"},
         {"text":"НАБ", "tip":"Наблюдение и диагностика", "action":"observer"},
@@ -352,6 +359,17 @@ func _build_window() -> void:
     _window_text.add_theme_font_size_override("normal_font_size", 16)
     _window_text.add_theme_color_override("default_color", TEXT)
     col.add_child(_window_text)
+    # The old debug window is kept as noninteractive fallback only;
+    # the active management UI is the complete Figma Make WorkspaceShell.
+    col.visible = false
+    _workspace_ui = FullWorkspaces.new()
+    _workspace_ui.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _workspace_ui.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    _workspace_ui.navigate_requested.connect(_route_workspace)
+    _workspace_ui.select_requested.connect(_select_from_workspace)
+    _workspace_ui.back_requested.connect(_workspace_back)
+    _workspace_ui.close_requested.connect(_close_window)
+    _window.add_child(_workspace_ui)
 
 func _build_selection_card() -> void:
     _selection_card = _panel()
@@ -384,7 +402,9 @@ func _dismiss_selection_card() -> void:
 func _open_selection_details() -> void:
     _window_mode = ("ship" if not _ship.is_empty() else (
         "facility" if not _facility.is_empty() else "colony"))
-    _tab = "Обзор"
+    _tab = "Обзор" if _window_mode != "facility" else "Процесс"
+    _workspace_history.clear()
+    _workspace_focus = ""
     _window.visible = true
     _update_selection_card()
     _update_window()
@@ -425,7 +445,9 @@ func _layout_window() -> void:
     if _window == null:
         return
     _window.offset_left = 80
-    _window.offset_right = minf(760.0, maxf(515.0, size.x - 370.0))
+    # Figma management sheets are intentionally roomy but never permanent.
+    # Leave the 265px right outliner visible at 1366x768 and on wider displays.
+    _window.offset_right = minf(1040.0, maxf(550.0, size.x - 350.0))
     _window.offset_top = 142
     _window.offset_bottom = -40
 
@@ -476,6 +498,8 @@ func _toggle_outliner() -> void:
 func _close_window() -> void:
     _window.visible = false
     _window_mode = ""
+    _workspace_history.clear()
+    _workspace_focus = ""
     _update_selection_card()
 
 func _activate(kind: String) -> void:
@@ -507,12 +531,13 @@ func _activate(kind: String) -> void:
             if row is Dictionary and not str(row.get("body", "")).is_empty():
                 _select_body(str(row["body"]))
                 break
+    _workspace_history.clear()
+    _workspace_focus = ""
     _window_mode = kind
-    _tab = ("Запасы" if kind == "economy" else (
-        "Корабли" if kind == "fleet" else (
-        "Данные" if kind == "technical" else "Обзор")))
+    _tab = str(FullWorkspaces.TABS.get(kind, ["Данные"])[0])
     _window.visible = true
     _update_window()
+    _update_selection_card()
 
 func _select_body(id: String) -> void:
     if _game == null:
@@ -761,6 +786,61 @@ func _update_outliner() -> void:
                 break
     _outliner_list.add_child(_label("Источник: действующий World / N39", 10, MUTED))
 
+## Cross-workspace navigation is a local UI history, not a second
+## simulation or new modal window for every React route.
+func _route_workspace(mode: String, tab: String, focus: String = "") -> void:
+    if _window.visible and not _window_mode.is_empty() and (
+            _window_mode != mode or _tab != tab or _workspace_focus != focus):
+        _workspace_history.append({
+            "mode":_window_mode, "tab":_tab, "focus":_workspace_focus,
+            "body":_body, "facility":_facility, "ship":_ship})
+        if _workspace_history.size() > 20:
+            _workspace_history.pop_front()
+    _window_mode = mode
+    _tab = tab
+    _workspace_focus = focus
+    _window.show()
+    _update_window()
+    _update_selection_card()
+
+func _select_from_workspace(kind: String, id: String) -> void:
+    if id.is_empty():
+        return
+    if _window.visible and not _window_mode.is_empty():
+        _workspace_history.append({
+            "mode":_window_mode, "tab":_tab, "focus":_workspace_focus,
+            "body":_body, "facility":_facility, "ship":_ship})
+    match kind:
+        "facility":
+            _select_facility(id)
+            _window_mode = "facility"
+            _tab = "Процесс"
+        "ship":
+            _select_ship(id)
+            _window_mode = "ship"
+            _tab = "Обзор"
+        "body":
+            _select_body(id)
+            _window_mode = "colony"
+            _tab = "Обзор"
+        _:
+            return
+    _workspace_focus = id
+    _window.show()
+    _update_window()
+
+func _workspace_back() -> void:
+    if _workspace_history.is_empty():
+        _close_window()
+        return
+    var record: Dictionary = _workspace_history.pop_back()
+    _window_mode = str(record.get("mode", ""))
+    _tab = str(record.get("tab", "Обзор"))
+    _workspace_focus = str(record.get("focus", ""))
+    # Selection in the actual game remains authoritative. History only
+    # navigates presentation and never resurrects a stale N39 object.
+    _update_window()
+
 func _tabs_for_mode() -> Array[String]:
     match _window_mode:
         "colony":
@@ -812,6 +892,11 @@ func _render_cards(cards: Array) -> void:
 
 func _update_window() -> void:
     if _window == null or not _window.visible:
+        return
+    if _workspace_ui != null:
+        _workspace_ui.show_state(_window_mode, _tab, _world, _economy,
+            _effective_body(), _facility, _ship, _tick, _workspace_focus,
+            _diagnostic_text)
         return
     var title: String = str({
         "colony":"КОЛОНИЯ", "economy":"ЭКОНОМИКА",
