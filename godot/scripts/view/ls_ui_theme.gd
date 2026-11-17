@@ -23,6 +23,19 @@ static func _flat(bg: Color, edge: Color, bottom: int = 0,
 
 static func build() -> Theme:
     var ui_theme: Theme = THEME_SOURCE.duplicate(true) as Theme
+    # Figma Make 58px HUD vocabulary.
+    ui_theme.set_type_variation(&"LSHeaderPanel", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSHeaderResource", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSBrandEmblem", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSFooterPanel", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSHeaderScope", &"Button")
+    ui_theme.set_type_variation(&"LSHeaderAlert", &"Button")
+    ui_theme.set_type_variation(&"LSHeaderSpeed", &"Button")
+    ui_theme.set_type_variation(&"LSHeaderResourceName", &"Label")
+    ui_theme.set_type_variation(&"LSHeaderResourceValue", &"Label")
+    ui_theme.set_type_variation(&"LSHeaderResourceIcon", &"Label")
+    ui_theme.set_type_variation(&"LSHeaderClock", &"Label")
+    ui_theme.set_type_variation(&"LSFooterDiagnostic", &"Label")
     ui_theme.set_type_variation(&"LSPrimaryButton", &"Button")
     ui_theme.set_type_variation(&"LSSecondaryButton", &"Button")
     ui_theme.set_type_variation(&"LSNavButton", &"Button")
@@ -48,6 +61,58 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSRowPlainOdd", &"PanelContainer")
     ui_theme.set_type_variation(&"LSRowActionEven", &"Button")
     ui_theme.set_type_variation(&"LSRowActionOdd", &"Button")
+
+    # Figma .topbar / .resource / .date / .time-controls / .statusbar.
+    # The HTML linear gradient cannot be represented by a flat StyleBox.
+    # Use its upper stop consistently until the final visual pass.
+    var header := _flat(Color("#101D26"), Color("#31505A"),
+        1, 0, 0)
+    header.shadow_size = 5
+    header.shadow_color = Color(0, 0, 0, 0.45)
+    ui_theme.set_stylebox(&"panel", &"LSHeaderPanel", header)
+    ui_theme.set_stylebox(&"panel", &"LSHeaderResource",
+        _flat(Color.TRANSPARENT, Color("#1E333C"), 0, 11, 0, 0, 0, 1))
+    ui_theme.set_stylebox(&"panel", &"LSBrandEmblem",
+        _flat(Color("#102832"), Color("#568288"), 1, 0, 0, 1, 1, 1))
+    ui_theme.set_stylebox(&"panel", &"LSFooterPanel",
+        _flat(Color("#071018"), Color("#243942"), 0, 8, 0, 0, 1, 0))
+    var clear := _flat(Color.TRANSPARENT, Color.TRANSPARENT)
+    ui_theme.set_stylebox(&"normal", &"LSHeaderScope", clear)
+    ui_theme.set_stylebox(&"hover", &"LSHeaderScope",
+        _flat(Color("#142832"), Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"pressed", &"LSHeaderScope", clear)
+    ui_theme.set_stylebox(&"focus", &"LSHeaderScope", clear)
+    ui_theme.set_font_size(&"font_size", &"LSHeaderScope", 8)
+    ui_theme.set_color(&"font_color", &"LSHeaderScope", Color("#668086"))
+    ui_theme.set_color(&"font_hover_color", &"LSHeaderScope", Color("#93D1CA"))
+    ui_theme.set_stylebox(&"normal", &"LSHeaderAlert",
+        _flat(Color.TRANSPARENT, Color("#243942"), 0, 0, 0, 1, 0, 0))
+    ui_theme.set_stylebox(&"hover", &"LSHeaderAlert",
+        _flat(Color("#332718"), Color("#243942"), 0, 0, 0, 1, 0, 0))
+    ui_theme.set_stylebox(&"pressed", &"LSHeaderAlert",
+        _flat(Color("#332718"), Color("#C99B54"), 0, 0, 0, 1, 0, 0))
+    ui_theme.set_color(&"font_color", &"LSHeaderAlert", Color("#C99B54"))
+    for variation in [&"LSHeaderAlert", &"LSHeaderSpeed"]:
+        ui_theme.set_stylebox(&"focus", variation, clear)
+    ui_theme.set_stylebox(&"normal", &"LSHeaderSpeed",
+        _flat(Color.TRANSPARENT, Color("#20343B"), 0, 0, 0, 0, 0, 1))
+    ui_theme.set_stylebox(&"hover", &"LSHeaderSpeed",
+        _flat(Color("#183239"), Color("#53B5AC"), 2, 0, 0, 0, 0, 1))
+    ui_theme.set_stylebox(&"pressed", &"LSHeaderSpeed",
+        _flat(Color("#183239"), Color("#53B5AC"), 2, 0, 0, 0, 0, 1))
+    ui_theme.set_font_size(&"font_size", &"LSHeaderSpeed", 13)
+    ui_theme.set_color(&"font_color", &"LSHeaderSpeed", Color("#729198"))
+    ui_theme.set_color(&"font_hover_color", &"LSHeaderSpeed", Color("#9FDDD4"))
+    ui_theme.set_color(&"font_color", &"LSHeaderResourceName", Color("#70878D"))
+    ui_theme.set_font_size(&"font_size", &"LSHeaderResourceName", 8)
+    ui_theme.set_color(&"font_color", &"LSHeaderResourceValue", Color("#D7DFDF"))
+    ui_theme.set_font_size(&"font_size", &"LSHeaderResourceValue", 13)
+    ui_theme.set_color(&"font_color", &"LSHeaderResourceIcon", Color("#79AAA9"))
+    ui_theme.set_font_size(&"font_size", &"LSHeaderResourceIcon", 18)
+    ui_theme.set_color(&"font_color", &"LSHeaderClock", Color("#C9D3D4"))
+    ui_theme.set_font_size(&"font_size", &"LSHeaderClock", 10)
+    ui_theme.set_color(&"font_color", &"LSFooterDiagnostic", Color("#53B5AC"))
+    ui_theme.set_font_size(&"font_size", &"LSFooterDiagnostic", 9)
 
     # Ordinary workspace actions, previously rebuilt via _box() per control.
     # Preserve the original 12×10px padding while moving style ownership
