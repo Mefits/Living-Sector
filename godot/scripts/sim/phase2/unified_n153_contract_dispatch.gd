@@ -51,15 +51,37 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     # N14 advances one physical directed edge per tick. Check the COMPLETE
     # source+destination trip from real moving world positions before an AI
     # accepts an obligation; otherwise we could strand a ship with cargo.
+    # Many ships bid on the same posted offer from the same location.
+    # Geometry is immutable during this N153 proposal. Cache only the
+    # computed fuel requirement (including invalid geometry), keyed by
+    # the actual ship speed and fuel rate; never cache ship eligibility.
+    # The route index is proposal-local and rebuilt after every paid tick.
+    var fuel_key: Array = [here, speed, rate, tick_scale]
+    var fuel_cache: Dictionary = route_index.get("_n153_fuel_cost", {})
     var flight_cost: float = 0.0
-    for leg in route["steps"]:
-        if not bool(leg["present"]):
-            return {"ok": false, "reason": "missing_leg_world_position"}
-        var distance: float = float(leg["distance"])
-        var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
-        if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
-            return {"ok": false, "reason": "invalid_flight_geometry"}
-        flight_cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
+    if fuel_cache.has(fuel_key):
+        var cached: Dictionary = fuel_cache[fuel_key]
+        if cached.has("error"):
+            return {"ok": false, "reason": str(cached["error"])}
+        flight_cost = float(cached["cost"])
+    else:
+        var geometry_error: String = ""
+        for leg in route["steps"]:
+            if not bool(leg["present"]):
+                geometry_error = "missing_leg_world_position"
+                break
+            var distance: float = float(leg["distance"])
+            var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
+            if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
+                geometry_error = "invalid_flight_geometry"
+                break
+            flight_cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
+        if not geometry_error.is_empty():
+            fuel_cache[fuel_key] = {"error": geometry_error}
+            route_index["_n153_fuel_cost"] = fuel_cache
+            return {"ok": false, "reason": geometry_error}
+        fuel_cache[fuel_key] = {"cost": flight_cost}
+        route_index["_n153_fuel_cost"] = fuel_cache
     if float(ship["fuel"]) + 0.0001 < flight_cost:
         return {"ok": false, "reason": "insufficient_native_full_route_fuel"}
     return {"ok": true, "path_to_source": route["inbound"],
