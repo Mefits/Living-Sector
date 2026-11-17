@@ -17,6 +17,9 @@ const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
 const StrategyUI = preload("res://scripts/view/strategy_ui.gd")
+const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
+const UI_SCALES = [1.0, 1.15, 1.25, 1.4]
+const DEFAULT_UI_SCALE_INDEX: int = 2
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const WorkerN158 = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const ReadOnlyWorldModel = preload("res://scripts/sim/world_model.gd")
@@ -105,6 +108,7 @@ var _worker_live_frames: int = 0
 var _worker_live_cpu_us: Array[int] = []
 
 func _ready() -> void:
+    get_window().content_scale_factor = float(UI_SCALES[DEFAULT_UI_SCALE_INDEX])
     _ui_profile_log = OS.get_cmdline_user_args().has("--p2-ui-profile") or (
         OS.get_environment("LS_PROFILE_UI_FRAMES") == "1")
     var background := ColorRect.new()
@@ -287,6 +291,7 @@ func _ready() -> void:
     map_stage.add_child(_map)
     _map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _system_view = StarSystemView.new()
+    _system_view.set_ui_viewport_scale(float(UI_SCALES[DEFAULT_UI_SCALE_INDEX]))
     _system_view.visible = false
     map_stage.add_child(_system_view)
     _system_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1279,7 +1284,7 @@ func _refresh_selection(shared_economy: Dictionary = {},
                     _worker_native_time_units)
             if _worker_economy.has("facilities"):
                 _system_view.set_live_facilities(
-                    _worker_economy["facilities"])
+                    _worker_economy["facilities"], _worker_tick)
             _show_body_details(current, _worker_economy)
         else:
             _select_world(current, _worker_economy)
@@ -1297,11 +1302,19 @@ func _refresh_selection(shared_economy: Dictionary = {},
                     _runner.calendar.native_time_units)
             if shared_economy.has("facilities"):
                 _system_view.set_live_facilities(
-                    shared_economy["facilities"])
+                    shared_economy["facilities"], _runner.tick_count)
             _show_body_details(selected, shared_economy)
         else:
             _select_world(selected, shared_economy)
     _sync_strategy_ui(shared_economy)
+
+func _change_ui_scale(index: int) -> void:
+    if index < 0 or index >= UI_SCALES.size():
+        return
+    var value: float = float(UI_SCALES[index])
+    get_window().content_scale_factor = value
+    if _system_view != null:
+        _system_view.set_ui_viewport_scale(value)
 
 func _reset_map() -> void:
     if _in_system and _system_view:
