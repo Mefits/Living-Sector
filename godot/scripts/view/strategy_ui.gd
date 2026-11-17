@@ -300,7 +300,7 @@ func _build_top() -> void:
     controls.add_child(faster)
 
 func _build_alerts() -> void:
-    _alerts_popover = _panel()
+    _alerts_popover = LSComponents.chrome_panel(&"LSAlertsPopover")
     _alerts_popover.visible = false
     _alerts_popover.anchor_left = 1.0
     _alerts_popover.anchor_right = 1.0
@@ -680,7 +680,7 @@ func _build_outliner() -> void:
 ## hidden by the Figma shell, which made leaving another system undiscoverable.
 ## Keep this readable at 100–140% without reserving half of the map.
 func _build_navigation() -> void:
-    _nav_panel = _panel()
+    _nav_panel = LSComponents.chrome_panel(&"LSMapBreadcrumb")
     _nav_panel.z_index = 35
     _nav_panel.mouse_filter = Control.MOUSE_FILTER_STOP
     _nav_panel.offset_left = RAIL_W + GUTTER
@@ -792,11 +792,9 @@ func _build_window() -> void:
     _window.add_child(_workspace_ui)
 
 func _build_selection_card() -> void:
-    _selection_card = _panel()
+    _selection_card = LSComponents.chrome_panel(&"LSSelectionPanel")
     _selection_card.z_index = 40
     _selection_card.mouse_filter = Control.MOUSE_FILTER_STOP
-    _selection_card.add_theme_stylebox_override("panel",
-        _style(Color("#0C1C25"), TEAL, 2, 1, 1, 1))
     _selection_card.visible = false
     _selection_card.anchor_top = 1.0
     _selection_card.anchor_bottom = 1.0
