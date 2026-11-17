@@ -1,5 +1,6 @@
 extends SceneTree
-## Regression for Sol moon close-up map LOD, NOT physical ephemeris.
+## Regression: original SystemBalance parented physical moon orbit stays
+## identical, even when HUD's 140% UI scale shrinks logical viewport.
 const Data = preload("res://scripts/native_data.gd")
 const Model = preload("res://scripts/sim/world_model.gd")
 const View = preload("res://scripts/star_system_view.gd")
@@ -21,34 +22,45 @@ func _initialize() -> void:
             luna = body
     assert(not earth.is_empty() and not luna.is_empty())
     assert(str(luna.get("parent_body_id", "")) == "earth")
-    assert(absf(float(luna.get("satellite_orbit_radius_native", 0.0))
-        - 384400.0 / SolOrbits.KM_PER_AU * SolOrbits.SOL_UNITS_PER_AU)
-        < 0.000001)
+    var local_radius: float = float(luna.get(
+        "satellite_orbit_radius_native", 0.0))
+    assert(absf(local_radius - 384400.0 / SolOrbits.KM_PER_AU *
+        SolOrbits.SOL_UNITS_PER_AU) < 0.000001)
     var view: Control = View.new()
     view.size = Vector2(1000, 740)
     view.set_world(sol)
-    # Orbit overview stays governed by original SystemBalance LOD.
-    view.set("_zoom", 1.0)
-    var overview_radius: float = float(view.call("_body_size", luna))
-    assert(absf(overview_radius - 4.0) < 0.01)
-    var orbit_overview: float = float(view.call("_satellite_orbit_radius",
-        luna, earth, float(view.call("_orbit_scale"))))
-    view.set("_focused_body_id", "earth")
     view.set("_zoom", 85.0)
-    var earth_radius: float = float(view.call("_body_size", earth))
-    var luna_radius: float = float(view.call("_body_size", luna))
-    var ratio: float = float(SolOrbits.SOL_BODY_RADII_KM["luna"]) / float(
-        SolOrbits.SOL_BODY_RADII_KM["earth"])
-    assert(earth_radius > 90.0)
-    assert(absf(luna_radius / earth_radius - ratio) < 0.012)
-    var separation: float = float(view.call("_satellite_orbit_radius",
-        luna, earth, float(view.call("_orbit_scale"))))
-    assert(separation >= earth_radius * 3.7)
-    # The relative displayed moon moves farther from Earth at close zoom.
-    assert(separation > orbit_overview)
-    # When not following Earth, original system-map icon sizing is retained.
-    view.set("_focused_body_id", "")
-    assert(float(view.call("_body_size", luna)) > luna_radius * 1.7)
+    view.set("_focused_body_id", "earth")
+    var original_separation: float = float(view.call(
+        "_satellite_orbit_radius", luna, earth, float(
+            view.call("_orbit_scale"))))
+    # Same precise SystemBalance visual formula, no arbitrary moon ratio.
+    var expected_separation: float = pow(local_radius,
+        View.SATELLITE_COMPRESSION) * float(
+            view.call("_orbit_scale")) * 85.0
+    assert(is_equal_approx(original_separation, expected_separation))
+    var original_size: float = float(view.call("_body_size", luna))
+    var expected_size: float = float(view.call(
+        "_overview_body_radius", luna)) * float(view.call(
+        "_body_size_at_zoom", earth, 85.0)) / float(
+        view.call("_overview_body_radius", earth))
+    assert(is_equal_approx(original_size, expected_size))
+    # Global 140% changes Control.size in logical units; compensate
+    # *only* the camera viewport scale, without touching moon mechanics.
+    view.size = Vector2(1000.0 / 1.4, 740.0 / 1.4)
+    view.set_ui_viewport_scale(1.4)
+    var ui140_separation: float = float(view.call(
+        "_satellite_orbit_radius", luna, earth, float(
+            view.call("_orbit_scale"))))
+    assert(absf(ui140_separation / original_separation - 1.0) < 0.012)
+    assert(is_equal_approx(float(view.call("_body_size", luna)),
+        original_size))
+    # At overview scale, preserve the original responsive map fitting.
+    view.set("_zoom", 1.0)
+    var fit_140: float = float(view.call("_orbit_scale"))
+    view.set_ui_viewport_scale(1.0)
+    var fit_100: float = float(view.call("_orbit_scale"))
+    assert(is_equal_approx(fit_140, fit_100))
     view.free()
     assert(JSON.stringify(seed) == source_before)
     print("SOL_MOON_CLOSEUP_LOD_PASS")
