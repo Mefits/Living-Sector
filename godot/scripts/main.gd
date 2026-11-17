@@ -1332,10 +1332,7 @@ func _select_world(world: Dictionary, shared_economy: Dictionary = {}) -> void:
     lines.append("")
     lines.append("ПРЕДПРИЯТИЯ / СТАНЦИИ")
     for facility in facilities:
-        lines.append(" • %s [%s]" % [
-            FacilityLabels.display_name(facility),
-            FacilityLabels.type_name(str(facility.get("type", "—")))
-        ])
+        lines.append(" • " + FacilityLabels.display_name(facility))
         lines.append("   Владелец: " + str(facility.get("faction_id", "—")))
     lines.append("")
     lines.append("НАЧАЛЬНЫЕ КОРАБЛИ")
@@ -1777,9 +1774,7 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
         var fid: String = str(facility.get("id", ""))
         var location: String = str(facility.get("location", ""))
         locations[location] = true
-        lines.append(" • %s [%s]" % [
-            FacilityLabels.display_name(facility),
-            FacilityLabels.type_name(str(facility.get("type", "?")))] )
+        lines.append(" • " + FacilityLabels.display_name(facility))
         if live_facilities.has(fid):
             var live: Dictionary = live_facilities[fid]
             var shift: Dictionary = live.get("work_shift", {})
