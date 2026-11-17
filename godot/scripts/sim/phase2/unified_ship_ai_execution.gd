@@ -193,6 +193,11 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
         })
         if cmd.is_empty():
             return {"status": Bt.FAILURE, "reason": "n146_invalid_transit_command"}
+        # A single BT leaf already computed and validated this preview. N84
+        # consumes it after Bt.tick instead of scanning the growing fleet and
+        # restoring the same candidate a second time. Scratch is proposal-local.
+        dock_ticks["_n84_pending_departure"] = {"ship": ship_id, "to": to,
+            "token": int(world.get("ship_next_token", -1)), "preview": proposed}
         return {"status": Bt.RUNNING, "commands": [cmd],
             "reason": "issued_n146_begin_transit"}
     # N91 construction is a noncommercial real engineering task, NOT
@@ -716,8 +721,18 @@ static func propose(world: Dictionary, graph: RefCounted,
             # The proposal only needs the candidate's transit receipt.
             # N146/N39 remains authoritative for the eventual departure.
             # Do not restore and deep-copy every unrelated ship per BT leaf.
-            var native_move: Dictionary = ShipPhase.preview_depart(staged, graph,
-                positions, tick, scale, str(ship_id), str(command["to"]))
+            var pending_departure: Dictionary = dock_ticks.get("_n84_pending_departure", {})
+            dock_ticks.erase("_n84_pending_departure")
+            var native_move: Dictionary = {}
+            if str(pending_departure.get("ship", "")) == str(ship_id) and (
+                    str(pending_departure.get("to", "")) == str(command["to"]) and
+                    int(pending_departure.get("token", -1)) == int(staged.get("ship_next_token", -2))):
+                native_move = pending_departure.get("preview", {})
+            else:
+                # Defensive fallback for commands not originating in this
+                # leaf, or for a changed token; never trust stale previews.
+                native_move = ShipPhase.preview_depart(staged, graph,
+                    positions, tick, scale, str(ship_id), str(command["to"]))
             if not native_move.get("ok", false):
                 return {"ok": false, "reason": "n14_authoritative_departure_rejected",
                     "ship_id": str(ship_id)}
