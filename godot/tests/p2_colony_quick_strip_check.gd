@@ -1,5 +1,5 @@
 extends SceneTree
-const Projection = preload("res://scripts/view/colony_quick_projection.gd")
+const QuickData = preload("res://scripts/view/colony_quick_projection.gd")
 const Strip = preload("res://scripts/view/colony_quick_strip.gd")
 const Main = preload("res://scripts/main.gd")
 
@@ -30,7 +30,7 @@ func _initialize() -> void:
             "site-mars": {"location_name": "mars-station", "completed": false},
             "site-done": {"location_name": "earth-station", "completed": true}}
     }
-    var earth: Dictionary = Projection.project(world, "earth", economy)
+    var earth: Dictionary = QuickData.project(world, "earth", economy)
     assert(bool(earth["visible"]))
     assert(str(earth["name"]) == "Земля")
     assert(int(earth["population"]) == 130)
@@ -38,15 +38,15 @@ func _initialize() -> void:
     assert(earth["energy"] == null) # No energy market data: never fake balance.
     assert(int(earth["construction"]) == 1)
     assert(int(earth["alerts"]) == 1) # One worn real N39 facility.
-    assert(Projection.project(world, "", economy) == earth)
-    var mars: Dictionary = Projection.project(world, "mars", economy)
+    assert(QuickData.project(world, "", economy) == earth)
+    var mars: Dictionary = QuickData.project(world, "mars", economy)
     assert(int(mars["population"]) == 20)
     assert(int(mars["food"]) == 25)
     assert(int(mars["energy"]) == 8)
     assert(int(mars["construction"]) == 1)
     assert(int(mars["alerts"]) == 0)
-    assert(not bool(Projection.project(world, "luna", economy)["visible"]))
-    var boot: Dictionary = Projection.project(world, "earth", {})
+    assert(not bool(QuickData.project(world, "luna", economy)["visible"]))
+    var boot: Dictionary = QuickData.project(world, "earth", {})
     assert(bool(boot["visible"]) and not bool(boot["live"]))
     assert(boot["population"] == null)
     var strip: HFlowContainer = Strip.new()
