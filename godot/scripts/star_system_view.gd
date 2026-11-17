@@ -783,9 +783,10 @@ func _draw_colony_on_focus(center: Vector2, radius: float) -> void:
             draw_circle(a.lerp(b, phase), clampf(radius * 0.015, 1.5, 3.0),
                 Color("#e1bd7e"))
     var font: Font = get_theme_default_font()
-    draw_rect(Rect2(hub - Vector2(6, 6), Vector2(12, 12)), Color("#d1c39e"), true)
-    draw_string(font, hub + Vector2(8, -8), "Узел",
-        HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#e7e0ca"))
+    if not surface.is_empty():
+        draw_rect(Rect2(hub - Vector2(6, 6), Vector2(12, 12)), Color("#d1c39e"), true)
+        draw_string(font, hub + Vector2(8, -8), "Узел",
+            HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#e7e0ca"))
     for entry in surface:
         var point: Vector2 = positions[str(entry["id"])]
         var tint: Color = Color("#bdc9bd") if int(entry["activity"]) > 0 else Color("#718480")
