@@ -18,7 +18,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] `godot/ui/living_sector_theme.tres` with base Figma palette.
 - [x] `ls_ui_theme.gd`: reusable variations for buttons, tabs, panels, typography and dense rows.
 - [x] StrategyUI inherits the Theme, preserving existing local overrides until migration.
-- [x] Workspace header, toolbar, search panel, window icon, section header and table row skins moved to Theme.
+- [x] Workspace header, toolbar, search panel, window icon, section header, table rows **and outer management window shell** moved to Theme.
 - [ ] Run Godot 4.7.2 headless parse and `godot/tests/p2_figma_ui_theme_check.gd`.
 - [ ] Migrate remaining per-control StyleBox overrides and verify in a rendered game.
 
@@ -26,9 +26,10 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 
 - [x] `ls_ui_components.gd` factories for action buttons, tabs and metric labels/panels.
 - [x] Reusable header/search/toolbar/section panel wrappers.
-- [x] Reusable interactive and read-only table rows.
+- [x] Reusable interactive and read-only table rows; original Figma dense-row colors/typography and hover states.
 - [x] Workspace callbacks keep their original N39 actions and selection signals.
-- [ ] Shared full window shell, column layout and remaining controls.
+- [x] Theme-backed management window shell (original navigation logic remains).
+- [ ] Shared flexible table-column layout and remaining controls.
 - [ ] Visual screenshot comparisons.
 
 ## Stages 4–7 [NOT STARTED]
@@ -46,4 +47,6 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - No temporary screenshot or mock data should be substituted for live game state.
 - Visual parity **is not yet claimed**.
 
-Newest substantive commits: `49f27b0` (chrome), `085f89c` (table row), `61737da` (dense-row CSS).
+Newest substantive commits: `49f27b0` (chrome), `085f89c` (table row), `61737da` (dense-row CSS), `7cdf99c` (window shell).
+
+Source-level consistency checks passed: all 7 `.tres` StyleBox subresources resolve; 22 named theme variations, 7 UI factories, 36 theme contract assertions. **These are not runtime tests.**
