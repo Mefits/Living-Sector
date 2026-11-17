@@ -2531,7 +2531,10 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
     if not approved.get("ok", false):
         return approved
     var head_memory: Dictionary = approved.get("memory", {})
-    var staged: Dictionary = _copy_world("L2289", true)
+    # The authorized branch replaces this stage with the detached paid proposal.
+    # On a head-only tick only this faction director may change; never clone
+    # the growing ships/markets/contract history just to store head memory.
+    var staged: Dictionary = _copy_world("L2289_head_root", false)
     var ledger: RefCounted = _ledger.fork()
     var posted: Dictionary = {}
     if approved.get("authorized", false):
@@ -2555,6 +2558,9 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
                 str(c.get("mission_category", "")) != NativeColonyOrders.PROJECT_TAG):
             return {"ok": false, "fatal": true, "reason": "n144_forged_source_colony_contract"}
     if not head_memory.is_empty() and staged.get("research_directors", {}).has(faction):
+        if not posted.get("ok", false):
+            staged["research_directors"] = _world["research_directors"].duplicate()
+            staged["research_directors"][faction] = _world["research_directors"][faction].duplicate(true)
         staged["research_directors"][faction]["strategic"] = head_memory.duplicate(true)
     if staged.size() != _world.size():
         return {"ok": false, "fatal": true, "reason": "n144_added_noncanonical_world_domain"}
