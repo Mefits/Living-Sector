@@ -15,6 +15,23 @@ const SHORTAGE_SUPPLY_RATIO: float = 0.1
 const SHORTAGE_MIN_FLOOR: float = 10.0
 const ORDER_EXPIRY_MIN: int = 50
 
+# Opt-in paid-path probe: no World references retained and no timing calls
+# unless explicitly enabled. Counters measure the actual owned market copy.
+static var _copy_probe_enabled: bool = false
+static var _copy_probe_calls: int = 0
+static var _copy_probe_us: int = 0
+static var _copy_probe_trend_rows: int = 0
+
+static func configure_copy_probe(enabled: bool) -> void:
+	_copy_probe_enabled = enabled
+	_copy_probe_calls = 0
+	_copy_probe_us = 0
+	_copy_probe_trend_rows = 0
+
+static func copy_probe_snapshot() -> Dictionary:
+	return {"enabled": _copy_probe_enabled, "calls": _copy_probe_calls,
+		"copy_us": _copy_probe_us, "trend_rows": _copy_probe_trend_rows}
+
 static func _fail(reason: String) -> Dictionary:
 	return {"ok": false, "reason": reason}
 
@@ -158,7 +175,12 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		return _fail("invalid_market_tick")
 	if not native_price_recalculate.is_valid():
 		return _fail("missing_original_price_engine")
+	var copy_start_us: int = Time.get_ticks_usec() if _copy_probe_enabled else 0
 	var result: Dictionary = market.duplicate(true)
+	if _copy_probe_enabled:
+		_copy_probe_us += Time.get_ticks_usec() - copy_start_us
+		_copy_probe_calls += 1
+		_copy_probe_trend_rows += market["history"]["trend_samples"].size()
 	var pricing: Dictionary = result["pricing"]
 	var flow: Dictionary = result["flow"]
 	var orders: Dictionary = result["orders"]
