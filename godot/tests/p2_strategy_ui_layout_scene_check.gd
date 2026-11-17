@@ -133,9 +133,14 @@ func _run() -> void:
     ui.call("_route_workspace", "economy", "Баланс")
     ui.call("present",world,economy,"earth","","",24,false,1.0,
         "running","details")
+    ui.call("_route_workspace", "economy", "Цепочки")
+    assert(_contains_text(workspace, "На рынках: 55 ед."))
+    assert(_contains_text(workspace, "КОМПОНЕНТЫ"))
+    assert(_contains_text(workspace, "ЗАПАСЫ ПО ЭТАПАМ"))
     ui.call("_route_workspace", "colony", "Обзор")
     assert(_contains_text(workspace, "Состояние 74%"))
-    assert(_contains_text(workspace, "Genesis Farm"))
+    # FacilityNames.display_name deliberately presents known types in RU.
+    assert(_contains_text(workspace, "Ферма"))
     assert(not _contains_text(workspace, "LS-044"))
     ui.call("_close_window")
     ui.call("_toggle_outliner")

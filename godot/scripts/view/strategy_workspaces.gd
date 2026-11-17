@@ -947,27 +947,108 @@ func _colony() -> void:
         "Логистика":
             _local_ships(body)
 
+func _market_stock_total(key: String, body_id: String = "") -> Dictionary:
+    # Snapshot-only aggregation. Missing commodity != zero or shortage;
+    # stock quantities do NOT represent throughput, flow or a tick forecast.
+    var present: bool = false
+    var amount: float = 0.0
+    var markets: int = 0
+    for market in _markets(body_id):
+        var stock: Variant = market["data"].get("supply", {})
+        if not (stock is Dictionary) or not stock.has(key):
+            continue
+        var raw: Variant = stock[key]
+        if not (raw is int or raw is float):
+            continue
+        present = true
+        markets += 1
+        amount += float(raw)
+    return {"known":present, "amount":amount, "markets":markets}
+
+func _select_chain_stock(key: String) -> void:
+    # The card is an actionable resource filter, not a fictitious trade order.
+    # Filtering the real stock ledger below makes the clicked stage inspectable.
+    if _filter != null:
+        _filter.text = key
+        _last_signature = ""
+        _render()
+
 func _chain(body_id: String = "") -> void:
-    var group := _section("ПРОИЗВОДСТВЕННЫЕ ЦЕПОЧКИ", "Схема рецептов · не поток за тик")
+    var group := _section("ПРОИЗВОДСТВЕННАЯ ЦЕПОЧКА",
+        "N39 · запасы, не производительность")
     var flow := HFlowContainer.new()
     flow.add_theme_constant_override("h_separation", 8)
     flow.add_theme_constant_override("v_separation", 8)
     group.add_child(flow)
-    for stage in ["РУДА", "→", "МЕТАЛЛЫ", "→", "КОМПОНЕНТЫ", "→", "ЭЛЕКТРОНИКА"]:
-        if stage == "→":
-            flow.add_child(_label(stage, 18, TEAL))
-        else:
-            var tile := PanelContainer.new()
-            tile.add_theme_stylebox_override("panel", _box(DEEP))
-            flow.add_child(tile)
-            var col := VBoxContainer.new()
-            tile.add_child(col)
-            col.add_child(_label(stage, 14, TEXT))
-            col.add_child(_label("Реальный баланс — в «Запасы»", 11, MUTED))
+    var entries: Array[Dictionary] = [
+        {"key":"ore", "label":"РУДА", "stage":"ДОБЫЧА"},
+        {"key":"metals", "label":"МЕТАЛЛЫ", "stage":"ПЕРЕРАБОТКА"},
+        {"key":"components", "label":"КОМПОНЕНТЫ", "stage":"ПРОИЗВОДСТВО"},
+        {"key":"electronics", "label":"ЭЛЕКТРОНИКА", "stage":"СБОРКА"}
+    ]
+    var rows: Array[Dictionary] = []
+    for i in range(entries.size()):
+        var stage: Dictionary = entries[i]
+        var key: String = str(stage["key"])
+        var current: Dictionary = _market_stock_total(key, body_id)
+        var stock_text: String = (
+            "%d ед." % roundi(float(current["amount"]))
+            if bool(current["known"]) else "—")
+        rows.append({"cells":[str(stage["label"]), stock_text,
+            str(current["markets"]) if bool(current["known"]) else "—"]})
+        # Figma .chain-flow: separate clickable process cards and arrow
+        # gutters. Stock text is real, there are no mock production rates.
+        var button := Button.new()
+        button.text = ""
+        button.custom_minimum_size = Vector2(147, 103)
+        button.focus_mode = Control.FOCUS_NONE
+        button.tooltip_text = "Показать подтверждённые запасы: " + str(
+            stage["label"])
+        button.pressed.connect(_select_chain_stock.bind(key))
+        var style := _box(Color("#0B1D24"), true)
+        style.border_color = Color("#2A484E")
+        style.set_content_margin_all(0)
+        button.add_theme_stylebox_override("normal", style)
+        var hover := _box(Color("#122A31"), true)
+        hover.border_color = TEAL
+        hover.set_content_margin_all(0)
+        button.add_theme_stylebox_override("hover", hover)
+        button.add_theme_stylebox_override("pressed", hover)
+        flow.add_child(button)
+        var content := VBoxContainer.new()
+        content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        content.add_theme_constant_override("separation", 5)
+        button.add_child(content)
+        content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+        content.offset_left = 10
+        content.offset_right = -8
+        content.offset_top = 9
+        content.offset_bottom = -7
+        content.add_child(_label(str(stage["stage"]), 9, MUTED))
+        var icon := TextureRect.new()
+        icon.custom_minimum_size = Vector2(20, 20)
+        icon.texture = FigmaIcons.texture("facility", 18, TEAL)
+        icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+        icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+        icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        content.add_child(icon)
+        content.add_child(_label(str(stage["label"]), 11, TEXT))
+        content.add_child(_label("На рынках: " + stock_text, 10,
+            TEAL if bool(current["known"]) else MUTED))
+        if i < entries.size() - 1:
+            var arrow := _label("→", 20, Color("#54777A"))
+            arrow.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+            flow.add_child(arrow)
+    _note(group,
+        "Стрелки обозначают технологические этапы. Реальные объёмы " +
+        "выпуска, потребность и рейсы сюда не домысливаются.")
+    var stock_section := _section("ЗАПАСЫ ПО ЭТАПАМ",
+        "Сумма по опубликованным рынкам")
+    _table(stock_section, ["Ресурс", "В наличии", "Рынков"], rows)
     var flow2 := _section("ДОСТУПНЫЕ ПРЕДПРИЯТИЯ")
     _table(flow2, ["Объект","Тип","Работники","Состояние","Локация"],
         _facility_rows(body_id), "", "", "facility")
-    _note(flow2, "Сырьё и выпуск за смену появятся после привязки точных N39 рецептов.")
+    _note(flow2, "Выпуск за смену появится только из настоящих записей N39.")
 
 func _local_ships(body_id: String) -> void:
     var rows: Array[Dictionary] = []
