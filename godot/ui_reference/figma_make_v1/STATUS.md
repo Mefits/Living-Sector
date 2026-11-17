@@ -30,6 +30,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Workspace callbacks keep their original N39 actions and selection signals.
 - [x] Theme-backed management window shell (original navigation logic remains).
 - [x] Shared per-table column sizing profile: identical header/data widths, Figma five-column layout, four-column ID exception, and full-width clickable rows.
+- [x] Shared navigation links and Figma issue alerts (47px, critical/normal variants, original callbacks).
 - [ ] Remaining specialized controls and complete Windows visual comparison.
 - [ ] Visual screenshot comparisons.
 
@@ -48,6 +49,6 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - No temporary screenshot or mock data should be substituted for live game state.
 - Visual parity **is not yet claimed**.
 
-Newest substantive commits: `49f27b0` (chrome), `085f89c` (table row), `7cdf99c` (window shell), `9811ee9` (table column grid), `e90ff39` / `4a75eb7` (regression checks).
+Newest substantive commits: `9811ee9` (table column grid), `4a75eb7` (table profile tests), `5f46ff3` (alert/link Theme), `f9613ac` (alert/link use), `19e98bb` (contract tests).
 
-Source-level consistency checks passed for prior block: all 7 `.tres` StyleBox subresources resolve; 22 named theme variations, 7 UI factories. Table alignment and source tests have been extended but **not executed in Godot**. The four- and five-column profiles and clickable-row geometry still require a real viewport visual check.
+Source-level consistency checks passed: all 7 `.tres` StyleBox subresources resolve; 25 named theme variations and 10 UI factories. New checks verify 4/5-column profiles, clickable-row anchors, navigation link and alert callbacks in source. **No Godot runtime tests were executed.** The layouts still need a real viewport screenshot comparison.
