@@ -42,13 +42,13 @@ func _check() -> void:
         "earth-station", Vector2.ZERO)
     var radius: float = resolver.station_radius_for_location(
         "earth-station")
-    var expected: float = (6371.0 + 400.0) * 2.0 / 149597870.7
+    var expected: float = (6371.0 + 800.0) * 2.0 / 149597870.7
     if not stations.get("ok", false) or not forecast.get("ok", false):
         _fail("native station position missing")
         return
     if absf(radius - expected) > 0.00000001 or absf(
             earth.distance_to(station) - expected) > 0.000003:
-        _fail("Earth station not in physical 400 km local orbit")
+        _fail("Earth station not in physical 800 km local orbit")
         return
     if Intercept.position_after(forecast["trajectory"], 0.0
             ).distance_to(station) > 0.000003:
