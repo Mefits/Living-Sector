@@ -1569,11 +1569,20 @@ func _on_ship_selected(ship_id: String) -> void:
     if not current.is_empty():
         var fleet: Dictionary = (_worker_fleet if _worker_mode else (
             _runner.fleet_snapshot() if _runner != null else {}))
-        # Refresh only the selected ship's bounded physical route
-        # from the real detached N39 snapshot, not all 500 trajectories.
+        # Pick the SAME ship in the map as in the outliner. Select before
+        # detaching projected fleet so its N14 waypoints can be retained.
+        _system_view.select_ship(ship_id)
+        # Refresh only the selected ship's bounded physical route.
         _system_view.set_live_fleet(fleet)
         _show_ship_details(fleet)
     _sync_strategy_ui()
+
+
+## Outliner-only camera reveal: map mouse clicks do not jump the camera.
+func _reveal_selected_ship_on_map() -> bool:
+    if _system_view == null or _selected_ship_id.is_empty() or not _in_system:
+        return false
+    return _system_view.reveal_ship(_selected_ship_id)
 
 
 func _show_ship_details(fleet: Dictionary) -> bool:
