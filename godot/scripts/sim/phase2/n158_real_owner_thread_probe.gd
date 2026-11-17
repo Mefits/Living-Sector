@@ -192,6 +192,10 @@ func _owner_loop(seed: Dictionary) -> void:
             # Read only after the full phase/transaction commit. The UI never
             # touches sim, sim.world, production or live Ledger directly.
             answer["calendar_text"] = sim.calendar.display_text(sim.tick_count)
+            # A single read-only scalar lets the GUI render the SAME
+            # N43 station phase as the real worker-owned N14 clock.
+            # No World copy, N39 mutation or UI-side simulated tick.
+            answer["native_time_units"] = sim.calendar.native_time_units
             answer["angles"] = sim.world.orbital_snapshot()
             if kind in ["load", "restore", "step"] or (kind == "frame" and (
                     bool(payload.get("view", false)) or
