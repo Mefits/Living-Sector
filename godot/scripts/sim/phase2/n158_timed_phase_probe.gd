@@ -32,10 +32,12 @@ func _record_phase_elapsed(phase: String, tick: int, elapsed: int, accepted: boo
         var row: Dictionary = {"tick": tick}
         for name in PHASES:
             row[name] = 0
+        row["_seen"] = {}
         _paid_rows.append(row)
         if _paid_rows.size() > WINDOW_LIMIT:
             _paid_rows.pop_front()
     _paid_rows[_paid_rows.size() - 1][phase] += elapsed
+    _paid_rows[_paid_rows.size() - 1]["_seen"][phase] = true
 
 func phase_metrics() -> Dictionary:
     return _phase_cost.duplicate(true)
@@ -48,4 +50,7 @@ func paid_phase_window(end_tick: int) -> Array:
     for i in range(WINDOW_LIMIT):
         if int(_paid_rows[i]["tick"]) != end_tick - WINDOW_LIMIT + 1 + i:
             return []
+        for phase in PHASES:
+            if not _paid_rows[i]["_seen"].has(phase):
+                return []
     return _paid_rows.duplicate(true)
