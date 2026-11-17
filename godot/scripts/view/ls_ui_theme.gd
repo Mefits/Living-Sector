@@ -39,6 +39,9 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSRailPanel", &"PanelContainer")
     ui_theme.set_type_variation(&"LSOutlinerPanel", &"PanelContainer")
     ui_theme.set_type_variation(&"LSOutlinerHeader", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSAlertsPopover", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSMapBreadcrumb", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSSelectionPanel", &"PanelContainer")
     ui_theme.set_type_variation(&"LSNavButtonSelected", &"LSNavButton")
     ui_theme.set_type_variation(&"LSNavUtilityButton", &"LSNavButton")
     ui_theme.set_type_variation(&"LSPrimaryButton", &"Button")
@@ -148,6 +151,20 @@ static func build() -> Theme:
         _flat(Color("#08131C"), Color("#243942"), 1))
     ui_theme.set_stylebox(&"hover", &"LSNavUtilityButton",
         _flat(Color("#12242C"), Color("#243942"), 1))
+
+    # Existing map/navigation and selected-object interactions retain their
+    # signals; only the visual definitions are shared here.
+    var popup := _flat(Color("#09141C"), Color("#243942"),
+        1, 8, 6, 1, 1, 1)
+    popup.shadow_size = 3
+    popup.shadow_color = Color(0, 0, 0, 0.30)
+    ui_theme.set_stylebox(&"panel", &"LSAlertsPopover", popup)
+    ui_theme.set_stylebox(&"panel", &"LSMapBreadcrumb",
+        _flat(Color("#09141C"), Color("#243942"),
+            1, 8, 6, 1, 1, 1))
+    ui_theme.set_stylebox(&"panel", &"LSSelectionPanel",
+        _flat(Color("#0C1C25"), Color("#53B5AC"),
+            1, 8, 6, 2, 1, 1))
 
     # Ordinary workspace actions, previously rebuilt via _box() per control.
     # Preserve the original 12×10px padding while moving style ownership
