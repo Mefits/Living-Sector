@@ -800,8 +800,8 @@ func _draw_colony_on_focus(center: Vector2, radius: float) -> void:
     # a schematic road junction, not a second facility or invented AC.
     for i in range(orbital.size()):
         var entry: Dictionary = orbital[i]
-        var point: Vector2 = center + Vector2(0.85, -0.76) * radius +
-            Vector2(0.0, 23.0 * i)
+        var point: Vector2 = (center + Vector2(0.85, -0.76) * radius
+            + Vector2(0.0, 23.0 * i))
         if i == 0:
             draw_line(center + Vector2(0.63, -0.62) * radius, point,
                 Color(0.45, 0.57, 0.63, 0.5), 1.0, true)
