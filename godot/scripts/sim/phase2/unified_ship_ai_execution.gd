@@ -175,7 +175,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.SUCCESS}
         if not (ship.get("transit", {}) as Dictionary).is_empty():
             return {"status": Bt.RUNNING, "reason": "physical_n14_transit_active"}
-        var proposed: Dictionary = ShipPhase.depart(world, graph,
+        var proposed: Dictionary = ShipPhase.preview_depart(world, graph,
             positions, tick, scale, ship_id, to)
         if not proposed.get("ok", false):
             return {"status": Bt.RUNNING,
