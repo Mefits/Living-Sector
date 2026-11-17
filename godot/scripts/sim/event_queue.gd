@@ -82,13 +82,26 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
         return []
     var ids: Array = _due_ids[boundary].keys()
     var result: Array[Dictionary] = []
+    # Consume this entire boundary in one pass. Calling cancel() per item
+    # repeatedly rebuilds boundary strings and mutates the same due bucket.
+    # The pending array remains the only authoritative event store.
     for event_id in ids:
         if not _positions.has(event_id):
             continue
-        var event: Dictionary = _pending[int(_positions[event_id])]
-        result.append(event)
-        cancel(str(event_id))
-    result.sort_custom(Callable(self, "_less"))
+        var index: int = int(_positions[event_id])
+        result.append(_pending[index])
+        var last: int = _pending.size() - 1
+        if index != last:
+            var moved: Dictionary = _pending[last]
+            _pending[index] = moved
+            _positions[str(moved["id"])] = index
+        _pending.pop_back()
+        _positions.erase(event_id)
+        _ids.erase(event_id)
+    _due_ids.erase(boundary)
+    _due_counts.erase(boundary)
+    if result.size() > 1:
+        result.sort_custom(Callable(self, "_less"))
     # All returned records were removed from the sole authoritative store.
     # Their payloads were detached on schedule()/restore(), so another deep
     # copy here only scales with the number/size of dispatched events.
