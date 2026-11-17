@@ -96,7 +96,7 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 	var waypoints: Variant = transit.get("navigation_waypoints", [])
 	if not NativeAvoidance.valid_stored_points(waypoints):
 		return "invalid_navigation_waypoints"
-	var route: Array = waypoints
+	var route: Array = (waypoints as Array).duplicate(true)
 	var plan_used: bool = not route.is_empty()
 	var lead: Dictionary = {}
 	var aim: Vector2 = target
@@ -185,44 +185,69 @@ func advance(state: RefCounted, ship_id: String, positions: Dictionary, tick: in
 		return "out_of_fuel"
 
 	if plan_used:
-		var point: Array = route[0]
-		var waypoint: Vector2 = Vector2(float(point[0]), float(point[1]))
-		var separation: float = position.distance_to(waypoint)
-		var movement: float = minf(velocity, separation)
-		var next_pos: Vector2 = position.move_toward(waypoint, movement)
-		# Moving planets can enter an old detour while the ship travels.
-		# Check the ACTUAL next physical segment each fired tick. If another
-		# body now blocks it, hold safely rather than cut through it or
-		# trigger unbounded replanning while the target is moving.
-		for obstacle in obstacles:
-			if NativeAvoidance.segment_crosses(
-					position, next_pos, obstacle["center"],
-					float(obstacle["radius"])):
-				transit["last_tick"] = tick
-				transit["navigation_hold"] = "moving_obstacle_" + str(
-					obstacle.get("id", "unknown"))
-				return "holding"
-		if separation <= velocity + ARRIVAL_FLOAT_EPSILON:
-			route.remove_at(0)
+		# A long smooth curve may contain tiny physical chords. Traverse as
+		# many as fit inside ONE real paid native movement budget. Never
+		# charge one full tick/fuel payment per 0.00001-unit waypoint.
+		var cursor: Vector2 = position
+		var budget: float = velocity
+		var physical_length: float = 0.0
+		var intruder: String = ""
+		for _part in range(NativeAvoidance.MAX_POINTS):
+			if route.is_empty() or budget <= 0.000000001:
+				break
+			var raw_point: Array = route[0]
+			var waypoint: Vector2 = Vector2(
+				float(raw_point[0]), float(raw_point[1]))
+			var separation: float = cursor.distance_to(waypoint)
+			if separation <= 0.00000001:
+				route.remove_at(0)
+				continue
+			var portion: float = minf(budget, separation)
+			var proposed_position: Vector2 = cursor.move_toward(
+				waypoint, portion)
+			# A moving body may enter an OLD planned arc. Guard every
+			# actual physical segment; never leave a partially removed
+			# route or unpaid displacement when an obstruction appears.
+			for obstacle in obstacles:
+				if NativeAvoidance.segment_crosses(
+						cursor, proposed_position, obstacle["center"],
+						float(obstacle["radius"])):
+					intruder = str(obstacle.get("id", "unknown"))
+					break
+			if not intruder.is_empty():
+				break
+			var actual_length: float = cursor.distance_to(proposed_position)
+			cursor = proposed_position
+			physical_length += actual_length
+			budget = maxf(0.0, budget - actual_length)
+			if separation <= portion + ARRIVAL_FLOAT_EPSILON:
+				route.remove_at(0)
+		if not intruder.is_empty() and physical_length <= 0.00000001:
+			transit["last_tick"] = tick
+			transit["navigation_hold"] = "moving_obstacle_" + intruder
+			return "holding"
+		if physical_length <= 0.00000001:
+			return "invalid_navigation_progress"
+		transit.erase("navigation_hold")
 		if route.is_empty():
 			transit.erase("navigation_waypoints")
 			transit.erase("navigation_obstacle_id")
-			# Recompute moving-target prediction only when the detour has
-			# actually been traversed; never use a stale pre-star aim.
+			# A post-arc target forecast must be based on the current
+			# actual N43 destination, not an earlier cached lead.
 			transit.erase("cached_lead_point")
 			transit.erase("lead_replan_tick")
 		else:
 			transit["navigation_waypoints"] = route
 		ship["fuel"] = maxf(0.0, float(ship["fuel"]) - consumption)
-		transit["position"] = [next_pos.x, next_pos.y]
+		transit["position"] = [cursor.x, cursor.y]
 		transit["distance_travelled"] = clampf(
-			float(transit["distance_total"]) - next_pos.distance_to(target),
+			float(transit["distance_total"]) - cursor.distance_to(target),
 			0.0, float(transit["distance_total"]))
 		transit["physical_distance_travelled"] = float(transit.get(
-			"physical_distance_travelled", 0.0)) + movement
+			"physical_distance_travelled", 0.0)) + physical_length
 		transit["last_tick"] = tick
 		transit["arrival_tick"] = tick + maxi(1, ceili(
-			(next_pos.distance_to(target) + float(route.size()) * clearance_estimate(
+			(cursor.distance_to(target) + float(route.size()) * clearance_estimate(
 				solar_exclusion)) / maxf(velocity, 0.00001)))
 		return "moving"
 
