@@ -7,12 +7,8 @@ const MAX_EVENTS: int = 100000
 const MAX_TICK: int = 9007199254740991
 var _pending: Array[Dictionary] = []
 var _next_sequence: int = 1
-var _ids: Dictionary = {}
 # Position map for O(1) cancellation; _pending remains the sole event store.
 var _positions: Dictionary = {}
-# Counts only: authoritative event records remain in _pending.
-# A missing boundary avoids scanning all future events.
-var _due_counts: Dictionary = {}
 # Boundary -> event ids; cancellation remains O(1) via _positions.
 # This index is rebuilt atomically on restore and is not serialized.
 var _due_ids: Dictionary = {}
@@ -20,20 +16,12 @@ var _due_ids: Dictionary = {}
 func _due_key(tick: int, phase: int) -> String:
     return str(tick) + ":" + str(phase)
 
-func _count_due(tick: int, phase: int, delta: int) -> void:
-    var key: String = _due_key(tick, phase)
-    var count: int = int(_due_counts.get(key, 0)) + delta
-    if count <= 0:
-        _due_counts.erase(key)
-    else:
-        _due_counts[key] = count
-
 func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, kind: String, payload: Dictionary = {}) -> bool:
     if event_id.is_empty() or entity_id.is_empty() or kind.is_empty():
         return false
     if due_tick < 1 or due_tick > MAX_TICK or phase < 0 or phase > 255:
         return false
-    if _ids.has(event_id) or _pending.size() >= MAX_EVENTS or _next_sequence >= MAX_TICK:
+    if _positions.has(event_id) or _pending.size() >= MAX_EVENTS or _next_sequence >= MAX_TICK:
         return false
     var event: Dictionary = {
         "id": event_id, "due_tick": due_tick, "phase": phase,
@@ -41,10 +29,8 @@ func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, ki
         "kind": kind, "payload": payload.duplicate(true)
     }
     _next_sequence += 1
-    _ids[event_id] = true
     _positions[event_id] = _pending.size()
     _pending.append(event)
-    _count_due(due_tick, phase, 1)
     var boundary: String = _due_key(due_tick, phase)
     if not _due_ids.has(boundary):
         _due_ids[boundary] = {}
@@ -52,14 +38,13 @@ func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, ki
     return true
 
 func cancel(event_id: String) -> bool:
-    if not _ids.has(event_id):
+    if not _positions.has(event_id):
         return false
     # Swapping with the last record avoids shifting every later event.
     # Dispatch and snapshot both sort by the canonical comparator, not array position.
     var index: int = int(_positions[event_id])
     var removed: Dictionary = _pending[index]
     var boundary: String = _due_key(int(removed["due_tick"]), int(removed["phase"]))
-    _count_due(int(removed["due_tick"]), int(removed["phase"]), -1)
     if _due_ids.has(boundary):
         _due_ids[boundary].erase(event_id)
         if _due_ids[boundary].is_empty():
@@ -71,7 +56,6 @@ func cancel(event_id: String) -> bool:
         _positions[str(moved["id"])] = index
     _pending.pop_back()
     _positions.erase(event_id)
-    _ids.erase(event_id)
     return true
 
 func take_due(tick: int, phase: int) -> Array[Dictionary]:
@@ -99,7 +83,6 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
         _positions.erase(event_id)
         _ids.erase(event_id)
     _due_ids.erase(boundary)
-    _due_counts.erase(boundary)
     if result.size() > 1:
         result.sort_custom(Callable(self, "_less"))
     # All returned records were removed from the sole authoritative store.
@@ -148,11 +131,9 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
         staged.append({"id": id, "due_tick": int(due), "phase": int(phase),
             "entity_id": entity, "sequence": int(seq), "kind": kind,
             "payload": payload.duplicate(true)})
-    var staged_counts: Dictionary = {}
     var staged_due_ids: Dictionary = {}
     for event in staged:
         var key: String = _due_key(int(event["due_tick"]), int(event["phase"]))
-        staged_counts[key] = int(staged_counts.get(key, 0)) + 1
         if not staged_due_ids.has(key):
             staged_due_ids[key] = {}
         staged_due_ids[key][str(event["id"])] = true
@@ -161,9 +142,7 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
         staged_positions[str(staged[i]["id"])] = i
     _pending = staged
     _positions = staged_positions
-    _due_counts = staged_counts
     _due_ids = staged_due_ids
-    _ids = seen_ids
     _next_sequence = int(next)
     return true
 
