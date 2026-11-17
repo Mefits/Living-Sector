@@ -530,69 +530,334 @@ func _update_outliner() -> void:
     _outliner_list.add_child(_label("Источник: действующий World / N39", 10, MUTED))
 
 func _tabs_for_mode() -> Array[String]:
-    if _window_mode in ["colony", "facility"]:
-        return ["Обзор", "Производство", "Данные"]
-    if _window_mode == "economy":
-        return ["Запасы", "Производство", "Данные"]
-    return ["Обзор", "Данные"]
+    match _window_mode:
+        "colony":
+            return ["Обзор", "Население", "Производство",
+                "Запасы", "Строительство", "Логистика", "Данные"]
+        "facility":
+            return ["Обзор", "Производство", "Склад", "Данные"]
+        "economy":
+            return ["Запасы", "Производство", "Сигналы", "Данные"]
+        "fleet":
+            return ["Корабли", "Грузы", "Данные"]
+        "ship":
+            return ["Обзор", "Груз", "Данные"]
+        _:
+            return ["Данные"]
 
 func _switch_tab(name: String) -> void:
+    if _tab == name:
+        return
     _tab = name
     _update_window()
+
+func _render_cards(cards: Array) -> void:
+    if _window_cards == null:
+        return
+    var signature: String = JSON.stringify(cards)
+    if signature == _cards_signature:
+        return
+    _cards_signature = signature
+    for child in _window_cards.get_children():
+        _window_cards.remove_child(child)
+        child.queue_free()
+    _window_cards.visible = not cards.is_empty()
+    for card in cards:
+        if not (card is Dictionary):
+            continue
+        var panel := _panel()
+        panel.add_theme_stylebox_override("panel", _style(BG2, LINE))
+        panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        _window_cards.add_child(panel)
+        var content := VBoxContainer.new()
+        content.add_theme_constant_override("separation", 3)
+        panel.add_child(content)
+        content.add_child(_label(str(card.get("label", "")), 11, MUTED))
+        content.add_child(_label(str(card.get("value", "—")), 19, TEXT))
+        var note: String = str(card.get("note", ""))
+        if not note.is_empty():
+            content.add_child(_label(note, 10, AMBER))
 
 func _update_window() -> void:
     if _window == null or not _window.visible:
         return
-    var title: String = {
+    var title: String = str({
         "colony":"КОЛОНИЯ", "economy":"ЭКОНОМИКА",
         "fleet":"ФЛОТ И ЛОГИСТИКА", "facility":"ПРЕДПРИЯТИЕ",
-        "ship":"КОРАБЛЬ", "technical":"ДАННЫЕ N39"
-    }.get(_window_mode, "ОБЗОР")
-    _window_title.text = title + ((" · " + _body) if _window_mode == "colony" else "")
+        "ship":"КОРАБЛЬ", "technical":"ТЕХНИЧЕСКИЕ ДАННЫЕ N39"
+    }.get(_window_mode, "ОБЗОР"))
+    var selected_body: String = _effective_body()
+    if _window_mode == "colony" and not selected_body.is_empty():
+        title += " · " + _body_name(selected_body)
+    _window_title.text = title
     var tabs: Array[String] = _tabs_for_mode()
-    for child in _window_tabs.get_children():
-        _window_tabs.remove_child(child)
-        child.queue_free()
-    for name in tabs:
-        var btn := _button(name, _switch_tab.bind(name))
-        if name == _tab:
-            btn.add_theme_stylebox_override("normal", _style(BG2, TEAL))
-            btn.add_theme_color_override("font_color", TEAL)
-        _window_tabs.add_child(btn)
-    if _tab == "Данные" or _window_mode == "technical":
-        _window_text.text = _diagnostic_text if not _diagnostic_text.is_empty() else _status_text
-    elif _window_mode == "fleet" or _window_mode == "ship":
-        var lines: Array[String] = ["РЕАЛЬНЫЕ КОРАБЛИ В СНИМКЕ"]
-        var ships: Variant = _economy.get("ships", {})
-        if ships is Dictionary:
-            for id in ships:
-                var ship: Variant = ships[id]
-                if ship is Dictionary and (_window_mode == "fleet" or str(id) == _ship):
-                    lines.append("%s · %s · груз: %s" % [
-                        str(ship.get("name", id)),
-                        str(ship.get("location", "—")),
-                        str(ship.get("cargo", "—"))])
-        _window_text.text = "\n\n".join(lines)
-    elif _tab == "Производство" or _window_mode == "facility":
-        _window_text.text = _production_text()
+    if not _tab in tabs:
+        _tab = tabs[0]
+    var signature: String = _window_mode + "|" + _tab
+    if signature != _tabs_signature:
+        _tabs_signature = signature
+        for child in _window_tabs.get_children():
+            _window_tabs.remove_child(child)
+            child.queue_free()
+        for name in tabs:
+            var btn := _button(name, _switch_tab.bind(name), 11)
+            if name == _tab:
+                btn.add_theme_stylebox_override("normal", _style(BG2, TEAL))
+                btn.add_theme_color_override("font_color", TEAL)
+            _window_tabs.add_child(btn)
+    var lines: Array[String] = []
+    var projection: Dictionary = {}
+    var use_cards: bool = _tab == "Обзор" and _window_mode in [
+        "colony", "facility", "ship"]
+    if use_cards:
+        projection = ContextData.build(_world, selected_body, _facility,
+            _ship, _economy)
+        _render_cards(projection.get("cards", []))
     else:
-        var projection: Dictionary = _quantities()
-        var quantities: Dictionary = projection["values"]
-        var present: Dictionary = projection["present"]
-        var lines: Array[String] = [
-            "ОБЛАСТЬ УЧЁТА: " + ("КОЛОНИЯ " + _body if _mode == "colony"
-                else "ВСЕ РЫНКИ СЕКТОРА (все фракции)"),
-            "", "ТЕКУЩИЕ ЗАПАСЫ"
-        ]
-        for item in METRICS:
-            var key: String = str(item["key"])
-            lines.append("%s: %s" % [str(item["label"]),
-                str(roundi(float(quantities.get(key, 0.0))))
-                if present.has(key) else "—"])
+        _render_cards([])
+    if _tab == "Данные" or _window_mode == "technical":
+        lines.append(_diagnostic_text if not _diagnostic_text.is_empty()
+            else _status_text)
+    elif _window_mode == "colony":
+        lines.append(_colony_window_text(selected_body, projection))
+    elif _window_mode == "facility":
+        lines.append(_facility_window_text(projection))
+    elif _window_mode == "ship":
+        lines.append(_ship_window_text(projection))
+    elif _window_mode == "fleet":
+        lines.append(_ships_text(false, _tab == "Грузы"))
+    elif _window_mode == "economy":
+        match _tab:
+            "Производство":
+                lines.append(_production_text())
+            "Сигналы":
+                lines.append(_facility_signals())
+            _:
+                lines.append(_stocks_text(false))
+    else:
+        lines.append("Информация недоступна")
+    var new_text: String = "\n".join(lines)
+    if _window_text.text != new_text:
+        _window_text.text = new_text
+
+func _colony_window_text(body_id: String,
+        projection: Dictionary) -> String:
+    if body_id.is_empty():
+        return "Выберите существующую колонию в правом списке или на карте."
+    var quick: Dictionary = QuickData.project(_world, body_id, _economy)
+    if not bool(quick.get("visible", false)):
+        return "На этом небесном теле нет подтверждённого поселения N39."
+    match _tab:
+        "Обзор":
+            var lines: Array[String] = [
+                str(projection.get("subtitle", "Обзор колонии"))]
+            for item in projection.get("lines", []):
+                lines.append(str(item))
+            lines.append("")
+            lines.append("Данные колонии — реальные рынки и население N39.")
+            lines.append("Построек без фактических площадок не показываем.")
+            return "\n".join(lines)
+        "Население":
+            return _population_text(body_id)
+        "Производство":
+            return _production_text()
+        "Запасы":
+            return _stocks_text(true)
+        "Строительство":
+            return _construction_text(body_id)
+        "Логистика":
+            return _ships_text(true, false)
+    return "—"
+
+func _population_text(body_id: String) -> String:
+    var lines: Array[String] = ["НАСЕЛЕНИЕ · " + _body_name(body_id), ""]
+    var locations: Dictionary = _locations_for_body(body_id)
+    var population: Variant = _economy.get("populations", {})
+    var matched: int = 0
+    var total: int = 0
+    if population is Dictionary:
+        for item in population.values():
+            if not (item is Dictionary) or not locations.has(
+                    str(item.get("location", ""))):
+                continue
+            matched += 1
+            var count: int = int(item.get("count", 0))
+            total += count
+            lines.append("%s · жители: %d" % [
+                str(item.get("location", "—")), count])
+    if matched > 0:
+        lines.push_front("ВСЕГО ЖИТЕЛЕЙ: %d" % total)
+    else:
+        lines.append("Подтверждённое население в снимке отсутствует: —")
+    return "\n".join(lines)
+
+func _locations_for_body(body_id: String) -> Dictionary:
+    var locations: Dictionary = {}
+    for item in _world.get("facilities", []):
+        if item is Dictionary and str(item.get("body", "")) == body_id:
+            locations[str(item.get("location", ""))] = true
+    return locations
+
+func _stocks_text(colony_only: bool) -> String:
+    var scope: String = "КОЛОНИЯ · " + _body_name(_effective_body())
+    if not colony_only:
+        scope = "ВСЕ РЫНКИ СЕКТОРА · ВСЕ ФРАКЦИИ"
+    var lines: Array[String] = ["СКЛАДСКИЕ ЗАПАСЫ", scope,
+        "Только подтверждённые товары markets.supply, не производство за тик.", ""]
+    var markets: Variant = _economy.get("markets", {})
+    var locations: Dictionary = _locations_for_body(_effective_body())
+    var totals: Dictionary = {}
+    if markets is Dictionary:
+        for location in markets:
+            if colony_only and not locations.has(str(location)):
+                continue
+            var market: Variant = markets[location]
+            if not (market is Dictionary):
+                continue
+            var stock: Variant = market.get("supply", {})
+            if not (stock is Dictionary):
+                continue
+            for commodity in stock:
+                var key: String = str(commodity)
+                totals[key] = float(totals.get(key, 0.0)) + float(
+                    stock[commodity])
+    var names: Array = totals.keys()
+    names.sort()
+    if names.is_empty():
+        lines.append("Запасы в текущем снимке не представлены: —")
+    else:
+        for name in names:
+            lines.append("%s  ·  %s ед." % [
+                str(name), str(snappedf(float(totals[name]), 0.01))])
+    return "\n".join(lines)
+
+func _construction_text(body_id: String) -> String:
+    var lines: Array[String] = [
+        "СТРОИТЕЛЬСТВО · " + _body_name(body_id), ""]
+    var locations: Dictionary = _locations_for_body(body_id)
+    var sites: Variant = _economy.get("construction_sites", null)
+    if not (sites is Dictionary):
+        lines.append("Данные о реальных стройплощадках пока недоступны.")
+        return "\n".join(lines)
+    var pending: int = 0
+    for id in sites:
+        var row: Variant = sites[id]
+        if not (row is Dictionary) or bool(row.get("completed", false)):
+            continue
+        var location: String = str(row.get("location_name",
+            row.get("location", "")))
+        if not locations.has(location):
+            continue
+        pending += 1
+        lines.append("◈ %s" % str(id))
+        lines.append("    Локация: " + location)
+        if row.has("progress"):
+            lines.append("    Прогресс: " + str(row["progress"]))
         lines.append("")
-        lines.append("Показаны только подтверждённые рыночные запасы и население.")
-        lines.append("Скорости производства и прогнозы здесь не выдумываются.")
-        _window_text.text = "\n".join(lines)
+    if pending == 0:
+        lines.append("Активных физических стройплощадок: 0")
+    lines.append("Намерения ИИ без реальной площадки не считаются стройкой.")
+    return "\n".join(lines)
+
+func _facility_window_text(projection: Dictionary) -> String:
+    if _facility.is_empty():
+        return "Выберите предприятие на карте или в списке объектов."
+    var lines: Array[String] = []
+    if _tab == "Склад":
+        var live: Variant = _economy.get("facilities", {})
+        if live is Dictionary and live.get(_facility) is Dictionary:
+            var facility: Dictionary = live[_facility]
+            var goods: Variant = facility.get("module_stock", {})
+            if goods is Dictionary:
+                var stock: Variant = goods.get("stock", {})
+                if stock is Dictionary:
+                    for commodity in stock:
+                        lines.append("%s: %s ед." % [
+                            str(commodity), str(stock[commodity])])
+        if lines.is_empty():
+            lines.append("Подтверждённых локальных запасов нет: —")
+    elif _tab == "Производство":
+        return _production_text()
+    else:
+        lines.append(str(projection.get("subtitle", "")))
+        for item in projection.get("lines", []):
+            lines.append(str(item))
+    return "\n".join(lines)
+
+func _ship_window_text(projection: Dictionary) -> String:
+    if _ship.is_empty():
+        return "Выберите корабль на карте или в списке."
+    if _tab == "Груз":
+        var fleet: Variant = _economy.get("ships", {})
+        if fleet is Dictionary and fleet.get(_ship) is Dictionary:
+            var vessel: Dictionary = fleet[_ship]
+            var cargo: Variant = vessel.get("cargo", {})
+            if cargo is Dictionary:
+                var lines: Array[String] = ["ПОДТВЕРЖДЁННЫЙ ГРУЗ", ""]
+                for kind in cargo:
+                    lines.append("%s: %s ед." % [
+                        str(kind), str(cargo[kind])])
+                return "\n".join(lines)
+        return "Нет доступных данных о грузе: —"
+    var lines: Array[String] = [str(projection.get("subtitle", ""))]
+    for item in projection.get("lines", []):
+        lines.append(str(item))
+    return "\n".join(lines)
+
+func _ships_text(colony_only: bool, cargo_only: bool) -> String:
+    var lines: Array[String] = [
+        "КОРАБЛИ · ОДИН ЖИВОЙ СНИМОК N39", ""]
+    var fleet: Variant = _economy.get("ships", null)
+    if not (fleet is Dictionary):
+        return "Флот в текущем снимке ещё недоступен: —"
+    var count: int = 0
+    var locations: Dictionary = _locations_for_body(_effective_body())
+    for ship_id in fleet:
+        var row: Variant = fleet[ship_id]
+        if not (row is Dictionary):
+            continue
+        if colony_only and not locations.has(str(row.get("location", ""))):
+            continue
+        var name: String = str(row.get("name", ship_id))
+        var cargo: Variant = row.get("cargo", {})
+        if cargo_only:
+            lines.append("%s · груз: %s" % [name, str(cargo)])
+        else:
+            lines.append("%s · %s" % [name,
+                str(row.get("location", "—"))])
+        count += 1
+        if count >= 40:
+            lines.append("Показаны первые 40 кораблей; остальное — в N39.")
+            break
+    if count == 0:
+        lines.append("В этом представлении корабли не найдены.")
+    if colony_only:
+        lines.append("Список по текущей локации, не прогноз доставки.")
+    return "\n".join(lines)
+
+func _facility_signals() -> String:
+    var lines: Array[String] = [
+        "ПРОВЕРЕННЫЕ СИГНАЛЫ · ИЗНОС / ЗАБРОШЕННОСТЬ", ""]
+    var live: Variant = _economy.get("facilities", {})
+    var found: int = 0
+    if live is Dictionary:
+        for id in live:
+            var row: Variant = live[id]
+            if not (row is Dictionary):
+                continue
+            var abandoned: bool = bool(row.get("abandoned", false))
+            var damaged: bool = row.has("condition") and (
+                float(row["condition"]) < 0.8)
+            if not abandoned and not damaged:
+                continue
+            found += 1
+            lines.append("%s · %s" % [str(id),
+                "Заброшено" if abandoned else "Износ"])
+    if found == 0:
+        lines.append("Сигналов по известным состояниям не обнаружено.")
+    lines.append("")
+    lines.append("Причины дефицита отдельно не вычисляются без N39 данных.")
+    return "\n".join(lines)
 
 func _production_text() -> String:
     var lines: Array[String] = ["ПРЕДПРИЯТИЯ · ЖИВОЙ СНИМОК N39", ""]
@@ -607,9 +872,9 @@ func _production_text() -> String:
             continue
         found = true
         var id: String = str(facility.get("id", ""))
-        lines.append(str(facility.get("name", id)))
+        lines.append(FacilityNames.display_name(facility))
         lines.append("  Тип: %s · владелец: %s" % [
-            str(facility.get("type", "—")),
+            FacilityNames.type_name(str(facility.get("type", "—"))),
             str(facility.get("faction_id", "—"))])
         if live is Dictionary and live.get(id) is Dictionary:
             var row: Dictionary = live[id]
