@@ -310,13 +310,16 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
 
     var tmp: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
-    var encoded: String = _encode_checkpoint_text(snapshot)
-    if encoded.to_utf8_buffer().size() > MAX_SAVE_BYTES:
+    # Encode the actual on-disk UTF-8 payload once. The N38 size limit
+    # applies to bytes, not String length; reuse the measured buffer for
+    # writing instead of allocating a second full UTF-8 copy.
+    var encoded_bytes: PackedByteArray = _encode_checkpoint_text(snapshot).to_utf8_buffer()
+    if encoded_bytes.size() > MAX_SAVE_BYTES:
         return ERR_OUT_OF_MEMORY
     var file := FileAccess.open(tmp, FileAccess.WRITE)
     if file == null:
         return FileAccess.get_open_error()
-    file.store_string(encoded)
+    file.store_buffer(encoded_bytes)
     file.flush()
     var write_error: Error = file.get_error()
     file.close()
