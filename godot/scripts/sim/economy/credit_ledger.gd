@@ -33,6 +33,9 @@ var _fork_changed_shards: Dictionary = {}
 # append without recopying, until a fork shares it. Disabled until parity CI.
 var _reuse_private_shards: bool = OS.get_environment("LS_N9_PRIVATE_SHARD_REUSE") == "1"
 var _private_shards: Dictionary = {}
+# The current last order chunk is private only after its first detach.
+# A fork invalidates ownership in both parent and child.
+var _private_order_chunk: bool = false
 ## Exact per-kind counts, updated only on committed append or validated restore.
 ## A fork owns its counter dictionary: never mutate the parent's counters.
 var _receipt_kind_counts: Dictionary = {}
@@ -116,10 +119,16 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	var last: int = _receipt_order_chunks.size() - 1
 	if last < 0 or (_receipt_order_chunks[last] as Array).size() >= ORDER_CHUNK_SIZE:
 		_receipt_order_chunks.append([id])
+		_private_order_chunk = true
 	else:
-		var order: Array = (_receipt_order_chunks[last] as Array).duplicate()
-		order.append(id)
-		_receipt_order_chunks[last] = order
+		if _reuse_private_shards and _private_order_chunk:
+			# This array has not been shared by a fork since its last detach.
+			(_receipt_order_chunks[last] as Array).append(id)
+		else:
+			var order: Array = (_receipt_order_chunks[last] as Array).duplicate()
+			order.append(id)
+			_receipt_order_chunks[last] = order
+			_private_order_chunk = true
 	_receipt_count += 1
 	var kind: Variant = record.get("kind", null)
 	if kind is String:
@@ -330,6 +339,7 @@ func _profile_inner_fork() -> RefCounted:
 	# The new child shares every current shard. Invalidate ownership on
 	# the parent as well: it may still receive operations after this fork.
 	_private_shards.clear()
+	_private_order_chunk = false
 	# Fork owns a detached header from the parent; initializing 1024 empty
 	# shard dictionaries first is pure allocation overhead at every stage.
 	var child: RefCounted = get_script().new(true)
@@ -342,6 +352,7 @@ func _profile_inner_fork() -> RefCounted:
 	child.set("_receipt_count", _receipt_count)
 	child.set("_reuse_private_shards", _reuse_private_shards)
 	child.set("_private_shards", {})
+	child.set("_private_order_chunk", false)
 	child.set("_receipt_generation", _receipt_generation)
 	child.set("_fork_source", weakref(self))
 	child.set("_fork_source_generation", _receipt_generation)
