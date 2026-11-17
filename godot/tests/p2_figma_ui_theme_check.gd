@@ -7,6 +7,7 @@ func _initialize() -> void:
     var t: Theme = LSTheme.build()
     assert(t != null)
     assert(t.get_type_variation_base(&"LSPrimaryButton") == &"Button")
+    assert(t.get_type_variation_base(&"LSSecondaryButton") == &"Button")
     assert(t.get_type_variation_base(&"LSNavButton") == &"Button")
     assert(t.get_type_variation_base(&"LSTabButton") == &"Button")
     assert(t.get_type_variation_base(&"LSWindowPanel") == &"PanelContainer")
@@ -25,6 +26,16 @@ func _initialize() -> void:
     var root := Control.new()
     root.theme = t
     get_root().add_child(root)
+    var actions: Array[String] = []
+    var action_button: Button = LSComponents.action_button(
+        "Подробнее", func() -> void: actions.append("clicked"), true)
+    root.add_child(action_button)
+    assert(action_button.theme_type_variation == &"LSPrimaryButton")
+    action_button.pressed.emit()
+    assert(actions == ["clicked"])
+    var inactive: Button = LSComponents.action_button("—")
+    root.add_child(inactive)
+    assert(inactive.disabled)
     var tab: Button = LSComponents.tab("Обзор", true, func() -> void: pass)
     root.add_child(tab)
     assert(tab.theme_type_variation == &"LSActiveTabButton")
