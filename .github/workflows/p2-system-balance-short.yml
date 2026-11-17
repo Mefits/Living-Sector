@@ -1,47 +1,6 @@
 name: Living Sector SystemBalance geometry and orbital intercept short gate
 
 on:
-  push:
-    branches:
-      - feature/SystemBalance
-    paths:
-      - .github/workflows/p2-system-balance-short.yml
-      - godot/scripts/star_system_view.gd
-      - godot/scripts/ui_station_ship_projection.gd
-      - godot/tests/p2_sol_station_ship_alignment_check.gd
-      - godot/tests/p2_slow_sol_station_lod_check.gd
-      - godot/scripts/main.gd
-      - godot/scripts/sim/phase2/sol_physical_assets_projection.gd
-      - godot/scripts/sim/phase2/n158_real_owner_thread_probe.gd
-      - godot/tests/p2_sol_physical_assets_check.gd
-      - godot/tests/p2_ship_selection_check.gd
-      - godot/tests/p2_ship_scale_500_benchmark.gd
-      - godot/scripts/sim/world_model.gd
-      - godot/scripts/sim/ships/native_avoidance.gd
-      - godot/tests/p2_native_navigation_check.gd
-      - godot/tests/p2_moving_planet_avoidance_check.gd
-      - godot/tests/p2_n14_nav_500_check.gd
-      - godot/tests/p2_smooth_n14_navigation_check.gd
-      - godot/scripts/sim/orbits/native_satellite_orbit_profiles.gd
-      - godot/tests/p2_physical_satellite_orbits_check.gd
-      - godot/scripts/sim/ship_transit.gd
-      - godot/scripts/sim/ships/native_orbital_intercept.gd
-      - godot/scripts/sim/ships/native_location_resolver.gd
-      - godot/scripts/sim/phase2/unified_ship_phase.gd
-      - godot/scripts/sim/phase2/n158_production_runtime.gd
-      - godot/scripts/sim/event_queue.gd
-      - godot/scripts/sim/phase1/n39_native_world_production.gd
-      - godot/scripts/sim/economy/credit_ledger.gd
-      - godot/scripts/sim/phase2/unified_n153_contract_dispatch.gd
-      - godot/tests/p2_perf_pr262_head_500_tick_smoke.gd
-      - godot/tests/p2_perf_d_due_bulk_boundary_20261117.gd
-      - godot/tests/p2_runtime_read_projection_check.gd
-      - godot/tests/p2_seamless_zoom_check.gd
-      - godot/tests/p2_native_orbital_intercept_check.gd
-      - godot/tests/p2_unified_ship_phase_check.gd
-      - godot/tests/n14_transit_check.gd
-      - godot/tests/n43_native_location_resolver_check.gd
-      - godot/tests/p2_ship_transit_fuel_check.gd
   workflow_dispatch:
 
 permissions:
