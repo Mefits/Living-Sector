@@ -72,6 +72,8 @@ static func bounded_paid_tick_window(samples: Array, end_tick: int) -> Dictionar
         return {}
     var start_tick: int = maxi(1, end_tick - 99)
     var times: Array[int] = []
+    var projection_times: Array[int] = []
+    var request_times: Array[int] = []
     var projection_total: int = 0
     var request_total: int = 0
     var last_tick: int = start_tick - 1
@@ -92,12 +94,16 @@ static func bounded_paid_tick_window(samples: Array, end_tick: int) -> Dictionar
         if entry["request_wall_usec"] != entry["advance_wall_usec"] + entry["projection_wall_usec"]:
             return {}
         times.append(entry["advance_wall_usec"])
+        projection_times.append(entry["projection_wall_usec"])
+        request_times.append(entry["request_wall_usec"])
         projection_total += entry["projection_wall_usec"]
         request_total += entry["request_wall_usec"]
         last_tick = tick
     if times.is_empty():
         return {}
     times.sort()
+    projection_times.sort()
+    request_times.sort()
     var n: int = times.size()
     var p95_index: int = ceili(float(n) * 0.95) - 1
     var advance_total: int = request_total - projection_total
@@ -108,7 +114,9 @@ static func bounded_paid_tick_window(samples: Array, end_tick: int) -> Dictionar
         "advance_wall_avg_usec": float(advance_total) / float(n),
         "advance_wall_p95_usec": times[p95_index],
         "projection_wall_avg_usec": float(projection_total) / float(n),
+        "projection_wall_p95_usec": projection_times[p95_index],
         "request_wall_avg_usec": float(request_total) / float(n),
+        "request_wall_p95_usec": request_times[p95_index],
         "time_kind": "elapsed_wall_not_cpu"
     }
 
