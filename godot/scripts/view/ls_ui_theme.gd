@@ -4,11 +4,16 @@ extends RefCounted
 ## migrated incrementally; the world and interaction routes are unchanged.
 const THEME_SOURCE: Theme = preload("res://ui/living_sector_theme.tres")
 
-static func _flat(bg: Color, edge: Color, bottom: int = 0, xpad: int = 0, ypad: int = 0) -> StyleBoxFlat:
+static func _flat(bg: Color, edge: Color, bottom: int = 0,
+        xpad: int = 0, ypad: int = 0, left: int = 0,
+        top: int = 0, right: int = 0) -> StyleBoxFlat:
     var box := StyleBoxFlat.new()
     box.bg_color = bg
     box.border_color = edge
     box.border_width_bottom = bottom
+    box.border_width_left = left
+    box.border_width_top = top
+    box.border_width_right = right
     box.content_margin_left = xpad
     box.content_margin_right = xpad
     box.content_margin_top = ypad
@@ -35,8 +40,8 @@ static func build() -> Theme:
     # Preserve the original 12×10px padding while moving style ownership
     # to Theme. Disabled buttons do not inherit interactive hover effects.
     var action_normal := _flat(Color("#122631"), Color.TRANSPARENT, 0, 12, 10)
-    var action_hover := _flat(Color("#18343B"), Color("#243942"), 1, 12, 10)
-    var action_pressed := _flat(Color("#1F4248"), Color("#243942"), 1, 12, 10)
+    var action_hover := _flat(Color("#18343B"), Color("#243942"), 1, 12, 10, 1, 1, 1)
+    var action_pressed := _flat(Color("#1F4248"), Color("#243942"), 1, 12, 10, 1, 1, 1)
     var action_focus := _flat(Color.TRANSPARENT, Color.TRANSPARENT)
     for variation in [&"LSPrimaryButton", &"LSSecondaryButton"]:
         ui_theme.set_font_size(&"font_size", variation, 13)
@@ -70,9 +75,9 @@ static func build() -> Theme:
 
     # Distinct panel variants reuse the same shared style across pages.
     ui_theme.set_stylebox(&"panel", &"LSSectionPanel",
-        _flat(Color("#0B1921"), Color("#263E45"), 1))
+        _flat(Color("#0B1921"), Color("#263E45"), 1, 0, 0, 1, 1, 1))
     ui_theme.set_stylebox(&"panel", &"LSMetricPanel",
-        _flat(Color("#0D1F27"), Color("#20373F"), 1, 10, 6))
+        _flat(Color("#0D1F27"), Color("#20373F"), 0, 10, 6, 0, 0, 1))
     ui_theme.set_color(&"font_color", &"LSMutedLabel", Color("#748B92"))
     ui_theme.set_font_size(&"font_size", &"LSMutedLabel", 9)
     ui_theme.set_color(&"font_color", &"LSMetricCaption", Color("#748B92"))
