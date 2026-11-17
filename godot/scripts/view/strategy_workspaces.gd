@@ -567,27 +567,8 @@ func _table_row(parent: Node, cells: Array, layout: Array[Vector2],
 
 func _link(parent: Node, label: String,
         mode: String, tab: String, focus: String = "") -> void:
-    var action := _button(label, func() -> void:
-        navigate_requested.emit(mode, tab, focus), true)
-    action.alignment = HORIZONTAL_ALIGNMENT_LEFT
-    action.custom_minimum_size.y = 29
-    action.add_theme_font_size_override("font_size", 10)
-    var normal := _box(Color("#0D1E26"), false)
-    normal.border_width_top = 1
-    normal.border_color = Color("#294049")
-    normal.content_margin_left = 9
-    normal.content_margin_right = 9
-    normal.content_margin_top = 4
-    normal.content_margin_bottom = 4
-    action.add_theme_stylebox_override("normal", normal)
-    var hover := _box(Color("#132D34"), false)
-    hover.border_width_top = 1
-    hover.border_color = TEAL
-    hover.content_margin_left = 9
-    hover.content_margin_right = 9
-    hover.content_margin_top = 4
-    hover.content_margin_bottom = 4
-    action.add_theme_stylebox_override("hover", hover)
+    var action := LSComponents.section_link(label, func() -> void:
+        navigate_requested.emit(mode, tab, focus))
     action.tooltip_text = "Открыть раздел «%s» → %s" % [
         str(TITLES.get(mode, mode)), tab]
     parent.add_child(action)
@@ -596,26 +577,8 @@ func _issue_line(parent: Node, headline: String, description: String,
         on_open: Callable, critical: bool = true) -> void:
     # Figma .issue-line: native 47px clickable alert with icon, two lines
     # and a compact action on the right. Values come from N39 only.
-    var button := Button.new()
-    button.text = ""
-    button.focus_mode = Control.FOCUS_NONE
-    button.custom_minimum_size.y = 49
-    button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    var button: Button = LSComponents.issue_button(critical, on_open)
     button.tooltip_text = headline + "\n" + description
-    var base := _box(Color("#201A14") if critical else Color("#0D2029"), false)
-    base.border_width_top = 1
-    base.border_color = Color("#59442D") if critical else Color("#20343B")
-    base.set_content_margin_all(0)
-    button.add_theme_stylebox_override("normal", base)
-    var hover := _box(Color("#2B241A") if critical else Color("#173038"), false)
-    hover.border_width_top = 1
-    hover.border_color = AMBER if critical else TEAL
-    hover.set_content_margin_all(0)
-    button.add_theme_stylebox_override("hover", hover)
-    if on_open.is_valid():
-        button.pressed.connect(on_open)
-    else:
-        button.disabled = true
     parent.add_child(button)
     var row := HBoxContainer.new()
     row.mouse_filter = Control.MOUSE_FILTER_IGNORE
