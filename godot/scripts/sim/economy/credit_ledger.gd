@@ -333,6 +333,18 @@ func _profile_inner_fork() -> RefCounted:
 	child.set("_receipt_kind_counts", _receipt_kind_counts.duplicate())
 	child.set("_flat_receipt_cache", _flat_receipt_cache)
 	child.set("_flat_cache_count", _flat_cache_count)
+	# Preserve opt-in paid-path counters across authoritative COW generations.
+	# Otherwise each committed fork resets the totals and late-tick append/
+	# snapshot costs appear to vanish. Counters remain diagnostic-only and
+	# are never included in N38 snapshots or shared as mutable containers.
+	if _profile_append:
+		child.set("_profile_append_calls", _profile_append_calls)
+		child.set("_profile_append_usec", _profile_append_usec)
+		child.set("_profile_append_max_usec", _profile_append_max_usec)
+		child.set("_profile_append_old_shard_rows", _profile_append_old_shard_rows)
+		child.set("_profile_snapshot_calls", _profile_snapshot_calls)
+		child.set("_profile_snapshot_usec", _profile_snapshot_usec)
+		child.set("_profile_snapshot_max_usec", _profile_snapshot_max_usec)
 	return child
 
 ## Validate old immutable N9 receipt provenance by scanning the existing
