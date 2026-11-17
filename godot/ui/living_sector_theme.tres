@@ -1,0 +1,110 @@
+[gd_resource type="Theme" load_steps=8 format=3]
+
+[sub_resource type="StyleBoxFlat" id="button_normal"]
+bg_color = Color("#122631")
+border_color = Color("#243942")
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+content_margin_left = 9.0
+content_margin_top = 5.0
+content_margin_right = 9.0
+content_margin_bottom = 5.0
+anti_aliasing = false
+
+[sub_resource type="StyleBoxFlat" id="button_hover"]
+bg_color = Color("#18343B")
+border_color = Color("#53B5AC")
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+content_margin_left = 9.0
+content_margin_top = 5.0
+content_margin_right = 9.0
+content_margin_bottom = 5.0
+anti_aliasing = false
+
+[sub_resource type="StyleBoxFlat" id="button_pressed"]
+bg_color = Color("#1F4248")
+border_color = Color("#53B5AC")
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+content_margin_left = 9.0
+content_margin_top = 5.0
+content_margin_right = 9.0
+content_margin_bottom = 5.0
+anti_aliasing = false
+
+[sub_resource type="StyleBoxFlat" id="button_disabled"]
+bg_color = Color("#0D1B24")
+border_color = Color("#243942")
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+content_margin_left = 9.0
+content_margin_top = 5.0
+content_margin_right = 9.0
+content_margin_bottom = 5.0
+anti_aliasing = false
+
+[sub_resource type="StyleBoxFlat" id="panel"]
+bg_color = Color("#09141C")
+border_color = Color("#31505A")
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+content_margin_left = 0.0
+content_margin_top = 5.0
+content_margin_right = 0.0
+content_margin_bottom = 5.0
+anti_aliasing = false
+
+[sub_resource type="StyleBoxFlat" id="input"]
+bg_color = Color("#071218")
+border_color = Color("#273E45")
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+content_margin_left = 7.0
+content_margin_top = 5.0
+content_margin_right = 7.0
+content_margin_bottom = 5.0
+anti_aliasing = false
+
+[sub_resource type="StyleBoxFlat" id="input_focus"]
+bg_color = Color("#071218")
+border_color = Color("#53B5AC")
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+content_margin_left = 7.0
+content_margin_top = 5.0
+content_margin_right = 7.0
+content_margin_bottom = 5.0
+anti_aliasing = false
+
+[resource]
+default_font_size = 13
+Button/colors/font_color = Color("#C4D0D3")
+Button/colors/font_hover_color = Color("#A4E8DE")
+Button/colors/font_pressed_color = Color("#D2ECE9")
+Button/colors/font_disabled_color = Color("#748B92")
+Button/styles/normal = SubResource("button_normal")
+Button/styles/hover = SubResource("button_hover")
+Button/styles/pressed = SubResource("button_pressed")
+Button/styles/disabled = SubResource("button_disabled")
+PanelContainer/styles/panel = SubResource("panel")
+LineEdit/colors/font_color = Color("#C4D0D3")
+LineEdit/colors/font_placeholder_color = Color("#748B92")
+LineEdit/styles/normal = SubResource("input")
+LineEdit/styles/focus = SubResource("input_focus")
+Label/colors/font_color = Color("#C4D0D3")
+Label/font_sizes/font_size = 13
