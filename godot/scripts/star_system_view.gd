@@ -7,6 +7,7 @@ extends Control
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
 signal ship_selected(ship_id: String)
+signal facility_selected(facility_id: String)
 
 const MIN_ZOOM: float = 0.45
 const MAX_ZOOM: float = 512.0
@@ -42,6 +43,9 @@ const ORBIT_LINE_OPACITY: float = 0.30
 const SATELLITE_ORBIT_LINE_OPACITY: float = 0.25
 const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
+const SolAssets = preload("res://scripts/sim/phase2/sol_physical_assets_projection.gd")
+const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
+const SolOrbits = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
 ## Native Galaxy 0.6.7 stores heliocentric radius/period/angle for ALL
 ## bodies and has NO parent identifier. Do not rewrite Rust orbit physics.
@@ -79,6 +83,15 @@ var _ships_by_body: Dictionary = {}
 var _ship_ids_by_body: Dictionary = {}
 var _ship_pins: Array = []
 var _selected_ship_id: String = ""
+var _selected_facility_id: String = ""
+var _physical_assets: Dictionary = {"orbital": [], "surface": []}
+var _live_facility_status: Dictionary = {}
+var _facility_pins: Array = []
+var _native_station_time: float = 0.0
+var _native_station_time_from: float = 0.0
+var _station_time_started_usec: int = -1
+var _station_time_duration_usec: int = 0
+var _last_station_sample_usec: int = -1
 var _max_orbit_radius: float = 1.0
 ## Per-draw screen projection, invalidated on EVERY draw. Includes zoom,
 ## pan, viewport size and source angles; never reused across real ticks.
@@ -114,6 +127,7 @@ func _rebuild_body_index() -> void:
             float(body.get("orbit_radius", 0.0)))
 
 func _rebuild_facility_index() -> void:
+    _physical_assets = SolAssets.build(_world)
     _facilities_by_body.clear()
     _body_ids_by_location.clear()
     for value in _world.get("facilities", []):
@@ -230,6 +244,9 @@ func _process(delta: float) -> void:
 
     var now_usec: int = Time.get_ticks_usec()
     if camera_changed or (
+            _station_time_started_usec >= 0 and (
+            VisualMotion.alpha(_station_time_started_usec,
+                _station_time_duration_usec, now_usec) < 1.0)) or (
             not _body_motion_from.is_empty() and
             VisualMotion.alpha(_body_motion_started_usec,
                 _body_motion_duration_usec, now_usec) < 1.0) or (
@@ -245,7 +262,13 @@ func set_world(world: Dictionary) -> void:
     _rebuild_facility_index()
     _selected_body_id = ""
     _selected_ship_id = ""
+    _selected_facility_id = ""
     _ship_pins.clear()
+    _facility_pins.clear()
+    _live_facility_status.clear()
+    _native_station_time = 0.0
+    _native_station_time_from = 0.0
+    _station_time_started_usec = -1
     _focused_body_id = ""
     _zoom = 1.0
     _pan = Vector2.ZERO
@@ -371,16 +394,75 @@ func update_world(world: Dictionary) -> void:
         queue_redraw()
 
 func select_body(body_id: String) -> void:
-    if _selected_body_id == body_id and _selected_ship_id.is_empty():
+    if _selected_body_id == body_id and _selected_ship_id.is_empty() and (
+            _selected_facility_id.is_empty()):
         return
     _selected_body_id = body_id
     _selected_ship_id = ""
+    _selected_facility_id = ""
     queue_redraw()
+
+func select_facility(facility_id: String) -> void:
+    var found: bool = false
+    for group in ["orbital", "surface"]:
+        for facility in _physical_assets.get(group, []):
+            if str(facility.get("id", "")) == facility_id:
+                found = true
+                break
+    if not found:
+        return
+    _selected_facility_id = facility_id
+    _selected_ship_id = ""
+    _selected_body_id = ""
+    queue_redraw()
+
+
+## One native scalar from the real N158 calendar, not another simulation.
+## The station uses exactly the N43 initial phase and orbit period.
+func set_native_station_time(native_units: float) -> void:
+    if not is_finite(native_units) or native_units < 0.0:
+        return
+    if is_equal_approx(_native_station_time, native_units):
+        return
+    var now: int = Time.get_ticks_usec()
+    _native_station_time_from = _visual_station_time(now)
+    _native_station_time = native_units
+    _station_time_duration_usec = VisualMotion.sample_duration(
+        _last_station_sample_usec, now, 160000)
+    _station_time_started_usec = now
+    _last_station_sample_usec = now
+    queue_redraw()
+
+
+func _visual_station_time(now: int) -> float:
+    if _station_time_started_usec < 0:
+        return _native_station_time
+    var alpha: float = VisualMotion.alpha(_station_time_started_usec,
+        _station_time_duration_usec, now)
+    # Interpolate orbital PHASE rather than huge absolute time when
+    # accelerated ticks skip multiple station revolutions.
+    var from_angle: float = fposmod(
+        _native_station_time_from * 360.0 / N43.FACILITY_ORBIT_PERIOD, 360.0)
+    var current_angle: float = fposmod(
+        _native_station_time * 360.0 / N43.FACILITY_ORBIT_PERIOD, 360.0)
+    return VisualMotion.orbit_angle(from_angle, current_angle, alpha)
+
+
+func set_live_facilities(facilities: Dictionary) -> void:
+    var projected: Dictionary = {}
+    for group in ["orbital", "surface"]:
+        for facility in _physical_assets.get(group, []):
+            projected[str(facility["id"])] = SolAssets.live_status(
+                facility, facilities)
+    if projected != _live_facility_status:
+        _live_facility_status = projected
+        queue_redraw()
 
 func select_ship(ship_id: String) -> void:
     if not _live_fleet.has(ship_id):
         return
     _selected_ship_id = ship_id
+    _selected_facility_id = ""
     _selected_body_id = ""
     queue_redraw()
 
@@ -681,6 +763,7 @@ func _draw_system() -> void:
     draw_rect(Rect2(Vector2.ZERO, size), BACKGROUND, true)
     _body_pins.clear()
     _ship_pins.clear()
+    _facility_pins.clear()
     if _world.is_empty():
         return
     var system: Dictionary = _world.get("system", {})
@@ -745,12 +828,8 @@ func _draw_system() -> void:
         if picked:
             draw_arc(position, visual_radius + 7.0, 0.0, TAU, 40,
                 Color(0.65, 0.92, 0.98, moon_fade), 1.8, true)
-        var attached: int = _facility_count(bid)
-        if attached > 0:
-            # A small outlined square denotes a real seed facility/station
-            # anchor; it does NOT imply that ship traffic is already active.
-            draw_rect(Rect2(position + Vector2(visual_radius + 3.0, 4.0),
-                Vector2(5.0, 5.0)), Color("#e5c98b"), true)
+        # Facilities have their OWN real IDs and orbital/surface map
+        # objects, not a decorative facility-count square on the planet.
         var local_ships: int = _live_ship_count(bid)
         if local_ships > 0:
             # The marker represents real ships AT this location; active
@@ -781,6 +860,9 @@ func _draw_system() -> void:
         if moon_fade >= 0.5:
             _body_pins.append({"body": body, "position": position,
                 "hit_radius": maxf(22.0, visual_radius + 9.0)})
+    # Real source-backed stations and surface enterprises are drawn
+    # independently. No extra N39/N9 objects are generated in the UI.
+    _draw_physical_sol_assets(scale)
     # Draw ONLY ships with a real committed N14 transit.position. The
     # radial display is compressed by the same source orbit transform as
     # the planets; there is no fabricated travel or per-frame motion.
@@ -791,6 +873,99 @@ func _draw_system() -> void:
     draw_string(font, Vector2(14.0, size.y - 14.0),
         "Колесо: бесшовный масштаб до поверхности · двойной клик: приблизить планету · условные расстояния",
         HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#7d9cad"))
+
+
+## The orbital station is the actual source N39 station facility at the
+## same native location N43 uses for N14 arrivals. Only the radius glyph is
+## expanded outside the schematic globe icon to keep it clickable.
+func _draw_physical_sol_assets(scale: float) -> void:
+    if str(_world.get("system", {}).get("id", "")) != "system-sol":
+        return
+    var font: Font = get_theme_default_font()
+    for facility in _physical_assets.get("orbital", []):
+        var parent: Dictionary = _body_by_id(str(facility["body"]))
+        if parent.is_empty():
+            continue
+        var body_pos: Vector2 = _body_position(parent, scale)
+        var body_radius: float = _body_size(parent)
+        var source_angle: float = float(N43.initial_facility_angle(
+            str(facility["location"])))
+        var native_angle: float = fposmod(
+            source_angle + _visual_station_time(_draw_now_usec), 360.0)
+        var direction: Vector2 = Vector2(
+            cos(deg_to_rad(native_angle)), -sin(deg_to_rad(native_angle)))
+        var local_native: float = SolOrbits.compact_station_orbit_radius(
+            str(facility["body"]))
+        if local_native <= 0.0:
+            continue
+        var physical_compressed: float = pow(
+            local_native, SATELLITE_COMPRESSION) * scale * _zoom
+        var display_radius: float = maxf(
+            body_radius + 20.0, physical_compressed)
+        var pos: Vector2 = body_pos + direction * display_radius
+        if _zoom >= 2.0:
+            draw_arc(body_pos, display_radius, 0, TAU, 60,
+                Color(0.35, 0.51, 0.59, 0.24), 1.0, true)
+        var tone: Color = Color("#e6c48d")
+        if str(facility["id"]) == _selected_facility_id:
+            draw_arc(pos, 12.0, 0, TAU, 24,
+                Color("#fff4c5"), 1.6, true)
+        # Compact industrial hub: central hull, two radial docking arms,
+        # solar collectors. The icon is visual, not a fake N39 module.
+        draw_rect(Rect2(pos - Vector2(5, 4), Vector2(10, 8)),
+            tone, true)
+        draw_line(pos + Vector2(-12, 0), pos + Vector2(12, 0),
+            tone, 1.5)
+        draw_rect(Rect2(pos + Vector2(-16, -3), Vector2(6, 6)),
+            Color("#6ca1ba"), true)
+        draw_rect(Rect2(pos + Vector2(10, -3), Vector2(6, 6)),
+            Color("#6ca1ba"), true)
+        _facility_pins.append({"id": str(facility["id"]),
+            "position": pos, "hit_radius": 15.0})
+        if _zoom >= 7.0 or _focused_body_id == str(facility["body"]):
+            draw_string(font, pos + Vector2(17, -9),
+                "Орбитальная станция", HORIZONTAL_ALIGNMENT_LEFT,
+                -1, 12, Color("#dfc8a4"))
+    # Ground facilities are *real* N39 enterprise IDs, not synthetic
+    # site slots. Their surface coordinates are explicitly schematic
+    # until a physical colony land-placement model is designed.
+    for facility in _physical_assets.get("surface", []):
+        var parent: Dictionary = _body_by_id(str(facility["body"]))
+        if parent.is_empty():
+            continue
+        var body_radius: float = _body_size(parent)
+        if body_radius < DETAIL_RADIUS:
+            continue
+        var alpha: float = _surface_detail_alpha(parent)
+        if alpha < 0.10:
+            continue
+        var body_pos: Vector2 = _body_position(parent, scale)
+        var site: Vector2 = facility["site"]
+        var pos: Vector2 = body_pos + site * body_radius
+        var kind: String = str(facility["type"])
+        var tone: Color = Color("#d6c9a1", alpha)
+        if kind == "farm":
+            tone = Color(0.65, 0.85, 0.60, alpha)
+        elif kind == "mining_rig":
+            tone = Color(0.88, 0.72, 0.53, alpha)
+        elif kind == "refinery":
+            tone = Color(0.70, 0.81, 0.88, alpha)
+        var icon_size: float = clampf(body_radius * 0.070, 4.5, 9.0)
+        draw_rect(Rect2(pos - Vector2(icon_size, icon_size * 0.65),
+            Vector2(icon_size * 2.0, icon_size * 1.3)),
+            tone, true)
+        draw_line(pos + Vector2(icon_size * 0.5, -icon_size * 0.65),
+            pos + Vector2(icon_size * 0.5, -icon_size * 1.5),
+            tone, 2.0)
+        if str(facility["id"]) == _selected_facility_id:
+            draw_arc(pos, icon_size + 5.0, 0, TAU, 22,
+                Color("#fff4c5"), 1.5, true)
+        _facility_pins.append({"id": str(facility["id"]),
+            "position": pos, "hit_radius": maxf(10.0, icon_size + 5.0)})
+        if body_radius > 112.0:
+            draw_string(font, pos + Vector2(icon_size + 5, -6),
+                str(facility["name"]), HORIZONTAL_ALIGNMENT_LEFT,
+                -1, 11, Color(0.88, 0.90, 0.85, alpha))
 
 
 ## Surface placeholders grow in place on the very same orbital map.
@@ -983,6 +1158,12 @@ func _pick_ship(pointer: Vector2) -> bool:
 func _pick(pointer: Vector2, open_body: bool = false) -> void:
     if _pick_ship(pointer):
         return
+    for pin in _facility_pins:
+        if pointer.distance_to(pin["position"]) <= float(
+                pin.get("hit_radius", 12.0)):
+            select_facility(str(pin["id"]))
+            facility_selected.emit(str(pin["id"]))
+            return
     var chosen: Dictionary = {}
     var nearest: float = INF
     for pin in _body_pins:
