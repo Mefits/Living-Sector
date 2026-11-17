@@ -81,7 +81,6 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
             _positions[str(moved["id"])] = index
         _pending.pop_back()
         _positions.erase(event_id)
-        _ids.erase(event_id)
     _due_ids.erase(boundary)
     if result.size() > 1:
         result.sort_custom(Callable(self, "_less"))
