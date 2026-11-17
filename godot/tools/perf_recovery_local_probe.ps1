@@ -6,6 +6,7 @@ param(
     [string]$CandidateCommit = "dd1f859462900473598410d1d32d7daf6618db9f",
     [string]$OutputDir = (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "LivingSectorPerf"),
     [int]$LimitMinutes = 10,
+    [string]$RepoRoot = "",
     [switch]$KeepSnapshots
 )
 Set-StrictMode -Version Latest
@@ -15,7 +16,8 @@ if (!(Test-Path -LiteralPath $GodotExe -PathType Leaf)) {
     throw "Godot executable not found: $GodotExe. Supply -GodotExe with the correct path."
 }
 $git = (Get-Command git -ErrorAction Stop).Source
-$repoRoot = (& $git -C $PSScriptRoot rev-parse --show-toplevel).Trim()
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) { $RepoRoot = $PSScriptRoot }
+$repoRoot = (& $git -C $RepoRoot rev-parse --show-toplevel).Trim()
 if ($LASTEXITCODE -ne 0 -or !$repoRoot) { throw "Run this script from a Git working tree." }
 $prefix = $CandidateCommit.Substring(0, [Math]::Min(12, $CandidateCommit.Length))
 $runDir = Join-Path $OutputDir ("probe-" + $prefix + "-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -90,7 +92,8 @@ try {
     $summaryPath = Join-Path $runDir "perf-summary.json"
     $summary | ConvertTo-Json -Depth 16 | Set-Content -Path $summaryPath -Encoding UTF8
     Write-Host "PERF_LOCAL_PROFILE_DONE stop_tick=$($last.tick) output=$summaryPath"
-    Write-Host "Windows: $($rows | ForEach-Object { $_.tick.ToString() + '=' + $_.window_average_ms + 'ms' } | Join-String -Separator ', ' )"
+    $windowBrief = (($rows | ForEach-Object { $_.tick.ToString() + "=" + $_.window_average_ms + "ms" }) -join ", ")
+    Write-Host "Windows: $windowBrief"
     if ($KeepSnapshots) {
         $snapDir = Join-Path $godotProject "logs/late-growth"
         if (Test-Path $snapDir) {
