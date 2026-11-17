@@ -687,7 +687,10 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 		var kind: Variant = receipts[id].get("kind", null)
 		if kind is String:
 			next_kind_counts[kind] = int(next_kind_counts.get(kind, 0)) + 1
-	_balances = candidate.duplicate(true)
+	# Account values were validated above as scalar i64 credits. A shallow
+	# copy is fully detached from untrusted N38 input; deep-copying every
+	# account again adds avoidable traversal/allocation on large restores.
+	_balances = candidate.duplicate()
 	_receipt_partitions = partitions
 	_receipt_order_chunks = order_chunks
 	_receipt_count = next_count
@@ -696,6 +699,9 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 	_fork_source_generation = -1
 	_fork_changed_shards = {}
 	_private_shards = {}
+	# Restored order chunks are a new lineage. Never carry a pre-restore
+	# private-tail marker across an untrusted history replacement.
+	_private_order_chunk = false
 	_receipt_kind_counts = next_kind_counts
 	_flat_receipt_cache = {}
 	_flat_cache_count = -1
