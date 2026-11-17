@@ -448,7 +448,8 @@ func _build_footer() -> void:
 # the exact 64px Figma rail without sacrificing readable labels.
 func _rail_utility_button(caption: String,
         action: Callable) -> Button:
-    var btn := _button("", action, 9)
+    var btn: Button = LSComponents.action_button("", action)
+    btn.theme_type_variation = &"LSNavUtilityButton"
     btn.custom_minimum_size = Vector2(48, 29)
     var text_label := _label(caption, 9, TEXT)
     text_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -460,15 +461,9 @@ func _rail_utility_button(caption: String,
 func _build_left() -> void:
     # Figma Make .leftnav: width 64px, rows 58px, icon + Russian caption
     # + numeric keyboard hint. Physical readability comes from UI scaling.
-    _rail = _panel()
-    # Figma uses ~5px horizontal padding. With Godot's 8px native
-    # scrollbar width and a 48px nav item, the old 8+8 padding forced
-    # 72px instead of the required 64px.
-    var rail_style := _style(Color("#08131C"),
-        Color("#294049"), 0, 0, 1, 0)
-    rail_style.content_margin_left = 4
-    rail_style.content_margin_right = 4
-    _rail.add_theme_stylebox_override("panel", rail_style)
+    # Native 64px Figma left rail; shared Theme owns gradient fallback,
+    # border and padding instead of a private StyleBox per scene.
+    _rail = LSComponents.chrome_panel(&"LSRailPanel")
     _rail.anchor_bottom = 1.0
     _rail.offset_top = TOP_H
     _rail.offset_right = RAIL_W
@@ -498,11 +493,11 @@ func _build_left() -> void:
         {"name":"Управление", "action":"administration", "icon":"administration", "key":"6"}
     ]:
         var action: String = str(spec["action"])
-        var btn := _button("", _activate.bind(action), 9)
+        var btn: Button = LSComponents.action_button(
+            "", _activate.bind(action))
+        btn.theme_type_variation = &"LSNavButton"
         btn.custom_minimum_size = Vector2(48, 58)
         btn.tooltip_text = str(spec["name"]) + " [" + str(spec["key"]) + "]"
-        btn.add_theme_stylebox_override("normal",
-            _style(Color("#08131C"), LINE, 0, 0, 0, 1))
         menu.add_child(btn)
         _rail_buttons[action] = btn
         var content := VBoxContainer.new()
@@ -609,16 +604,13 @@ func _sync_rail_active() -> void:
     for action in _rail_buttons:
         var btn: Button = _rail_buttons[action]
         var selected: bool = str(action) == current
-        btn.add_theme_stylebox_override("normal", _style(
-            Color("#153139") if selected else Color("#08131C"),
-            TEAL if selected else LINE, 2 if selected else 0, 0, 0, 1))
+        btn.theme_type_variation = (
+            &"LSNavButtonSelected" if selected else &"LSNavButton")
 
 func _build_outliner() -> void:
-    _outliner = _panel()
+    _outliner = LSComponents.chrome_panel(&"LSOutlinerPanel")
     _outliner.z_index = 25
     _outliner.mouse_filter = Control.MOUSE_FILTER_STOP
-    _outliner.add_theme_stylebox_override("panel",
-        _style(Color("#09141C"), Color("#31505A")))
     _outliner.anchor_left = 1.0
     _outliner.anchor_right = 1.0
     _outliner.anchor_bottom = 1.0
@@ -630,10 +622,13 @@ func _build_outliner() -> void:
     var col := VBoxContainer.new()
     col.add_theme_constant_override("separation", 7)
     _outliner.add_child(col)
+    var header_bg: PanelContainer = LSComponents.chrome_panel(
+        &"LSOutlinerHeader")
+    col.add_child(header_bg)
     var head := HBoxContainer.new()
-    head.custom_minimum_size.y = 43
+    head.custom_minimum_size.y = 50
     head.add_theme_constant_override("separation", 5)
-    col.add_child(head)
+    header_bg.add_child(head)
     var header_titles := VBoxContainer.new()
     header_titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     header_titles.add_theme_constant_override("separation", 2)
