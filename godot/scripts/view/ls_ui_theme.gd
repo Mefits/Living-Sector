@@ -36,6 +36,11 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSHeaderResourceIcon", &"Label")
     ui_theme.set_type_variation(&"LSHeaderClock", &"Label")
     ui_theme.set_type_variation(&"LSFooterDiagnostic", &"Label")
+    ui_theme.set_type_variation(&"LSRailPanel", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSOutlinerPanel", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSOutlinerHeader", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSNavButtonSelected", &"LSNavButton")
+    ui_theme.set_type_variation(&"LSNavUtilityButton", &"LSNavButton")
     ui_theme.set_type_variation(&"LSPrimaryButton", &"Button")
     ui_theme.set_type_variation(&"LSSecondaryButton", &"Button")
     ui_theme.set_type_variation(&"LSNavButton", &"Button")
@@ -113,6 +118,36 @@ static func build() -> Theme:
     ui_theme.set_font_size(&"font_size", &"LSHeaderClock", 10)
     ui_theme.set_color(&"font_color", &"LSFooterDiagnostic", Color("#53B5AC"))
     ui_theme.set_font_size(&"font_size", &"LSFooterDiagnostic", 9)
+
+    # Figma Make left navigation (64px rail, 58px targets) and 264px outliner.
+    var rail_box := _flat(Color("#08131C"), Color("#294049"),
+        0, 4, 0, 0, 0, 1)
+    rail_box.content_margin_top = 8
+    rail_box.content_margin_bottom = 6
+    ui_theme.set_stylebox(&"panel", &"LSRailPanel", rail_box)
+    var outliner_box := _flat(Color("#09141C"), Color("#31505A"),
+        1, 0, 0, 1, 1, 1)
+    outliner_box.shadow_size = 8
+    outliner_box.shadow_color = Color(0, 0, 0, 0.65)
+    ui_theme.set_stylebox(&"panel", &"LSOutlinerPanel", outliner_box)
+    ui_theme.set_stylebox(&"panel", &"LSOutlinerHeader",
+        _flat(Color("#122832"), Color("#243942"), 1, 13, 0))
+    ui_theme.set_stylebox(&"normal", &"LSNavButton",
+        _flat(Color("#08131C"), Color("#243942"), 1))
+    ui_theme.set_stylebox(&"hover", &"LSNavButton",
+        _flat(Color("#12242C"), Color("#243942"), 1))
+    ui_theme.set_stylebox(&"pressed", &"LSNavButton",
+        _flat(Color("#153139"), Color("#53B5AC"), 1, 0, 0, 2))
+    ui_theme.set_stylebox(&"normal", &"LSNavButtonSelected",
+        _flat(Color("#153139"), Color("#53B5AC"), 1, 0, 0, 2))
+    ui_theme.set_stylebox(&"hover", &"LSNavButtonSelected",
+        _flat(Color("#1B3B40"), Color("#53B5AC"), 1, 0, 0, 2))
+    ui_theme.set_stylebox(&"focus", &"LSNavButton",
+        _flat(Color.TRANSPARENT, Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"normal", &"LSNavUtilityButton",
+        _flat(Color("#08131C"), Color("#243942"), 1))
+    ui_theme.set_stylebox(&"hover", &"LSNavUtilityButton",
+        _flat(Color("#12242C"), Color("#243942"), 1))
 
     # Ordinary workspace actions, previously rebuilt via _box() per control.
     # Preserve the original 12×10px padding while moving style ownership
