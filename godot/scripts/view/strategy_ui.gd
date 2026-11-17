@@ -47,6 +47,11 @@ var _clock: Label
 var _perf_readout: Label
 var _perf_detail_text: String = ""
 var _pause: Button
+var _alert_button: Button
+var _alerts_popover: PanelContainer
+var _alerts_contents: VBoxContainer
+var _alerts_signature: String = ""
+var _footer_status: Label
 var _outliner: PanelContainer
 var _outliner_list: VBoxContainer
 var _outliner_signature: String = ""
@@ -130,11 +135,13 @@ func _ready() -> void:
     mouse_filter = Control.MOUSE_FILTER_IGNORE
     set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _build_top()
+    _build_alerts()
     _build_left()
     _build_outliner()
     _build_navigation()
     _build_window()
     _build_selection_card()
+    _build_footer()
     resized.connect(_layout_window)
     set_process_unhandled_key_input(true)
     _layout_window()
@@ -168,6 +175,12 @@ func _build_top() -> void:
         var large := _label(str(item["symbol"]) + " —", 20, TEXT)
         box.add_child(large)
         _metric_nodes[str(item["key"])] = large
+    _alert_button = _button("", _toggle_alerts, 15)
+    _alert_button.icon = FigmaIcons.texture("alert", 20, AMBER)
+    _alert_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    _alert_button.tooltip_text = "Журнал важных сигналов N39"
+    _alert_button.custom_minimum_size = Vector2(40, 0)
+    row.add_child(_alert_button)
     var time_area := VBoxContainer.new()
     _time_area = time_area
     time_area.custom_minimum_size = Vector2(210, 0)
@@ -189,6 +202,105 @@ func _build_top() -> void:
     var faster := _button("×16", _fast_speed)
     faster.custom_minimum_size = Vector2(46, 0)
     controls.add_child(faster)
+
+func _build_alerts() -> void:
+    _alerts_popover = _panel()
+    _alerts_popover.visible = false
+    _alerts_popover.anchor_left = 1.0
+    _alerts_popover.anchor_right = 1.0
+    _alerts_popover.offset_left = -610
+    _alerts_popover.offset_right = -282
+    _alerts_popover.offset_top = 78
+    _alerts_popover.offset_bottom = 398
+    _alerts_popover.z_index = 20
+    add_child(_alerts_popover)
+    var contents := VBoxContainer.new()
+    contents.add_theme_constant_override("separation", 7)
+    _alerts_popover.add_child(contents)
+    var head := HBoxContainer.new()
+    contents.add_child(head)
+    var title := _label("СИГНАЛЫ СИМУЛЯЦИИ", 14, TEXT)
+    title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    head.add_child(title)
+    head.add_child(_button("×", _toggle_alerts, 14))
+    var scroll := ScrollContainer.new()
+    scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    contents.add_child(scroll)
+    _alerts_contents = VBoxContainer.new()
+    _alerts_contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    scroll.add_child(_alerts_contents)
+
+func _toggle_alerts() -> void:
+    if _alerts_popover == null:
+        return
+    _alerts_popover.visible = not _alerts_popover.visible
+    if _alerts_popover.visible:
+        _alerts_signature = ""
+        _update_alerts()
+
+func _update_alerts() -> void:
+    if _alert_button == null:
+        return
+    var problems: Array[Dictionary] = []
+    var live: Variant = _economy.get("facilities", {})
+    if live is Dictionary:
+        for id in live:
+            var raw: Variant = live[id]
+            if not (raw is Dictionary):
+                continue
+            if bool(raw.get("abandoned", false)):
+                problems.append({"id":str(id), "title":"Объект заброшен",
+                    "value":"Подтверждено: " + str(id)})
+            elif raw.has("condition") and float(raw["condition"]) < 0.8:
+                problems.append({"id":str(id), "title":"Износ предприятия",
+                    "value":"%s · состояние %.2f" % [str(id), float(raw["condition"])]})
+    _alert_button.tooltip_text = "Сигналы N39: %d · открыть" % problems.size()
+    _alert_button.text = str(problems.size()) if not problems.is_empty() else ""
+    if _alerts_contents == null or not _alerts_popover.visible:
+        return
+    var signature: String = JSON.stringify(problems)
+    if signature == _alerts_signature:
+        return
+    _alerts_signature = signature
+    for child in _alerts_contents.get_children():
+        _alerts_contents.remove_child(child)
+        child.queue_free()
+    if problems.is_empty():
+        _alerts_contents.add_child(_label(
+            "Подтверждённых сигналов износа пока нет.", 13, MUTED))
+    else:
+        for issue in problems.slice(0, 12):
+            var id: String = str(issue["id"])
+            var action := _button("⚠ " + str(issue["value"]),
+                func() -> void:
+                    _toggle_alerts()
+                    _select_from_workspace("facility", id), 12)
+            action.tooltip_text = str(issue["title"])
+            action.alignment = HORIZONTAL_ALIGNMENT_LEFT
+            _alerts_contents.add_child(action)
+    var all := _button("ЭКОНОМИЧЕСКИЕ УЗКИЕ МЕСТА  ›",
+        func() -> void:
+            _toggle_alerts()
+            _route_workspace("economy", "Узкие места"), 12)
+    _alerts_contents.add_child(all)
+
+func _build_footer() -> void:
+    var panel := _panel()
+    panel.anchor_top = 1.0
+    panel.anchor_bottom = 1.0
+    panel.anchor_left = 0.0
+    panel.anchor_right = 1.0
+    panel.offset_left = 65
+    panel.offset_right = -272
+    panel.offset_top = -23
+    panel.offset_bottom = 0
+    panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    panel.add_theme_stylebox_override("panel", _style(Color("#071018"), LINE,
+        0, 1, 0, 0))
+    add_child(panel)
+    _footer_status = _label("СЕКТОР · Наблюдение", 11, MUTED)
+    panel.add_child(_footer_status)
 
 func _build_left() -> void:
     var rail := _panel()
@@ -635,6 +747,12 @@ func present(world: Dictionary, economy: Dictionary, body: String,
     if _mode == "colony" and _effective_body().is_empty():
         _mode = "sector"
     _clock.text = "ТИК %d  ·  ×%s" % [_tick, str(_speed)]
+    if _footer_status != null:
+        _footer_status.text = ("СЕКТОР / %s   ·   %s   ·   ТИК %d   ·   %s" % [
+            str(_world.get("system", {}).get("name", "—")),
+            "КАРТА СИСТЕМЫ" if bool(_game.get("_in_system"))
+                else "КАРТА СЕКТОРА",
+            _tick, "ПАУЗА" if _paused else "НАБЛЮДЕНИЕ"])
     _pause.text = "▶" if _paused else "⏸"
     _brand_scope.text = ("КОЛОНИЯ · " + _body_name(_effective_body()).to_upper() + " ▾"
         if _mode == "colony" else "СЕКТОР · ВСЕ РЫНКИ ▾")
@@ -642,6 +760,7 @@ func present(world: Dictionary, economy: Dictionary, body: String,
         if _mode == "colony" else
         "Сумма запасов всех рынков и населения ВСЕХ фракций; не активы игрока")
     _update_metrics()
+    _update_alerts()
     _update_outliner()
     _update_navigation()
     _update_window()
@@ -1564,13 +1683,26 @@ func _production_text() -> String:
     return "\n".join(lines)
 
 func _unhandled_key_input(event: InputEvent) -> void:
-    if not (event is InputEventKey) or not event.pressed or (
-            event.echo or event.keycode != KEY_ESCAPE):
+    if not (event is InputEventKey) or not event.pressed or event.echo:
         return
-    if _window != null and _window.visible:
-        _close_window()
-    elif _game != null and bool(_game.get("_in_system")):
-        _game.call("_return_to_sector")
-    else:
+    var key: int = event.keycode
+    if key == KEY_ESCAPE:
+        if _alerts_popover != null and _alerts_popover.visible:
+            _alerts_popover.hide()
+        elif _window != null and _window.visible:
+            _workspace_back()
+        elif _game != null and bool(_game.get("_in_system")):
+            _game.call("_return_to_sector")
+        else:
+            return
+        get_viewport().set_input_as_handled()
         return
-    get_viewport().set_input_as_handled()
+    var focused: Control = get_viewport().gui_get_focus_owner()
+    if focused is LineEdit or focused is TextEdit:
+        return
+    var actions: Dictionary = {
+        KEY_1:"colony", KEY_2:"economy", KEY_3:"construction",
+        KEY_4:"research", KEY_5:"fleet", KEY_6:"administration"}
+    if actions.has(key):
+        _activate(str(actions[key]))
+        get_viewport().set_input_as_handled()
