@@ -18,6 +18,9 @@ const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
 const ColonyQuickStrip = preload("res://scripts/view/colony_quick_strip.gd")
+const ColonyContextCards = preload("res://scripts/view/colony_context_cards.gd")
+const UI_SCALES = [1.0, 1.15, 1.25, 1.4]
+const DEFAULT_UI_SCALE_INDEX: int = 2
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const WorkerN158 = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const ReadOnlyWorldModel = preload("res://scripts/sim/world_model.gd")
@@ -38,6 +41,9 @@ var _pause_button: Button
 var _speed_menu: OptionButton
 var _map: Control
 var _colony_strip: HFlowContainer
+var _colony_cards: ScrollContainer
+var _detail_tabs: TabContainer
+var _ui_scale_menu: OptionButton
 var _system_view
 var _back_button: Button
 var _open_button: Button
@@ -106,6 +112,9 @@ var _worker_live_frames: int = 0
 var _worker_live_cpu_us: Array[int] = []
 
 func _ready() -> void:
+    # Whole-game canvas/text/control scale, including the globe and buttons.
+    # Always offers 100% fallback for small windows; independent of Godot editor.
+    get_window().content_scale_factor = float(UI_SCALES[DEFAULT_UI_SCALE_INDEX])
     _ui_profile_log = OS.get_cmdline_user_args().has("--p2-ui-profile") or (
         OS.get_environment("LS_PROFILE_UI_FRAMES") == "1")
     var background := ColorRect.new()
@@ -143,6 +152,14 @@ func _ready() -> void:
     _perf_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
     _perf_label.tooltip_text = "FPS из Engine; p95 _process, advance_frame и UI за последние 120 кадров. Худший кадр — от запуска."
     heading.add_child(_perf_label)
+    _ui_scale_menu = OptionButton.new()
+    _ui_scale_menu.tooltip_text = "Масштаб ВСЕГО игрового интерфейса"
+    _ui_scale_menu.custom_minimum_size = Vector2(105, 0)
+    for factor in UI_SCALES:
+        _ui_scale_menu.add_item("%d%%" % roundi(float(factor) * 100.0))
+    _ui_scale_menu.select(DEFAULT_UI_SCALE_INDEX)
+    _ui_scale_menu.item_selected.connect(_change_ui_scale)
+    heading.add_child(_ui_scale_menu)
     _back_button = Button.new()
     _back_button.text = "← К сектору"
     _back_button.visible = false
@@ -305,15 +322,25 @@ func _ready() -> void:
     _system_view.connect("facility_selected", _on_facility_selected)
 
     var details_panel := PanelContainer.new()
-    details_panel.custom_minimum_size = Vector2(355, 0)
+    details_panel.custom_minimum_size = Vector2(375, 0)
+    details_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     details_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
     columns.add_child(details_panel)
-
+    _detail_tabs = TabContainer.new()
+    _detail_tabs.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _detail_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    details_panel.add_child(_detail_tabs)
+    _colony_cards = ColonyContextCards.new()
+    _colony_cards.name = "Обзор"
+    _detail_tabs.add_child(_colony_cards)
     _details = RichTextLabel.new()
+    _details.name = "Данные"
     _details.bbcode_enabled = false
     _details.scroll_active = true
     _details.fit_content = false
-    details_panel.add_child(_details)
+    _details.add_theme_font_size_override("normal_font_size", 15)
+    _details.add_theme_font_size_override("bold_font_size", 15)
+    _detail_tabs.add_child(_details)
 
     _observer_button = Button.new()
     _observer_button.text = "Наблюдение"
@@ -1293,6 +1320,12 @@ func _refresh_selection(shared_economy: Dictionary = {},
         else:
             _select_world(selected, shared_economy)
 
+func _change_ui_scale(index: int) -> void:
+    if index < 0 or index >= UI_SCALES.size():
+        return
+    get_window().content_scale_factor = float(UI_SCALES[index])
+
+
 func _reset_map() -> void:
     if _in_system and _system_view:
         _system_view.reset_view()
@@ -1309,6 +1342,8 @@ func _select_world(world: Dictionary, shared_economy: Dictionary = {}) -> void:
             world = current
             system = world.get("system", {})
     _map.call("select_system", sid)
+    if _colony_cards != null:
+        _colony_cards.show_selection(world, "", "", "", shared_economy)
     if _in_system:
         _system_view.update_world(world)
         _system_view.set_live_fleet(_worker_fleet if _worker_mode
@@ -1543,6 +1578,9 @@ func _on_ship_selected(ship_id: String) -> void:
         # Refresh only the selected ship's bounded physical route
         # from the real detached N39 snapshot, not all 500 trajectories.
         _system_view.set_live_fleet(fleet)
+        if _colony_cards != null:
+            _colony_cards.show_selection(current, "", "", ship_id,
+                {"ships": fleet})
         _show_ship_details(fleet)
 
 
@@ -1712,6 +1750,11 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
         if quick_economy.is_empty() and _worker_mode:
             quick_economy = _worker_economy
         _colony_strip.show_colony(world, quick_body, quick_economy)
+    if _colony_cards != null:
+        _colony_cards.show_selection(world, _selected_body_id,
+            _selected_facility_id, _selected_ship_id,
+            shared_economy if not shared_economy.is_empty() else (
+                _worker_economy if _worker_mode else {}))
     if not _selected_facility_id.is_empty():
         if _show_facility_details(world, shared_economy):
             return
