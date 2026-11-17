@@ -556,44 +556,10 @@ func _table(parent: Node, headings: Array, rows: Array,
 
 func _table_row(parent: Node, cells: Array, columns: int,
         heading: bool, callback: Callable, row_index: int = 0) -> void:
-    var container: Control
-    var fill: Color = Color("#08151C") if heading else (
-        Color("#0D2029") if row_index % 2 == 0 else Color("#0B1B24"))
-    if callback.is_valid():
-        var btn := Button.new()
-        btn.flat = true
-        btn.focus_mode = Control.FOCUS_NONE
-        btn.pressed.connect(callback)
-        var normal := _box(fill, false)
-        normal.border_width_bottom = 1
-        normal.border_color = Color("#213943")
-        normal.content_margin_left = 9
-        normal.content_margin_right = 9
-        normal.content_margin_top = 3 if heading else 6
-        normal.content_margin_bottom = 3 if heading else 6
-        btn.add_theme_stylebox_override("normal", normal)
-        var hover := _box(Color("#1B3740"), false)
-        hover.border_color = TEAL
-        hover.border_width_bottom = 1
-        btn.add_theme_stylebox_override("hover", hover)
-        btn.add_theme_stylebox_override("pressed",
-            _box(Color("#23505A"), true))
-        parent.add_child(btn)
-        container = btn
-    else:
-        var panel := PanelContainer.new()
-        var cell_style := _box(fill, false)
-        cell_style.border_width_bottom = 1
-        cell_style.border_color = Color("#213943")
-        cell_style.content_margin_left = 9
-        cell_style.content_margin_right = 9
-        cell_style.content_margin_top = 3 if heading else 6
-        cell_style.content_margin_bottom = 3 if heading else 6
-        panel.add_theme_stylebox_override("panel", cell_style)
-        parent.add_child(panel)
-        container = panel
-    # Figma dense-head is 25px, data rows 34px; no vertical box drift.
-    container.custom_minimum_size.y = 25 if heading else 34
+    var container: Control = LSComponents.table_row(
+        heading, row_index % 2 != 0, callback)
+    parent.add_child(container)
+    # Unified row geometry and states come from Theme variations.
     var row := HBoxContainer.new()
     row.mouse_filter = Control.MOUSE_FILTER_IGNORE
     row.custom_minimum_size.y = 15 if heading else 20
