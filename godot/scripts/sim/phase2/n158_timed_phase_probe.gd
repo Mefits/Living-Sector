@@ -5,6 +5,7 @@ const PHASES: Array[String] = ["ships", "dock_queue", "markets", "factions"]
 const WINDOW_LIMIT: int = 100
 var _phase_cost: Dictionary = {}
 var _paid_rows: Array[Dictionary] = []
+var _failed_tick: int = -1
 
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
     var began: int = Time.get_ticks_usec()
@@ -16,7 +17,15 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
 ## Failed stages are not charged as successful source-tick measurements.
 ## Multiple calls to a phase in one tick are accumulated, not overwritten.
 func _record_phase_elapsed(phase: String, tick: int, elapsed: int, accepted: bool) -> void:
-    if not accepted or elapsed < 0 or tick < 1 or not PHASES.has(phase):
+    if tick < 1 or not PHASES.has(phase):
+        return
+    if not accepted or elapsed < 0:
+        # An aborted phase invalidates the entire paid-tick candidate, even
+        # when earlier phases succeeded. Never certify a partial source tick.
+        _failed_tick = tick
+        _paid_rows.clear()
+        return
+    if tick == _failed_tick:
         return
     var stats: Dictionary = _phase_cost.get(phase, {
         "calls": 0, "total_usec": 0, "max_usec": 0})
@@ -45,7 +54,7 @@ func phase_metrics() -> Dictionary:
 ## Return only a complete, contiguous 100-tick window with every required
 ## phase observed; callers must not interpret sparse rows as paid tick samples.
 func paid_phase_window(end_tick: int) -> Array:
-    if _paid_rows.size() != WINDOW_LIMIT or int(_paid_rows.back()["tick"]) != end_tick:
+    if _failed_tick == end_tick or _paid_rows.size() != WINDOW_LIMIT or int(_paid_rows.back()["tick"]) != end_tick:
         return []
     for i in range(WINDOW_LIMIT):
         if int(_paid_rows[i]["tick"]) != end_tick - WINDOW_LIMIT + 1 + i:
