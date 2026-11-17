@@ -85,7 +85,9 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
     # the entire growing global board once per faction is not. Sort only the
     # matching IDs, retaining the original lexicographic source order.
     var contract_ids: Array = []
-    var live_status_by_id: Dictionary = {}
+    # This alias is identical for every board row; avoid constructing it
+    # once per global contract on each faction's planning capture.
+    var requestor_alias: String = "faction/" + faction
     for cid in contracts:
         var c: Dictionary = contracts[cid]
         # Reject unrelated contracts before normalizing status: the global
@@ -93,19 +95,16 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
         # The source status filter still runs for every matching commitment.
         var owner: String = str(c.get("requestor_id", ""))
         var sponsorship: String = str(c.get("faction_id", ""))
-        if owner != faction and owner != "faction/" + faction and sponsorship != faction:
+        if owner != faction and owner != requestor_alias and sponsorship != faction:
             continue
         var status: String = str(c.get("status", "")).to_lower()
         if status in ["paid", "expired"]:
             continue
         contract_ids.append(cid)
-        # Keep the normalized status from the eligibility pass. Avoid
-        # re-reading and normalizing it for every surviving contract.
-        live_status_by_id[cid] = status
     contract_ids.sort()
     for cid in contract_ids:
         var c: Dictionary = contracts[cid]
-        var status: String = live_status_by_id[cid]
+        var status: String = str(c.get("status", "")).to_lower()
         commitments.append({
             "contract_id": str(cid), "status": status,
             "source": str(c.get("source_location", "")),
