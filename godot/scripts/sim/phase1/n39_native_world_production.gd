@@ -2355,7 +2355,12 @@ func apply_native_n144_found_colony(tick: int, faction: String,
         _world, baseline_live, source, faction, tick, multiplier)
     if not grant.get("ok", false):
         return grant
-    var staged: Dictionary = _copy_world("L2128", true)
+    # N144 writes only these three domains. Detach them before any mutation;
+    # unrelated growing World history remains read-only and unmodified.
+    var staged: Dictionary = _copy_world("L2128_owned_root", false)
+    staged["construction_sites"] = _world["construction_sites"].duplicate(true)
+    staged["construction_receipts"] = _world["construction_receipts"].duplicate(true)
+    staged["research_directors"] = _world["research_directors"].duplicate(true)
     var authorized: bool = bool(grant.get("authorized", false))
     var candidate: Dictionary = source.get("candidate", {})
     var site: Dictionary = candidate.get("site", {})
