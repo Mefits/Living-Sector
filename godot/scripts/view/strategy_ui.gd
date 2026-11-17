@@ -14,6 +14,8 @@ const LINE = Color("#243942")
 const TEAL = Color("#53B5AC")
 const AMBER = Color("#C99B54")
 # Figma shell block 1: all geometry uses the same logical pixel grid.
+# Figma design baseline. The actual header height is derived from native
+# Control minimum height, not the nominal baseline: FPS has two lines.
 const TOP_H: float = 82.0
 const FOOT_H: float = 24.0
 const RAIL_W: float = 64.0
@@ -46,6 +48,7 @@ var _nav_sector: Button
 var _nav_path: Label
 var _brand_box: VBoxContainer
 var _time_area: VBoxContainer
+var _effective_top_h: float = TOP_H
 var _rail: PanelContainer
 var _rail_buttons: Dictionary = {}
 var _rail_active: String = ""
@@ -821,8 +824,16 @@ func _layout_window() -> void:
         if _time_area != null:
             _time_area.custom_minimum_size.x = (
                 170.0 if vw < 1160.0 else 204.0)
+    # Godot may expand PanelContainer beyond TOP_H to fit the two-line FPS
+    # readout, time label and three real speed buttons. All other panels must
+    # follow that ACTUAL minimum height, not the old hardcoded 82px.
+    var header_h: float = TOP_H
+    if _top != null:
+        header_h = maxf(TOP_H, _top.get_combined_minimum_size().y + 4.0)
+        _top.offset_bottom = header_h
+    _effective_top_h = header_h
     if _rail != null:
-        _rail.offset_top = TOP_H
+        _rail.offset_top = header_h
         _rail.offset_right = RAIL_W
         _rail.offset_bottom = -FOOT_H
     var left: float = RAIL_W + GUTTER
@@ -841,20 +852,20 @@ func _layout_window() -> void:
     if _outliner != null:
         _outliner.offset_left = -(OUT_W + 8.0)
         _outliner.offset_right = -8.0
-        _outliner.offset_top = TOP_H + 9.0
+        _outliner.offset_top = header_h + 9.0
         _outliner.offset_bottom = -(FOOT_H + 5.0)
     if _outliner_reopen != null:
-        _outliner_reopen.offset_top = TOP_H + 10.0
-        _outliner_reopen.offset_bottom = TOP_H + 48.0
+        _outliner_reopen.offset_top = header_h + 10.0
+        _outliner_reopen.offset_bottom = header_h + 48.0
     if _nav_panel != null:
         _nav_panel.offset_left = left
         _nav_panel.offset_right = minf(right, left + 376.0)
-        _nav_panel.offset_top = TOP_H + 10.0
-        _nav_panel.offset_bottom = TOP_H + 53.0
+        _nav_panel.offset_top = header_h + 10.0
+        _nav_panel.offset_bottom = header_h + 53.0
     if _window != null:
         _window.offset_left = left
         _window.offset_right = minf(right, left + 930.0)
-        _window.offset_top = TOP_H + 64.0
+        _window.offset_top = header_h + 64.0
         _window.offset_bottom = -(FOOT_H + 12.0)
     if _selection_card != null:
         var cr: float = right - 4.0
@@ -866,9 +877,9 @@ func _layout_window() -> void:
         var ar: float = right - 5.0
         _alerts_popover.offset_left = maxf(left, ar - 335.0)
         _alerts_popover.offset_right = ar
-        _alerts_popover.offset_top = TOP_H + 64.0
+        _alerts_popover.offset_top = header_h + 64.0
         _alerts_popover.offset_bottom = minf(
-            vh - FOOT_H - 9.0, TOP_H + 380.0)
+            vh - FOOT_H - 9.0, header_h + 380.0)
     if _footer_panel != null:
         _footer_panel.offset_left = RAIL_W
         _footer_panel.offset_right = (
@@ -1151,7 +1162,8 @@ func _update_metrics() -> void:
             label.add_theme_color_override("font_color", TEXT)
 
 func _outliner_entry(label: String, callback: Callable,
-        selected: bool = false, hint: String = "") -> void:
+        selected: bool = false, hint: String = "",
+        technical_detail: String = "") -> void:
     var name: String = label
     var icon_key: String = "planet"
     var accent: Color = Color("#72979D")
@@ -1171,7 +1183,8 @@ func _outliner_entry(label: String, callback: Callable,
     if label.length() >= 2 and label.substr(1, 1) == " ":
         name = label.substr(2)
     var row_button := _button("", callback, 13)
-    row_button.tooltip_text = (name + "\n" + hint
+    row_button.tooltip_text = (name + "\n" + hint +
+        ("\n" + technical_detail if not technical_detail.is_empty() else "")
         if not hint.is_empty() else name)
     row_button.custom_minimum_size.y = 46 if not hint.is_empty() else 34
     row_button.add_theme_stylebox_override("normal",
@@ -1345,14 +1358,18 @@ func _update_outliner() -> void:
             var prefix: String = "↗ " if in_flight else (
                 "■ " if at_dock else "○ ")
             var transit: Variant = ship.get("transit", {})
-            var hint: String = ("N14: %s → %s" % [
+            # Figma row subtitle describes the ship state, never a truncated
+            # internal facility-* ID. Full N39 dock/route IDs stay in tooltip.
+            var hint: String = ("В полёте · " + ShipPresence.goal_name(
+                str(ship.get("current_goal", ""))) if in_flight else (
+                "Пристыкован" if at_dock else "Нет активного N14 рейса"))
+            var raw_detail: String = ("N14: %s → %s" % [
                 str(transit.get("from", "—")),
                 str(transit.get("to", "—"))]
-                if in_flight else (
-                "Пристыкован: " + str(ship.get("docked_at", ""))
-                if at_dock else "Нет активного N14 рейса"))
+                if in_flight else ("Док N39: " + str(
+                ship.get("docked_at", "")) if at_dock else "N14 transit: нет"))
             _outliner_entry(prefix + str(ship.get("name", id)),
-                _select_ship.bind(id), id == _ship, hint)
+                _select_ship.bind(id), id == _ship, hint, raw_detail)
     if _outliner_filter_mode == "all":
         var local_sites: Array[Dictionary] = []
         if construction is Dictionary:
@@ -1377,7 +1394,7 @@ func _update_outliner() -> void:
                 _outliner_entry("◉ " + _body_name(id),
                     _select_body.bind(id), id == _body)
     _outliner_list.add_child(_label(
-        "Реальные источники: N39 / N43 · %s" % str(
+        "N39 / N43 · %s" % str(
         _world.get("system", {}).get("name", "—")), 11, MUTED))
 
 func _clear_outliner_entries() -> void:

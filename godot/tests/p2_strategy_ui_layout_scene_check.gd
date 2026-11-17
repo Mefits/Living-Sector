@@ -184,6 +184,13 @@ func _run() -> void:
         assert(panel.position.y >= breadcrumb.end.y)
         assert(popup.position.y >= breadcrumb.end.y)
         assert(popup.position.y >= header.end.y)
+        # Previously native PanelContainer grew beyond hardcoded TOP_H=82,
+        # obscuring the first rail item and the "Открыть систему" breadcrumb.
+        assert(header.size.y >= header.get_combined_minimum_size().y)
+        assert(rail.position.y >= header.end.y)
+        assert(list_rect.position.y >= header.end.y)
+        assert(breadcrumb.position.y >= header.end.y)
+        assert(absf(float(ui.get("_effective_top_h")) - header.size.y) < 2.0)
         if not rail.size.x < panel.position.x:
             print("RAIL_WINDOW_GEOMETRY ", JSON.stringify({
                 "logical":str(logical), "rail":str(rail.get_rect()),
@@ -203,6 +210,8 @@ func _run() -> void:
     assert(big_scale_window.position.x >= rail.size.x)
     assert(big_scale_window.position.y >= (
         ui.get("_nav_panel") as PanelContainer).get_rect().end.y)
+    assert((ui.get("_nav_panel") as PanelContainer).position.y >= (
+        ui.get("_top") as PanelContainer).get_rect().end.y)
     ui.call("_close_window")
     assert((ui.get("_outliner") as PanelContainer).visible)
     host.queue_free()
