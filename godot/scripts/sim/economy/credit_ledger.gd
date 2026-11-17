@@ -657,11 +657,9 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 		if not _valid_account(account) or not _valid_amount(candidate[account]):
 			return false
 	var receipts: Dictionary = data["receipts"]
-	for key in receipts:
-		if not _valid_account(key) or not (receipts[key] is Dictionary):
-			return false
-		if receipts[key].get("id") != key or not (receipts[key].get("legs") is Array):
-			return false
+	# Validate each receipt while building the detached index. The former
+	# separate validation pass traversed the entire growing history twice.
+	# Nothing is published until every row has passed validation.
 	# Build the complete immutable index locally before publishing ANY
 	# imported account/receipt. This is an untrusted N38/staged boundary.
 	var partitions: Array = []
@@ -672,6 +670,11 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 	var next_count: int = 0
 	var next_kind_counts: Dictionary = {}
 	for id in receipts:
+		var row: Variant = receipts[id]
+		if not _valid_account(id) or not (row is Dictionary):
+			return false
+		if row.get("id") != id or not (row.get("legs") is Array):
+			return false
 		var bucket: int = _bucket_index(str(id))
 		var target: Dictionary = partitions[bucket]
 		target[id] = (receipts[id] as Dictionary).duplicate(true)
