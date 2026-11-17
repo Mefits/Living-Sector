@@ -156,6 +156,16 @@ func _run() -> void:
     assert((ui.get("_outliner") as PanelContainer).visible)
     assert(not (ui.get("_outliner_reopen") as Button).visible)
     var rail: PanelContainer = ui.get("_rail")
+    if rail != null and absf(rail.size.x - 64.0) >= 1.0:
+        print("FIGMA_RAIL_WIDTH_PROBE size=", rail.size,
+            " min=", rail.get_combined_minimum_size(),
+            " content=", rail.get_child(0).get_combined_minimum_size())
+        var column: Node = rail.get_child(0)
+        for child in column.get_children():
+            if child is Control:
+                print("FIGMA_RAIL_CHILD ", child.get_class(),
+                    " min=", child.get_combined_minimum_size(),
+                    " size=", child.size)
     assert(rail != null and absf(rail.size.x - 64.0) < 1.0)
     var scale_menu: OptionButton = ui.get("_ui_scale_menu")
     assert(scale_menu.item_count == 5)
