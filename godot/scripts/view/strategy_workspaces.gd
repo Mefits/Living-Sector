@@ -969,7 +969,10 @@ func _select_chain_stock(key: String) -> void:
     # The card is an actionable resource filter, not a fictitious trade order.
     # Filtering the real stock ledger below makes the clicked stage inspectable.
     if _filter != null:
-        _filter.text = key
+        var names: Dictionary = {
+            "ore":"РУДА", "metals":"МЕТАЛЛЫ",
+            "components":"КОМПОНЕНТЫ", "electronics":"ЭЛЕКТРОНИКА"}
+        _filter.text = str(names.get(key, key))
         _last_signature = ""
         _render()
 
