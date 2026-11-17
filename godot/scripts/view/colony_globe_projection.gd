@@ -13,7 +13,7 @@ static func _position_for_id(facility_id: String) -> Vector2:
     # This is NOT a saved physical building coordinate or a nine-slot grid.
     var h: int = absi(facility_id.hash())
     var angle: float = float(h % 6283) / 1000.0
-    var dist: float = 0.06 + float((h / 6283) % 100) / 100.0 * 0.17
+    var dist: float = 0.06 + float(floori(float(h) / 6283.0) % 100) / 100.0 * 0.17
     var land_center: Vector2 = Vector2(-0.34, -0.34)
     if h % 3 == 0:
         land_center = Vector2(0.45, 0.39)
