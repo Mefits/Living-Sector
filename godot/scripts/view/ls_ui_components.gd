@@ -16,6 +16,21 @@ static func action_button(text: String, action: Callable = Callable(),
         button.disabled = true
     return button
 
+static func section_link(text: String, action: Callable) -> Button:
+    var button: Button = action_button(text, action, true)
+    button.theme_type_variation = &"LSLinkButton"
+    button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+    button.custom_minimum_size.y = 29
+    return button
+
+static func issue_button(critical: bool, action: Callable) -> Button:
+    var button: Button = action_button("", action)
+    button.theme_type_variation = (
+        &"LSCriticalIssueButton" if critical else &"LSIssueButton")
+    button.custom_minimum_size.y = 47
+    button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return button
+
 static func tab(text: String, active: bool, action: Callable) -> Button:
     var button := Button.new()
     button.text = text
