@@ -26,13 +26,15 @@ const COMPACT_OUT_W: float = 242.0
 const GUTTER: float = 12.0
 const TEXT = Color("#C4D0D3")
 const MUTED = Color("#748B92")
+# Figma V1 order: population → food → water → energy → advanced goods.
+# Ore replaces the prototype's unsupported credit trend with real N39 stocks.
 const METRICS: Array[Dictionary] = [
     {"key": "population", "label": "НАСЕЛЕНИЕ", "symbol": "●"},
     {"key": "food", "label": "ЕДА", "symbol": "◒"},
-    {"key": "ore", "label": "РУДА", "symbol": "◆"},
+    {"key": "water", "label": "ВОДА", "symbol": "▽"},
+    {"key": "energy_cells", "label": "ЭНЕРГИЯ", "symbol": "ϟ"},
     {"key": "metals", "label": "МЕТАЛЛЫ", "symbol": "⬡"},
-    {"key": "energy_cells", "label": "ЭНЕРГОЯЧЕЙКИ", "symbol": "ϟ"},
-    {"key": "water", "label": "ВОДА", "symbol": "▽"}
+    {"key": "ore", "label": "РУДА", "symbol": "◆"}
 ]
 var _game: Control
 var _world: Dictionary = {}
