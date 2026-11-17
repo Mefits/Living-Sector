@@ -857,8 +857,9 @@ func _update_ship_links(body_id: String) -> void:
         return
     var active: bool = (_window_mode == "colony" and not body_id.is_empty()
         and _tab in ["Обзор", "Логистика"])
-    var items: Array[Dictionary] = (ShipPresence.ships_at_body(
-        _world, _economy, body_id) if active else [])
+    var items: Array[Dictionary] = []
+    if active:
+        items = ShipPresence.ships_at_body(_world, _economy, body_id)
     var signature: String = (_window_mode + "|" + _tab + "|" + body_id +
         "|" + JSON.stringify(items.map(func(row):
             return [row["id"], row["status"], row["goal"]])))
