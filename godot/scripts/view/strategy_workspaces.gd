@@ -213,7 +213,8 @@ func _ready() -> void:
     toolbar.add_theme_constant_override("separation", 8)
     toolbar_bg.add_child(toolbar)
     var search_box := PanelContainer.new()
-    search_box.custom_minimum_size.x = 228
+    search_box.custom_minimum_size.x = 0
+    search_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     var search_style := _box(Color("#071218"), false)
     search_style.set_border_width_all(1)
     search_style.border_color = Color("#273E45")
@@ -235,7 +236,7 @@ func _ready() -> void:
     search_row.add_child(search_icon)
     _filter = LineEdit.new()
     _filter.placeholder_text = "Фильтр по объектам и статусам"
-    _filter.custom_minimum_size.x = 186
+    _filter.custom_minimum_size.x = 0
     _filter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     _filter.add_theme_font_size_override("font_size", 10)
     _filter.add_theme_color_override("font_color", TEXT)
@@ -254,6 +255,10 @@ func _ready() -> void:
     _updated = _label("ЦИКЛ — · N39", 10, Color("#58747B"))
     _updated.size_flags_vertical = Control.SIZE_SHRINK_CENTER
     toolbar.add_child(_updated)
+    # Under high UI scaling the available workspace can be narrower than the
+    # Figma desktop mock. Keep the search usable instead of clipping its text.
+    resized.connect(_fit_toolbar)
+    _fit_toolbar()
     _scroll = ScrollContainer.new()
     _scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
     _scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -269,6 +274,14 @@ func _ready() -> void:
     _content.add_theme_constant_override("separation", 8)
     _content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     page_padding.add_child(_content)
+
+func _fit_toolbar() -> void:
+    if _updated == null:
+        return
+    # The tick remains visible in the global HUD on compact windows.
+    # Removing this secondary label preserves space for the live filter.
+    _updated.visible = size.x >= 500.0
+
 
 func set_can_go_back(can_go_back: bool) -> void:
     if _back_button != null:
@@ -537,7 +550,20 @@ func _metric_strip(parent: Node, pairs: Array) -> void:
 func _table(parent: Node, headings: Array, rows: Array,
         route: String = "", tab: String = "", kind: String = "") -> void:
     var columns: int = maxi(1, headings.size())
-    _table_row(parent, headings, columns, true, Callable())
+    # All rows must share one column grid. Individual auto-sized HBoxes
+    # caused headings and values to drift, especially in Fleet/Economy.
+    # Scroll horizontally on compact viewports rather than crop N39 data.
+    var scroller := ScrollContainer.new()
+    scroller.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+    scroller.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    scroller.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    parent.add_child(scroller)
+    var grid_body := VBoxContainer.new()
+    grid_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    grid_body.custom_minimum_size.x = 178.0 + 118.0 * float(columns - 1)
+    grid_body.add_theme_constant_override("separation", 0)
+    scroller.add_child(grid_body)
+    _table_row(grid_body, headings, columns, true, Callable())
     var shown: int = 0
     for item in rows:
         if not (item is Dictionary):
@@ -554,7 +580,7 @@ func _table(parent: Node, headings: Array, rows: Array,
         elif not route.is_empty():
             callback = func() -> void:
                 navigate_requested.emit(route, tab, str(item.get("id", "")))
-        _table_row(parent, cells, columns, false, callback, shown)
+        _table_row(grid_body, cells, columns, false, callback, shown)
         shown += 1
         if shown >= 60:
             _note(parent, "Показаны первые 60 записей. Используйте поиск.")
@@ -621,7 +647,10 @@ func _table_row(parent: Node, cells: Array, columns: int,
                 tint = MUTED
         var cell := _label(text_value, 9 if heading else 12, tint)
         cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-        cell.size_flags_stretch_ratio = 1.55 if i == 0 else 1.0
+        # Identical minimums for header and every data row make the columns
+        # line up while leaving room for long names and real N39 statuses.
+        cell.custom_minimum_size.x = 150.0 if i == 0 else 90.0
+        cell.size_flags_stretch_ratio = 1.5 if i == 0 else 1.0
         cell.tooltip_text = text_value
         row.add_child(cell)
 
