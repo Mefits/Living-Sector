@@ -113,7 +113,12 @@ func _run() -> void:
     var colonized_title: String = str(workspace.get("_header_title").text)
     assert(colonized_title == "Earth")
     assert(str(workspace.get("_scope").text).contains("КОЛОНИЯ"))
-    assert((workspace.get("_back_button") as Button).disabled == false)
+    # Window reopened after a close has no history until another page opens.
+    assert((workspace.get("_back_button") as Button).disabled)
+    ui.call("_route_workspace", "fleet", "Корабли")
+    assert(not (workspace.get("_back_button") as Button).disabled)
+    ui.call("_workspace_back")
+    assert(workspace.get("_mode") == "colony")
     assert(_contains_text(workspace, "ПРЕДПРИЯТИЯ"))
     var col_sections: HFlowContainer = null
     for descendant in (workspace.get("_content") as VBoxContainer).get_children():

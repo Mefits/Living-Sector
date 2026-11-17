@@ -350,7 +350,9 @@ func _render() -> void:
             var tab_btn: Button = _tab_button(tab_name, active)
             _tabs.add_child(tab_btn)
             if active:
-                _tabs_scroll.call_deferred("ensure_control_visible", tab_btn)
+                # Resolve by current mode/tab when the frame is laid out,
+                # never hold a soon-to-be freed Button in a deferred call.
+                call_deferred("_reveal_active_tab", _mode, _tab)
     _clear(_content)
     match _mode:
         "colony": _colony()
@@ -363,6 +365,14 @@ func _render() -> void:
         "ship": _ship_workspace()
         "technical": _technical_workspace()
         _: _empty("Этот раздел пока не подключён.")
+
+func _reveal_active_tab(mode: String, tab: String) -> void:
+    if mode != _mode or tab != _tab or _tabs_scroll == null:
+        return
+    for child in _tabs.get_children():
+        if child is Button and child.text == tab:
+            _tabs_scroll.ensure_control_visible(child)
+            return
 
 func _tab_button(name: String, active: bool) -> Button:
     var btn := _button(name, func() -> void:
