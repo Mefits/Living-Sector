@@ -2919,7 +2919,14 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     if site_ids.is_empty():
         return {"ok": true, "status": "N141_NO_ACTIVE_SITES",
             "paid": [], "blocked": []}
-    var staged: Dictionary = _copy_world("L2671", true)
+    # N141 writes only these owned domains. Keep all other registries as
+    # read-only inputs to labor/colony proposals and strict Schema oracle.
+    # B3 colony establishment performs its own detached full proposal.
+    var staged: Dictionary = _world.duplicate(false)
+    for domain in ["construction_sites", "construction_receipts",
+            "construction_contracts", "populations", "faction_treasuries",
+            "facilities", "markets"]:
+        staged[domain] = _world[domain].duplicate(true)
     var ledger: RefCounted = _ledger.fork()
     var paid: Array = []
     var blocked: Array = []
