@@ -534,7 +534,8 @@ func _build_left() -> void:
     _tools_menu = PopupMenu.new()
     for name in [
         "Аутлайнер", "Технические данные N39", "Наблюдение",
-        "Сектор / система", "Центрировать", "Сохранить", "Загрузить"
+        "Сектор / система", "Центрировать", "Новая игра",
+        "Сохранить", "Загрузить"
     ]:
         _tools_menu.add_item(name)
     _tools_menu.id_pressed.connect(_on_tools_selected)
@@ -563,7 +564,7 @@ func _show_nav_tools() -> void:
 func _on_tools_selected(id: int) -> void:
     var actions: Array[String] = [
         "outliner", "technical", "observer", "map",
-        "center", "save", "load"]
+        "center", "new_game", "save", "load"]
     if id >= 0 and id < actions.size():
         _activate(actions[id])
 
@@ -990,7 +991,7 @@ func _close_window() -> void:
 func _activate(kind: String) -> void:
     if _alerts_popover != null and _alerts_popover.visible:
         _close_alerts()
-    if kind in ["map", "center", "save", "load"]:
+    if kind in ["map", "center", "new_game", "save", "load"]:
         if _game != null:
             match kind:
                 "map":
@@ -1001,6 +1002,8 @@ func _activate(kind: String) -> void:
                         _game.call("_open_selected_system")
                 "center":
                     _game.call("_reset_map")
+                "new_game":
+                    _game.call("_new_game")
                 "save":
                     _game.call("_save_game")
                 "load":
