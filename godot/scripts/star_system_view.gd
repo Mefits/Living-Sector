@@ -45,6 +45,7 @@ const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
 const StationShipProjection = preload("res://scripts/ui_station_ship_projection.gd")
 const SolAssets = preload("res://scripts/sim/phase2/sol_physical_assets_projection.gd")
+const ColonyRoads = preload("res://scripts/view/colony_roads_projection.gd")
 const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const SolOrbits = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
@@ -88,6 +89,11 @@ var _selected_ship_id: String = ""
 var _selected_facility_id: String = ""
 var _physical_assets: Dictionary = {"orbital": [], "surface": []}
 var _live_facility_status: Dictionary = {}
+var _colony_roads: Dictionary = {"sites": {}, "links": []}
+var _colony_tick: int = -1
+var _colony_anim_time: float = 0.0
+var _colony_anim_accum: float = 0.0
+var _colony_has_activity: bool = false
 var _facility_pins: Array = []
 ## Bounded screen records of real Sol stations. Never N39 objects or nodes.
 var _station_draw_records: Array = []
@@ -253,6 +259,12 @@ func _process(delta: float) -> void:
             if _pan.distance_to(pan_before_follow) > 0.005:
                 camera_changed = true
 
+    if _colony_has_activity and not _focused_body_id.is_empty():
+        _colony_anim_accum += maxf(delta, 0.0)
+        if _colony_anim_accum >= 1.0 / 30.0:
+            _colony_anim_time += minf(_colony_anim_accum, 0.10)
+            _colony_anim_accum = 0.0
+            camera_changed = true
     var now_usec: int = Time.get_ticks_usec()
     for sid in _recent_arrivals.keys():
         var row: Dictionary = _recent_arrivals[sid]
@@ -284,6 +296,11 @@ func set_world(world: Dictionary) -> void:
     _station_draw_records.clear()
     _recent_arrivals.clear()
     _live_facility_status.clear()
+    _colony_tick = -1
+    _colony_roads = ColonyRoads.build(_physical_assets.get("surface", []), {}, -1)
+    _colony_has_activity = false
+    _colony_anim_time = 0.0
+    _colony_anim_accum = 0.0
     _native_station_time = 0.0
     _station_phase_from_deg = 0.0
     _station_time_started_usec = -1
@@ -441,6 +458,7 @@ func update_world(world: Dictionary) -> void:
     if world.get("facilities", []) != _world.get("facilities", []):
         _world["facilities"] = (world.get("facilities", []) as Array).duplicate(true)
         _rebuild_facility_index()
+        _rebuild_colony_roads()
         changed = true
     if world.get("system", {}) != _world.get("system", {}):
         _world["system"] = (world.get("system", {}) as Dictionary).duplicate(true)
@@ -504,15 +522,27 @@ func _visual_station_time(now: int) -> float:
         _station_phase_from_deg, current_phase_deg, alpha)
 
 
-func set_live_facilities(facilities: Dictionary) -> void:
+func set_live_facilities(facilities: Dictionary, tick: int = -1) -> void:
     var projected: Dictionary = {}
     for group in ["orbital", "surface"]:
         for facility in _physical_assets.get(group, []):
             projected[str(facility["id"])] = SolAssets.live_status(
                 facility, facilities)
-    if projected != _live_facility_status:
+    if projected != _live_facility_status or tick != _colony_tick:
         _live_facility_status = projected
+        _colony_tick = tick
+        _rebuild_colony_roads()
         queue_redraw()
+
+
+func _rebuild_colony_roads() -> void:
+    _colony_roads = ColonyRoads.build(_physical_assets.get("surface", []),
+        _live_facility_status, _colony_tick)
+    _colony_has_activity = false
+    for road in _colony_roads.get("links", []):
+        if int(road.get("particles", 0)) > 0:
+            _colony_has_activity = true
+            break
 
 func select_ship(ship_id: String) -> void:
     if not _live_fleet.has(ship_id):
@@ -1049,6 +1079,9 @@ func _draw_physical_sol_assets(scale: float) -> void:
             draw_string(font, pos + Vector2(17, -9) * icon_scale,
                 "Орбитальная станция", HORIZONTAL_ALIGNMENT_LEFT,
                 -1, 12, Color("#dfc8a4"))
+    # Roads go behind the existing clickable source-backed facilities.
+    # Only draw on the enlarged focused globe; roads are NOT physical cargo.
+    _draw_colony_roads(scale)
     # Ground facilities are *real* N39 enterprise IDs, not synthetic
     # site slots. Their surface coordinates are explicitly schematic
     # until a physical colony land-placement model is designed.
@@ -1089,6 +1122,49 @@ func _draw_physical_sol_assets(scale: float) -> void:
             draw_string(font, pos + Vector2(icon_size + 5, -6),
                 str(facility["name"]), HORIZONTAL_ALIGNMENT_LEFT,
                 -1, 11, Color(0.88, 0.90, 0.85, alpha))
+
+
+## Lightweight roads from real source-backed ground sites, attached to the
+## SAME animated orbital position as their parent. No separate terrain mode.
+func _draw_colony_roads(scale: float) -> void:
+    if _focused_body_id.is_empty():
+        return
+    var body: Dictionary = _body_by_id(_focused_body_id)
+    if body.is_empty() or _body_size(body) < 90.0:
+        return
+    var radius: float = _body_size(body)
+    var alpha: float = _surface_detail_alpha(body)
+    if alpha < 0.1:
+        return
+    var center: Vector2 = _body_position(body, scale)
+    var sites: Dictionary = _colony_roads.get("sites", {})
+    for edge in _colony_roads.get("links", []):
+        if str(edge.get("body", "")) != _focused_body_id:
+            continue
+        var src: String = str(edge.get("a", ""))
+        var dst: String = str(edge.get("b", ""))
+        if not sites.has(src) or not sites.has(dst):
+            continue
+        var from_pos: Vector2 = center + (sites[src] as Vector2) * radius
+        var to_pos: Vector2 = center + (sites[dst] as Vector2) * radius
+        var production: bool = str(edge.get("kind", "")) == "production"
+        draw_line(from_pos, to_pos,
+            Color(0.62, 0.75, 0.70, alpha * (0.56 if production else 0.74)),
+            clampf(radius * (0.008 if production else 0.013), 1.0, 3.0), true)
+        var count: int = clampi(int(edge.get("particles", 0)), 0,
+            ColonyRoads.MAX_PARTICLES_PER_LINK)
+        for i in range(count):
+            var phase: float = fposmod(_colony_anim_time * 0.20
+                + float(i) / float(count), 1.0)
+            if not production:
+                phase = 1.0 - absf(2.0 * phase - 1.0)
+            draw_circle(from_pos.lerp(to_pos, phase),
+                clampf(radius * 0.014, 1.5, 3.0),
+                Color(0.93, 0.76, 0.48, alpha))
+    # Visual-only origin of the road network, not a minted N39 AC.
+    var hub: Vector2 = center + ColonyRoads.HUB_SITE * radius
+    draw_rect(Rect2(hub - Vector2(4.0, 4.0), Vector2(8.0, 8.0)),
+        Color(0.91, 0.86, 0.69, alpha), true)
 
 
 ## Surface placeholders grow in place on the very same orbital map.
