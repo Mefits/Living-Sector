@@ -588,7 +588,9 @@ func retains_receipts(candidate: Dictionary) -> bool:
 ## Full snapshot() remains mandatory for money changes, N9 receipt proofs
 ## and N38 persistence.
 func balances_snapshot() -> Dictionary:
-	return _balances.duplicate(true)
+	# All balances are validated integer credits; a shallow dictionary copy
+	# detaches the caller without recursively walking immutable scalar values.
+	return _balances.duplicate()
 
 func restore(data: Dictionary) -> bool:
 	if OS.get_environment("LS_PROFILE_LEDGER") != "1":
