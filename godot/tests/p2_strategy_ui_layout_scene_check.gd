@@ -184,6 +184,11 @@ func _run() -> void:
         assert(panel.position.y >= breadcrumb.end.y)
         assert(popup.position.y >= breadcrumb.end.y)
         assert(popup.position.y >= header.end.y)
+        if not rail.size.x < panel.position.x:
+            print("RAIL_WINDOW_GEOMETRY ", JSON.stringify({
+                "logical":str(logical), "rail":str(rail.get_rect()),
+                "panel":str(panel), "ui":str(ui.get_rect()),
+                "rail_minimum":str(rail.get_combined_minimum_size())}))
         assert(rail.size.x < panel.position.x)
     # At 200% on 1366×768, workspace wins over optional outliner
     # instead of taking the time-control area or the screen right edge.

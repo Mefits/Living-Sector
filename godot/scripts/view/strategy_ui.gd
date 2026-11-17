@@ -438,7 +438,7 @@ func _build_left() -> void:
     ]:
         var action: String = str(spec["action"])
         var btn := _button("", _activate.bind(action), 9)
-        btn.custom_minimum_size = Vector2(56, 58)
+        btn.custom_minimum_size = Vector2(48, 58)
         btn.tooltip_text = str(spec["name"]) + " [" + str(spec["key"]) + "]"
         btn.add_theme_stylebox_override("normal",
             _style(Color("#08131C"), LINE, 0, 0, 0, 1))
@@ -1373,6 +1373,7 @@ func _route_workspace(mode: String, tab: String, focus: String = "") -> void:
     _update_window()
     _update_selection_card()
     _sync_rail_active()
+    _layout_window()
 
 func _select_from_workspace(kind: String, id: String) -> void:
     if id.is_empty():
