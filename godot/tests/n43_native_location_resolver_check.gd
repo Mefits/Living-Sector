@@ -36,7 +36,7 @@ func _initialize() -> void:
     # locations still retain the legacy .55 geometry.
     var earth_at_seed: Vector2 = Vector2(2.0, 0.0)
     var earth_station_radius: float = (
-        (6371.0 + 400.0) * 2.0 / 149597870.7)
+        (6371.0 + 800.0) * 2.0 / 149597870.7)
     if absf(coords["earth-station"].distance_to(earth_at_seed) -
             earth_station_radius) > 0.00001 or (
             earth_station_radius >= 384400.0 * 2.0 / 149597870.7):
