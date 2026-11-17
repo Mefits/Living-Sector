@@ -236,8 +236,11 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		var trends: Array = history["trend_samples"]
 		trends.append({"tick": tick, "prices": pricing["prices"].duplicate(true),
 			"supply": pricing["supply"].duplicate(true)})
-		while trends.size() > MARKET_TREND_KEEP:
-			trends.pop_front()
+		# Retain the exact newest source samples without repeatedly shifting
+		# the entire Array for every discarded historical row. Restored
+		# markets may contain more than MARKET_TREND_KEEP older samples.
+		if trends.size() > MARKET_TREND_KEEP:
+			history["trend_samples"] = trends.slice(trends.size() - MARKET_TREND_KEEP)
 	var expiry: int = maxi(ORDER_EXPIRY_MIN, int(orders["order_expiry_ticks"]))
 	for side in ["pending_buys", "pending_sells"]:
 		var filtered := _retain_orders(orders[side], tick, expiry, true)
