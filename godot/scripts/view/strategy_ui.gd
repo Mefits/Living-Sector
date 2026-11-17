@@ -18,7 +18,7 @@ const AMBER = Color("#C99B54")
 # Figma shell block 1: all geometry uses the same logical pixel grid.
 # Figma design baseline. The actual header height is derived from native
 # Control minimum height, not the nominal baseline: FPS has two lines.
-const TOP_H: float = 82.0
+const TOP_H: float = 58.0
 const FOOT_H: float = 24.0
 const RAIL_W: float = 64.0
 const OUT_W: float = 264.0
@@ -181,102 +181,120 @@ func _ready() -> void:
     _layout_window()
 
 func _build_top() -> void:
-    _top = _panel()
-    var top_style := _style(Color("#101D26"), Color("#31505A"), 0, 0, 0, 1)
-    top_style.shadow_size = 5
-    top_style.shadow_color = Color(0, 0, 0, 0.45)
-    _top.add_theme_stylebox_override("panel", top_style)
+    # Figma Make .topbar: 58px chrome. No UI profiling data is discarded:
+    # performance scalars are rendered in the 24px footer instead.
+    _top = LSComponents.chrome_panel(&"LSHeaderPanel")
     _top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
     _top.offset_bottom = TOP_H
     _top.z_index = 100
     _top.mouse_filter = Control.MOUSE_FILTER_STOP
     add_child(_top)
+
     var row := HBoxContainer.new()
     row.add_theme_constant_override("separation", 0)
+    row.size_flags_vertical = Control.SIZE_EXPAND_FILL
     _top.add_child(row)
+
+    # 192px brand, icon and two-line name/scope.
     var brand := VBoxContainer.new()
     _brand_box = brand
-    brand.custom_minimum_size = Vector2(184, 0)
-    brand.add_theme_constant_override("separation", 4)
+    brand.custom_minimum_size.x = 192
+    brand.add_theme_constant_override("separation", 0)
     row.add_child(brand)
     var brand_identity := HBoxContainer.new()
-    brand_identity.add_theme_constant_override("separation", 7)
+    brand_identity.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    brand_identity.add_theme_constant_override("separation", 10)
     brand.add_child(brand_identity)
-    var emblem := PanelContainer.new()
-    var emblem_style: StyleBoxFlat = _style(Color("#102832"),
-        Color("#568288"))
-    emblem_style.set_corner_radius_all(4)
-    emblem.add_theme_stylebox_override("panel", emblem_style)
-    emblem.custom_minimum_size = Vector2(33, 30)
+    var emblem: PanelContainer = LSComponents.chrome_panel(&"LSBrandEmblem")
+    emblem.custom_minimum_size = Vector2(34, 34)
+    emblem.size_flags_vertical = Control.SIZE_SHRINK_CENTER
     brand_identity.add_child(emblem)
-    var initials := _label("LS", 13, Color("#93D1CA"))
+    var initials := _label("LS", 11, Color("#93D1CA"))
     initials.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     initials.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
     emblem.add_child(initials)
-    var wordmark := _label("LIVING SECTOR", 15, Color("#E1E9E9"))
-    wordmark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-    brand_identity.add_child(wordmark)
-    _brand_scope = _button("СЕКТОР · ВСЕ РЫНКИ ▾", _toggle_scope, 11)
-    _brand_scope.tooltip_text = "Общие запасы рынков всех фракций, НЕ баланс одной фракции"
-    brand.add_child(_brand_scope)
+    var brand_text := VBoxContainer.new()
+    brand_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    brand_text.alignment = BoxContainer.ALIGNMENT_CENTER
+    brand_text.add_theme_constant_override("separation", 2)
+    brand_identity.add_child(brand_text)
+    var wordmark := _label("LIVING SECTOR", 12, Color("#E1E9E9"))
+    brand_text.add_child(wordmark)
+    _brand_scope = LSComponents.header_scope("СЕКТОР · ВСЕ РЫНКИ ▾", _toggle_scope)
+    _brand_scope.tooltip_text = "Выбранная область рыночных запасов; не бюджет фракции"
+    brand_text.add_child(_brand_scope)
+
+    # Six actual N39 resources (not the Figma prototype's invented trends).
+    # Each tile uses its own icon and name/value text styles from Theme.
     for item in METRICS:
+        var resource_tile: PanelContainer = LSComponents.header_resource()
+        resource_tile.tooltip_text = "Текущие подтверждённые запасы, без прогнозов."
+        row.add_child(resource_tile)
+        var resource_row := HBoxContainer.new()
+        resource_row.alignment = BoxContainer.ALIGNMENT_CENTER
+        resource_row.add_theme_constant_override("separation", 6)
+        resource_tile.add_child(resource_row)
+        var icon: Label = LSComponents.metric_text(
+            str(item["symbol"]), &"LSHeaderResourceIcon")
+        icon.custom_minimum_size.x = 25
+        icon.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        resource_row.add_child(icon)
         var box := VBoxContainer.new()
         _metric_boxes.append(box)
-        box.custom_minimum_size = Vector2(112, 0)
         box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-        box.add_theme_constant_override("separation", 4)
-        var resource_tile := PanelContainer.new()
-        resource_tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-        var resource_style := _style(Color("#0B1821"), LINE, 0, 0, 1, 0)
-        resource_style.content_margin_left = 9
-        resource_style.content_margin_right = 6
-        resource_style.content_margin_top = 8
-        resource_tile.add_theme_stylebox_override("panel", resource_style)
-        resource_tile.tooltip_text = "Запас на рынках выбранной области. Не изменение за тик."
-        row.add_child(resource_tile)
-        resource_tile.add_child(box)
-        box.add_child(_label(str(item["label"]), 11, MUTED))
-        var large := _label(str(item["symbol"]) + " —", 19, TEXT)
+        box.alignment = BoxContainer.ALIGNMENT_CENTER
+        box.add_theme_constant_override("separation", 2)
+        resource_row.add_child(box)
+        box.add_child(LSComponents.metric_text(
+            str(item["label"]).to_upper(), &"LSHeaderResourceName"))
+        var large: Label = LSComponents.metric_text("—", &"LSHeaderResourceValue")
         box.add_child(large)
         _metric_nodes[str(item["key"])] = large
-    _alert_button = _button("", _toggle_alerts, 15)
-    _alert_button.icon = FigmaIcons.texture("alert", 20, AMBER)
+
+    _alert_button = LSComponents.header_alert(_toggle_alerts)
+    _alert_button.icon = FigmaIcons.texture("alert", 17, AMBER)
     _alert_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
     _alert_button.tooltip_text = "Журнал важных сигналов N39"
-    _alert_button.custom_minimum_size = Vector2(42, 0)
     row.add_child(_alert_button)
-    # The alert count is a small badge, NOT Button.text: text next to a 20px
-    # icon overflowed the 40px slot and covered N158 speed controls.
-    _alert_count = _label("", 10, Color("#14150F"))
+    _alert_count = _label("", 9, Color("#14150F"))
     _alert_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
     var badge_style := _style(AMBER, AMBER, 0, 0, 0, 0)
     badge_style.set_content_margin_all(0)
     _alert_count.add_theme_stylebox_override("normal", badge_style)
-    _alert_count.position = Vector2(27, 4)
-    _alert_count.size = Vector2(16, 16)
+    _alert_count.position = Vector2(27, 8)
+    _alert_count.size = Vector2(15, 15)
     _alert_count.visible = false
     _alert_count.mouse_filter = Control.MOUSE_FILTER_IGNORE
     _alert_button.add_child(_alert_count)
+
+    # Figma .date is 118px and sits between alerts and speed controls.
+    # Living Sector exposes real ticks, not a fabricated calendar date.
     var time_area := VBoxContainer.new()
     _time_area = time_area
-    time_area.custom_minimum_size = Vector2(210, 0)
+    time_area.custom_minimum_size.x = 118
+    time_area.alignment = BoxContainer.ALIGNMENT_CENTER
+    time_area.add_theme_constant_override("separation", 2)
     row.add_child(time_area)
-    _perf_readout = _label("FPS — · SIM — · PING —", 12, TEAL)
-    _perf_readout.tooltip_text = "Локальная симуляция: сетевой ping не применяется."
-    time_area.add_child(_perf_readout)
-    _clock = _label("ТИК — · ×1", 13, MUTED)
+    _clock = LSComponents.metric_text("ТИК — · ×1", &"LSHeaderClock")
+    _clock.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
     time_area.add_child(_clock)
+    var cycle_caption := _label("АВТОНОМНЫЙ СЕКТОР", 7, Color("#668087"))
+    cycle_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+    time_area.add_child(cycle_caption)
+
     var controls := HBoxContainer.new()
-    time_area.add_child(controls)
-    _pause = _button("⏸", func() -> void: _game.call("_toggle_pause"), 17)
+    controls.add_theme_constant_override("separation", 0)
+    row.add_child(controls)
+    _pause = LSComponents.header_speed("⏸", func() -> void:
+        if _game != null:
+            _game.call("_toggle_pause"))
     _pause.tooltip_text = "Пауза / продолжить (настоящие часы N158)"
-    _pause.custom_minimum_size = Vector2(45, 0)
     controls.add_child(_pause)
-    var slower := _button("×1", _normal_speed)
-    slower.custom_minimum_size = Vector2(42, 0)
+    var slower := LSComponents.header_speed("×1", _normal_speed)
+    slower.tooltip_text = "Нормальная скорость симуляции N158"
     controls.add_child(slower)
-    var faster := _button("×16", _fast_speed)
-    faster.custom_minimum_size = Vector2(46, 0)
+    var faster := LSComponents.header_speed("×16", _fast_speed)
+    faster.tooltip_text = "Ускорение симуляции N158 до ×16"
     controls.add_child(faster)
 
 func _build_alerts() -> void:
@@ -397,7 +415,9 @@ func _update_alerts() -> void:
     _alerts_contents.add_child(all)
 
 func _build_footer() -> void:
-    var panel := _panel()
+    # Figma Make .statusbar: keep it 24px tall; FPS/SIM/UI have been moved
+    # here from the old multi-line 82px top HUD without polling N39.
+    var panel: PanelContainer = LSComponents.chrome_panel(&"LSFooterPanel")
     _footer_panel = panel
     panel.z_index = 10
     panel.anchor_top = 1.0
@@ -406,14 +426,22 @@ func _build_footer() -> void:
     panel.anchor_right = 1.0
     panel.offset_left = RAIL_W
     panel.offset_right = -OUT_W
-    panel.offset_top = -23
+    panel.offset_top = -FOOT_H
     panel.offset_bottom = 0
     panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    panel.add_theme_stylebox_override("panel", _style(Color("#071018"), LINE,
-        0, 1, 0, 0))
     add_child(panel)
-    _footer_status = _label("СЕКТОР · Наблюдение", 11, MUTED)
-    panel.add_child(_footer_status)
+    var status_row := HBoxContainer.new()
+    status_row.add_theme_constant_override("separation", 10)
+    panel.add_child(status_row)
+    _footer_status = _label("СЕКТОР · Наблюдение", 9, MUTED)
+    _footer_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    status_row.add_child(_footer_status)
+    _perf_readout = LSComponents.metric_text(
+        "FPS — · SIM — · UI —", &"LSFooterDiagnostic")
+    _perf_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+    _perf_readout.size_flags_horizontal = Control.SIZE_SHRINK_END
+    _perf_readout.tooltip_text = "Диагностика производительности профайлера UIFrame"
+    status_row.add_child(_perf_readout)
 
 # Native Godot Buttons include text in their minimum width even when
 # clip_text=true. Put visible text in a mouse-ignored child to preserve
@@ -845,22 +873,20 @@ func _layout_window() -> void:
         var count: int = (6 if vw >= 1220.0 else (
             5 if vw >= 1020.0 else (4 if vw >= 855.0 else 3)))
         _brand_box.custom_minimum_size.x = (
-            140.0 if vw < 845.0 else (158.0 if vw < 1160.0 else 184.0))
+            140.0 if vw < 845.0 else (168.0 if vw < 1160.0 else 192.0))
         for i in range(_metric_boxes.size()):
-            var resource_tile: Control = _metric_boxes[i].get_parent()
+            var resource_tile: Control = _metric_boxes[i].get_parent().get_parent()
             resource_tile.visible = i < count
-            _metric_boxes[i].custom_minimum_size.x = (
-                80.0 if vw < 845.0 else (
-                87.0 if vw < 1160.0 else 105.0))
+            resource_tile.custom_minimum_size.x = (
+                82.0 if vw < 845.0 else (96.0 if vw < 1160.0 else 104.0))
         if _time_area != null:
             _time_area.custom_minimum_size.x = (
-                170.0 if vw < 1160.0 else 204.0)
-    # Godot may expand PanelContainer beyond TOP_H to fit the two-line FPS
-    # readout, time label and three real speed buttons. All other panels must
-    # follow that ACTUAL minimum height, not the old hardcoded 82px.
+                104.0 if vw < 1160.0 else 118.0)
+    # Header follows its real minimum height under user UI scaling;
+    # diagnostics now live in the footer so the baseline can be 58px.
     var header_h: float = TOP_H
     if _top != null:
-        header_h = maxf(TOP_H, _top.get_combined_minimum_size().y + 4.0)
+        header_h = maxf(TOP_H, _top.get_combined_minimum_size().y)
         _top.offset_bottom = header_h
     _effective_top_h = header_h
     if _rail != null:
@@ -926,8 +952,7 @@ func update_performance(fps: int, sim_ms: float, ui_ms: float,
     if _perf_readout == null:
         return
     var sim_label: String = "SIM" if worker else "SIM p95"
-    _perf_readout.text = ("FPS %d  ·  %s %.1fмс\n" +
-        "UI p95 %.1fмс  ·  PING —") % [
+    _perf_readout.text = "FPS %d  ·  %s %.1fмс  ·  UI p95 %.1fмс" % [
         maxi(0, fps), sim_label, maxf(0.0, sim_ms), maxf(0.0, ui_ms)]
     _perf_readout.tooltip_text = (
         "PING —: игра исполняется локально, сетевого RTT нет.\n" +
@@ -1184,7 +1209,7 @@ func _update_metrics() -> void:
     for item in METRICS:
         var key: String = str(item["key"])
         var label: Label = _metric_nodes[key]
-        label.text = str(item["symbol"]) + " " + (
+        label.text = (
             str(roundi(float(values.get(key, 0.0)))) if present.has(key) else "—")
         label.tooltip_text = ("Население в выбранной области" if key == "population"
             else "Количество %s в рыночных запасах; это не добыча и не прогноз" % str(item["label"]))
