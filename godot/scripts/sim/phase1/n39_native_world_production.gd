@@ -5157,7 +5157,11 @@ func apply_native_hybrid_planning(tick: int, faction: String,
         _world, faction, head, tick, mode)
     if not candidate.get("ok", false):
         return candidate
-    var staged: Dictionary = _copy_world("L4822", true)
+    # N100 only publishes one planner record and its tick marker.
+    # Detach the owned registry before writing; all other World domains
+    # remain read-only and retain their authoritative identity.
+    var staged: Dictionary = _copy_world("L4822_owned_root", false)
+    staged["native_planner_records"] = _world["native_planner_records"].duplicate(true)
     var record: Dictionary = {
         "faction_id": faction, "tick": tick,
         "status": str(candidate.get("status", "")),
