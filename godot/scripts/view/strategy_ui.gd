@@ -1,4 +1,7 @@
 extends Control
+const QuickData = preload("res://scripts/view/colony_quick_projection.gd")
+const ContextData = preload("res://scripts/view/colony_context_projection.gd")
+const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
 ## Living Sector strategy HUD — Figma-inspired, read-only presentation.
 ## The game owns the map, authoritative economy, orders and clock.
 ## Never requests a new world_snapshot or invents per-tick trends.
@@ -37,7 +40,11 @@ var _outliner_signature: String = ""
 var _window: PanelContainer
 var _window_title: Label
 var _window_text: RichTextLabel
-var _window_tabs: HBoxContainer
+var _window_tabs: HFlowContainer
+var _window_cards: GridContainer
+var _tabs_signature: String = ""
+var _cards_signature: String = ""
+var _ui_scale_menu: OptionButton
 var _status_text: String = ""
 var _diagnostic_text: String = ""
 var _selected_name: String = ""
@@ -156,7 +163,7 @@ func _build_left() -> void:
     rail.offset_bottom = -4
     add_child(rail)
     var menu := VBoxContainer.new()
-    menu.add_theme_constant_override("separation", 7)
+    menu.add_theme_constant_override("separation", 5)
     rail.add_child(menu)
     for entry in [
         {"text":"КОЛ", "tip":"Открыть колонию", "action":"colony"},
@@ -172,8 +179,22 @@ func _build_left() -> void:
         var action: String = str(entry["action"])
         var btn := _button(str(entry["text"]), _activate.bind(action), 11)
         btn.tooltip_text = str(entry["tip"])
-        btn.custom_minimum_size = Vector2(45, 49)
+        btn.custom_minimum_size = Vector2(43, 41)
         menu.add_child(btn)
+    _ui_scale_menu = OptionButton.new()
+    _ui_scale_menu.tooltip_text = "Масштаб интерфейса: 100 / 115 / 125 / 140%"
+    _ui_scale_menu.add_theme_font_size_override("font_size", 11)
+    _ui_scale_menu.add_theme_color_override("font_color", TEXT)
+    _ui_scale_menu.add_theme_stylebox_override("normal", _style(BG2))
+    _ui_scale_menu.add_theme_stylebox_override("hover", _style(Color("#183239"), TEAL))
+    _ui_scale_menu.add_theme_stylebox_override("pressed", _style(Color("#183239"), TEAL))
+    _ui_scale_menu.add_theme_stylebox_override("focus", _style(Color.TRANSPARENT, TEAL))
+    _ui_scale_menu.custom_minimum_size = Vector2(43, 33)
+    for percent in [100, 115, 125, 140]:
+        _ui_scale_menu.add_item("%d%%" % percent)
+    _ui_scale_menu.select(2)
+    _ui_scale_menu.item_selected.connect(_set_ui_scale)
+    menu.add_child(_ui_scale_menu)
 
 func _build_outliner() -> void:
     _outliner = _panel()
@@ -217,9 +238,16 @@ func _build_window() -> void:
     _window_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     header.add_child(_window_title)
     header.add_child(_button("×", _close_window, 18))
-    _window_tabs = HBoxContainer.new()
-    _window_tabs.add_theme_constant_override("separation", 5)
+    _window_tabs = HFlowContainer.new()
+    _window_tabs.add_theme_constant_override("h_separation", 5)
+    _window_tabs.add_theme_constant_override("v_separation", 5)
     col.add_child(_window_tabs)
+    _window_cards = GridContainer.new()
+    _window_cards.columns = 2
+    _window_cards.add_theme_constant_override("h_separation", 8)
+    _window_cards.add_theme_constant_override("v_separation", 8)
+    _window_cards.visible = false
+    col.add_child(_window_cards)
     _window_text = RichTextLabel.new()
     _window_text.bbcode_enabled = false
     _window_text.scroll_active = true
@@ -236,6 +264,10 @@ func _layout_window() -> void:
     _window.offset_top = 91
     _window.offset_bottom = -40
 
+func _set_ui_scale(index: int) -> void:
+    if _game != null:
+        _game.call("_change_ui_scale", index)
+
 func _normal_speed() -> void:
     if _game != null:
         _game.call("_change_speed", 1)
@@ -245,7 +277,7 @@ func _fast_speed() -> void:
         _game.call("_change_speed", 5)
 
 func _toggle_scope() -> void:
-    if _body.is_empty():
+    if _effective_body().is_empty():
         _mode = "sector"
     else:
         _mode = "colony" if _mode == "sector" else "sector"
@@ -285,7 +317,9 @@ func _activate(kind: String) -> void:
                 _select_body(str(row["body"]))
                 break
     _window_mode = kind
-    _tab = "Обзор"
+    _tab = ("Запасы" if kind == "economy" else (
+        "Корабли" if kind == "fleet" else (
+        "Данные" if kind == "technical" else "Обзор")))
     _window.visible = true
     _update_window()
 
@@ -300,7 +334,11 @@ func _select_body(id: String) -> void:
             break
     _mode = "colony"
     _update_metrics()
-    _brand_scope.text = "КОЛОНИЯ · " + id.to_upper() + " ▾"
+    _brand_scope.text = "КОЛОНИЯ · " + _body_name(id).to_upper() + " ▾"
+    _window_mode = "colony"
+    _tab = "Обзор"
+    _window.visible = true
+    _update_window()
 
 func _select_facility(id: String) -> void:
     if _game == null:
@@ -311,6 +349,8 @@ func _select_facility(id: String) -> void:
     _window_mode = "facility"
     _tab = "Обзор"
     _window.visible = true
+    _mode = "colony" if not _effective_body().is_empty() else "sector"
+    _update_window()
 
 func _select_ship(id: String) -> void:
     if _game == null:
@@ -321,6 +361,7 @@ func _select_ship(id: String) -> void:
     _window_mode = "ship"
     _tab = "Обзор"
     _window.visible = true
+    _update_window()
 
 func present(world: Dictionary, economy: Dictionary, body: String,
         facility: String, ship: String, tick: int, paused: bool,
@@ -337,11 +378,11 @@ func present(world: Dictionary, economy: Dictionary, body: String,
     _speed = speed
     _status_text = status
     _diagnostic_text = diagnostics
-    if _mode == "colony" and _body.is_empty():
+    if _mode == "colony" and _effective_body().is_empty():
         _mode = "sector"
     _clock.text = "ТИК %d  ·  ×%s" % [_tick, str(_speed)]
     _pause.text = "▶" if _paused else "⏸"
-    _brand_scope.text = ("КОЛОНИЯ · " + _body.to_upper() + " ▾"
+    _brand_scope.text = ("КОЛОНИЯ · " + _body_name(_effective_body()).to_upper() + " ▾"
         if _mode == "colony" else "СЕКТОР · ВСЕ РЫНКИ ▾")
     _brand_scope.tooltip_text = ("Запасы рынка выбранной колонии"
         if _mode == "colony" else
@@ -350,12 +391,28 @@ func present(world: Dictionary, economy: Dictionary, body: String,
     _update_outliner()
     _update_window()
 
+func _effective_body() -> String:
+    if not _body.is_empty():
+        return _body
+    if not _facility.is_empty():
+        for row in _world.get("facilities", []):
+            if row is Dictionary and str(row.get("id", "")) == _facility:
+                return str(row.get("body", ""))
+    return ""
+
+func _body_name(id: String) -> String:
+    for row in _world.get("bodies", []):
+        if row is Dictionary and str(row.get("id", "")) == id:
+            var name: String = str(row.get("name", id))
+            return str(QuickData.BODY_NAMES_RU.get(name, name))
+    return id
+
 func _scope_locations() -> Dictionary:
     var locations: Dictionary = {}
     if _mode == "sector":
         return locations
     for item in _world.get("facilities", []):
-        if item is Dictionary and str(item.get("body", "")) == _body:
+        if item is Dictionary and str(item.get("body", "")) == _effective_body():
             locations[str(item.get("location", ""))] = true
     return locations
 
@@ -448,13 +505,13 @@ func _update_outliner() -> void:
     for body in _world.get("bodies", []):
         if body is Dictionary:
             var id: String = str(body.get("id", ""))
-            _outliner_entry("◉ " + str(body.get("name", id)),
+            _outliner_entry("◉ " + _body_name(id),
                 _select_body.bind(id), id == _body)
     _group("СТАНЦИИ И ПРЕДПРИЯТИЯ")
     for facility in _world.get("facilities", []):
         if facility is Dictionary:
             var id: String = str(facility.get("id", ""))
-            _outliner_entry("⌑ " + str(facility.get("name", id)),
+            _outliner_entry("⌑ " + FacilityNames.display_name(facility),
                 _select_facility.bind(id), id == _facility)
     _group("КОРАБЛИ В СИСТЕМЕ")
     if ships is Dictionary:
