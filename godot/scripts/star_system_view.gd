@@ -45,6 +45,7 @@ const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
 const StationShipProjection = preload("res://scripts/ui_station_ship_projection.gd")
 const SolAssets = preload("res://scripts/sim/phase2/sol_physical_assets_projection.gd")
+const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
 const ColonyRoads = preload("res://scripts/view/colony_roads_projection.gd")
 const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const SolOrbits = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
@@ -1120,7 +1121,8 @@ func _draw_physical_sol_assets(scale: float) -> void:
             "position": pos, "hit_radius": maxf(10.0, icon_size + 5.0)})
         if body_radius > 112.0:
             draw_string(font, pos + Vector2(icon_size + 5, -6),
-                str(facility["name"]), HORIZONTAL_ALIGNMENT_LEFT,
+                FacilityLabels.display_name(facility),
+                HORIZONTAL_ALIGNMENT_LEFT,
                 -1, 11, Color(0.88, 0.90, 0.85, alpha))
 
 
