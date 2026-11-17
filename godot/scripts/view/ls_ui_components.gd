@@ -3,6 +3,19 @@ extends RefCounted
 ## never from per-window StyleBox construction.
 ## Callers retain ownership of events and real N39 values.
 
+static func action_button(text: String, action: Callable = Callable(),
+        prominent: bool = false) -> Button:
+    var button := Button.new()
+    button.text = text
+    button.theme_type_variation = (
+        &"LSPrimaryButton" if prominent else &"LSSecondaryButton")
+    button.focus_mode = Control.FOCUS_NONE
+    if action.is_valid():
+        button.pressed.connect(action)
+    else:
+        button.disabled = true
+    return button
+
 static func tab(text: String, active: bool, action: Callable) -> Button:
     var button := Button.new()
     button.text = text
