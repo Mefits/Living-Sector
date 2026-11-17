@@ -3860,7 +3860,7 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
         staged["escrow_balances"] = _world["escrow_balances"].duplicate(true)
         staged["facilities"] = _world["facilities"].duplicate(true)
         staged["populations"] = _world["populations"].duplicate(true)
-        staged["faction_treasuries"] = _world["faction_treasuries"].duplicate(true)
+        staged["faction_treasuries"] = _world.get("faction_treasuries", {}).duplicate(true)
     for item in proposal["refunded"]:
         var id: String = str(item["contract_id"])
         var escrow: String = str(item["escrow"])
