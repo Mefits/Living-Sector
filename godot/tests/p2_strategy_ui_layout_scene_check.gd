@@ -28,7 +28,12 @@ func _run() -> void:
             "condition":0.92, "assigned_workers":3,
             "work_shift":{"wages":6, "tick":20}}},
         "construction_sites":{"yard":{"completed":false,
-            "location":"earth-station"}}, "ships":{}
+            "location":"earth-station"}}, "ships":{
+            "ship-a":{"name":"Test Freighter", "class":"freighter",
+                "faction_id":"alpha", "location":"earth-station",
+                "current_goal":"idle", "transit":{}, "docked_at":"dock",
+                "cargo":{}, "fuel":12, "fuel_capacity":20,
+                "credits":100, "current_bt":null}}
     }
     ui.call("present",world,economy,"earth","","",20,false,1.0,
         "running","details")
@@ -51,6 +56,20 @@ func _run() -> void:
     assert(not (ui.get("_outliner") as PanelContainer).visible)
     ui.call("_toggle_outliner")
     assert((ui.get("_outliner") as PanelContainer).visible)
+    # Regression: selecting a ship after Earth must not keep Earth's
+    # diagnostic text under a misleading "КОРАБЛЬ" title.
+    ui.call("_open_selection_details")
+    ui.call("present",world,economy,"","","ship-a",21,false,1.0,
+        "running","STALE EARTH TECHNICAL DETAILS",
+        {"n153_blocked_this_tick":2,
+            "n153_first_blocker":"no_real_route"})
+    assert(ui.get("_window_mode") == "ship")
+    ui.call("_switch_tab","Данные")
+    var displayed: String = (ui.get("_window_text") as RichTextLabel).text
+    assert(displayed.contains("Test Freighter"))
+    assert(not displayed.contains("STALE EARTH"))
+    assert(displayed.contains("нет активного рейса"))
+    assert(ui.call("_fleet_diagnostic_text").contains("пристыковано: 1"))
     host.queue_free()
     print("SYSTEMBALANCE_FIGMA_LAYOUT_SCENE_PASS")
     quit(0)
