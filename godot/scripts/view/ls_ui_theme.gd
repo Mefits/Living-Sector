@@ -35,6 +35,11 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSMetricCaption", &"Label")
     ui_theme.set_type_variation(&"LSMetricValue", &"Label")
     ui_theme.set_type_variation(&"LSMetricNote", &"Label")
+    ui_theme.set_type_variation(&"LSRowHeader", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSRowPlainEven", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSRowPlainOdd", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSRowActionEven", &"Button")
+    ui_theme.set_type_variation(&"LSRowActionOdd", &"Button")
 
     # Ordinary workspace actions, previously rebuilt via _box() per control.
     # Preserve the original 12×10px padding while moving style ownership
@@ -86,4 +91,23 @@ static func build() -> Theme:
     ui_theme.set_font_size(&"font_size", &"LSMetricValue", 13)
     ui_theme.set_color(&"font_color", &"LSMetricNote", Color("#53B5AC"))
     ui_theme.set_font_size(&"font_size", &"LSMetricNote", 7)
+    # One table row vocabulary for Economy, Fleet, Colonies and Projects.
+    # Keep normal/hover/pressed padding identical to avoid shifting columns.
+    var table_edge := Color("#213943")
+    var row_hover_edge := Color("#53B5AC")
+    var header_row := _flat(Color("#08151C"), table_edge, 1, 9, 3)
+    var even_row := _flat(Color("#0D2029"), table_edge, 1, 9, 6)
+    var odd_row := _flat(Color("#0B1B24"), table_edge, 1, 9, 6)
+    ui_theme.set_stylebox(&"panel", &"LSRowHeader", header_row)
+    ui_theme.set_stylebox(&"panel", &"LSRowPlainEven", even_row)
+    ui_theme.set_stylebox(&"panel", &"LSRowPlainOdd", odd_row)
+    for variation in [&"LSRowActionEven", &"LSRowActionOdd"]:
+        var normal: StyleBoxFlat = even_row if variation == &"LSRowActionEven" else odd_row
+        ui_theme.set_stylebox(&"normal", variation, normal)
+        ui_theme.set_stylebox(&"hover", variation,
+            _flat(Color("#1B3740"), row_hover_edge, 1, 9, 6))
+        ui_theme.set_stylebox(&"pressed", variation,
+            _flat(Color("#23505A"), row_hover_edge, 1, 9, 6))
+        ui_theme.set_stylebox(&"focus", variation,
+            _flat(Color.TRANSPARENT, Color.TRANSPARENT))
     return ui_theme
