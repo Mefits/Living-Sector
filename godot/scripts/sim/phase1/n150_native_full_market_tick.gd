@@ -82,7 +82,12 @@ static func record_consumption(flow: Dictionary, commodity: String, quantity: fl
 	if quantity <= 0.0:
 		return {"ok": true, "flow": next}
 	var window: Dictionary = next["consumption_window"]
-	var entries: Array = window.get(commodity, []).duplicate(true)
+	# next is already a deep-owned copy of flow, including nested samples.
+	# Avoid copying this growing commodity window a second time on append.
+	var existing: Variant = window.get(commodity, [])
+	if not (existing is Array):
+		return _fail("invalid_consumption_window_entries")
+	var entries: Array = existing
 	entries.append({"tick": tick, "qty": quantity})
 	window[commodity] = entries
 	return {"ok": true, "flow": next}
