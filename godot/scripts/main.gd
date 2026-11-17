@@ -399,8 +399,12 @@ func _ready() -> void:
             push_error(_startup_error)
             return
 
-        # Restore ONLY the original owner here. Worker restores via its FIFO.
-        _restore_startup_checkpoint()
+        # A normal launch must always begin with the pristine Galaxy seed.
+        # Never implicitly read or delete a prior N38 save on startup.
+        # Manual "Загрузить" remains available, including backup recovery.
+        # Explicit CLI restore is reserved for opt-in diagnostics.
+        if OS.get_cmdline_user_args().has("--p2-restore-startup-checkpoint"):
+            _restore_startup_checkpoint()
         _sync_speed_control()
         _model = _runner.world
         _populate_ship_choices()
@@ -1521,6 +1525,16 @@ func _open_world(world: Dictionary) -> void:
     _open_button.visible = false
     _show_body_details(current)
     _sync_strategy_ui()
+
+
+## Visible Figma "К СЕКТОРУ" navigation skips the optional globe focus.
+## It only changes the UI map level; it never resets the running simulation.
+func _go_to_sector() -> void:
+    if not _in_system:
+        return
+    if _system_view != null and _system_view.is_body_focused():
+        _system_view.unfocus_body()
+    _return_to_sector()
 
 
 func _return_to_sector() -> void:
