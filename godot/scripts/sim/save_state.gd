@@ -289,6 +289,14 @@ static func encoded_checkpoint_budget(snapshot: Dictionary) -> Dictionary:
         "remaining_bytes": maxi(0, MAX_SAVE_BYTES - count),
         "within_limit": count <= MAX_SAVE_BYTES}
 
+## Last actual save attempt's serialized UTF-8 size. Updated from the SAME
+## buffer that is written to .pending; no second checkpoint traversal.
+## -1 means no encoding attempt in this process. Diagnostic only.
+static var _last_save_encoded_bytes: int = -1
+
+static func last_save_encoded_bytes() -> int:
+    return _last_save_encoded_bytes
+
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
         return ERR_INVALID_DATA
@@ -314,6 +322,7 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     # applies to bytes, not String length; reuse the measured buffer for
     # writing instead of allocating a second full UTF-8 copy.
     var encoded_bytes: PackedByteArray = _encode_checkpoint_text(snapshot).to_utf8_buffer()
+    _last_save_encoded_bytes = encoded_bytes.size()
     if encoded_bytes.size() > MAX_SAVE_BYTES:
         return ERR_OUT_OF_MEMORY
     var file := FileAccess.open(tmp, FileAccess.WRITE)
