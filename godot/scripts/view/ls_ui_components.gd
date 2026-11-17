@@ -42,7 +42,8 @@ static func table_column_profile(headings: Array) -> Array[Vector2]:
             min_width = 115.0
         elif count == 4 and id_heading:
             min_width = 55.0 if i == 0 else 110.0
-            weight = [0.35, 1.5, 0.8, 1.5][i]
+            var four_column_weights: Array[float] = [0.35, 1.5, 0.8, 1.5]
+            weight = four_column_weights[i]
         elif i == 0:
             min_width = 150.0
             weight = 1.5
