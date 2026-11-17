@@ -57,7 +57,7 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     # the actual ship speed and fuel rate; never cache ship eligibility.
     # The route index is proposal-local and rebuilt after every paid tick.
     var fuel_key: Array = [here, speed, rate, tick_scale]
-    var fuel_cache: Dictionary = route_index.get("_n153_fuel_cost", {})
+    var fuel_cache: Dictionary = route_index.get(-1, {})
     var flight_cost: float = 0.0
     if fuel_cache.has(fuel_key):
         var cached: Dictionary = fuel_cache[fuel_key]
@@ -78,10 +78,10 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
             flight_cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
         if not geometry_error.is_empty():
             fuel_cache[fuel_key] = {"error": geometry_error}
-            route_index["_n153_fuel_cost"] = fuel_cache
+            route_index[-1] = fuel_cache
             return {"ok": false, "reason": geometry_error}
         fuel_cache[fuel_key] = {"cost": flight_cost}
-        route_index["_n153_fuel_cost"] = fuel_cache
+        route_index[-1] = fuel_cache
     if float(ship["fuel"]) + 0.0001 < flight_cost:
         return {"ok": false, "reason": "insufficient_native_full_route_fuel"}
     return {"ok": true, "path_to_source": route["inbound"],
