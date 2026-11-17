@@ -43,12 +43,21 @@ func _initialize() -> void:
         var planned: int = 0
         var assigned: int = 0
         var goals: Dictionary = {}
+        var classes: Dictionary = {}
+        var price_knowledge: Dictionary = {"zero":0, "one":0, "two_or_more":0}
+        var flying_samples: Array = []
         for ship in ships.values():
             if not (ship is Dictionary):
                 continue
             if ship.get("transit", {}) is Dictionary and not (
                     ship.get("transit", {}) as Dictionary).is_empty():
                 flying += 1
+                if flying_samples.size() < 6:
+                    flying_samples.append({
+                        "id":str(ship.get("id", "?")),
+                        "system":str(ship.get("system_id", "?")),
+                        "from":str(ship.get("transit", {}).get("from", "?")),
+                        "to":str(ship.get("transit", {}).get("to", "?"))})
             if not str(ship.get("docked_at", "")).is_empty():
                 docked += 1
             if ship.get("current_bt", null) is Dictionary and not (
@@ -58,6 +67,15 @@ func _initialize() -> void:
                 assigned += 1
             var goal: String = str(ship.get("current_goal", "—"))
             goals[goal] = int(goals.get(goal, 0)) + 1
+            var class_name: String = str(ship.get("class", "?"))
+            classes[class_name] = int(classes.get(class_name, 0)) + 1
+            var memory: Variant = ship.get("memory", {})
+            var knowledge: Variant = memory.get("price_knowledge", {}) if (
+                memory is Dictionary) else {}
+            var known: int = knowledge.size() if knowledge is Dictionary else 0
+            var bin: String = "zero" if known == 0 else (
+                "one" if known == 1 else "two_or_more")
+            price_knowledge[bin] = int(price_knowledge[bin]) + 1
         var summary: Dictionary = sim.economy_summary(economy)
         var trace: Dictionary = sim.native_autonomy_diagnostics()
         var board: Dictionary = economy.get("contract_board", {})
@@ -73,12 +91,15 @@ func _initialize() -> void:
             "tick": expected, "ships": ships.size(),
             "flying": flying, "docked": docked,
             "planned_bt": planned, "assigned": assigned,
-            "goals": goals, "contract_statuses": statuses,
+            "goals": goals, "classes": classes, "price_knowledge": price_knowledge,
+            "flying_samples": flying_samples, "contract_statuses": statuses,
             "n140_fired": int(summary.get("n140_ship_fired_this_tick", -1)),
             "n153_accepted": int(summary.get("n153_accepted_this_tick", -1)),
             "n153_blocked": int(summary.get("n153_blocked_this_tick", -1)),
             "n153_first_blocker": str(summary.get("n153_first_blocker", "")),
             "n146_ship_commands": int(summary.get("n146_ship_commands", -1)),
+            "n83_trade_plans": int(summary.get("n83_trade_plans_this_tick", -1)),
+            "n83_paid_trades": int(summary.get("n83_paid_exchanges_this_tick", -1)),
             "n84_traces": int(summary.get("n84_active_traces", -1)),
             "n84_departures": int(summary.get("n153_departures_this_tick", -1)),
             "n84_blocked": (trace.get("n84_blocked", []) as Array).slice(0, 3),
