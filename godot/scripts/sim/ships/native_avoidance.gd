@@ -1,14 +1,11 @@
 extends RefCounted
-## N14 bounded, deterministic native-coordinate star avoidance.
-## A few waypoints are stored in the canonical transit receipt, never
-## recomputed by _draw or every native tick during a detour.
-## This is a deliberately limited first-stage solar exclusion-zone route,
-## not general N-body physics, satellite or star gravity, or fake UI curves.
-const MAX_POINTS: int = 8
-const ANGULAR_SEGMENT: float = PI / 6.0
-const DETOUR_RADIUS_MULTIPLIER: float = 1.5
-## Relative comparison is essential: physical Earth radius is ~0.000085
-## native, so an absolute 1e-6 squared tolerance would erase the planet.
+## Deterministic native N14 navigation: tangent approach + shallow
+## circular arc + tangent departure. Ship traverses the actual stored
+## points and burns real fuel. This is NOT rendered-only Bezier art.
+## Max ~15 degrees per physical chord; bounded once-per-detour work.
+const MAX_POINTS: int = 24
+const MAX_ARC_ANGLE: float = PI / 12.0
+const DETOUR_RADIUS_MULTIPLIER: float = 1.25
 const INTERSECTION_RELATIVE_EPS: float = 0.000001
 
 
@@ -30,11 +27,11 @@ static func segment_crosses(start: Vector2, target: Vector2,
         radius * radius * (1.0 - INTERSECTION_RELATIVE_EPS))
 
 
-## If both endpoints are outside the exclusion zone, choose a shallow
-## outer arc around it. Actual ship movement follows these segments,
-## does not teleport between nodes or cut the physical corner.
-## A physically impossible route fails closed rather than inserting
-## unsafe, arbitrary render-only vertices.
+## At each endpoint choose one of the two mathematically tangent
+## connections to an outer safety circle; retain the shorter safe arc.
+## The tangent-to-arc join is C1 in continuous geometry, with short
+## straight chords approximating curvature in the native movement.
+## Only MAX_POINTS stored in one N39 receipt. Never add a fake UI path.
 static func plan(start: Vector2, target: Vector2,
         center: Vector2, radius: float) -> Dictionary:
     if not (is_finite(start.x) and is_finite(start.y) and
@@ -44,36 +41,62 @@ static func plan(start: Vector2, target: Vector2,
         return {"ok": false, "reason": "invalid_navigation_geometry"}
     if not segment_crosses(start, target, center, radius):
         return {"ok": true, "points": []}
-    var a: Vector2 = start - center
-    var b: Vector2 = target - center
-    if a.length() <= radius or b.length() <= radius:
+    var origin: Vector2 = start - center
+    var goal: Vector2 = target - center
+    var origin_distance: float = origin.length()
+    var goal_distance: float = goal.length()
+    if origin_distance <= radius or goal_distance <= radius:
         return {"ok": false, "reason": "endpoint_inside_solar_exclusion"}
-    var angle_a: float = a.angle()
-    var angle_b: float = b.angle()
-    var sweep: float = wrapf(angle_b - angle_a, -PI, PI)
-    var steps: int = clampi(ceili(absf(sweep) / ANGULAR_SEGMENT), 2, 6)
-    var arc_radius: float = radius * DETOUR_RADIUS_MULTIPLIER
-    var vertices: Array[Vector2] = []
-    if a.length() < arc_radius:
-        vertices.append(center + a.normalized() * arc_radius)
-    for i in range(1, steps):
-        var angle: float = angle_a + sweep * float(i) / float(steps)
-        vertices.append(center + Vector2(cos(angle), sin(angle)) * arc_radius)
-    if b.length() < arc_radius:
-        vertices.append(center + b.normalized() * arc_radius)
-    if vertices.is_empty() or vertices.size() > MAX_POINTS:
-        return {"ok": false, "reason": "navigation_waypoints_exceeded"}
-    var last: Vector2 = start
-    for point in vertices:
-        if segment_crosses(last, point, center, radius):
-            return {"ok": false, "reason": "navigation_arc_not_clear"}
-        last = point
-    if segment_crosses(last, target, center, radius):
-        return {"ok": false, "reason": "navigation_final_leg_not_clear"}
-    var stored: Array = []
-    for point in vertices:
-        stored.append([point.x, point.y])
-    return {"ok": true, "points": stored}
+    var outer_radius: float = minf(radius * DETOUR_RADIUS_MULTIPLIER,
+        minf(origin_distance, goal_distance) * 0.995)
+    if outer_radius <= radius:
+        return {"ok": false, "reason": "insufficient_tangent_clearance"}
+    var angle_origin: float = origin.angle()
+    var angle_goal: float = goal.angle()
+    var tangent_origin: float = acos(clampf(
+        outer_radius / origin_distance, 0.0, 1.0))
+    var tangent_goal: float = acos(clampf(
+        outer_radius / goal_distance, 0.0, 1.0))
+    var best_length: float = INF
+    var best_points: Array = []
+    # Evaluate both winding directions, deterministic tie preference.
+    for winding in [1.0, -1.0]:
+        var from_angle: float = angle_origin + winding * tangent_origin
+        var to_angle: float = angle_goal - winding * tangent_goal
+        var sweep: float = (
+            fposmod(to_angle - from_angle, TAU)
+            if winding > 0.0 else -fposmod(from_angle - to_angle, TAU))
+        var steps: int = maxi(1, ceili(
+            absf(sweep) / MAX_ARC_ANGLE))
+        if steps + 1 > MAX_POINTS:
+            continue
+        var candidates: Array = []
+        for index in range(steps + 1):
+            var angle: float = from_angle + (
+                sweep * float(index) / float(steps))
+            var point: Vector2 = center + Vector2(
+                cos(angle), sin(angle)) * outer_radius
+            candidates.append([point.x, point.y])
+        var current: Vector2 = start
+        var valid: bool = true
+        var travel: float = 0.0
+        for pair in candidates:
+            var next_point: Vector2 = Vector2(float(pair[0]),
+                float(pair[1]))
+            if segment_crosses(current, next_point, center, radius):
+                valid = false
+                break
+            travel += current.distance_to(next_point)
+            current = next_point
+        if not valid or segment_crosses(current, target, center, radius):
+            continue
+        travel += current.distance_to(target)
+        if travel < best_length:
+            best_length = travel
+            best_points = candidates
+    if best_points.is_empty():
+        return {"ok": false, "reason": "no_safe_tangent_arc"}
+    return {"ok": true, "points": best_points}
 
 
 static func valid_stored_points(points: Variant) -> bool:
