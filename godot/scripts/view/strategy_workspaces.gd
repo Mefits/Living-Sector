@@ -113,12 +113,7 @@ func _ready() -> void:
     mouse_filter = Control.MOUSE_FILTER_STOP
     # Figma Make WorkspaceShell: 49px title / 37px tabs / 35px toolbar.
     # No Godot default margins grow the management window vertically.
-    var header_bg := PanelContainer.new()
-    var header_style := _box(Color("#152C35"), false)
-    header_style.border_width_bottom = 1
-    header_style.border_color = Color("#35515A")
-    header_style.set_content_margin_all(0)
-    header_bg.add_theme_stylebox_override("panel", header_style)
+    var header_bg: PanelContainer = LSComponents.chrome_panel(&"LSWorkspaceHeader")
     add_child(header_bg)
     var header := HBoxContainer.new()
     header.custom_minimum_size.y = 49
@@ -130,13 +125,9 @@ func _ready() -> void:
     _back_button.tooltip_text = "Назад к предыдущему окну"
     _back_button.disabled = true
     header.add_child(_back_button)
-    var icon_frame := PanelContainer.new()
+    var icon_frame: PanelContainer = LSComponents.chrome_panel(&"LSWindowIconFrame")
     icon_frame.custom_minimum_size = Vector2(31, 31)
     icon_frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-    var icon_style := _box(Color("#0B2029"))
-    icon_style.border_color = Color("#33555B")
-    icon_style.set_content_margin_all(5)
-    icon_frame.add_theme_stylebox_override("panel", icon_style)
     header.add_child(icon_frame)
     _header_icon = TextureRect.new()
     _header_icon.custom_minimum_size = Vector2(19, 19)
@@ -185,31 +176,15 @@ func _ready() -> void:
     _tabs.add_theme_constant_override("separation", 0)
     _tabs_scroll.add_child(_tabs)
 
-    var toolbar_bg := PanelContainer.new()
-    var toolbar_style := _box(Color("#0A161D"), false)
-    toolbar_style.border_width_bottom = 1
-    toolbar_style.border_color = Color("#1E343B")
-    toolbar_style.content_margin_left = 8
-    toolbar_style.content_margin_right = 8
-    toolbar_style.content_margin_top = 3
-    toolbar_style.content_margin_bottom = 3
-    toolbar_bg.add_theme_stylebox_override("panel", toolbar_style)
+    var toolbar_bg: PanelContainer = LSComponents.chrome_panel(&"LSWorkspaceToolbar")
     add_child(toolbar_bg)
     var toolbar := HBoxContainer.new()
     toolbar.custom_minimum_size.y = 29
     toolbar.add_theme_constant_override("separation", 8)
     toolbar_bg.add_child(toolbar)
-    var search_box := PanelContainer.new()
+    var search_box: PanelContainer = LSComponents.chrome_panel(&"LSSearchFrame")
     search_box.custom_minimum_size.x = 0
     search_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    var search_style := _box(Color("#071218"), false)
-    search_style.set_border_width_all(1)
-    search_style.border_color = Color("#273E45")
-    search_style.content_margin_left = 7
-    search_style.content_margin_right = 5
-    search_style.content_margin_top = 2
-    search_style.content_margin_bottom = 2
-    search_box.add_theme_stylebox_override("panel", search_style)
     toolbar.add_child(search_box)
     var search_row := HBoxContainer.new()
     search_row.add_theme_constant_override("separation", 5)
@@ -424,15 +399,7 @@ func _section(title: String, detail: String = "", host: Node = null) -> VBoxCont
     var shell := VBoxContainer.new()
     shell.add_theme_constant_override("separation", 0)
     card.add_child(shell)
-    var title_bg := PanelContainer.new()
-    var title_style := _box(Color("#0D1E26"), false)
-    title_style.border_color = Color("#22383F")
-    title_style.border_width_bottom = 1
-    title_style.content_margin_left = 9
-    title_style.content_margin_right = 9
-    title_style.content_margin_top = 0
-    title_style.content_margin_bottom = 0
-    title_bg.add_theme_stylebox_override("panel", title_style)
+    var title_bg: PanelContainer = LSComponents.chrome_panel(&"LSSectionHeader")
     shell.add_child(title_bg)
     var heading_row := HBoxContainer.new()
     heading_row.custom_minimum_size.y = 31
