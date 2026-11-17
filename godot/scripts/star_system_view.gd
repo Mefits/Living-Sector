@@ -158,6 +158,20 @@ func _rebuild_facility_index() -> void:
         var attached: Array = _body_ids_by_location[location]
         if not attached.has(bid):
             attached.append(bid)
+    # Navigation sites are genuine N43 locations bound to a source body.
+    # A miner at a nav waypoint must be visible in the body's list.
+    for site in _world.get("nav_sites", []):
+        if not (site is Dictionary):
+            continue
+        var location: String = str(site.get("name", ""))
+        var body_id: String = str(site.get("body", ""))
+        if location.is_empty() or body_id.is_empty() or not _body_index.has(body_id):
+            continue
+        if not _body_ids_by_location.has(location):
+            _body_ids_by_location[location] = []
+        var registered: Array = _body_ids_by_location[location]
+        if not registered.has(body_id):
+            registered.append(body_id)
     _rebuild_ship_index()
 
 func _rebuild_ship_index() -> void:
@@ -555,6 +569,44 @@ func select_ship(ship_id: String) -> void:
     _selected_facility_id = ""
     _selected_body_id = ""
     queue_redraw()
+
+## Explicit outliner navigation. Highlight the SAME N39 ship the map
+## can select, and bring it into view without modifying real N14 position.
+func reveal_ship(ship_id: String) -> bool:
+    if not _live_fleet.has(ship_id):
+        return false
+    select_ship(ship_id)
+    var ship: Dictionary = _live_fleet[ship_id]
+    var transit: Variant = ship.get("transit", {})
+    if transit is Dictionary and not transit.is_empty():
+        var point: Variant = transit.get("position", null)
+        var offset: Variant = _world.get("system", {}).get("universe_offset", null)
+        if point is Array and point.size() == 2 and offset is Array and (
+                (offset as Array).size() == 2) and (
+                (point[0] is float or point[0] is int) and
+                (point[1] is float or point[1] is int)):
+            var where: Vector2 = Vector2(float(point[0]), float(point[1]))
+            var anchor: Vector2 = Vector2(float(offset[0]), float(offset[1]))
+            if is_finite(where.x) and is_finite(where.y):
+                _focused_body_id = ""
+                _zoom_candidate_body_id = ""
+                _follow_orbit_valid = false
+                _focus_zoom_target = -1.0
+                _wheel_target_zoom = -1.0
+                _return_camera = false
+                var marker: Vector2 = _native_screen_for_ship(
+                    where, anchor, _orbit_scale())
+                _pan += size * 0.5 - marker
+                queue_redraw()
+        return true
+    var location: String = str(ship.get("location", ""))
+    var bodies: Array = _body_ids_by_location.get(location, [])
+    if not bodies.is_empty():
+        var body: String = str(bodies[0])
+        if _focused_body_id != body:
+            focus_body(body)
+    queue_redraw()
+    return true
 
 
 func is_body_focused() -> bool:
