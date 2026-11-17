@@ -1,7 +1,7 @@
 extends HFlowContainer
 ## Small top-of-map instrument strip, NOT another game or planning panel.
 ## Only buttons are interactive: clicking opens a short real-data menu.
-const Projection = preload("res://scripts/view/colony_quick_projection.gd")
+const QuickData = preload("res://scripts/view/colony_quick_projection.gd")
 const ORDER: Array[String] = [
     "colony", "population", "food", "energy", "construction", "alerts"
 ]
@@ -34,7 +34,7 @@ func _ready() -> void:
 
 func show_colony(world: Dictionary, body_id: String,
         economy: Dictionary) -> void:
-    var state: Dictionary = Projection.project(world, body_id, economy)
+    var state: Dictionary = QuickData.project(world, body_id, economy)
     if state == _data:
         return
     _data = state
