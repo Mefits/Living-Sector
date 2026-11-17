@@ -32,6 +32,10 @@ var _mode: String = "sector"
 var _window_mode: String = ""
 var _tab: String = "Обзор"
 var _top: PanelContainer
+var _nav_panel: PanelContainer
+var _nav_back: Button
+var _nav_sector: Button
+var _nav_path: Label
 var _brand_box: VBoxContainer
 var _time_area: VBoxContainer
 var _metric_boxes: Array[VBoxContainer] = []
@@ -117,6 +121,7 @@ func _ready() -> void:
     _build_top()
     _build_left()
     _build_outliner()
+    _build_navigation()
     _build_window()
     _build_selection_card()
     resized.connect(_layout_window)
@@ -250,6 +255,67 @@ func _build_outliner() -> void:
     _outliner_list.add_theme_constant_override("separation", 3)
     scroll.add_child(_outliner_list)
 
+## Persistent map breadcrumb. The former legacy "К сектору" button was
+## hidden by the Figma shell, which made leaving another system undiscoverable.
+## Keep this readable at 100–140% without reserving half of the map.
+func _build_navigation() -> void:
+    _nav_panel = _panel()
+    _nav_panel.offset_left = 78
+    _nav_panel.offset_right = 470
+    _nav_panel.offset_top = 89
+    _nav_panel.offset_bottom = 133
+    add_child(_nav_panel)
+    var controls := HBoxContainer.new()
+    controls.add_theme_constant_override("separation", 5)
+    _nav_panel.add_child(controls)
+    _nav_back = _button("← К СЕКТОРУ", _navigate_back, 13)
+    _nav_back.tooltip_text = "Вернуться на карту сектора (Esc)"
+    controls.add_child(_nav_back)
+    _nav_sector = _button("← СЕКТОР", _navigate_sector, 12)
+    _nav_sector.tooltip_text = "Сразу вернуться на карту сектора"
+    _nav_sector.visible = false
+    controls.add_child(_nav_sector)
+    _nav_path = _label("СЕКТОР", 12, MUTED)
+    _nav_path.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    controls.add_child(_nav_path)
+
+func _navigate_back() -> void:
+    if _game == null:
+        return
+    if bool(_game.get("_in_system")):
+        _game.call("_return_to_sector")
+    else:
+        _game.call("_open_selected_system")
+    _update_navigation()
+
+func _navigate_sector() -> void:
+    if _game != null:
+        _game.call("_go_to_sector")
+    _update_navigation()
+
+func _update_navigation() -> void:
+    if _nav_back == null or _game == null:
+        return
+    var in_system: bool = bool(_game.get("_in_system"))
+    var focused: bool = false
+    if in_system:
+        var view: Variant = _game.get("_system_view")
+        if view != null and view.has_method("is_body_focused"):
+            focused = bool(view.call("is_body_focused"))
+    if not in_system:
+        _nav_back.text = "ОТКРЫТЬ СИСТЕМУ ›"
+        _nav_back.tooltip_text = "Открыть выбранную систему из карты сектора"
+        _nav_sector.visible = false
+        _nav_path.text = "СЕКТОР"
+    else:
+        _nav_back.text = "← К СИСТЕМЕ" if focused else "← К СЕКТОРУ"
+        _nav_back.tooltip_text = ("Вернуться от планеты к орбитальной карте"
+            if focused else "Вернуться к карте сектора")
+        _nav_sector.visible = focused
+        var name: String = str(_world.get("system", {}).get("name", "СИСТЕМА"))
+        _nav_path.text = name
+        _nav_panel.tooltip_text = "Esc — назад; навигация не перезапускает симуляцию"
+
 func _build_window() -> void:
     _window = _panel()
     _window.visible = false
@@ -360,7 +426,7 @@ func _layout_window() -> void:
         return
     _window.offset_left = 80
     _window.offset_right = minf(760.0, maxf(515.0, size.x - 370.0))
-    _window.offset_top = 107
+    _window.offset_top = 142
     _window.offset_bottom = -40
 
 ## The already-existing UIFrameProfiler owns timing samples. Reuse its
@@ -417,8 +483,9 @@ func _activate(kind: String) -> void:
         if _game != null:
             match kind:
                 "map":
+                    # Same destination as the visible persistent breadcrumb.
                     if bool(_game.get("_in_system")):
-                        _game.call("_return_to_sector")
+                        _game.call("_go_to_sector")
                     else:
                         _game.call("_open_selected_system")
                 "center":
@@ -526,6 +593,7 @@ func present(world: Dictionary, economy: Dictionary, body: String,
         "Сумма запасов всех рынков и населения ВСЕХ фракций; не активы игрока")
     _update_metrics()
     _update_outliner()
+    _update_navigation()
     _update_window()
     _update_selection_card()
 
@@ -1294,5 +1362,13 @@ func _production_text() -> String:
     return "\n".join(lines)
 
 func _unhandled_key_input(event: InputEvent) -> void:
-    if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+    if not (event is InputEventKey) or not event.pressed or (
+            event.echo or event.keycode != KEY_ESCAPE):
+        return
+    if _window != null and _window.visible:
         _close_window()
+    elif _game != null and bool(_game.get("_in_system")):
+        _game.call("_return_to_sector")
+    else:
+        return
+    get_viewport().set_input_as_handled()
