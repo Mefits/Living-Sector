@@ -89,7 +89,10 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
         result.append(event)
         cancel(str(event_id))
     result.sort_custom(Callable(self, "_less"))
-    return result.duplicate(true)
+    # All returned records were removed from the sole authoritative store.
+    # Their payloads were detached on schedule()/restore(), so another deep
+    # copy here only scales with the number/size of dispatched events.
+    return result
 
 func pending_count() -> int:
     return _pending.size()
