@@ -98,7 +98,8 @@ static func _native_dock_wait(ship: Dictionary, tick: int,
 static func _dispatch(action: Dictionary, _bb: Dictionary,
         world: Dictionary, graph: RefCounted, positions: Dictionary,
         ship_id: String, tick: int, scale: float,
-        multiplier: int = 1, dock_ticks: Dictionary = {}) -> Dictionary:
+        multiplier: int = 1, dock_ticks: Dictionary = {},
+        shipyard_locations: Dictionary = {}) -> Dictionary:
     var kind: String = str(action.get("kind", ""))
     var ship: Dictionary = world["ships"][ship_id]
     var location: String = str(ship.get("location", ""))
@@ -441,13 +442,15 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.SUCCESS}
         if not ship.get("transit", {}).is_empty():
             return {"status": Bt.RUNNING, "reason": "n108_wait_native_arrival"}
-        var found: bool = false
-        for id in world.get("facilities", {}):
-            var fac: Dictionary = world["facilities"][id]
-            if str(fac.get("type", "")) == "shipyard" and not fac.get("abandoned", false) and str(fac.get("location", "")) == location:
-                found = true
-                break
-        if not found:
+        # Build the call-scoped roster only if an N108 leaf actually asks.
+        # N84 proposals never mutate facilities; N39 applies commands later.
+        if not shipyard_locations.has("_ready"):
+            for id in world.get("facilities", {}):
+                var fac: Dictionary = world["facilities"][id]
+                if str(fac.get("type", "")) == "shipyard" and not fac.get("abandoned", false):
+                    shipyard_locations[str(fac.get("location", ""))] = true
+            shipyard_locations["_ready"] = true
+        if not shipyard_locations.has(location):
             return {"status": Bt.RUNNING, "reason": "n108_no_built_shipyard_here"}
         var dock_cmd: Dictionary = Commands.make_command(
             "RequestDock" if old_dock.is_empty() else "ReleaseDock", {
@@ -510,6 +513,7 @@ static func propose(world: Dictionary, graph: RefCounted,
     var changed: bool = false
     # Per-proposal scratch only; no World or N38 state is added.
     var dock_ticks: Dictionary = {}
+    var shipyard_locations: Dictionary = {}
     for ship_id in ids:
         var ship: Dictionary = staged["ships"][ship_id]
         var contract_id: String = str(ship.get("active_contract_id", ""))
@@ -580,7 +584,8 @@ static func propose(world: Dictionary, graph: RefCounted,
         var detail: Dictionary = {"reason": ""}
         var executor: Callable = func(action: Dictionary, bb: Dictionary) -> Dictionary:
             var result: Dictionary = _dispatch(action, bb, staged, graph,
-                positions, str(ship_id), tick, scale, multiplier, dock_ticks)
+                positions, str(ship_id), tick, scale, multiplier, dock_ticks,
+                shipyard_locations)
             detail["reason"] = str(result.get("reason", ""))
             return result
         var next: Dictionary = Bt.tick(bt, executor, {})
