@@ -161,27 +161,26 @@ static func preview_depart(world: Dictionary, graph: RefCounted,
         return {"ok": false, "reason": "invalid_ship_order"}
     if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
         return {"ok": false, "reason": "missing_canonical_fleet"}
-    # N84 may validate the envelope once for a proposal. A changed token
-    # or fleet cardinality invalidates the cache; ordinary BT edits do not
-    # change ship identity or transit. Never persist this scratch in World.
+    # N84's proposal scratch must not authorize stale fleet metadata.
+    # Only the selected ship is restored; the fleet envelope is checked live.
     var max_token: int = 0
-    var cached: bool = envelope.get("ok", false) and int(envelope.get("token", -1)) == int(world["ship_next_token"]) and int(envelope.get("size", -1)) == world["ships"].size()
-    if cached:
-        max_token = int(envelope.get("max_token", 0))
-    else:
-        for id in world["ships"]:
-            var row: Variant = world["ships"][id]
-            if not (row is Dictionary) or str(row.get("id", "")) != str(id):
-                return {"ok": false, "reason": "invalid_ship_identity"}
-            var trans: Variant = row.get("transit", null)
-            if not (trans is Dictionary):
-                return {"ok": false, "reason": "invalid_ship_transit"}
-            if not trans.is_empty():
-                max_token = maxi(max_token, int(trans.get("token", -1)))
-        envelope["ok"] = true
-        envelope["token"] = int(world["ship_next_token"])
-        envelope["size"] = world["ships"].size()
-        envelope["max_token"] = max_token
+    # Token and cardinality are not sufficient invalidation keys: N84 can
+    # observe an in-place change to another ship's transit or identity.
+    # Always validate the live envelope before consuming a cached maximum.
+    # This is a correctness gate until a real fleet mutation version exists.
+    for id in world["ships"]:
+        var row: Variant = world["ships"][id]
+        if not (row is Dictionary) or str(row.get("id", "")) != str(id):
+            return {"ok": false, "reason": "invalid_ship_identity"}
+        var trans: Variant = row.get("transit", null)
+        if not (trans is Dictionary):
+            return {"ok": false, "reason": "invalid_ship_transit"}
+        if not trans.is_empty():
+            max_token = maxi(max_token, int(trans.get("token", -1)))
+    envelope["ok"] = true
+    envelope["token"] = int(world["ship_next_token"])
+    envelope["size"] = world["ships"].size()
+    envelope["max_token"] = max_token
     if not world["ships"].has(ship_id):
         return {"ok": false, "reason": "ship_must_undock_first"}
     var state = ShipState.new()
