@@ -4,7 +4,7 @@
 param(
     [string]$GodotExe = "D:\PROGRAMS\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe",
     [string]$CandidateCommit = "dd1f859462900473598410d1d32d7daf6618db9f",
-    [string]$OutputDir = (Join-Path ([Environment]::GetFolderPath("MyDocuments")) "LivingSectorPerf"),
+    [string]$OutputDir = (Join-Path ([Environment]::GetFolderPath("LocalApplicationData")) "LivingSectorPerf"),
     [int]$LimitMinutes = 10,
     [string]$RepoRoot = "",
     [switch]$KeepSnapshots
@@ -21,7 +21,13 @@ $repoRoot = (& $git -C $RepoRoot rev-parse --show-toplevel).Trim()
 if ($LASTEXITCODE -ne 0 -or !$repoRoot) { throw "Run this script from a Git working tree." }
 $prefix = $CandidateCommit.Substring(0, [Math]::Min(12, $CandidateCommit.Length))
 $runDir = Join-Path $OutputDir ("probe-" + $prefix + "-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
-New-Item -ItemType Directory -Path $runDir -Force | Out-Null
+# Keep logs outside OneDrive / redirected Documents. Validate physical creation
+# both up front and immediately before using shell redirection.
+$runDir = [System.IO.Path]::GetFullPath($runDir)
+[System.IO.Directory]::CreateDirectory($runDir) | Out-Null
+if (!(Test-Path -LiteralPath $runDir -PathType Container)) {
+    throw "Log directory is unavailable: $runDir. Supply -OutputDir under local disk."
+}
 $worktree = Join-Path $env:TEMP ("ls-perf-" + $prefix + "-" + $PID)
 $madeWorktree = $false
 $oldProfile = [Environment]::GetEnvironmentVariable("LS_PROFILE_NATIVE_PHASES", "Process")
@@ -50,11 +56,16 @@ try {
     Write-Host "Output: $runDir"
 
     # Godot import first; fail on script parse errors. No cloud CI.
+    [System.IO.Directory]::CreateDirectory($runDir) | Out-Null
+    if (!(Test-Path -LiteralPath $runDir -PathType Container)) {
+        throw "Log directory disappeared before Godot import: $runDir"
+    }
     $importLog = Join-Path $runDir "import.log"
     & $GodotExe --headless --path $godotProject --editor --import --quit *> $importLog
     if ($LASTEXITCODE -ne 0 -or (Select-String -Path $importLog -Pattern "SCRIPT ERROR:|Parse Error:" -Quiet)) {
         throw "Godot import/parse failed: $importLog"
     }
+    [System.IO.Directory]::CreateDirectory($runDir) | Out-Null
     $rawLog = Join-Path $runDir "late-growth.log"
     $proc = Start-Process -FilePath $GodotExe -ArgumentList @(
         "--headless", "--path", ('"' + $godotProject + '"'),
