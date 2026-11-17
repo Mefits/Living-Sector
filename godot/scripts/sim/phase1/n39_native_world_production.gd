@@ -3679,10 +3679,16 @@ func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
     var board_next := ContractBoard.new(ledger_next)
     if not board_next.restore(next_board):
         return {"ok": false, "fatal": true, "reason": "staged_contract_board_rejected"}
-    var world_next: Dictionary = _copy_world("L3452", true)
+    # N135 owns only board, escrow and the payer facility row. Never clone
+    # unrelated growing ships/markets/history for a single funded posting.
+    # Detach each writable container before validation; failed postings must
+    # not mutate the authoritative World or leak a proposed board alias.
+    var world_next: Dictionary = _copy_world("L3452_owned_root", false)
     world_next["contract_board"] = next_board.duplicate(true)
     world_next["escrow_balances"] = escrows_before.duplicate(true)
     world_next["escrow_balances"][escrow] = int(next_money["balances"][escrow])
+    world_next["facilities"] = _world["facilities"].duplicate()
+    world_next["facilities"][buyer] = _world["facilities"][buyer].duplicate(true)
     world_next["facilities"][buyer]["credits"] = int(next_money["balances"][payer])
     var world_error: String = _measured_schema_validate("L3457", world_next)
     if not world_error.is_empty():
