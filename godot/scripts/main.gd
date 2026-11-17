@@ -264,7 +264,7 @@ func _ready() -> void:
     # The player observes the world instead of assigning individual ship orders.
     # Autonomous ship decision execution is not wired yet; do not pretend it is.
     var autonomy_hint := Label.new()
-    autonomy_hint.text = "НАБЛЮДЕНИЕ: экономика работает сама; автономные приказы флоту и главам фракций ещё интегрируются"
+    autonomy_hint.text = "НАБЛЮДЕНИЕ: N153/N84 корабельный ИИ работает; проверяйте реальные рейсы N14, контракты и причины ожидания"
     autonomy_hint.clip_text = true
     autonomy_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     autonomy_hint.tooltip_text = "Ручные команды кораблями сохранены в коде, но скрыты. N153/N135/N100 ещё должны выдавать реальные решения через один мировой Apply."
@@ -1880,7 +1880,7 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
         for ship_type in ship_types:
             lines.append(" • %s: %d" % [str(ship_type), int(ships_by_class[ship_type])])
     lines.append("Полёты по реальным N14 маршрутам: статус в панели Наблюдение.")
-    lines.append("Автономный корабельный ИИ ещё не подключён.")
+    lines.append("Автономные N153/N84 решения выполняются; статус вылетов — в разделе Флот.")
     _details.text = "\n".join(lines)
 
 
@@ -1926,4 +1926,7 @@ func _sync_strategy_ui(shared_economy: Dictionary = {}) -> void:
     _strategy_ui.present(world, shared_economy, _selected_body_id,
         _selected_facility_id, _selected_ship_id, tick, paused, speed,
         _status.text if _status != null else "",
-        _details.text if _details != null else "")
+        _details.text if _details != null else "",
+        _worker_summary if _worker_mode else (
+            _runner.native_autonomy_diagnostics()
+            if _runner != null else {}))
