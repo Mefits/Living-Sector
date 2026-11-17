@@ -233,8 +233,17 @@ static func compare_phase_windows(baseline: Dictionary, candidate: Dictionary,
                 return {"accepted": false, "reason": "invalid_average_" + phase}
             if absf(float(side["phase_total_usec"][phase]) / 100.0 - float(avg)) > 0.001:
                 return {"accepted": false, "reason": "inconsistent_average_" + phase}
-            if int(side["phase_p95_usec"][phase]) > int(side["phase_max_usec"][phase]):
-                return {"accepted": false, "reason": "inconsistent_percentile_" + phase}
+            # A forged summary must not pass merely because its mean matches.
+            # For 100 non-negative samples, max <= total and p95 <= max.
+            var total: int = int(side["phase_total_usec"][phase])
+            var maximum: int = int(side["phase_max_usec"][phase])
+            var percentile: int = int(side["phase_p95_usec"][phase])
+            if maximum > total or percentile > maximum:
+                return {"accepted": false, "reason": "inconsistent_distribution_" + phase}
+            # At least six samples are >= nearest-rank p95 (index 94).
+            # Hence total >= max + 5 * p95 (max is one of those six).
+            if total < maximum + 5 * percentile:
+                return {"accepted": false, "reason": "impossible_p95_" + phase}
     if baseline["from_tick"] != candidate["from_tick"] or baseline["to_tick"] != candidate["to_tick"]:
         return {"accepted": false, "reason": "mismatched_window"}
     var deltas: Dictionary = {}
