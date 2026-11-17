@@ -6,7 +6,7 @@ const NativeData = preload("res://scripts/native_data.gd")
 const Model = preload("res://scripts/sim/world_model.gd")
 const Resolver = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const View = preload("res://scripts/star_system_view.gd")
-const Projection = preload("res://scripts/ui_station_ship_projection.gd")
+const ScreenProjection = preload("res://scripts/ui_station_ship_projection.gd")
 
 
 func _initialize() -> void:
@@ -65,14 +65,14 @@ func _run() -> void:
     if native.distance_to(original) > 0.000005:
         _fail("station visual native pose differs from authoritative N43")
         return
-    var correction: Vector2 = Projection.corrected_screen(
+    var correction: Vector2 = ScreenProjection.corrected_screen(
         native, stations[0]["native_global_screen"], stations)
     if correction.distance_to(icon) > 0.00001:
         _fail("pure native-screen correction failed at exact dock")
         return
     var distant: Vector2 = native + Vector2(0.2, 0.0)
     var original_global: Vector2 = Vector2(120, 150)
-    if Projection.corrected_screen(distant, original_global,
+    if ScreenProjection.corrected_screen(distant, original_global,
             stations) != original_global:
         _fail("station projection contaminated deep-space vessels")
         return
