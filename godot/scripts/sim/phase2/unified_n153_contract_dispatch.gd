@@ -38,7 +38,7 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     var source: String = str(contract.get("source_location", ""))
     var dest: String = str(contract.get("destination_location", ""))
     var here: String = str(ship.get("location", ""))
-    var route: Dictionary = EligibilityIndex.legs(route_index, here, source, dest, graph, positions)
+    var route: Dictionary = EligibilityIndex.legs(route_index, here, source, dest, graph, positions, false)
     if route.has("error"):
         return {"ok": false, "reason": str(route["error"])}
     var spec: Dictionary = Catalog.spec(str(ship.get("class", "")))
@@ -84,8 +84,10 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
         route_index[-1] = fuel_cache
     if float(ship["fuel"]) + 0.0001 < flight_cost:
         return {"ok": false, "reason": "insufficient_native_full_route_fuel"}
-    return {"ok": true, "path_to_source": route["inbound"],
-        "source_to_destination": route["outbound"]}
+    # Geometry steps are read-only within this call. Detach only the two
+    # paths that escape into the winning contract proposal.
+    return {"ok": true, "path_to_source": (route["inbound"] as Array).duplicate(),
+        "source_to_destination": (route["outbound"] as Array).duplicate()}
 
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
