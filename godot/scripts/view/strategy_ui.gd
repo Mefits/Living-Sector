@@ -2,6 +2,7 @@ extends Control
 const QuickData = preload("res://scripts/view/colony_quick_projection.gd")
 const ContextData = preload("res://scripts/view/colony_context_projection.gd")
 const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
+const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 ## Living Sector strategy HUD — Figma-inspired, read-only presentation.
 ## The game owns the map, authoritative economy, orders and clock.
 ## Never requests a new world_snapshot or invents per-tick trends.
@@ -37,6 +38,8 @@ var _metric_boxes: Array[VBoxContainer] = []
 var _brand_scope: Button
 var _metric_nodes: Dictionary = {}
 var _clock: Label
+var _perf_readout: Label
+var _perf_detail_text: String = ""
 var _pause: Button
 var _outliner: PanelContainer
 var _outliner_list: VBoxContainer
@@ -46,6 +49,8 @@ var _window_title: Label
 var _window_text: RichTextLabel
 var _window_tabs: HFlowContainer
 var _window_cards: GridContainer
+var _window_ship_links: HFlowContainer
+var _ship_links_signature: String = ""
 var _selection_card: PanelContainer
 var _selection_title: Label
 var _selection_summary: Label
@@ -121,7 +126,7 @@ func _ready() -> void:
 func _build_top() -> void:
     _top = _panel()
     _top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-    _top.offset_bottom = 66
+    _top.offset_bottom = 82
     _top.mouse_filter = Control.MOUSE_FILTER_STOP
     add_child(_top)
     var row := HBoxContainer.new()
@@ -149,8 +154,11 @@ func _build_top() -> void:
         _metric_nodes[str(item["key"])] = large
     var time_area := VBoxContainer.new()
     _time_area = time_area
-    time_area.custom_minimum_size = Vector2(158, 0)
+    time_area.custom_minimum_size = Vector2(210, 0)
     row.add_child(time_area)
+    _perf_readout = _label("FPS — · SIM — · PING —", 12, TEAL)
+    _perf_readout.tooltip_text = "Локальная симуляция: сетевой ping не применяется."
+    time_area.add_child(_perf_readout)
     _clock = _label("ТИК — · ×1", 13, MUTED)
     time_area.add_child(_clock)
     var controls := HBoxContainer.new()
@@ -169,7 +177,7 @@ func _build_top() -> void:
 func _build_left() -> void:
     var rail := _panel()
     rail.anchor_bottom = 1.0
-    rail.offset_top = 66
+    rail.offset_top = 82
     rail.offset_right = 66
     rail.offset_bottom = -4
     add_child(rail)
@@ -221,7 +229,7 @@ func _build_outliner() -> void:
     _outliner.anchor_bottom = 1.0
     _outliner.offset_left = -272
     _outliner.offset_right = -8
-    _outliner.offset_top = 76
+    _outliner.offset_top = 92
     _outliner.offset_bottom = -12
     add_child(_outliner)
     var col := VBoxContainer.new()
@@ -266,6 +274,11 @@ func _build_window() -> void:
     _window_cards.add_theme_constant_override("v_separation", 8)
     _window_cards.visible = false
     col.add_child(_window_cards)
+    _window_ship_links = HFlowContainer.new()
+    _window_ship_links.add_theme_constant_override("h_separation", 5)
+    _window_ship_links.add_theme_constant_override("v_separation", 5)
+    _window_ship_links.visible = false
+    col.add_child(_window_ship_links)
     _window_text = RichTextLabel.new()
     _window_text.bbcode_enabled = false
     _window_text.scroll_active = true
@@ -328,6 +341,12 @@ func _update_selection_card() -> void:
                 str(card.get("label", "")), str(card.get("value", "—"))])
     _selection_summary.text = "  ·  ".join(summary) if not summary.is_empty() else (
         str(projection.get("subtitle", "Данные отсутствуют")))
+    if _ship.is_empty() and _facility.is_empty() and not _body.is_empty():
+        var visiting: Array[Dictionary] = ShipPresence.ships_at_body(
+            _world, _economy, _body)
+        _selection_summary.text += "\nСуда в локациях тела: %d" % visiting.size()
+        if not visiting.is_empty():
+            _selection_summary.text += " · " + str(visiting[0]["name"])
 
 func _layout_window() -> void:
     if _brand_box != null:
@@ -336,13 +355,31 @@ func _layout_window() -> void:
         for box in _metric_boxes:
             box.custom_minimum_size.x = 105.0 if compact else 121.0
         if _time_area != null:
-            _time_area.custom_minimum_size.x = 138.0 if compact else 158.0
+            _time_area.custom_minimum_size.x = 170.0 if compact else 210.0
     if _window == null:
         return
     _window.offset_left = 80
     _window.offset_right = minf(760.0, maxf(515.0, size.x - 370.0))
-    _window.offset_top = 91
+    _window.offset_top = 107
     _window.offset_bottom = -40
+
+## The already-existing UIFrameProfiler owns timing samples. Reuse its
+## scalars; do not sample World, N158 or network from the HUD.
+func update_performance(fps: int, sim_ms: float, ui_ms: float,
+        worker: bool, details: String = "") -> void:
+    if _perf_readout == null:
+        return
+    var sim_label: String = "SIM" if worker else "SIM p95"
+    _perf_readout.text = ("FPS %d  ·  %s %.1fмс\n" +
+        "UI p95 %.1fмс  ·  PING —") % [
+        maxi(0, fps), sim_label, maxf(0.0, sim_ms), maxf(0.0, ui_ms)]
+    _perf_readout.tooltip_text = (
+        "PING —: игра исполняется локально, сетевого RTT нет.\n" +
+        ("SIM: последний завершённый шаг фонового N158.\n"
+            if worker else
+            "SIM p95: advance_frame за последние 120 кадров.\n") +
+        "UI p95: нагрузка интерфейса за окно профайлера.\n" +
+        details)
 
 func _set_ui_scale(index: int) -> void:
     if _game != null:
@@ -443,6 +480,7 @@ func _select_ship(id: String) -> void:
     if not bool(_game.get("_in_system")):
         _game.call("_open_selected_system")
     _game.call("_on_ship_selected", id)
+    _game.call("_reveal_selected_ship_on_map")
     _update_selection_card()
     _update_window()
 
@@ -779,6 +817,7 @@ func _update_window() -> void:
     var new_text: String = "\n".join(lines)
     if _window_text.text != new_text:
         _window_text.text = new_text
+    _update_ship_links(selected_body)
 
 func _colony_diagnostic_text() -> String:
     var body_id: String = _effective_body()
@@ -813,6 +852,54 @@ func _colony_diagnostic_text() -> String:
     lines.append("Полный N39 отладочный дамп — кнопка «ДАН» слева.")
     return "\n".join(lines)
 
+func _update_ship_links(body_id: String) -> void:
+    if _window_ship_links == null:
+        return
+    var active: bool = (_window_mode == "colony" and not body_id.is_empty()
+        and _tab in ["Обзор", "Логистика"])
+    var items: Array[Dictionary] = (ShipPresence.ships_at_body(
+        _world, _economy, body_id) if active else [])
+    var signature: String = (_window_mode + "|" + _tab + "|" + body_id +
+        "|" + JSON.stringify(items.map(func(row):
+            return [row["id"], row["status"], row["goal"]])))
+    if signature == _ship_links_signature:
+        return
+    _ship_links_signature = signature
+    for child in _window_ship_links.get_children():
+        _window_ship_links.remove_child(child)
+        child.queue_free()
+    _window_ship_links.visible = not items.is_empty()
+    if items.is_empty():
+        return
+    _window_ship_links.add_child(_label("КОРАБЛИ У ТЕЛА · %d" % items.size(),
+        12, TEAL))
+    var limit: int = 8 if _tab == "Логистика" else 4
+    for item in items.slice(0, limit):
+        var btn := _button("➤ " + str(item["name"]), _select_ship.bind(
+            str(item["id"])), 13)
+        btn.tooltip_text = str(item["status"]) + "\n" + str(item["goal"])
+        _window_ship_links.add_child(btn)
+
+func _body_ship_text(body_id: String) -> String:
+    var rows: Array[Dictionary] = ShipPresence.ships_at_body(
+        _world, _economy, body_id)
+    var lines: Array[String] = [
+        "КОРАБЛИ В ЛОКАЦИЯХ ПЛАНЕТЫ: %d" % rows.size(),
+        "Только подтверждённые локации N43/N39; посадка не предполагается.", ""]
+    if rows.is_empty():
+        lines.append("Судов в известных локациях этого тела сейчас нет.")
+    for row in rows:
+        lines.append("➤ %s · %s" % [str(row["name"]), str(row["class"])])
+        lines.append("  %s" % str(row["status"]))
+        lines.append("  Задача: %s  ·  локация: %s" % [
+            str(row["goal"]), str(row["location"])])
+        if not str(row["contract_id"]).is_empty():
+            lines.append("  Контракт: " + str(row["contract_id"]))
+        lines.append("")
+    lines.append("Нажмите на имя корабля выше, чтобы перейти к нему.")
+    lines.append("Корабли в полёте смотрите в «Флот» — они ещё не прибыли.")
+    return "\n".join(lines)
+
 func _colony_window_text(body_id: String,
         projection: Dictionary) -> String:
     if body_id.is_empty():
@@ -829,6 +916,10 @@ func _colony_window_text(body_id: String,
             lines.append("")
             lines.append("Данные колонии — реальные рынки и население N39.")
             lines.append("Построек без фактических площадок не показываем.")
+            lines.append("")
+            lines.append("Суда в локациях планеты: %d" % ShipPresence.ships_at_body(
+                _world, _economy, body_id).size())
+            lines.append("Вкладка «Логистика» — задачи, стыковка и переход к кораблю.")
             return "\n".join(lines)
         "Население":
             return _population_text(body_id)
@@ -839,7 +930,7 @@ func _colony_window_text(body_id: String,
         "Строительство":
             return _construction_text(body_id)
         "Логистика":
-            return _ships_text(true, false)
+            return _body_ship_text(body_id)
     return "—"
 
 func _population_text(body_id: String) -> String:
