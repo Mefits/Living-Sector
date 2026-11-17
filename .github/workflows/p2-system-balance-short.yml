@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/p2-system-balance-short.yml
       - godot/scripts/star_system_view.gd
+      - godot/scripts/ui_station_ship_projection.gd
+      - godot/tests/p2_sol_station_ship_alignment_check.gd
       - godot/scripts/main.gd
       - godot/scripts/sim/phase2/sol_physical_assets_projection.gd
       - godot/scripts/sim/phase2/n158_real_owner_thread_probe.gd
@@ -69,6 +71,20 @@ jobs:
           timeout --signal=TERM --kill-after=5s 90s godot --headless --path godot --editor --import --quit >"$RUNNER_TEMP/parse.log" 2>&1 || {
             tail -n 140 "$RUNNER_TEMP/parse.log"; exit 1;
           }
+      - name: Sol station/N14 native dock screen coherence and actual departure/arrival
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 40s godot --headless --path godot --script res://tests/p2_sol_station_ship_alignment_check.gd >"$RUNNER_TEMP/dock_alignment.log" 2>&1 || {
+            tail -n 140 "$RUNNER_TEMP/dock_alignment.log"; exit 1;
+          }
+          grep -q 'P2 SOL STATION SHIP ALIGNMENT PASS' "$RUNNER_TEMP/dock_alignment.log" || {
+            tail -n 140 "$RUNNER_TEMP/dock_alignment.log"; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|P2 SOL STATION SHIP ALIGNMENT FAIL:' "$RUNNER_TEMP/dock_alignment.log"; then
+            tail -n 140 "$RUNNER_TEMP/dock_alignment.log"; exit 1;
+          fi
+          grep 'P2 SOL STATION SHIP ALIGNMENT PASS' "$RUNNER_TEMP/dock_alignment.log"
       - name: Sol station and surface production district identity and real N39 economy
         shell: bash
         run: |
@@ -273,6 +289,6 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/sol_assets.log" "$RUNNER_TEMP/ship_ui.log" "$RUNNER_TEMP/ship_scale.log" "$RUNNER_TEMP/navigation.log" "$RUNNER_TEMP/planet_nav.log" "$RUNNER_TEMP/smooth_nav.log" "$RUNNER_TEMP/nav500.log" "$RUNNER_TEMP/satellites.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log" "$RUNNER_TEMP/sol_worker.log" "$RUNNER_TEMP/merged500.log"; do
+          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/sol_assets.log" "$RUNNER_TEMP/dock_alignment.log" "$RUNNER_TEMP/ship_ui.log" "$RUNNER_TEMP/ship_scale.log" "$RUNNER_TEMP/navigation.log" "$RUNNER_TEMP/planet_nav.log" "$RUNNER_TEMP/smooth_nav.log" "$RUNNER_TEMP/nav500.log" "$RUNNER_TEMP/satellites.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log" "$RUNNER_TEMP/sol_worker.log" "$RUNNER_TEMP/merged500.log"; do
             if test -f "$f"; then echo "--- $f"; tail -n 140 "$f"; fi
           done
