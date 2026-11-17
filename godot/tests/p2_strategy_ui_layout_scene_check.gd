@@ -101,6 +101,23 @@ func _run() -> void:
         assert((workspace.get("_tabs") as HBoxContainer).get_child_count() >= 3)
         assert(workspace.get("_tabs_scroll") is ScrollContainer)
     assert(workspace.has_method("_issue_line"))
+    # Filter clear affordance follows the actual query, including when
+    # opened in a narrow, scaled workspace.
+    var search_field: LineEdit = workspace.get("_filter")
+    var clear_search: Button = workspace.get("_filter_clear")
+    assert(clear_search != null and not clear_search.visible)
+    search_field.text = "Farm"
+    search_field.text_changed.emit(search_field.text)
+    assert(clear_search.visible)
+    clear_search.pressed.emit()
+    assert(search_field.text.is_empty())
+    assert(not clear_search.visible)
+    workspace.size = Vector2(480, 550)
+    workspace.call("_fit_toolbar")
+    assert(not (workspace.get("_updated") as Label).visible)
+    workspace.size = Vector2(750, 550)
+    workspace.call("_fit_toolbar")
+    assert((workspace.get("_updated") as Label).visible)
     # Shared Figma table rows use a single scrollable width grid. Dense
     # columns remain aligned even when the management window is narrow.
     var table_probe := VBoxContainer.new()
