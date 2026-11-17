@@ -63,3 +63,20 @@ func paid_phase_window(end_tick: int) -> Array:
             if not _paid_rows[i]["_seen"].has(phase):
                 return []
     return _paid_rows.duplicate(true)
+
+## Only completed contiguous paid-tick candidates contribute to these totals.
+## Unlike phase_metrics(), this never includes partial/aborted phase calls.
+## Caller must still verify authoritative SourceClock/N38 completion separately.
+func paid_phase_totals(end_tick: int) -> Dictionary:
+    var rows: Array = paid_phase_window(end_tick)
+    if rows.is_empty():
+        return {}
+    var totals: Dictionary = {}
+    for phase in PHASES:
+        totals[phase] = 0
+    for row in rows:
+        for phase in PHASES:
+            totals[phase] = int(totals[phase]) + int(row[phase])
+    return {"from_tick": end_tick - WINDOW_LIMIT + 1,
+        "to_tick": end_tick, "observed_paid_ticks": WINDOW_LIMIT,
+        "phase_total_usec": totals, "time_kind": "elapsed_wall_not_cpu"}
