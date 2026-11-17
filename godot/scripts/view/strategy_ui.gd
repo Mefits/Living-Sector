@@ -651,9 +651,8 @@ func _build_outliner() -> void:
         {"mode":"flight","text":"В ПУТИ"},
         {"mode":"docked","text":"У ДОКА"}]:
         var key: String = str(entry["mode"])
-        var filter_btn := _button(str(entry["text"]),
-            _set_outliner_filter.bind(key), 11)
-        filter_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        var filter_btn: Button = LSComponents.outliner_filter(
+            str(entry["text"]), _set_outliner_filter.bind(key))
         filters.add_child(filter_btn)
         _outliner_filter_buttons[key] = filter_btn
     var scroll := ScrollContainer.new()
@@ -1234,19 +1233,10 @@ func _outliner_entry(label: String, callback: Callable,
             accent = AMBER
     if label.length() >= 2 and label.substr(1, 1) == " ":
         name = label.substr(2)
-    var row_button := _button("", callback, 13)
+    var row_button: Button = LSComponents.outliner_item(callback, selected)
     row_button.tooltip_text = (name + "\n" + hint +
         ("\n" + technical_detail if not technical_detail.is_empty() else "")
         if not hint.is_empty() else name)
-    row_button.custom_minimum_size.y = 44 if not hint.is_empty() else 36
-    row_button.add_theme_stylebox_override("normal",
-        _style(Color("#142832") if selected else Color("#0B1922"),
-            TEAL if selected else Color("#1F343C"),
-            2 if selected else 0, 0, 0, 1))
-    row_button.add_theme_stylebox_override("hover",
-        _style(Color("#18343D"), TEAL, 2, 0, 0, 1))
-    row_button.add_theme_stylebox_override("pressed",
-        _style(Color("#1B4449"), TEAL, 2, 0, 0, 1))
     _outliner_list.add_child(row_button)
     var row := HBoxContainer.new()
     row.add_theme_constant_override("separation", 8)
@@ -1255,14 +1245,11 @@ func _outliner_entry(label: String, callback: Callable,
     row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     row.offset_left = 7
     row.offset_right = -6
-    var glyph_tile := PanelContainer.new()
+    var glyph_tile: PanelContainer = LSComponents.chrome_panel(
+        &"LSOutlinerSelectedGlyph" if selected else &"LSOutlinerGlyph")
     glyph_tile.custom_minimum_size = Vector2(29, 29)
     glyph_tile.size_flags_vertical = Control.SIZE_SHRINK_CENTER
     glyph_tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    var glyph_style := _style(Color("#10252C"),
-        TEAL if selected else Color("#274A4C"))
-    glyph_style.set_content_margin_all(4)
-    glyph_tile.add_theme_stylebox_override("panel", glyph_style)
     row.add_child(glyph_tile)
     var mark := TextureRect.new()
     mark.custom_minimum_size = Vector2(17, 17)
@@ -1276,15 +1263,15 @@ func _outliner_entry(label: String, callback: Callable,
     text_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     text_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
     row.add_child(text_column)
-    var primary := _label(name, 13, Color("#A5E1D9") if selected else TEXT)
+    var primary := _label(name, 10, Color("#A5E1D9") if selected else TEXT)
     text_column.add_child(primary)
     if not hint.is_empty():
-        var detail := _label(hint, 10, MUTED)
+        var detail := _label(hint, 8, MUTED)
         text_column.add_child(detail)
     var state: String = ("В ПУТИ" if label.begins_with("↗ ") else (
         "ДОК" if label.begins_with("■ ") else ""))
     if not state.is_empty():
-        var state_label := _label(state, 9, TEAL if state == "В ПУТИ" else AMBER)
+        var state_label := _label(state, 8, TEAL if state == "В ПУТИ" else AMBER)
         state_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
         row.add_child(state_label)
 
@@ -1304,11 +1291,9 @@ func _outliner_heading(key: String, title: String,
         total: int) -> bool:
     var open: bool = bool(_outliner_group_open.get(key, true))
     var icon: String = "⌄ " if open else "› "
-    var btn := _button("", _toggle_outliner_group.bind(key), 11)
+    var btn: Button = LSComponents.outliner_group(
+        _toggle_outliner_group.bind(key))
     btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-    btn.add_theme_stylebox_override("normal",
-        _style(Color("#0B1A22"), LINE, 0, 0, 0, 1))
-    btn.custom_minimum_size.y = 29
     _outliner_list.add_child(btn)
     var group_row := HBoxContainer.new()
     group_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1359,10 +1344,9 @@ func _update_outliner() -> void:
             _world.get("system", {}).get("name", "—")).to_upper()
     for key in _outliner_filter_buttons:
         var b: Button = _outliner_filter_buttons[key]
-        b.add_theme_stylebox_override("normal", _style(
-            Color("#1D4147") if key == _outliner_filter_mode else BG))
-        b.add_theme_color_override("font_color",
-            TEAL if key == _outliner_filter_mode else MUTED)
+        b.theme_type_variation = (
+            &"LSOutlinerFilterActive"
+            if key == _outliner_filter_mode else &"LSOutlinerFilter")
     _clear_outliner_entries()
     var areas: Dictionary = {}
     var production: Array[Dictionary] = []
