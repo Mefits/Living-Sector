@@ -16,6 +16,7 @@ const ENABLE_DEBUG_MANUAL_FLEET_UI: bool = false
 const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
+const StrategyUI = preload("res://scripts/view/strategy_ui.gd")
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const WorkerN158 = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const ReadOnlyWorldModel = preload("res://scripts/sim/world_model.gd")
@@ -42,6 +43,7 @@ var _details: RichTextLabel
 var _status: Label
 var _observer_panel: PanelContainer
 var _observer_button: Button
+var _strategy_ui: Control
 var _ship_choice: OptionButton
 var _ship_destination: LineEdit
 var _cargo_commodity: LineEdit
@@ -318,6 +320,22 @@ func _ready() -> void:
     footer.text = "P2 · карта сектора → система → планета · экономика и автономный флот N84/N153 в интеграции; состояние в Наблюдении"
     footer.add_theme_color_override("font_color", Color("#8da6b5"))
     root.add_child(footer)
+    # The live world and map stay exactly as before. Only the old full-screen
+    # debug chrome is replaced; '--p2-legacy-ui' restores it for diagnostics.
+    if not OS.get_cmdline_user_args().has("--p2-legacy-ui"):
+        heading.visible = false
+        _status.visible = false
+        toolbar.visible = false
+        autonomy_hint.visible = false
+        footer.visible = false
+        details_panel.visible = false
+        for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+            margins.add_theme_constant_override(side, 0)
+        root.add_theme_constant_override("separation", 0)
+        _strategy_ui = StrategyUI.new()
+        _strategy_ui.attach(self)
+        add_child(_strategy_ui)
+        _strategy_ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
     var data: Dictionary = NativeData.load_current_world()
     if data.has("error"):
@@ -407,6 +425,7 @@ func _ready() -> void:
     else:
         print("GODOT_P2_PAID_PRODUCTION_BOOT ", JSON.stringify(_runner.production_stats()))
     _update_status()
+    _sync_strategy_ui()
     # The old P2 boot smoke always runs against the default owner.
     if not _worker_mode and OS.get_cmdline_user_args().has("--p2-boot-check"):
         call_deferred("_run_boot_check")
@@ -1264,6 +1283,7 @@ func _refresh_selection(shared_economy: Dictionary = {},
             _show_body_details(current, _worker_economy)
         else:
             _select_world(current, _worker_economy)
+        _sync_strategy_ui(_worker_economy)
         return
     if not _runner:
         return
@@ -1281,6 +1301,7 @@ func _refresh_selection(shared_economy: Dictionary = {},
             _show_body_details(selected, shared_economy)
         else:
             _select_world(selected, shared_economy)
+    _sync_strategy_ui(shared_economy)
 
 func _reset_map() -> void:
     if _in_system and _system_view:
@@ -1457,6 +1478,7 @@ func _open_world(world: Dictionary) -> void:
     _back_button.text = "← К сектору"
     _open_button.visible = false
     _show_body_details(current)
+    _sync_strategy_ui()
 
 
 func _return_to_sector() -> void:
@@ -1465,6 +1487,7 @@ func _return_to_sector() -> void:
     if _in_system and _system_view != null and _system_view.is_body_focused():
         _system_view.unfocus_body()
         _back_button.text = "← К сектору"
+        _sync_strategy_ui()
         return
     _in_system = false
     _system_view.visible = false
@@ -1476,6 +1499,7 @@ func _return_to_sector() -> void:
     _selected_ship_id = ""
     _selected_facility_id = ""
     _refresh_selection()
+    _sync_strategy_ui()
 
 
 func _on_body_selected(body: Dictionary) -> void:
@@ -1487,6 +1511,7 @@ func _on_body_selected(body: Dictionary) -> void:
     var current: Dictionary = _model.system_by_id(_selected_system)
     if not current.is_empty():
         _show_body_details(current)
+    _sync_strategy_ui()
 
 
 func _on_body_open_requested(body: Dictionary) -> void:
@@ -1502,6 +1527,7 @@ func _on_body_open_requested(body: Dictionary) -> void:
     var current: Dictionary = _model.system_by_id(_selected_system)
     if not current.is_empty():
         _show_body_details(current)
+    _sync_strategy_ui()
 
 
 ## One real source facility ID, not a newly minted decorative module.
@@ -1515,6 +1541,7 @@ func _on_facility_selected(facility_id: String) -> void:
     if not current.is_empty():
         _show_body_details(current, _worker_economy if _worker_mode
             else _runner.economy_snapshot())
+    _sync_strategy_ui()
 
 
 ## Both moving vessels and docked fleets use their authentic N39 ship
@@ -1533,6 +1560,7 @@ func _on_ship_selected(ship_id: String) -> void:
         # from the real detached N39 snapshot, not all 500 trajectories.
         _system_view.set_live_fleet(fleet)
         _show_ship_details(fleet)
+    _sync_strategy_ui()
 
 
 func _show_ship_details(fleet: Dictionary) -> bool:
@@ -1867,3 +1895,22 @@ func startup_health() -> Dictionary:
         "implemented_phases": (PackedStringArray(["N158_worker"]) if _worker_mode
             else (_runner.implemented_phases() if booted else PackedStringArray()))
     }
+
+# Present one already-detached N39 frame, never request another snapshot here.
+# UI aggregates explicit world market stocks, never creates faction resources.
+func _sync_strategy_ui(shared_economy: Dictionary = {}) -> void:
+    if _strategy_ui == null or _model == null:
+        return
+    var world: Dictionary = _model.system_by_id(_selected_system)
+    if world.is_empty():
+        return
+    var tick: int = _worker_tick if _worker_mode else (
+        _runner.tick_count if _runner != null else -1)
+    var paused: bool = _worker_paused if _worker_mode else (
+        _runner.clock.paused if _runner != null else false)
+    var speed: float = _worker_speed if _worker_mode else (
+        _runner.clock.world_speed if _runner != null else 1.0)
+    _strategy_ui.present(world, shared_economy, _selected_body_id,
+        _selected_facility_id, _selected_ship_id, tick, paused, speed,
+        _status.text if _status != null else "",
+        _details.text if _details != null else "")
