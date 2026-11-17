@@ -620,6 +620,11 @@ func paid_leg_totals_for_operations(operation_ids: Array) -> Dictionary:
 
 
 func retains_receipts(candidate: Dictionary) -> bool:
+	# A provenance candidate must contain exactly the committed history.
+	# Reject truncated or padded maps in O(1) before walking growing order
+	# chunks. Previously extra operation IDs were silently accepted.
+	if candidate.size() != _receipt_count:
+		return false
 	for chunk in _receipt_order_chunks:
 		for id in chunk:
 			if candidate.get(id, null) != _receipt_at(str(id)):

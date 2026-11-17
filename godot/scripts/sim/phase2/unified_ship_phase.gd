@@ -215,3 +215,39 @@ static func depart(world: Dictionary, graph: RefCounted,
     return {"ok": true, "changed": true, "ships": state.ships,
         "next_token": motion.next_token(),
         "outcomes": {ship_id: "departed_to_" + destination}}
+
+## N84 only needs the arrival receipt for a proposed BeginTransit command.
+## Validate the entire authoritative fleet/token envelope as _load does, but
+## deep-copy only the candidate row. The full depart() API remains unchanged.
+static func preview_depart(world: Dictionary, graph: RefCounted,
+        positions: Dictionary, tick: int, tick_scale: float,
+        ship_id: String, destination: String) -> Dictionary:
+    if ship_id.is_empty() or destination.is_empty() or graph == null:
+        return {"ok": false, "reason": "invalid_ship_order"}
+    if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
+        return {"ok": false, "reason": "missing_canonical_fleet"}
+    var max_token: int = 0
+    for id in world["ships"]:
+        var row: Variant = world["ships"][id]
+        if not (row is Dictionary) or str(row.get("id", "")) != str(id):
+            return {"ok": false, "reason": "invalid_ship_identity"}
+        var trans: Variant = row.get("transit", null)
+        if not (trans is Dictionary):
+            return {"ok": false, "reason": "invalid_ship_transit"}
+        if not trans.is_empty():
+            max_token = maxi(max_token, int(trans.get("token", -1)))
+    if not world["ships"].has(ship_id):
+        return {"ok": false, "reason": "ship_must_undock_first"}
+    var state = ShipState.new()
+    if not state.restore([world["ships"][ship_id]]):
+        return {"ok": false, "reason": "invalid_ship_state"}
+    var motion = ShipTransit.new()
+    if not motion.restore_next_token(int(world["ship_next_token"]), max_token):
+        return {"ok": false, "reason": "invalid_ship_token_cursor"}
+    if not str(state.ships[ship_id].get("docked_at", "")).is_empty():
+        return {"ok": false, "reason": "ship_must_undock_first"}
+    if not motion.depart(state, graph, ship_id, destination, positions, tick, tick_scale):
+        return {"ok": false, "reason": "native_departure_rejected"}
+    return {"ok": true, "changed": true, "ships": state.ships,
+        "next_token": motion.next_token(),
+        "outcomes": {ship_id: "departed_to_" + destination}}
