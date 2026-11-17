@@ -5276,7 +5276,13 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
         return {"ok": true, "due": false, "tick": tick, "transfers": []}
     if tick <= int(_world["faction_finance_last_tick"]):
         return {"ok": false, "reason": "n129_duplicate_faction_accounting_tick"}
-    var staged: Dictionary = _copy_world("L4930", true)
+    # N129 owns only the three wallet-backed domains. Preserve the full
+    # Schema/N9 oracle, but do not clone unrelated growing ship/contract data.
+    # Every nested facility/household row written below is detached first.
+    var staged: Dictionary = _copy_world("L4930_owned_root", false)
+    staged["faction_treasuries"] = _world["faction_treasuries"].duplicate(true)
+    staged["facilities"] = _world["facilities"].duplicate(true)
+    staged["populations"] = _world["populations"].duplicate(true)
     var wallets: RefCounted = _ledger.fork()
     var records: Array = plan.get("transfers", [])
     if records.size() > 10000:
