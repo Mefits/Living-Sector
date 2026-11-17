@@ -714,6 +714,9 @@ func _build_window() -> void:
     _window.z_index = 50
     _window.mouse_filter = Control.MOUSE_FILTER_STOP
     var workspace_frame := _style(Color("#09141C"), Color("#31505A"))
+    # WorkspaceShell already owns its 49px heading and page padding.
+    # Avoid a second 8px PanelContainer inset around all seven pages.
+    workspace_frame.set_content_margin_all(0)
     workspace_frame.shadow_size = 10
     workspace_frame.shadow_color = Color(0, 0, 0, 0.60)
     _window.add_theme_stylebox_override("panel", workspace_frame)
