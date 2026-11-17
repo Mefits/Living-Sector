@@ -16,6 +16,7 @@ const ENABLE_DEBUG_MANUAL_FLEET_UI: bool = false
 const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
+const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const WorkerN158 = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const ReadOnlyWorldModel = preload("res://scripts/sim/world_model.gd")
@@ -1332,7 +1333,8 @@ func _select_world(world: Dictionary, shared_economy: Dictionary = {}) -> void:
     lines.append("ПРЕДПРИЯТИЯ / СТАНЦИИ")
     for facility in facilities:
         lines.append(" • %s [%s]" % [
-            facility.get("name", "—"), facility.get("type", "—")
+            FacilityLabels.display_name(facility),
+            FacilityLabels.type_name(str(facility.get("type", "—")))
         ])
         lines.append("   Владелец: " + str(facility.get("faction_id", "—")))
     lines.append("")
@@ -1624,8 +1626,8 @@ func _show_facility_details(world: Dictionary,
     var live_facilities: Dictionary = economy.get("facilities", {})
     var lines: Array[String] = [
         "ОРБИТАЛЬНАЯ СТАНЦИЯ" if orbital else "ПРЕДПРИЯТИЕ ПЛАНЕТЫ",
-        str(source.get("name", id)),
-        "ID: " + id, "Тип: " + kind,
+        FacilityLabels.display_name(source),
+        "ID: " + id, "Тип: " + FacilityLabels.type_name(kind),
         "Небесное тело: " + body_id,
         "Владелец: " + str(source.get("faction_id", "—")),
         ""
@@ -1676,6 +1678,9 @@ func _show_facility_details(world: Dictionary,
                 docked_count += 1
         lines.append("Кораблей в общей локации: %d" % docked_count)
     lines.append("")
+    if not orbital:
+        lines.append("Движущиеся точки показывают недавнюю")
+        lines.append("оплаченную работу, а не доставку ресурсов.")
     lines.append("Логистический адрес: " + location)
     lines.append("Сейчас объекты Земли используют общий адрес")
     lines.append("в эталонной экономике. Отдельные перевозки")
@@ -1773,7 +1778,8 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
         var location: String = str(facility.get("location", ""))
         locations[location] = true
         lines.append(" • %s [%s]" % [
-            str(facility.get("name", fid)), str(facility.get("type", "?"))])
+            FacilityLabels.display_name(facility),
+            FacilityLabels.type_name(str(facility.get("type", "?")))] )
         if live_facilities.has(fid):
             var live: Dictionary = live_facilities[fid]
             var shift: Dictionary = live.get("work_shift", {})
