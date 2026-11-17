@@ -6,6 +6,7 @@ extends RefCounted
 const Runner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
 const RequestMetrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
+const SizeProbe = preload("res://scripts/sim/phase2/n158_authoritative_size_probe.gd")
 
 var _thread: Thread = Thread.new()
 var _mutex: Mutex = Mutex.new()
@@ -105,6 +106,9 @@ func _owner_loop(seed: Dictionary) -> void:
     _publish({"ticket": 0, "kind": "boot", "ok": true,
         "tick": sim.tick_count, "ships": sim.fleet_snapshot().size()})
     var frozen: bool = false
+    # E: exactly the last 100 single-paid-tick request timings, detached scalars.
+    # Multi-tick requests invalidate coverage; never divide their elapsed time.
+    var paid_tick_timings: Array[Dictionary] = []
     while true:
         _wake.wait()
         _mutex.lock()
@@ -198,9 +202,37 @@ func _owner_loop(seed: Dictionary) -> void:
                 if kind in ["load", "restore"] or bool(payload.get("observer", false)):
                     answer["native"] = sim.checkpoint().get(
                         "native_production", {})
+        # Four bounded measurements, only after a successfully paid source tick.
+        # Reuse the detached economy projection when it already exists.
+        # This snapshot is diagnostic and cannot change authoritative state.
+        if answer["ok"] and sim.tick_count > before_tick and (
+                SizeProbe.CHECKPOINTS.has(sim.tick_count)):
+            var size_start_usec: int = Time.get_ticks_usec()
+            var size_world: Dictionary = answer.get("economy", {})
+            if size_world.is_empty():
+                size_world = sim.economy_snapshot()
+            answer["size_probe"] = SizeProbe.measure(sim.tick_count, size_world)
+            answer["size_probe_wall_usec"] = Time.get_ticks_usec() - size_start_usec
+            # Existing opt-in native profiler; detached bounded scalars only.
+            answer["ship_subphase_profile"] = RequestMetrics.checkpoint_ship_subphases(
+                sim.tick_count, sim.profile_native_ship_subphases())
         var projection_end_usec: int = Time.get_ticks_usec()
         answer["timing"] = RequestMetrics.summarize(before_tick, sim.tick_count,
             began_usec, advance_end_usec, projection_end_usec)
+        # Only completed, successful, single-paid-tick requests are attributable.
+        # The window includes FrameView/projection elapsed separately; not CPU.
+        if answer["ok"] and int(answer["timing"].get("paid_ticks", 0)) == 1:
+            var sample: Dictionary = answer["timing"].duplicate(true)
+            sample["after_tick"] = sim.tick_count
+            paid_tick_timings.append(sample)
+            if paid_tick_timings.size() > 100:
+                paid_tick_timings.pop_front()
+            if RequestMetrics.CHECKPOINTS.has(sim.tick_count):
+                answer["paid_tick_window"] = RequestMetrics.bounded_paid_tick_window(
+                    paid_tick_timings, sim.tick_count)
+        elif sim.tick_count > before_tick or kind in ["restore", "load"]:
+            # Gaps and state rewinds cannot be stitched into a valid 100-tick run.
+            paid_tick_timings.clear()
         _publish(answer)
     # sim is released on this same owner thread. No live reference escapes.
 

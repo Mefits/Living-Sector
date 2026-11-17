@@ -23,23 +23,31 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
         if not (world.get(field) is Dictionary):
             return {"ok": false, "reason": "n100_missing_real_" + field}
     var facilities: Array = []
-    var facility_ids: Array = world["facilities"].keys()
+    var facility_ids: Array = []
+    for fid in world["facilities"]:
+        if str(world["facilities"][fid].get("faction", "")) == faction:
+            facility_ids.append(fid)
     facility_ids.sort()
     for fid in facility_ids:
         var f: Dictionary = world["facilities"][fid]
-        if str(f.get("faction", "")) == faction:
-            facilities.append({"facility_id": str(fid),
+        facilities.append({"facility_id": str(fid),
                 "location_id": str(f.get("location", "")),
                 "facility_type": str(f.get("type", ""))})
     var markets: Array = []
-    var locations: Array = world["markets"].keys()
+    # Market ownership is checked before sorting: global markets grow with
+    # the sector, while this faction's planning snapshot needs only its own.
+    # Keep the original sorted location order and source owner validation.
+    var locations: Array = []
+    for loc in world["markets"]:
+        var candidate: Dictionary = world["markets"][loc]
+        var candidate_owner: String = str(candidate.get("owner", ""))
+        if world["facilities"].has(candidate_owner) and str(
+                world["facilities"][candidate_owner].get("faction", "")) == faction:
+            locations.append(loc)
     locations.sort()
     for loc in locations:
         var m: Dictionary = world["markets"][loc]
         var owner: String = str(m.get("owner", ""))
-        if not world["facilities"].has(owner) or str(
-                world["facilities"][owner].get("faction", "")) != faction:
-            continue
         if str(world["facilities"][owner].get("location", "")) != str(loc):
             return {"ok": false, "reason": "n100_wrong_source_market_owner"}
         markets.append({"market_id": str(m.get("id", "")),
@@ -48,12 +56,13 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
             "demand": m.get("demand", {}).duplicate(true),
             "prices": m.get("prices", {}).duplicate(true)})
     var ships: Array = []
-    var ship_ids: Array = world["ships"].keys()
+    var ship_ids: Array = []
+    for sid in world["ships"]:
+        if str(world["ships"][sid].get("faction_id", "")) == faction:
+            ship_ids.append(sid)
     ship_ids.sort()
     for sid in ship_ids:
         var ship: Dictionary = world["ships"][sid]
-        if str(ship.get("faction_id", "")) != faction:
-            continue
         var cargo_total: int = 0
         for amount in ship.get("cargo", {}).values():
             if typeof(amount) != TYPE_INT or int(amount) < 0:
@@ -71,17 +80,31 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
     if not (contracts is Dictionary):
         return {"ok": false, "reason": "n100_invalid_original_contract_board"}
     var commitments: Array = []
-    var contract_ids: Array = contracts.keys()
+    # A faction needs only its own live commitments. Scanning the board is
+    # unavoidable without a versioned authoritative owner index, but sorting
+    # the entire growing global board once per faction is not. Sort only the
+    # matching IDs, retaining the original lexicographic source order.
+    var contract_ids: Array = []
+    # This alias is identical for every board row; avoid constructing it
+    # once per global contract on each faction's planning capture.
+    var requestor_alias: String = "faction/" + faction
+    for cid in contracts:
+        var c: Dictionary = contracts[cid]
+        # Reject unrelated contracts before normalizing status: the global
+        # ContractBoard grows, while most entries belong to other factions.
+        # The source status filter still runs for every matching commitment.
+        var owner: String = str(c.get("requestor_id", ""))
+        var sponsorship: String = str(c.get("faction_id", ""))
+        if owner != faction and owner != requestor_alias and sponsorship != faction:
+            continue
+        var status: String = str(c.get("status", "")).to_lower()
+        if status in ["paid", "expired"]:
+            continue
+        contract_ids.append(cid)
     contract_ids.sort()
     for cid in contract_ids:
         var c: Dictionary = contracts[cid]
         var status: String = str(c.get("status", "")).to_lower()
-        if status in ["paid", "expired"]:
-            continue
-        var owner: String = str(c.get("requestor_id", ""))
-        var sponsorship: String = str(c.get("faction_id", ""))
-        if owner != faction and owner != "faction/" + faction and sponsorship != faction:
-            continue
         commitments.append({
             "contract_id": str(cid), "status": status,
             "source": str(c.get("source_location", "")),

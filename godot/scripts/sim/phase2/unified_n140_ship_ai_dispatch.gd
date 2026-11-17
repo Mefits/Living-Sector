@@ -40,11 +40,19 @@ static func propose(world: Dictionary, graph: RefCounted,
     var proposed: Variant = result.get("ships", null)
     if not (proposed is Dictionary) or proposed.size() != active.size():
         return {"ok": false, "reason": "n140_n84_changed_active_roster"}
-    var merged: Dictionary = ships.duplicate(true)
+    # NativeAI.propose has already detached and mutated every active row.
+    # Re-copying its result (and then the entire original fleet) scales
+    # with growing cargo/BT history even when only a few ships fired.
+    # Detach sleeping rows once; transfer the exclusively owned active
+    # rows from the proposal without another recursive copy.
+    var merged: Dictionary = {}
+    for sid in ships:
+        if not active.has(sid):
+            merged[sid] = (ships[sid] as Dictionary).duplicate(true)
     for sid in active:
         if not proposed.has(sid) or not (proposed[sid] is Dictionary):
             return {"ok": false, "reason": "n140_n84_lost_active_ship"}
-        merged[sid] = proposed[sid].duplicate(true)
+        merged[sid] = proposed[sid]
     for command in result.get("commands", []):
         if not (command is Dictionary) or not fired.has(str(command.get("ship", ""))):
             return {"ok": false, "reason": "n140_n146_command_from_sleeping_ship"}

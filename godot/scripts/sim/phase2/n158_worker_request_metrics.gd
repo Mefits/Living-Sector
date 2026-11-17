@@ -56,6 +56,10 @@ static func count_delta(earlier: Dictionary, later: Dictionary) -> Dictionary:
             return {}
         if typeof(earlier[key]) != TYPE_INT or typeof(later[key]) != TYPE_INT:
             return {}
+        # Counts originate from authoritative non-negative sizes. Reject forged
+        # negative snapshots rather than reporting a plausible cleanup delta.
+        if int(earlier[key]) < 0 or int(later[key]) < 0:
+            return {}
         delta[key] = int(later[key]) - int(earlier[key])
     return delta
 
@@ -133,6 +137,14 @@ static func compare_checkpoint_pair(baseline: Dictionary, candidate: Dictionary)
             return {"accepted": false, "reason": "invalid_tick_window"}
         if typeof(side["observed_paid_ticks"]) != TYPE_INT or typeof(side["expected_paid_ticks"]) != TYPE_INT:
             return {"accepted": false, "reason": "invalid_tick_coverage"}
+    # A caller-provided complete=true is not evidence of full coverage.
+    # Derive the exact 100-tick boundary from the fixed checkpoint window.
+    for side in [baseline, candidate]:
+        var required_ticks: int = int(side["to_tick"]) - int(side["from_tick"]) + 1
+        if required_ticks != 100 or int(side["expected_paid_ticks"]) != required_ticks:
+            return {"accepted": false, "reason": "invalid_expected_coverage"}
+        if int(side["observed_paid_ticks"]) != required_ticks:
+            return {"accepted": false, "reason": "incomplete_coverage"}
     if baseline["complete"] != true or candidate["complete"] != true:
         return {"accepted": false, "reason": "incomplete_window"}
     for field in ["from_tick", "to_tick", "observed_paid_ticks", "expected_paid_ticks",
@@ -165,3 +177,119 @@ static func compare_checkpoint_pair(baseline: Dictionary, candidate: Dictionary)
         "request_wall_delta_usec": float(candidate["request_wall_avg_usec"]) - float(baseline["request_wall_avg_usec"]),
         "improved": new_usec < old_usec
     }
+
+## Bounded A/C/D phase timing adapter; one row per real paid tick.
+static func phase_window(rows: Array, end_tick: int) -> Dictionary:
+    if not CHECKPOINTS.has(end_tick) or rows.size() != 100:
+        return {}
+    var totals: Dictionary = {}
+    for i in range(100):
+        var row: Variant = rows[i]
+        if typeof(row) != TYPE_DICTIONARY or typeof(row.get("tick", null)) != TYPE_INT or int(row["tick"]) != end_tick - 99 + i:
+            return {}
+        for phase in ["ships", "dock_queue", "markets", "factions"]:
+            if not row.has(phase) or typeof(row[phase]) != TYPE_INT or int(row[phase]) < 0:
+                return {}
+            totals[phase] = int(totals.get(phase, 0)) + int(row[phase])
+    var averages: Dictionary = {}
+    var p95: Dictionary = {}
+    var maxima: Dictionary = {}
+    # Fixed 100-row window: sort only bounded scalar samples, never World rows.
+    # Nearest-rank p95 = sorted[94] for 100 paid ticks.
+    for phase in totals:
+        averages[phase] = float(totals[phase]) / 100.0
+        var durations: Array[int] = []
+        for row in rows:
+            durations.append(int(row[phase]))
+        durations.sort()
+        p95[phase] = durations[94]
+        maxima[phase] = durations[99]
+    return {"from_tick": end_tick - 99, "to_tick": end_tick,
+        "observed_paid_ticks": 100, "phase_total_usec": totals,
+        "phase_avg_usec": averages, "phase_p95_usec": p95,
+        "phase_max_usec": maxima, "time_kind": "elapsed_wall_not_cpu"}
+
+## E acceptance: phase attribution only after an independently verified
+## same-seed source checkpoint. Never infer parity from equal phase timings.
+## Windows are detached primitive summaries from phase_window(), not World.
+static func compare_phase_windows(baseline: Dictionary, candidate: Dictionary,
+        baseline_fingerprint: String, candidate_fingerprint: String) -> Dictionary:
+    if baseline_fingerprint.strip_edges().is_empty() or baseline_fingerprint != candidate_fingerprint:
+        return {"accepted": false, "reason": "source_parity_unverified"}
+    for side in [baseline, candidate]:
+        if side.get("time_kind", "") != "elapsed_wall_not_cpu" or (
+                side.get("observed_paid_ticks", -1) != 100):
+            return {"accepted": false, "reason": "invalid_window"}
+        if not CHECKPOINTS.has(int(side.get("to_tick", -1))) or (
+                side.get("from_tick", -1) != int(side["to_tick"]) - 99):
+            return {"accepted": false, "reason": "invalid_boundary"}
+        for field in ["phase_total_usec", "phase_avg_usec", "phase_p95_usec", "phase_max_usec"]:
+            if typeof(side.get(field, null)) != TYPE_DICTIONARY:
+                return {"accepted": false, "reason": "missing_" + field}
+        for phase in ["ships", "dock_queue", "markets", "factions"]:
+            for field in ["phase_total_usec", "phase_p95_usec", "phase_max_usec"]:
+                var value: Variant = side[field].get(phase, null)
+                if typeof(value) != TYPE_INT or int(value) < 0:
+                    return {"accepted": false, "reason": "invalid_" + field + "_" + phase}
+            var avg: Variant = side["phase_avg_usec"].get(phase, null)
+            if (typeof(avg) != TYPE_FLOAT and typeof(avg) != TYPE_INT) or (
+                    not is_finite(float(avg)) or float(avg) < 0.0):
+                return {"accepted": false, "reason": "invalid_average_" + phase}
+            if absf(float(side["phase_total_usec"][phase]) / 100.0 - float(avg)) > 0.001:
+                return {"accepted": false, "reason": "inconsistent_average_" + phase}
+            # A forged summary must not pass merely because its mean matches.
+            # For 100 non-negative samples, max <= total and p95 <= max.
+            var total: int = int(side["phase_total_usec"][phase])
+            var maximum: int = int(side["phase_max_usec"][phase])
+            var percentile: int = int(side["phase_p95_usec"][phase])
+            if maximum > total or percentile > maximum:
+                return {"accepted": false, "reason": "inconsistent_distribution_" + phase}
+            # At least six samples are >= nearest-rank p95 (index 94).
+            # Hence total >= max + 5 * p95 (max is one of those six).
+            if total < maximum + 5 * percentile:
+                return {"accepted": false, "reason": "impossible_p95_" + phase}
+    if baseline["from_tick"] != candidate["from_tick"] or baseline["to_tick"] != candidate["to_tick"]:
+        return {"accepted": false, "reason": "mismatched_window"}
+    var deltas: Dictionary = {}
+    for phase in ["ships", "dock_queue", "markets", "factions"]:
+        deltas[phase] = {
+            "avg_delta_usec": float(candidate["phase_avg_usec"][phase]) - float(baseline["phase_avg_usec"][phase]),
+            "p95_delta_usec": int(candidate["phase_p95_usec"][phase]) - int(baseline["phase_p95_usec"][phase]),
+            "max_delta_usec": int(candidate["phase_max_usec"][phase]) - int(baseline["phase_max_usec"][phase])}
+    return {"accepted": true, "time_kind": "elapsed_wall_not_cpu",
+        "from_tick": baseline["from_tick"], "to_tick": baseline["to_tick"],
+        "phase_deltas": deltas}
+
+## Detached, bounded ship-subphase evidence from the real N158 profiler.
+## A checkpoint without enabled profiling is not a measurement. Preserve
+## stage-specific sample counts; never label these as 100 paid-tick windows.
+static func checkpoint_ship_subphases(paid_tick: int, report: Dictionary) -> Dictionary:
+    if not CHECKPOINTS.has(paid_tick) or report.get("enabled", false) != true:
+        return {}
+    if typeof(report.get("stages", null)) != TYPE_DICTIONARY:
+        return {}
+    var stages: Dictionary = {}
+    for name in report["stages"]:
+        if typeof(name) != TYPE_STRING or typeof(report["stages"][name]) != TYPE_DICTIONARY:
+            return {}
+        var source: Dictionary = report["stages"][name]
+        for field in ["calls", "window_limit", "total_usec", "p95_usec", "max_usec"]:
+            if typeof(source.get(field, null)) != TYPE_INT or int(source[field]) < 0:
+                return {}
+        var calls: int = int(source["calls"])
+        var limit: int = int(source["window_limit"])
+        if calls < 1 or limit < 1 or calls > limit or limit > 256:
+            return {}
+        var avg: Variant = source.get("average_usec", null)
+        if typeof(avg) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(avg)):
+            return {}
+        if absf(float(source["total_usec"]) / float(calls) - float(avg)) > 0.01:
+            return {}
+        if int(source["p95_usec"]) > int(source["max_usec"]) or int(source["max_usec"]) > int(source["total_usec"]):
+            return {}
+        stages[name] = {"calls": calls, "window_limit": limit,
+            "total_usec": int(source["total_usec"]), "average_usec": float(avg),
+            "p95_usec": int(source["p95_usec"]), "max_usec": int(source["max_usec"])}
+    return {"paid_tick": paid_tick, "stages": stages,
+        "time_kind": "elapsed_wall_not_cpu",
+        "coverage": "last_bounded_subphase_calls_not_paid_ticks"}

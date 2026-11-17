@@ -81,7 +81,7 @@ static func propose(physical_world: Dictionary, tick: int,
         # Original sim_server::scan_crisis_events follows the N150 market
         # phase; stage hysteresis in canonical MarketHistory before N39 Apply.
         var crisis: Dictionary = NativeCrisisWarnings.stage_market_history(
-            str(id), location, result["history"])
+            str(id), location, result["history"], true)
         if not crisis.get("ok", false):
             return {"ok": false, "reason": "native_market_crisis_" + str(crisis.get("reason", "invalid"))}
         crisis_events.append_array(crisis["events"])

@@ -25,7 +25,10 @@ static func _load(world: Dictionary) -> Dictionary:
             return {"ok": false, "reason": "invalid_ship_transit"}
         if not trans.is_empty():
             max_token = maxi(max_token, int(trans.get("token", -1)))
-        rows.append(ship.duplicate(true))
+        # ShipState.restore validates and deep-copies each record into its own
+        # fleet. Passing the read-only source row avoids a redundant full
+        # copy before N14/N84 without exposing World to transit mutations.
+        rows.append(ship)
     if not fleet.restore(rows):
         return {"ok": false, "reason": "invalid_ship_state"}
     var transit = ShipTransit.new()
@@ -54,7 +57,11 @@ static func advance(world: Dictionary, positions: Dictionary,
         world, positions, tick, tick_multiplier, observers)
     if not gate.get("ok", false):
         return gate
-    state.ships = gate["ships"].duplicate(true)
+    # N140.stage already returns a deep-detached fleet (its out copy).
+    # This stage exclusively owns the returned rows until the final N39
+    # publication copy. A second full-fleet deep copy here is redundant.
+    # Never assign world["ships"] directly: motion mutates these rows.
+    state.ships = gate["ships"]
     var fired: Dictionary = gate["fired"]
     var ids: Array = state.ships.keys()
     ids.sort()
@@ -198,9 +205,11 @@ static func depart(world: Dictionary, graph: RefCounted,
     if not motion.depart(state, graph, ship_id, destination,
             positions, tick, tick_scale):
         return {"ok": false, "reason": "native_departure_rejected"}
-    var updated: Dictionary = {}
-    for id in state.ships:
-        updated[str(id)] = (state.ships[id] as Dictionary).duplicate(true)
-    return {"ok": true, "changed": true, "ships": updated,
+    # ShipState.restore() already deep-detached every fleet row from World.
+    # motion.depart() mutates only this exclusively owned fleet; copying
+    # every row again for a BT travel preview costs O(all ship cargo/BT)
+    # per departure proposal, even though N146 will revalidate the command.
+    # Return the owned snapshot, never world["ships"] or a shallow alias.
+    return {"ok": true, "changed": true, "ships": state.ships,
         "next_token": motion.next_token(),
         "outcomes": {ship_id: "departed_to_" + destination}}

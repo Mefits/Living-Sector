@@ -27,7 +27,16 @@ static func _real_contract_dock(world: Dictionary,
             str(contract.get("mission_category", "")) != "strategy.colony.v1" or
             str(contract.get("destination_location", "")) != location):
         return {}
-    for site_id in world.get("construction_sites", {}):
+    # Construction contracts name exactly one authoritative site. Avoid a
+    # full scan of the growing colony-site history on every N84 dock leaf.
+    # Passenger contracts retain the original ordered scan/tie-break.
+    var site_ids: Array = world.get("construction_sites", {}).keys()
+    if str(contract.get("contract_type", "")) == "construction":
+        var required_site: String = str(contract.get("colony_site_id", ""))
+        if not world.get("construction_sites", {}).has(required_site):
+            return {}
+        site_ids = [required_site]
+    for site_id in site_ids:
         var site: Dictionary = world["construction_sites"][site_id]
         if str(site.get("location_name", "")) != location or (
                 str(site.get("faction_id", "")) != str(contract.get("faction_id", "")) or
@@ -89,7 +98,8 @@ static func _native_dock_wait(ship: Dictionary, tick: int,
 static func _dispatch(action: Dictionary, _bb: Dictionary,
         world: Dictionary, graph: RefCounted, positions: Dictionary,
         ship_id: String, tick: int, scale: float,
-        multiplier: int = 1) -> Dictionary:
+        multiplier: int = 1, dock_ticks: Dictionary = {},
+        shipyard_locations: Dictionary = {}) -> Dictionary:
     var kind: String = str(action.get("kind", ""))
     var ship: Dictionary = world["ships"][ship_id]
     var location: String = str(ship.get("location", ""))
@@ -112,13 +122,23 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.RUNNING, "reason": "n108_source_gate_arrival_pending"}
         if not str(ship.get("docked_at", "")).is_empty():
             return {"status": Bt.RUNNING, "reason": "n108_actual_n21_gate_undock_needed"}
-        var gates: Array = []
-        for fid in world.get("facilities", {}):
-            var fac: Dictionary = world["facilities"][fid]
-            if str(fac.get("type", "")) == "gate" and str(
-                    fac.get("location", "")) == location and fac.get(
-                    "gate_link", null) is Dictionary:
-                gates.append(str(fid))
+        # N84 may evaluate many GateJump leaves in the same paid tick.
+        # Build the gate roster once per proposal, retaining the original
+        # facilities iteration order and ambiguous-gate rejection. N84 only
+        # mutates ship rows; N39 applies gate/facility changes after proposal.
+        # dock_ticks is call-scoped scratch, never stored in World/N38.
+        if not dock_ticks.has("_n84_gate_roster"):
+            var gate_roster: Dictionary = {}
+            for fid in world.get("facilities", {}):
+                var fac: Dictionary = world["facilities"][fid]
+                if str(fac.get("type", "")) == "gate" and fac.get(
+                        "gate_link", null) is Dictionary:
+                    var gate_location: String = str(fac.get("location", ""))
+                    if not gate_roster.has(gate_location):
+                        gate_roster[gate_location] = []
+                    gate_roster[gate_location].append(str(fid))
+            dock_ticks["_n84_gate_roster"] = gate_roster
+        var gates: Array = dock_ticks["_n84_gate_roster"].get(location, [])
         if gates.size() != 1:
             return {"status": Bt.RUNNING, "reason": "n108_unbuilt_or_ambiguous_source_gate"}
         var origin: Dictionary = world["facilities"][gates[0]]
@@ -310,10 +330,20 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     if kind == "DockDwell":
         if str(ship.get("docked_at", "")).is_empty():
             return {"status": Bt.RUNNING, "reason": "n21_dwell_requires_actual_dock"}
-        var dock_tick: int = -1
-        for receipt in world.get("dock_receipts", {}).values():
-            if str(receipt.get("ship_id", "")) == ship_id and str(receipt.get("action", "")) == "dock":
-                dock_tick = maxi(dock_tick, int(receipt.get("tick", -1)))
+        # The N84 pass may evaluate DockDwell for many ships. Build the
+        # latest authoritative N21 dock receipt cursor only on first use,
+        # then reuse it for this read-only proposal pass. Never persist it
+        # across ticks: N21 may undock/redock between paid ticks.
+        if not dock_ticks.has("_ready"):
+            for receipt in world.get("dock_receipts", {}).values():
+                if str(receipt.get("action", "")) != "dock":
+                    continue
+                var receipt_ship: String = str(receipt.get("ship_id", ""))
+                dock_ticks[receipt_ship] = maxi(
+                    int(dock_ticks.get(receipt_ship, -1)),
+                    int(receipt.get("tick", -1)))
+            dock_ticks["_ready"] = true
+        var dock_tick: int = int(dock_ticks.get(ship_id, -1))
         if dock_tick < 0:
             return {"status": Bt.RUNNING, "reason": "no_verified_n21_dock_time"}
         var dwell_seconds: int = maxi(0, int(action.get("seconds", 0)))
@@ -412,13 +442,15 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.SUCCESS}
         if not ship.get("transit", {}).is_empty():
             return {"status": Bt.RUNNING, "reason": "n108_wait_native_arrival"}
-        var found: bool = false
-        for id in world.get("facilities", {}):
-            var fac: Dictionary = world["facilities"][id]
-            if str(fac.get("type", "")) == "shipyard" and not fac.get("abandoned", false) and str(fac.get("location", "")) == location:
-                found = true
-                break
-        if not found:
+        # Build the call-scoped roster only if an N108 leaf actually asks.
+        # N84 proposals never mutate facilities; N39 applies commands later.
+        if not shipyard_locations.has("_ready"):
+            for id in world.get("facilities", {}):
+                var fac: Dictionary = world["facilities"][id]
+                if str(fac.get("type", "")) == "shipyard" and not fac.get("abandoned", false):
+                    shipyard_locations[str(fac.get("location", ""))] = true
+            shipyard_locations["_ready"] = true
+        if not shipyard_locations.has(location):
             return {"status": Bt.RUNNING, "reason": "n108_no_built_shipyard_here"}
         var dock_cmd: Dictionary = Commands.make_command(
             "RequestDock" if old_dock.is_empty() else "ReleaseDock", {
@@ -479,6 +511,9 @@ static func propose(world: Dictionary, graph: RefCounted,
     var ids: Array = staged["ships"].keys()
     ids.sort()
     var changed: bool = false
+    # Per-proposal scratch only; no World or N38 state is added.
+    var dock_ticks: Dictionary = {}
+    var shipyard_locations: Dictionary = {}
     for ship_id in ids:
         var ship: Dictionary = staged["ships"][ship_id]
         var contract_id: String = str(ship.get("active_contract_id", ""))
@@ -549,7 +584,8 @@ static func propose(world: Dictionary, graph: RefCounted,
         var detail: Dictionary = {"reason": ""}
         var executor: Callable = func(action: Dictionary, bb: Dictionary) -> Dictionary:
             var result: Dictionary = _dispatch(action, bb, staged, graph,
-                positions, str(ship_id), tick, scale, multiplier)
+                positions, str(ship_id), tick, scale, multiplier, dock_ticks,
+                shipyard_locations)
             detail["reason"] = str(result.get("reason", ""))
             return result
         var next: Dictionary = Bt.tick(bt, executor, {})

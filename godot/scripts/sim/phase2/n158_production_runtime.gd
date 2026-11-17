@@ -175,6 +175,14 @@ var _reuse_faction_read_frame: bool = OS.get_environment(
 ## LS_PROFILE_SHIP_TRACE=1 (avoid thousands of expensive print calls).
 var _profile_ship_starts: Dictionary = {}
 var _profile_ship_samples: Dictionary = {}
+## Bounded diagnostic window, not canonical simulation history.
+const SHIP_PROFILE_WINDOW: int = 256
+
+static func append_bounded_ship_profile_sample(samples: Array, elapsed_usec: int) -> void:
+    samples.append(maxi(0, elapsed_usec))
+    if samples.size() > SHIP_PROFILE_WINDOW:
+        samples.pop_front()
+
 
 func profile_native_ship_subphases() -> Dictionary:
     var stages: Dictionary = {}
@@ -190,6 +198,7 @@ func profile_native_ship_subphases() -> Dictionary:
             var p95: int = clampi(ceili(float(sorted.size()) * 0.95) - 1,
                 0, sorted.size() - 1)
             stages[stage] = {"calls": sorted.size(),
+                "window_limit": SHIP_PROFILE_WINDOW,
                 "total_usec": total,
                 "average_usec": float(total) / float(sorted.size()),
                 "p95_usec": int(sorted[p95]),
@@ -210,7 +219,7 @@ func _profile_ship_stage(tick: int, stage: String) -> void:
         key = stage.trim_suffix("_end")
         if _profile_ship_starts.has(key):
             var samples: Array = _profile_ship_samples.get(key, [])
-            samples.append(maxi(0, now_us - int(_profile_ship_starts[key])))
+            append_bounded_ship_profile_sample(samples, now_us - int(_profile_ship_starts[key]))
             _profile_ship_samples[key] = samples
             _profile_ship_starts.erase(key)
     if tick >= 320 and OS.get_environment("LS_PROFILE_SHIP_TRACE") == "1":
@@ -416,8 +425,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # The full directed N14 route, origin N21 undock and fuel are
         # preflighted before N39 atomically admits its persistent N84 BT.
         var engineer_plan: Dictionary = N91Dispatch.propose(
-            production.world_snapshot(), _fleet_resolver, tick,
-            production.ledger_snapshot(), _fleet_roster.registry.graph(),
+            production.native_runtime_read_snapshot("engineer_dispatch"), _fleet_resolver, tick,
+            production.native_construction_funding_snapshot(), _fleet_roster.registry.graph(),
             positions["positions"], clock.tick_scale())
         if not engineer_plan.get("ok", false):
             _last_n91_result = engineer_plan
@@ -666,7 +675,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # the original 60×mult HeadDecision strategic cycle. All active
         # native receipts come from actual N104/N15/N9 on the live world.
         if tick % maxi(1, 60 * _tick_multiplier) == 0:
-            var native_factions: Array = production.world_snapshot().get(
+            var native_factions: Array = production.native_runtime_read_snapshot("faction_ids").get(
                 "faction_treasuries", {}).keys()
             native_factions.sort()
             for active_faction in native_factions:
@@ -747,7 +756,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _profile_ship_stage(tick, "ships_begin")
         # The base TickRunner has ALREADY advanced real body orbits. Ship
         # targets move with that same World and original native calendar.
-        var current: Dictionary = production.world_snapshot()
+        var current: Dictionary = production.native_runtime_read_snapshot("ship_motion")
         if not current.has("ships"):
             return true # genuinely old checkpoints do not invent 24 ships
         if _fleet_resolver == null:
@@ -982,8 +991,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 continue
 
             if kind in ["RequestDock", "ReleaseDock"]:
-                var snapshot: Dictionary = production.world_snapshot()
                 var cid: String = str(command.get("contract_id", ""))
+                var snapshot: Dictionary = production.native_dock_read_snapshot(ship_id, cid)
                 var contract: Dictionary = snapshot.get("contract_board", {}).get("contracts", {}).get(cid, {})
                 var ship: Dictionary = snapshot.get("ships", {}).get(ship_id, {})
                 var operation: String = "dock" if kind == "RequestDock" else "undock"
@@ -1405,7 +1414,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         return true
     if phase == "populations":
         var population_plan: Dictionary = PopulationPhase.propose(
-            production.world_snapshot(), tick, clock.tick_scale(), _tick_multiplier)
+            production.native_runtime_read_snapshot("population"), tick, clock.tick_scale(), _tick_multiplier)
         if not population_plan.get("ok", false):
             _last_population_result = population_plan
             return false
@@ -1455,7 +1464,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         return true
     if phase != "markets":
         return true
-    var premarket_world: Dictionary = production.world_snapshot()
+    var premarket_world: Dictionary = production.native_runtime_read_snapshot("market_tick")
     var proposal: Dictionary = MarketPhase.propose(
         premarket_world, tick, _tick_multiplier)
     if not proposal.get("ok", false):
@@ -1465,7 +1474,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         _last_market_result = {"ok": false, "reason": "market_world_commit_rejected"}
         return false
     var crisis_plan: Dictionary = NativeCrisisPhase.propose(
-        premarket_world, production.world_snapshot(), proposal, tick)
+        premarket_world, production.native_runtime_read_snapshot("market_crisis"), proposal, tick)
     if not crisis_plan.get("ok", false):
         _last_market_result = {"ok": false, "tick": tick,
             "reason": "native_crisis_stage_rejected:" +
@@ -1483,7 +1492,10 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
     # N135 observes actual N151 consumption after N150 price commit.
     # N39 alone admits funded N104 contracts and N9 escrow in one atomic
     # commit. Demand previews are not themselves contracts or ship orders.
-    _last_station_demand = StationDemand.propose(production.world_snapshot(), tick)
+    # N152 above may have refunded a station. Read current balances again;
+    # never reuse the pre-refund market/crisis observation here.
+    _last_station_demand = StationDemand.propose(
+        production.native_runtime_read_snapshot("station_demand"), tick)
     if not _last_station_demand.get("ok", false):
         return false
     _last_contract_admissions = {"ok": true, "tick": tick,
