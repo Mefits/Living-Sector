@@ -566,9 +566,11 @@ func _update_metrics() -> void:
             label.add_theme_color_override("font_color", TEXT)
 
 func _outliner_entry(label: String, callback: Callable,
-        selected: bool = false) -> void:
+        selected: bool = false, hint: String = "") -> void:
     var btn := _button(label, callback, 14)
     btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+    if not hint.is_empty():
+        btn.tooltip_text = hint
     if selected:
         btn.add_theme_color_override("font_color", TEAL)
         btn.add_theme_stylebox_override("normal", _style(BG2, TEAL))
@@ -594,7 +596,12 @@ func _update_outliner() -> void:
             var row: Variant = ships[id]
             if row is Dictionary and str(row.get("system_id", "")) == str(
                     _world.get("system", {}).get("id", "")):
-                signature += ":" + str(id)
+                var route: Variant = row.get("transit", {})
+                var underway: bool = route is Dictionary and not route.is_empty()
+                signature += ":" + str(id) + (
+                    ":flight" if underway else (
+                    ":docked" if not str(row.get("docked_at", "")).is_empty()
+                    else ":idle"))
     if signature == _outliner_signature:
         return
     _outliner_signature = signature
@@ -613,7 +620,16 @@ func _update_outliner() -> void:
             var id: String = str(facility.get("id", ""))
             _outliner_entry("⌑ " + FacilityNames.display_name(facility),
                 _select_facility.bind(id), id == _facility)
-    _group("КОРАБЛИ В СИСТЕМЕ")
+    var flying_here: int = 0
+    if ships is Dictionary:
+        for id in ships:
+            var entry: Variant = ships[id]
+            if entry is Dictionary and str(entry.get("system_id", "")) == str(
+                    _world.get("system", {}).get("id", "")):
+                var flight: Variant = entry.get("transit", {})
+                if flight is Dictionary and not flight.is_empty():
+                    flying_here += 1
+    _group("КОРАБЛИ · В ПОЛЁТЕ %d" % flying_here)
     if ships is Dictionary:
         var n: int = 0
         for id in ships:
@@ -621,8 +637,18 @@ func _update_outliner() -> void:
             if not (item is Dictionary) or str(item.get("system_id", "")) != str(
                     _world.get("system", {}).get("id", "")):
                 continue
-            _outliner_entry("➤ " + str(item.get("name", id)),
-                _select_ship.bind(str(id)), str(id) == _ship)
+            var route: Variant = item.get("transit", {})
+            var flying: bool = route is Dictionary and not route.is_empty()
+            var docked: bool = not str(item.get("docked_at", "")).is_empty()
+            var marker: String = "↗ " if flying else (
+                "■ " if docked else "○ ")
+            var hint: String = ("N14: %s → %s" % [
+                str(route.get("from", "—")), str(route.get("to", "—"))]
+                if flying else (
+                "Пристыкован: " + str(item.get("docked_at", ""))
+                if docked else "Без активного N14 рейса"))
+            _outliner_entry(marker + str(item.get("name", id)),
+                _select_ship.bind(str(id)), str(id) == _ship, hint)
             n += 1
             if n >= 16:
                 _outliner_list.add_child(_label("Остальные корабли — в разделе «Флот»", 11, MUTED))
