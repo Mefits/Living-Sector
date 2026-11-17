@@ -3626,7 +3626,15 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
         tick, expiry, "faction")
     if not posted.get("ok", false):
         return posted
-    var after: Dictionary = _copy_world("L3351", true)
+    # N154 commission writes only six owned registries. Keep the canonical
+    # ships/markets/facilities and growing history read-only; publishing a
+    # whole deep World here scales with unrelated accumulated state.
+    # Each writable registry is detached recursively before the first write.
+    var after: Dictionary = _copy_world("L3351_owned_root", false)
+    for domain in ["construction_sites", "construction_contracts",
+            "faction_treasuries", "contract_board", "escrow_balances",
+            "construction_receipts"]:
+        after[domain] = _world[domain].duplicate(true)
     if new_site:
         after["construction_sites"][id] = site.duplicate(true)
     after["construction_contracts"][contract_id] = id
