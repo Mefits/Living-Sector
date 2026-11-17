@@ -37,6 +37,13 @@ func _run() -> void:
     screen.set_world(sol)
     screen.set_native_station_time(0.0)
     screen.set("_zoom", 52.0)
+    # At zoom 52 the Earth orbit is outside the default viewport. Center
+    # the same existing orbital camera (no invented closer native world).
+    var earth: Dictionary = model.body_by_id("earth").get("value", {})
+    var raw_earth_screen: Vector2 = screen.call(
+        "_body_position", earth, float(screen.call("_orbit_scale")))
+    screen.set("_pan", screen.size * 0.5 - raw_earth_screen)
+    screen.set("_draw_body_positions", {})
     var ship: Dictionary = {
         "id": "physical-probe", "class": "courier",
         "location": "", "system_id": "system-sol",
@@ -55,7 +62,9 @@ func _run() -> void:
     var station_pins: Array = screen.get("_facility_pins")
     if stations.size() != 1 or ship_pins.size() != 1 or (
             station_pins.size() != 5):
-        _fail("Sol 1 station + 4 enterprises + 1 physical vessel missing")
+        _fail("Sol station/industry/vessel missing: " +
+            str(stations.size()) + "/" + str(station_pins.size()) +
+            "/" + str(ship_pins.size()))
         return
     var icon: Vector2 = stations[0]["screen"]
     var native: Vector2 = stations[0]["native"]
