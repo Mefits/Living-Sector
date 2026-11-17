@@ -13,6 +13,9 @@ var _positions: Dictionary = {}
 # Counts only: authoritative event records remain in _pending.
 # A missing boundary avoids scanning all future events.
 var _due_counts: Dictionary = {}
+# Boundary -> event ids; cancellation remains O(1) via _positions.
+# This index is rebuilt atomically on restore and is not serialized.
+var _due_ids: Dictionary = {}
 
 func _due_key(tick: int, phase: int) -> String:
     return str(tick) + ":" + str(phase)
@@ -42,6 +45,10 @@ func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, ki
     _positions[event_id] = _pending.size()
     _pending.append(event)
     _count_due(due_tick, phase, 1)
+    var boundary: String = _due_key(due_tick, phase)
+    if not _due_ids.has(boundary):
+        _due_ids[boundary] = {}
+    _due_ids[boundary][event_id] = true
     return true
 
 func cancel(event_id: String) -> bool:
@@ -51,7 +58,12 @@ func cancel(event_id: String) -> bool:
     # Dispatch and snapshot both sort by the canonical comparator, not array position.
     var index: int = int(_positions[event_id])
     var removed: Dictionary = _pending[index]
+    var boundary: String = _due_key(int(removed["due_tick"]), int(removed["phase"]))
     _count_due(int(removed["due_tick"]), int(removed["phase"]), -1)
+    if _due_ids.has(boundary):
+        _due_ids[boundary].erase(event_id)
+        if _due_ids[boundary].is_empty():
+            _due_ids.erase(boundary)
     var last: int = _pending.size() - 1
     if index != last:
         var moved: Dictionary = _pending[last]
@@ -63,28 +75,19 @@ func cancel(event_id: String) -> bool:
     return true
 
 func take_due(tick: int, phase: int) -> Array[Dictionary]:
-    # Past-due events from a restored snapshot are rejected by restore;
-    # the phase boundary only consumes exactly matching events.
-    if not _due_counts.has(_due_key(tick, phase)):
+    # Only visit events in this boundary; canonical sorting is independent
+    # of the swap-removal storage order.
+    var boundary: String = _due_key(tick, phase)
+    if not _due_ids.has(boundary):
         return []
+    var ids: Array = _due_ids[boundary].keys()
     var result: Array[Dictionary] = []
-    # Compact in place, preserving the surviving storage order. Rebuild only
-    # positions that actually move; no second O(E) array or full map rebuild.
-    var write_index: int = 0
-    var original_size: int = _pending.size()
-    for read_index in range(original_size):
-        var event: Dictionary = _pending[read_index]
-        if int(event["due_tick"]) == tick and int(event["phase"]) == phase:
-            result.append(event)
-            _ids.erase(event["id"])
-            _positions.erase(event["id"])
-        else:
-            if write_index != read_index:
-                _pending[write_index] = event
-                _positions[str(event["id"])] = write_index
-            write_index += 1
-    _pending.resize(write_index)
-    _due_counts.erase(_due_key(tick, phase))
+    for event_id in ids:
+        if not _positions.has(event_id):
+            continue
+        var event: Dictionary = _pending[int(_positions[event_id])]
+        result.append(event)
+        cancel(str(event_id))
     result.sort_custom(Callable(self, "_less"))
     return result.duplicate(true)
 
@@ -130,15 +133,20 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
             "entity_id": entity, "sequence": int(seq), "kind": kind,
             "payload": payload.duplicate(true)})
     var staged_counts: Dictionary = {}
+    var staged_due_ids: Dictionary = {}
     for event in staged:
         var key: String = _due_key(int(event["due_tick"]), int(event["phase"]))
         staged_counts[key] = int(staged_counts.get(key, 0)) + 1
+        if not staged_due_ids.has(key):
+            staged_due_ids[key] = {}
+        staged_due_ids[key][str(event["id"])] = true
     var staged_positions: Dictionary = {}
     for i in range(staged.size()):
         staged_positions[str(staged[i]["id"])] = i
     _pending = staged
     _positions = staged_positions
     _due_counts = staged_counts
+    _due_ids = staged_due_ids
     _ids = seen_ids
     _next_sequence = int(next)
     return true
