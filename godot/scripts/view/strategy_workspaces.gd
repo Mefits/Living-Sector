@@ -167,11 +167,11 @@ func _ready() -> void:
     title_margin.add_theme_constant_override("margin_right", 6)
     header.add_child(title_margin)
     title_margin.add_child(titles)
-    _scope = _label("СЕКТОР / ОБЗОР", 9, Color("#627E83"))
-    _header_title = _label("КОЛОНИЯ", 14, Color("#D2DDDD"))
+    _scope = _label("СЕКТОР / ОБЗОР", 7, Color("#627E83"))
+    _header_title = _label("КОЛОНИЯ", 13, Color("#D2DDDD"))
     titles.add_child(_scope)
     titles.add_child(_header_title)
-    _focus_badge = _label("", 9, AMBER)
+    _focus_badge = _label("", 7, AMBER)
     _focus_badge.visible = false
     _focus_badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
     var tag_style := _box(Color("#201B14"), false)
@@ -239,7 +239,7 @@ func _ready() -> void:
     _filter.placeholder_text = "Фильтр по объектам и статусам"
     _filter.custom_minimum_size.x = 0
     _filter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _filter.add_theme_font_size_override("font_size", 10)
+    _filter.add_theme_font_size_override("font_size", 8)
     _filter.add_theme_color_override("font_color", TEXT)
     _filter.add_theme_color_override("font_placeholder_color", MUTED)
     var transparent_style := _box(Color.TRANSPARENT, false)
@@ -260,7 +260,7 @@ func _ready() -> void:
     var spacer := Control.new()
     spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     toolbar.add_child(spacer)
-    _updated = _label("ЦИКЛ — · N39", 10, Color("#58747B"))
+    _updated = _label("ЦИКЛ — · N39", 7, Color("#58747B"))
     _updated.size_flags_vertical = Control.SIZE_SHRINK_CENTER
     toolbar.add_child(_updated)
     # Under high UI scaling the available workspace can be narrower than the
@@ -422,7 +422,7 @@ func _reveal_active_tab(mode: String, tab: String) -> void:
 func _tab_button(name: String, active: bool) -> Button:
     var btn := _button(name, func() -> void:
         navigate_requested.emit(_mode, name, _focus), active)
-    btn.add_theme_font_size_override("font_size", 10)
+    btn.add_theme_font_size_override("font_size", 8)
     var normal := _box(Color("#11242C") if active else Color("#09151D"), false)
     normal.border_color = TEAL if active else LINE
     normal.border_width_bottom = 2 if active else 1
@@ -477,12 +477,12 @@ func _section(title: String, detail: String = "", host: Node = null) -> VBoxCont
     heading_row.custom_minimum_size.y = 31
     heading_row.add_theme_constant_override("separation", 7)
     title_bg.add_child(heading_row)
-    var heading := _label(title, 11, Color("#B9C8C9"))
+    var heading := _label(title, 9, Color("#B9C8C9"))
     heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     heading.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
     heading_row.add_child(heading)
     if not detail.is_empty():
-        var right_detail := _label(detail, 9, MUTED)
+        var right_detail := _label(detail, 7, MUTED)
         right_detail.size_flags_horizontal = Control.SIZE_SHRINK_END
         right_detail.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
         right_detail.tooltip_text = detail
@@ -548,16 +548,16 @@ func _metric_strip(parent: Node, pairs: Array) -> void:
         tile_style.content_margin_top = 6
         tile_style.content_margin_bottom = 6
         tile.add_theme_stylebox_override("panel", tile_style)
-        tile.custom_minimum_size = Vector2(138, 59)
+        tile.custom_minimum_size = Vector2(138, 58)
         tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         flow.add_child(tile)
         var col := VBoxContainer.new()
         col.add_theme_constant_override("separation", 3)
         tile.add_child(col)
-        col.add_child(_label(str(item.get("label", "—")).to_upper(), 9, MUTED))
-        col.add_child(_label(str(item.get("value", "—")), 17, Color("#D5E0E0")))
+        col.add_child(_label(str(item.get("label", "—")).to_upper(), 7, MUTED))
+        col.add_child(_label(str(item.get("value", "—")), 13, Color("#D5E0E0")))
         if item.has("note") and not str(item["note"]).is_empty():
-            col.add_child(_label(str(item["note"]), 9, TEAL))
+            col.add_child(_label(str(item["note"]), 7, TEAL))
 
 func _table(parent: Node, headings: Array, rows: Array,
         route: String = "", tab: String = "", kind: String = "") -> void:
@@ -657,7 +657,7 @@ func _table_row(parent: Node, cells: Array, columns: int,
                 tint = TEAL
             elif text_value == "—":
                 tint = MUTED
-        var cell := _label(text_value, 9 if heading else 12, tint)
+        var cell := _label(text_value, 8 if heading else 11, tint)
         cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         # Identical minimums for header and every data row make the columns
         # line up while leaving room for long names and real N39 statuses.
