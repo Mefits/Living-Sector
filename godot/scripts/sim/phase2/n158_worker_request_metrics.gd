@@ -188,8 +188,19 @@ static func phase_window(rows: Array, end_tick: int) -> Dictionary:
                 return {}
             totals[phase] = int(totals.get(phase, 0)) + int(row[phase])
     var averages: Dictionary = {}
+    var p95: Dictionary = {}
+    var maxima: Dictionary = {}
+    # Fixed 100-row window: sort only bounded scalar samples, never World rows.
+    # Nearest-rank p95 = sorted[94] for 100 paid ticks.
     for phase in totals:
         averages[phase] = float(totals[phase]) / 100.0
+        var durations: Array[int] = []
+        for row in rows:
+            durations.append(int(row[phase]))
+        durations.sort()
+        p95[phase] = durations[94]
+        maxima[phase] = durations[99]
     return {"from_tick": end_tick - 99, "to_tick": end_tick,
         "observed_paid_ticks": 100, "phase_total_usec": totals,
-        "phase_avg_usec": averages, "time_kind": "elapsed_wall_not_cpu"}
+        "phase_avg_usec": averages, "phase_p95_usec": p95,
+        "phase_max_usec": maxima, "time_kind": "elapsed_wall_not_cpu"}
