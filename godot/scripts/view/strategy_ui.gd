@@ -75,7 +75,7 @@ func _style(color: Color, border: Color = LINE, left: int = 1,
     box.content_margin_bottom = 6
     return box
 
-func _label(value: String, size_px: int = 13, color: Color = TEXT) -> Label:
+func _label(value: String, size_px: int = 14, color: Color = TEXT) -> Label:
     var label := Label.new()
     label.text = value
     label.add_theme_font_size_override("font_size", size_px)
@@ -132,7 +132,7 @@ func _build_top() -> void:
     brand.custom_minimum_size = Vector2(184, 0)
     brand.add_theme_constant_override("separation", 3)
     row.add_child(brand)
-    brand.add_child(_label("LIVING SECTOR", 16, TEXT))
+    brand.add_child(_label("LIVING SECTOR", 19, TEXT))
     _brand_scope = _button("СЕКТОР · ВСЕ РЫНКИ ▾", _toggle_scope, 11)
     _brand_scope.tooltip_text = "Общие запасы рынков всех фракций, НЕ баланс одной фракции"
     brand.add_child(_brand_scope)
@@ -143,15 +143,15 @@ func _build_top() -> void:
         box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         box.add_theme_constant_override("separation", 4)
         row.add_child(box)
-        box.add_child(_label(str(item["label"]), 10, MUTED))
-        var large := _label(str(item["symbol"]) + " —", 16, TEXT)
+        box.add_child(_label(str(item["label"]), 12, MUTED))
+        var large := _label(str(item["symbol"]) + " —", 20, TEXT)
         box.add_child(large)
         _metric_nodes[str(item["key"])] = large
     var time_area := VBoxContainer.new()
     _time_area = time_area
     time_area.custom_minimum_size = Vector2(158, 0)
     row.add_child(time_area)
-    _clock = _label("ТИК — · ×1", 11, MUTED)
+    _clock = _label("ТИК — · ×1", 13, MUTED)
     time_area.add_child(_clock)
     var controls := HBoxContainer.new()
     time_area.add_child(controls)
@@ -195,7 +195,7 @@ func _build_left() -> void:
         {"text":"ЗАГ", "tip":"Загрузить игру", "action":"load"}
     ]:
         var action: String = str(entry["action"])
-        var btn := _button(str(entry["text"]), _activate.bind(action), 11)
+        var btn := _button(str(entry["text"]), _activate.bind(action), 13)
         btn.tooltip_text = str(entry["tip"])
         btn.custom_minimum_size = Vector2(43, 41)
         menu.add_child(btn)
@@ -229,7 +229,7 @@ func _build_outliner() -> void:
     _outliner.add_child(col)
     var head := HBoxContainer.new()
     col.add_child(head)
-    var caption := _label("ОБЪЕКТЫ СИСТЕМЫ", 13)
+    var caption := _label("ОБЪЕКТЫ СИСТЕМЫ", 15)
     caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     head.add_child(caption)
     head.add_child(_button("×", _toggle_outliner, 15))
@@ -252,7 +252,7 @@ func _build_window() -> void:
     _window.add_child(col)
     var header := HBoxContainer.new()
     col.add_child(header)
-    _window_title = _label("Колония", 19)
+    _window_title = _label("Колония", 22)
     _window_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     header.add_child(_window_title)
     header.add_child(_button("×", _close_window, 18))
@@ -270,7 +270,7 @@ func _build_window() -> void:
     _window_text.bbcode_enabled = false
     _window_text.scroll_active = true
     _window_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    _window_text.add_theme_font_size_override("normal_font_size", 14)
+    _window_text.add_theme_font_size_override("normal_font_size", 16)
     _window_text.add_theme_color_override("default_color", TEXT)
     col.add_child(_window_text)
 
@@ -281,7 +281,7 @@ func _build_selection_card() -> void:
     _selection_card.anchor_bottom = 1.0
     _selection_card.offset_left = 80
     _selection_card.offset_right = 406
-    _selection_card.offset_top = -176
+    _selection_card.offset_top = -205
     _selection_card.offset_bottom = -20
     add_child(_selection_card)
     var body := VBoxContainer.new()
@@ -289,15 +289,15 @@ func _build_selection_card() -> void:
     _selection_card.add_child(body)
     var header := HBoxContainer.new()
     body.add_child(header)
-    _selection_title = _label("ВЫБРАННЫЙ ОБЪЕКТ", 15, TEAL)
+    _selection_title = _label("ВЫБРАННЫЙ ОБЪЕКТ", 17, TEAL)
     _selection_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     header.add_child(_selection_title)
     header.add_child(_button("×", _dismiss_selection_card, 15))
-    _selection_summary = _label("—", 12, TEXT)
+    _selection_summary = _label("—", 14, TEXT)
     _selection_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     _selection_summary.custom_minimum_size = Vector2(0, 48)
     body.add_child(_selection_summary)
-    body.add_child(_button("ПОДРОБНЕЕ  ›", _open_selection_details, 12))
+    body.add_child(_button("ПОДРОБНЕЕ  ›", _open_selection_details, 14))
 
 func _dismiss_selection_card() -> void:
     _selection_card.hide()
@@ -422,9 +422,9 @@ func _select_body(id: String) -> void:
     _mode = "colony"
     _update_metrics()
     _brand_scope.text = "КОЛОНИЯ · " + _body_name(id).to_upper() + " ▾"
-    _window_mode = "colony"
-    _tab = "Обзор"
-    _window.visible = true
+    # Selection is a compact contextual card. Larger management windows are
+    # opened explicitly with "Подробнее", as in the Figma reference.
+    _update_selection_card()
     _update_window()
 
 func _select_facility(id: String) -> void:
@@ -433,10 +433,8 @@ func _select_facility(id: String) -> void:
     if not bool(_game.get("_in_system")):
         _game.call("_open_selected_system")
     _game.call("_on_facility_selected", id)
-    _window_mode = "facility"
-    _tab = "Обзор"
-    _window.visible = true
     _mode = "colony" if not _effective_body().is_empty() else "sector"
+    _update_selection_card()
     _update_window()
 
 func _select_ship(id: String) -> void:
@@ -445,9 +443,7 @@ func _select_ship(id: String) -> void:
     if not bool(_game.get("_in_system")):
         _game.call("_open_selected_system")
     _game.call("_on_ship_selected", id)
-    _window_mode = "ship"
-    _tab = "Обзор"
-    _window.visible = true
+    _update_selection_card()
     _update_window()
 
 func present(world: Dictionary, economy: Dictionary, body: String,
@@ -571,7 +567,7 @@ func _update_metrics() -> void:
 
 func _outliner_entry(label: String, callback: Callable,
         selected: bool = false) -> void:
-    var btn := _button(label, callback, 12)
+    var btn := _button(label, callback, 14)
     btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
     if selected:
         btn.add_theme_color_override("font_color", TEAL)
@@ -579,7 +575,7 @@ func _outliner_entry(label: String, callback: Callable,
     _outliner_list.add_child(btn)
 
 func _group(title: String) -> void:
-    _outliner_list.add_child(_label(title, 11, TEAL))
+    _outliner_list.add_child(_label(title, 13, TEAL))
 
 func _update_outliner() -> void:
     if _outliner_list == null or _world.is_empty():
@@ -676,11 +672,11 @@ func _render_cards(cards: Array) -> void:
         var content := VBoxContainer.new()
         content.add_theme_constant_override("separation", 3)
         panel.add_child(content)
-        content.add_child(_label(str(card.get("label", "")), 11, MUTED))
-        content.add_child(_label(str(card.get("value", "—")), 19, TEXT))
+        content.add_child(_label(str(card.get("label", "")), 13, MUTED))
+        content.add_child(_label(str(card.get("value", "—")), 22, TEXT))
         var note: String = str(card.get("note", ""))
         if not note.is_empty():
-            content.add_child(_label(note, 10, AMBER))
+            content.add_child(_label(note, 12, AMBER))
 
 func _update_window() -> void:
     if _window == null or not _window.visible:
@@ -704,7 +700,7 @@ func _update_window() -> void:
             _window_tabs.remove_child(child)
             child.queue_free()
         for name in tabs:
-            var btn := _button(name, _switch_tab.bind(name), 11)
+            var btn := _button(name, _switch_tab.bind(name), 13)
             if name == _tab:
                 btn.add_theme_stylebox_override("normal", _style(BG2, TEAL))
                 btn.add_theme_color_override("font_color", TEAL)
@@ -728,6 +724,10 @@ func _update_window() -> void:
         lines.append(_fleet_diagnostic_text())
     elif _tab == "Данные" and _window_mode == "facility":
         lines.append(_production_text())
+    elif _tab == "Данные" and _window_mode == "colony":
+        lines.append(_colony_diagnostic_text())
+    elif _tab == "Данные" and _window_mode == "economy":
+        lines.append(_stocks_text(false))
     elif _tab == "Данные":
         lines.append(_diagnostic_text if not _diagnostic_text.is_empty()
             else _status_text)
@@ -753,6 +753,39 @@ func _update_window() -> void:
     var new_text: String = "\n".join(lines)
     if _window_text.text != new_text:
         _window_text.text = new_text
+
+func _colony_diagnostic_text() -> String:
+    var body_id: String = _effective_body()
+    if body_id.is_empty():
+        return "Выберите колонию."
+    var lines: Array[String] = [
+        _body_name(body_id).to_upper(),
+        "ПОДТВЕРЖДЁННЫЕ ДАННЫЕ · N39", ""]
+    for body in _world.get("bodies", []):
+        if not (body is Dictionary) or str(body.get("id", "")) != body_id:
+            continue
+        lines.append("Тип: " + str(body.get("type", "—")))
+        lines.append("Биом: " + str(body.get("biome", "—")))
+        lines.append("Внешняя среда (исходные данные):")
+        var properties: Variant = body.get("resources", {})
+        if properties is Dictionary:
+            for resource in properties:
+                lines.append("  %s: %s" % [
+                    str(resource), str(properties[resource])])
+        break
+    lines.append("")
+    lines.append("ПОСТРОЕННЫЕ ОБЪЕКТЫ")
+    var total: int = 0
+    for facility in _world.get("facilities", []):
+        if facility is Dictionary and str(facility.get("body", "")) == body_id:
+            lines.append(" • " + FacilityNames.display_name(facility))
+            total += 1
+    if total == 0:
+        lines.append(" • Подтверждённых объектов нет")
+    lines.append("")
+    lines.append("Рыночные запасы см. во вкладке «Запасы».")
+    lines.append("Полный N39 отладочный дамп — кнопка «ДАН» слева.")
+    return "\n".join(lines)
 
 func _colony_window_text(body_id: String,
         projection: Dictionary) -> String:
