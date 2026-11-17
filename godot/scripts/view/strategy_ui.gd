@@ -1567,6 +1567,7 @@ func _update_window() -> void:
     if _window == null or not _window.visible:
         return
     if _workspace_ui != null:
+        _workspace_ui.set_can_go_back(not _workspace_history.is_empty())
         _workspace_ui.show_state(_window_mode, _tab, _world, _economy,
             _effective_body(), _facility, _ship, _tick, _workspace_focus,
             _diagnostic_text)

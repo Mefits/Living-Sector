@@ -54,7 +54,10 @@ var _close_button: Button
 var _back_button: Button
 var _header_icon: TextureRect
 var _scope: Label
-var _tabs: HFlowContainer
+var _focus_badge: Label
+var _tabs: HBoxContainer
+var _tabs_scroll: ScrollContainer
+var _tabs_signature: String = ""
 var _filter: LineEdit
 var _updated: Label
 var _scroll: ScrollContainer
@@ -120,86 +123,155 @@ func _clear(parent: Node) -> void:
 func _ready() -> void:
     add_theme_constant_override("separation", 0)
     mouse_filter = Control.MOUSE_FILTER_STOP
+    # Figma Make WorkspaceShell: 49px title / 37px tabs / 35px toolbar.
+    # No Godot default margins grow the management window vertically.
     var header_bg := PanelContainer.new()
-    var hstyle := _box(Color("#122832"), true)
-    hstyle.border_width_left = 0
-    hstyle.border_width_top = 0
-    hstyle.border_width_right = 0
-    hstyle.border_width_bottom = 1
-    header_bg.add_theme_stylebox_override("panel", hstyle)
+    var header_style := _box(Color("#152C35"), false)
+    header_style.border_width_bottom = 1
+    header_style.border_color = Color("#35515A")
+    header_style.set_content_margin_all(0)
+    header_bg.add_theme_stylebox_override("panel", header_style)
     add_child(header_bg)
     var header := HBoxContainer.new()
-    header.custom_minimum_size.y = 55
-    header.add_theme_constant_override("separation", 8)
+    header.custom_minimum_size.y = 49
+    header.add_theme_constant_override("separation", 0)
     header_bg.add_child(header)
     _back_button = _button("‹", func() -> void: back_requested.emit())
-    _back_button.custom_minimum_size = Vector2(35, 36)
-    _back_button.tooltip_text = "Предыдущее окно"
+    _back_button.custom_minimum_size = Vector2(42, 49)
+    _back_button.add_theme_font_size_override("font_size", 24)
+    _back_button.tooltip_text = "Назад к предыдущему окну"
+    _back_button.disabled = true
     header.add_child(_back_button)
+    var icon_frame := PanelContainer.new()
+    icon_frame.custom_minimum_size = Vector2(31, 31)
+    icon_frame.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    var icon_style := _box(Color("#0B2029"))
+    icon_style.border_color = Color("#33555B")
+    icon_style.set_content_margin_all(5)
+    icon_frame.add_theme_stylebox_override("panel", icon_style)
+    header.add_child(icon_frame)
     _header_icon = TextureRect.new()
-    _header_icon.custom_minimum_size = Vector2(28, 28)
+    _header_icon.custom_minimum_size = Vector2(19, 19)
     _header_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
     _header_icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
-    header.add_child(_header_icon)
+    _header_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    icon_frame.add_child(_header_icon)
     var titles := VBoxContainer.new()
     titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    header.add_child(titles)
-    _scope = _label("СЕКТОР / ОБЗОР", 11, MUTED)
-    _header_title = _label("УПРАВЛЕНИЕ", 20, TEXT)
+    titles.add_theme_constant_override("separation", 2)
+    var title_margin := MarginContainer.new()
+    title_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    title_margin.add_theme_constant_override("margin_left", 9)
+    title_margin.add_theme_constant_override("margin_right", 6)
+    header.add_child(title_margin)
+    title_margin.add_child(titles)
+    _scope = _label("СЕКТОР / ОБЗОР", 9, Color("#627E83"))
+    _header_title = _label("КОЛОНИЯ", 14, Color("#D2DDDD"))
     titles.add_child(_scope)
     titles.add_child(_header_title)
+    _focus_badge = _label("", 9, AMBER)
+    _focus_badge.visible = false
+    _focus_badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    var tag_style := _box(Color("#201B14"), false)
+    tag_style.border_color = Color("#594A31")
+    tag_style.set_border_width_all(1)
+    tag_style.set_content_margin_all(5)
+    _focus_badge.add_theme_stylebox_override("normal", tag_style)
+    header.add_child(_focus_badge)
     _close_button = _button("✕", func() -> void: close_requested.emit())
-    _close_button.custom_minimum_size = Vector2(40, 38)
+    _close_button.custom_minimum_size = Vector2(42, 49)
     _close_button.tooltip_text = "Закрыть окно"
     _close_button.mouse_filter = Control.MOUSE_FILTER_STOP
     header.add_child(_close_button)
-    add_child(_hline())
-    _tabs = HFlowContainer.new()
-    _tabs.add_theme_constant_override("h_separation", 4)
-    _tabs.add_theme_constant_override("v_separation", 4)
-    add_child(_tabs)
-    add_child(_hline())
+
+    # Figma uses one horizontal tab strip. HFlowContainer previously wrapped
+    # six Fleet tabs onto a second row and moved all content down.
+    _tabs_scroll = ScrollContainer.new()
+    _tabs_scroll.custom_minimum_size.y = 37
+    _tabs_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+    _tabs_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    _tabs_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _tabs_scroll.add_theme_stylebox_override("panel", _box(Color("#09151D"), false))
+    add_child(_tabs_scroll)
+    _tabs = HBoxContainer.new()
+    _tabs.add_theme_constant_override("separation", 0)
+    _tabs_scroll.add_child(_tabs)
+
     var toolbar_bg := PanelContainer.new()
-    toolbar_bg.add_theme_stylebox_override("panel", _box(
-        Color("#0B1921"), false))
+    var toolbar_style := _box(Color("#0A161D"), false)
+    toolbar_style.border_width_bottom = 1
+    toolbar_style.border_color = Color("#1E343B")
+    toolbar_style.content_margin_left = 8
+    toolbar_style.content_margin_right = 8
+    toolbar_style.content_margin_top = 3
+    toolbar_style.content_margin_bottom = 3
+    toolbar_bg.add_theme_stylebox_override("panel", toolbar_style)
     add_child(toolbar_bg)
     var toolbar := HBoxContainer.new()
-    toolbar.custom_minimum_size.y = 43
-    toolbar.add_theme_constant_override("separation", 10)
+    toolbar.custom_minimum_size.y = 29
+    toolbar.add_theme_constant_override("separation", 8)
     toolbar_bg.add_child(toolbar)
+    var search_box := PanelContainer.new()
+    search_box.custom_minimum_size.x = 228
+    var search_style := _box(Color("#071218"), false)
+    search_style.set_border_width_all(1)
+    search_style.border_color = Color("#273E45")
+    search_style.content_margin_left = 7
+    search_style.content_margin_right = 5
+    search_style.content_margin_top = 2
+    search_style.content_margin_bottom = 2
+    search_box.add_theme_stylebox_override("panel", search_style)
+    toolbar.add_child(search_box)
+    var search_row := HBoxContainer.new()
+    search_row.add_theme_constant_override("separation", 5)
+    search_box.add_child(search_row)
     var search_icon := TextureRect.new()
-    search_icon.custom_minimum_size = Vector2(20, 20)
-    search_icon.texture = FigmaIcons.texture("search", 17, MUTED)
+    search_icon.custom_minimum_size = Vector2(16, 16)
+    search_icon.texture = FigmaIcons.texture("search", 14, MUTED)
     search_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
     search_icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
     search_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    toolbar.add_child(search_icon)
+    search_row.add_child(search_icon)
     _filter = LineEdit.new()
-    _filter.placeholder_text = "Поиск в этом разделе…"
-    _filter.custom_minimum_size.x = 210
+    _filter.placeholder_text = "Фильтр по объектам и статусам"
+    _filter.custom_minimum_size.x = 186
     _filter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _filter.add_theme_font_size_override("font_size", 13)
+    _filter.add_theme_font_size_override("font_size", 10)
     _filter.add_theme_color_override("font_color", TEXT)
     _filter.add_theme_color_override("font_placeholder_color", MUTED)
-    var search_style := _box(DEEP)
-    search_style.set_content_margin_all(7)
-    _filter.add_theme_stylebox_override("normal", search_style)
-    _filter.add_theme_stylebox_override("focus", _box(Color("#122D35")))
+    var transparent_style := _box(Color.TRANSPARENT, false)
+    transparent_style.set_content_margin_all(0)
+    _filter.add_theme_stylebox_override("normal", transparent_style)
+    _filter.add_theme_stylebox_override("focus", transparent_style)
     _filter.text_changed.connect(func(_value: String) -> void:
         _last_signature = ""
         _render())
-    toolbar.add_child(_filter)
-    _updated = _label("ТИК —", 12, MUTED)
+    search_row.add_child(_filter)
+    var spacer := Control.new()
+    spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    toolbar.add_child(spacer)
+    _updated = _label("ЦИКЛ — · N39", 10, Color("#58747B"))
+    _updated.size_flags_vertical = Control.SIZE_SHRINK_CENTER
     toolbar.add_child(_updated)
-    add_child(_hline())
     _scroll = ScrollContainer.new()
     _scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
     _scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
     add_child(_scroll)
+    var page_padding := MarginContainer.new()
+    page_padding.add_theme_constant_override("margin_left", 9)
+    page_padding.add_theme_constant_override("margin_top", 9)
+    page_padding.add_theme_constant_override("margin_right", 9)
+    page_padding.add_theme_constant_override("margin_bottom", 9)
+    page_padding.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    _scroll.add_child(page_padding)
     _content = VBoxContainer.new()
-    _content.add_theme_constant_override("separation", 11)
+    _content.add_theme_constant_override("separation", 8)
     _content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _scroll.add_child(_content)
+    page_padding.add_child(_content)
+
+func set_can_go_back(can_go_back: bool) -> void:
+    if _back_button != null:
+        _back_button.disabled = not can_go_back
 
 func tabs_for(mode: String) -> Array:
     return TABS.get(mode, ["Данные"])
@@ -245,7 +317,10 @@ func show_state(mode: String, tab: String, world: Dictionary,
 func _render() -> void:
     if _content == null:
         return
-    _header_title.text = str(TITLES.get(_mode, _mode))
+    var section_name: String = str(TITLES.get(_mode, _mode))
+    _header_title.text = ( _body_name() if _mode == "colony" else (
+        _facility_name() if _mode == "facility" else (
+        _ship_name() if _mode == "ship" else section_name)))
     if _header_icon != null:
         _header_icon.texture = FigmaIcons.texture(
             "colony" if _mode == "colony" else (
@@ -258,13 +333,24 @@ func _render() -> void:
         location += " / " + _facility_name()
     elif _mode == "ship":
         location += " / " + _ship_name()
-    _scope.text = "СЕКТОР / " + location.to_upper()
-    _updated.text = "ТИК %d · N39" % _tick
-    _clear(_tabs)
-    for name in tabs_for(_mode):
-        var tab_name: String = str(name)
-        var active: bool = tab_name == _tab
-        _tabs.add_child(_tab_button(tab_name, active))
+    _scope.text = "СЕКТОР " + str(
+        _world.get("system", {}).get("name", "—")).to_upper() + (
+        "   /   " + section_name)
+    _updated.text = "ОБНОВЛЕНО: ТИК %d · N39" % _tick
+    _focus_badge.visible = not _focus.is_empty()
+    _focus_badge.text = "ФОКУС: " + _focus
+    _focus_badge.tooltip_text = _focus
+    var tab_signature: String = _mode + "|" + _tab
+    if tab_signature != _tabs_signature:
+        _tabs_signature = tab_signature
+        _clear(_tabs)
+        for name in tabs_for(_mode):
+            var tab_name: String = str(name)
+            var active: bool = tab_name == _tab
+            var tab_btn: Button = _tab_button(tab_name, active)
+            _tabs.add_child(tab_btn)
+            if active:
+                _tabs_scroll.call_deferred("ensure_control_visible", tab_btn)
     _clear(_content)
     match _mode:
         "colony": _colony()
@@ -279,46 +365,82 @@ func _render() -> void:
         _: _empty("Этот раздел пока не подключён.")
 
 func _tab_button(name: String, active: bool) -> Button:
-    var control := _button(name, func() -> void:
+    var btn := _button(name, func() -> void:
         navigate_requested.emit(_mode, name, _focus), active)
-    var normal := _box(Color("#10252E") if active else BG, false)
+    btn.add_theme_font_size_override("font_size", 10)
+    var normal := _box(Color("#11242C") if active else Color("#09151D"), false)
     normal.border_color = TEAL if active else LINE
     normal.border_width_bottom = 2 if active else 1
-    normal.content_margin_left = 12
-    normal.content_margin_right = 12
-    normal.content_margin_top = 10
-    normal.content_margin_bottom = 10
-    control.add_theme_stylebox_override("normal", normal)
-    var hover := _box(Color("#17343C"), false)
+    normal.content_margin_left = 13
+    normal.content_margin_right = 13
+    normal.content_margin_top = 8
+    normal.content_margin_bottom = 8
+    btn.add_theme_stylebox_override("normal", normal)
+    var hover := _box(Color("#102129"), false)
     hover.border_color = TEAL
     hover.border_width_bottom = 2
-    control.add_theme_stylebox_override("hover", hover)
-    control.custom_minimum_size.y = 36
-    control.add_theme_color_override("font_color", TEAL if active else MUTED)
-    return control
+    hover.content_margin_left = 13
+    hover.content_margin_right = 13
+    hover.content_margin_top = 8
+    hover.content_margin_bottom = 8
+    btn.add_theme_stylebox_override("hover", hover)
+    btn.custom_minimum_size.y = 36
+    btn.add_theme_color_override("font_color",
+        Color("#A6D8D3") if active else Color("#668087"))
+    btn.tooltip_text = name
+    return btn
 
-func _section(title: String, detail: String = "") -> VBoxContainer:
+# Every workspace uses the same Figma section header (31px) and body
+# padding. The optional host supports the two-column colony overview.
+func _section(title: String, detail: String = "", host: Node = null) -> VBoxContainer:
     var card := PanelContainer.new()
-    var section_style := _box(SURFACE)
-    section_style.border_color = Color("#28434C")
-    section_style.content_margin_left = 13
-    section_style.content_margin_right = 13
-    section_style.content_margin_top = 12
-    section_style.content_margin_bottom = 13
-    card.add_theme_stylebox_override("panel", section_style)
+    var style := _box(Color("#0B1921"))
+    style.border_color = Color("#263E45")
+    style.set_content_margin_all(0)
+    card.add_theme_stylebox_override("panel", style)
     card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _content.add_child(card)
-    var inside := VBoxContainer.new()
-    inside.add_theme_constant_override("separation", 7)
-    card.add_child(inside)
-    var header := HBoxContainer.new()
-    inside.add_child(header)
-    var heading := _label(title, 15, Color("#DAE5E6"))
+    if host is HFlowContainer:
+        card.custom_minimum_size.x = 300
+    if host == null:
+        _content.add_child(card)
+    else:
+        host.add_child(card)
+    var shell := VBoxContainer.new()
+    shell.add_theme_constant_override("separation", 0)
+    card.add_child(shell)
+    var title_bg := PanelContainer.new()
+    var title_style := _box(Color("#0D1E26"), false)
+    title_style.border_color = Color("#22383F")
+    title_style.border_width_bottom = 1
+    title_style.content_margin_left = 9
+    title_style.content_margin_right = 9
+    title_style.content_margin_top = 0
+    title_style.content_margin_bottom = 0
+    title_bg.add_theme_stylebox_override("panel", title_style)
+    shell.add_child(title_bg)
+    var heading_row := HBoxContainer.new()
+    heading_row.custom_minimum_size.y = 31
+    heading_row.add_theme_constant_override("separation", 7)
+    title_bg.add_child(heading_row)
+    var heading := _label(title, 11, Color("#B9C8C9"))
     heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    header.add_child(heading)
+    heading.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+    heading_row.add_child(heading)
     if not detail.is_empty():
-        header.add_child(_label(detail, 11, MUTED))
-    inside.add_child(_hline())
+        var right_detail := _label(detail, 9, MUTED)
+        right_detail.size_flags_horizontal = Control.SIZE_SHRINK_END
+        right_detail.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+        right_detail.tooltip_text = detail
+        heading_row.add_child(right_detail)
+    var padding := MarginContainer.new()
+    padding.add_theme_constant_override("margin_left", 9)
+    padding.add_theme_constant_override("margin_right", 9)
+    padding.add_theme_constant_override("margin_top", 7)
+    padding.add_theme_constant_override("margin_bottom", 9)
+    shell.add_child(padding)
+    var inside := VBoxContainer.new()
+    inside.add_theme_constant_override("separation", 6)
+    padding.add_child(inside)
     return inside
 
 func _note(parent: Node, value: String, tone: Color = MUTED) -> void:
@@ -331,36 +453,43 @@ func _pair(parent: Node, name: String, value: String,
     if not _match(name + " " + value):
         return
     var row := HBoxContainer.new()
+    row.custom_minimum_size.y = 27
     row.add_theme_constant_override("separation", 12)
     parent.add_child(row)
-    var key := _label(name, 13, MUTED)
+    var key := _label(name, 11, MUTED)
     key.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     row.add_child(key)
-    row.add_child(_label(value, 14, tone))
+    row.add_child(_label(value, 12, tone))
 
 func _metric_strip(parent: Node, pairs: Array) -> void:
+    # Figma uses a 4-up metric strip; HFlow wraps to two columns on
+    # narrow window sizes without hiding real N39 values.
     var flow := HFlowContainer.new()
-    flow.add_theme_constant_override("h_separation", 7)
-    flow.add_theme_constant_override("v_separation", 7)
+    flow.add_theme_constant_override("h_separation", 0)
+    flow.add_theme_constant_override("v_separation", 4)
     parent.add_child(flow)
     for item in pairs:
         if not (item is Dictionary):
             continue
         var tile := PanelContainer.new()
-        var tile_style := _box(DEEP)
-        tile_style.border_width_left = 2
-        tile_style.border_color = TEAL
-        tile_style.content_margin_top = 12
-        tile_style.content_margin_bottom = 12
+        var tile_style := _box(Color("#0D1F27"), false)
+        tile_style.border_width_right = 1
+        tile_style.border_color = Color("#20373F")
+        tile_style.content_margin_left = 10
+        tile_style.content_margin_right = 9
+        tile_style.content_margin_top = 6
+        tile_style.content_margin_bottom = 6
         tile.add_theme_stylebox_override("panel", tile_style)
-        tile.custom_minimum_size = Vector2(148, 86)
+        tile.custom_minimum_size = Vector2(138, 59)
+        tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         flow.add_child(tile)
         var col := VBoxContainer.new()
-        col.add_theme_constant_override("separation", 5)
+        col.add_theme_constant_override("separation", 3)
         tile.add_child(col)
-        col.add_child(_label(str(item.get("label", "—")).to_upper(), 11, MUTED))
-        var figure := _label(str(item.get("value", "—")), 23, Color("#E0E9E9"))
-        col.add_child(figure)
+        col.add_child(_label(str(item.get("label", "—")).to_upper(), 9, MUTED))
+        col.add_child(_label(str(item.get("value", "—")), 17, Color("#D5E0E0")))
+        if item.has("note") and not str(item["note"]).is_empty():
+            col.add_child(_label(str(item["note"]), 9, TEAL))
 
 func _table(parent: Node, headings: Array, rows: Array,
         route: String = "", tab: String = "", kind: String = "") -> void:
@@ -403,6 +532,10 @@ func _table_row(parent: Node, cells: Array, columns: int,
         var normal := _box(fill, false)
         normal.border_width_bottom = 1
         normal.border_color = Color("#213943")
+        normal.content_margin_left = 9
+        normal.content_margin_right = 9
+        normal.content_margin_top = 7
+        normal.content_margin_bottom = 7
         btn.add_theme_stylebox_override("normal", normal)
         var hover := _box(Color("#1B3740"), false)
         hover.border_color = TEAL
@@ -417,11 +550,16 @@ func _table_row(parent: Node, cells: Array, columns: int,
         var cell_style := _box(fill, false)
         cell_style.border_width_bottom = 1
         cell_style.border_color = Color("#213943")
+        cell_style.content_margin_left = 9
+        cell_style.content_margin_right = 9
+        cell_style.content_margin_top = 7
+        cell_style.content_margin_bottom = 7
         panel.add_theme_stylebox_override("panel", cell_style)
         parent.add_child(panel)
         container = panel
     var row := HBoxContainer.new()
     row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row.custom_minimum_size.y = 20
     row.add_theme_constant_override("separation", 7)
     container.add_child(row)
     for i in range(columns):
@@ -436,7 +574,7 @@ func _table_row(parent: Node, cells: Array, columns: int,
                 tint = TEAL
             elif text_value == "—":
                 tint = MUTED
-        var cell := _label(text_value, 11 if heading else 13, tint)
+        var cell := _label(text_value, 10 if heading else 12, tint)
         cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         cell.size_flags_stretch_ratio = 1.55 if i == 0 else 1.0
         cell.tooltip_text = text_value
@@ -551,7 +689,10 @@ func _facility_rows(body_id: String = "") -> Array[Dictionary]:
         var live: Dictionary = (active.get(id, {})
             if active is Dictionary and active.get(id) is Dictionary else {})
         var count: String = str(live.get("assigned_workers", "—"))
-        var condition: String = str(live.get("condition", "—"))
+        var condition: String = "—"
+        var state: Variant = live.get("condition", null)
+        if state is int or state is float:
+            condition = "%.0f%%" % (float(state) * 100.0)
         rows.append({"id":id, "cells":[FacilityNames.display_name(item),
             FacilityNames.type_name(str(item.get("type", "—"))),
             count, condition, str(item.get("location", "—"))]})
@@ -627,12 +768,24 @@ func _colony() -> void:
                     problems += 1
             if problems == 0:
                 _note(problem, "Подтверждённых сигналов износа нет. Остальные причины — в N39.")
-            var companies := _section("ПРЕДПРИЯТИЯ", "Откройте строку")
-            _table(companies, ["Предприятие","Тип","Работники","Состояние","Локация"],
-                facilities, "", "", "facility")
-            var next := _section("АВТОНОМНОЕ УПРАВЛЕНИЕ")
-            _note(next, "Планы ИИ отображаются только при наличии настоящих событий планировщика.")
-            _link(next, "ОТКРЫТЬ УПРАВЛЕНИЕ ›", "administration", "План действий")
+            # Figma overview: two neighboring compact sections after the
+            # full-width summary and alerts. HFlow stacks on small screens.
+            var pair := HFlowContainer.new()
+            pair.add_theme_constant_override("h_separation", 8)
+            pair.add_theme_constant_override("v_separation", 8)
+            _content.add_child(pair)
+            var companies := _section("ПРЕДПРИЯТИЯ",
+                "%d объектов" % facilities.size(), pair)
+            var compact_facilities: Array[Dictionary] = []
+            for entry in facilities:
+                compact_facilities.append({"id":str(entry.get("id", "")),
+                    "cells":[str(entry["cells"][0]),
+                        str(entry["cells"][3])]})
+            _table(companies, ["Объект", "Состояние"],
+                compact_facilities, "", "", "facility")
+            var next := _section("АВТОНОМНОЕ УПРАВЛЕНИЕ", "", pair)
+            _note(next, "Приоритеты и решения — только при публикации данных ИИ.")
+            _link(next, "ВСЕ РЕШЕНИЯ ›", "administration", "План действий")
         "Население":
             var panel := _section("НАСЕЛЕНИЕ И ТРУД")
             var lines: Array[Dictionary] = []
