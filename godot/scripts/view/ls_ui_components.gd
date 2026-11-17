@@ -30,7 +30,8 @@ static func table_row(heading: bool, odd: bool, action: Callable) -> Control:
     var row: Control
     if action.is_valid() and not heading:
         var button := Button.new()
-        button.flat = true
+        # Figma dense-row has visible hover/pressed decoration.
+        button.flat = false
         button.focus_mode = Control.FOCUS_NONE
         button.theme_type_variation = (
             &"LSRowActionOdd" if odd else &"LSRowActionEven")
