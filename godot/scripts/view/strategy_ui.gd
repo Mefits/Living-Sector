@@ -42,6 +42,9 @@ var _window_title: Label
 var _window_text: RichTextLabel
 var _window_tabs: HFlowContainer
 var _window_cards: GridContainer
+var _selection_card: PanelContainer
+var _selection_title: Label
+var _selection_summary: Label
 var _tabs_signature: String = ""
 var _cards_signature: String = ""
 var _ui_scale_menu: OptionButton
@@ -106,6 +109,7 @@ func _ready() -> void:
     _build_left()
     _build_outliner()
     _build_window()
+    _build_selection_card()
     resized.connect(_layout_window)
     set_process_unhandled_key_input(true)
     _layout_window()
@@ -171,6 +175,7 @@ func _build_left() -> void:
         {"text":"ФЛТ", "tip":"Корабли и груз", "action":"fleet"},
         {"text":"ОБЪ", "tip":"Показать/скрыть список объектов", "action":"outliner"},
         {"text":"ДАН", "tip":"Подробные данные N39", "action":"technical"},
+        {"text":"НАБ", "tip":"Наблюдение и диагностика", "action":"observer"},
         {"text":"КАР", "tip":"Сектор / система", "action":"map"},
         {"text":"ЦЕН", "tip":"Центрировать карту", "action":"center"},
         {"text":"СОХ", "tip":"Сохранить игру", "action":"save"},
@@ -256,6 +261,61 @@ func _build_window() -> void:
     _window_text.add_theme_color_override("default_color", TEXT)
     col.add_child(_window_text)
 
+func _build_selection_card() -> void:
+    _selection_card = _panel()
+    _selection_card.visible = false
+    _selection_card.anchor_top = 1.0
+    _selection_card.anchor_bottom = 1.0
+    _selection_card.offset_left = 80
+    _selection_card.offset_right = 406
+    _selection_card.offset_top = -176
+    _selection_card.offset_bottom = -20
+    add_child(_selection_card)
+    var body := VBoxContainer.new()
+    body.add_theme_constant_override("separation", 7)
+    _selection_card.add_child(body)
+    var header := HBoxContainer.new()
+    body.add_child(header)
+    _selection_title = _label("ВЫБРАННЫЙ ОБЪЕКТ", 15, TEAL)
+    _selection_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    header.add_child(_selection_title)
+    header.add_child(_button("×", _dismiss_selection_card, 15))
+    _selection_summary = _label("—", 12, TEXT)
+    _selection_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    _selection_summary.custom_minimum_size = Vector2(0, 48)
+    body.add_child(_selection_summary)
+    body.add_child(_button("ПОДРОБНЕЕ  ›", _open_selection_details, 12))
+
+func _dismiss_selection_card() -> void:
+    _selection_card.hide()
+
+func _open_selection_details() -> void:
+    _window_mode = ("ship" if not _ship.is_empty() else (
+        "facility" if not _facility.is_empty() else "colony"))
+    _tab = "Обзор"
+    _window.visible = true
+    _update_selection_card()
+    _update_window()
+
+func _update_selection_card() -> void:
+    if _selection_card == null:
+        return
+    var has_selection: bool = not (_body.is_empty() and
+        _facility.is_empty() and _ship.is_empty())
+    _selection_card.visible = has_selection and not _window.visible
+    if not has_selection:
+        return
+    var projection: Dictionary = ContextData.build(_world, _effective_body(),
+        _facility, _ship, _economy)
+    _selection_title.text = str(projection.get("title", "Объект"))
+    var summary: Array[String] = []
+    for card in projection.get("cards", []):
+        if card is Dictionary and summary.size() < 3:
+            summary.append("%s: %s" % [
+                str(card.get("label", "")), str(card.get("value", "—"))])
+    _selection_summary.text = "  ·  ".join(summary) if not summary.is_empty() else (
+        str(projection.get("subtitle", "Данные отсутствуют")))
+
 func _layout_window() -> void:
     if _window == null:
         return
@@ -291,6 +351,7 @@ func _toggle_outliner() -> void:
 func _close_window() -> void:
     _window.visible = false
     _window_mode = ""
+    _update_selection_card()
 
 func _activate(kind: String) -> void:
     if kind in ["map", "center", "save", "load"]:
@@ -310,6 +371,10 @@ func _activate(kind: String) -> void:
         return
     if kind == "outliner":
         _toggle_outliner()
+        return
+    if kind == "observer":
+        if _game != null:
+            _game.call("_toggle_observer")
         return
     if kind == "colony" and _body.is_empty():
         for row in _world.get("facilities", []):
@@ -390,6 +455,7 @@ func present(world: Dictionary, economy: Dictionary, body: String,
     _update_metrics()
     _update_outliner()
     _update_window()
+    _update_selection_card()
 
 func _effective_body() -> String:
     if not _body.is_empty():
