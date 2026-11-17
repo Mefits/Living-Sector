@@ -771,7 +771,7 @@ func _draw_colony_on_focus(center: Vector2, radius: float) -> void:
         var a: Vector2 = positions[a_id]
         var b: Vector2 = positions[b_id]
         var is_chain: bool = str(link.get("kind", "")) == "production"
-        draw_line(a, b, Color("#92a39a", 0.54 if is_chain else 0.72),
+        draw_line(a, b, Color(0.57, 0.64, 0.60, 0.54 if is_chain else 0.72),
             maxf(1.0, radius * (0.009 if is_chain else 0.014)), true)
         var count: int = mini(6, int(link.get("activity", 0)))
         for index in range(count):
@@ -803,7 +803,7 @@ func _draw_colony_on_focus(center: Vector2, radius: float) -> void:
             Vector2(0.0, 23.0 * i)
         if i == 0:
             draw_line(center + Vector2(0.63, -0.62) * radius, point,
-                Color("#7292a0", 0.5), 1.0, true)
+                Color(0.45, 0.57, 0.63, 0.5), 1.0, true)
         draw_rect(Rect2(point - Vector2(7, 5), Vector2(14, 10)),
             Color("#a9b8c4"), true)
         draw_string(font, point + Vector2(11, 4),
