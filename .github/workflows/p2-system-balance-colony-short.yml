@@ -53,7 +53,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          timeout 90s godot --headless --path godot --script res://tests/p2_colony_context_cards_check.gd > cards.log 2>&1
+          if ! timeout 30s godot --headless --path godot --script res://tests/p2_colony_context_cards_check.gd > cards.log 2>&1; then
+            tail -n 120 cards.log
+            exit 1
+          fi
           tail -n 80 cards.log
           ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' cards.log
           grep -q 'COLONY_CONTEXT_CARDS_PASS' cards.log
