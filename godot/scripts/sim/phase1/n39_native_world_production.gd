@@ -3235,7 +3235,14 @@ func apply_native_player_research_policy(tick: int, faction: String,
         return {"ok": true, "tick": tick, "faction_id": faction,
             "operation": operation, "changed": false,
             "status": "N110_ECONOMIC_DIRECTIVE_ALREADY_ABSENT"}
-    var next_world: Dictionary = _copy_world("L2987", true)
+    # N109/N110 policy operations only write their three optional maps.
+    # Keep markets/facilities/directors as read-only inputs and detach
+    # every mutable policy map before applying source governance actions.
+    var next_world: Dictionary = _copy_world("L2987_owned_root", false)
+    for policy_key in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
+        if _world.has(policy_key) and _world[policy_key] is Dictionary:
+            next_world[policy_key] = _world[policy_key].duplicate(true)
     # Rust's original optional Director maps are independent. A legacy
     # checkpoint may contain neither OR only one: do not erase a
     # genuine existing charter while installing the first mandate.
