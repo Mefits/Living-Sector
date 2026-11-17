@@ -18,7 +18,9 @@ static func segment_crosses(start: Vector2, target: Vector2,
         return true
     var delta: Vector2 = target - start
     var length_sq: float = delta.length_squared()
-    if length_sq <= 0.000000000001:
+    # Small bodies have sub-micro native-unit trajectories; absolute
+    # squared-length cutoffs could miss real surface crossings.
+    if length_sq <= 0.0:
         return false
     var projection: float = clampf(
         (center - start).dot(delta) / length_sq, 0.0, 1.0)
