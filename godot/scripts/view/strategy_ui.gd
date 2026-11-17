@@ -710,7 +710,8 @@ func _update_selection_card() -> void:
         return
     var has_selection: bool = not (_body.is_empty() and
         _facility.is_empty() and _ship.is_empty())
-    _selection_card.visible = has_selection and not _window.visible
+    _selection_card.visible = (has_selection and not _window.visible and
+        (_alerts_popover == null or not _alerts_popover.visible))
     if not has_selection:
         return
     var projection: Dictionary = ContextData.build(_world, _effective_body(),
@@ -884,6 +885,7 @@ func _activate(kind: String) -> void:
     _window.visible = true
     _update_window()
     _update_selection_card()
+    _sync_rail_active()
 
 func _select_body(id: String) -> void:
     if _game == null:
@@ -1302,6 +1304,7 @@ func _route_workspace(mode: String, tab: String, focus: String = "") -> void:
     _window.show()
     _update_window()
     _update_selection_card()
+    _sync_rail_active()
 
 func _select_from_workspace(kind: String, id: String) -> void:
     if id.is_empty():

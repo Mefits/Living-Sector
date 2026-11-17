@@ -50,6 +50,8 @@ var _focus: String = ""
 var _tick: int = 0
 var _debug_text: String = ""
 var _header_title: Label
+var _close_button: Button
+var _back_button: Button
 var _header_icon: TextureRect
 var _scope: Label
 var _tabs: HFlowContainer
@@ -130,7 +132,10 @@ func _ready() -> void:
     header.custom_minimum_size.y = 55
     header.add_theme_constant_override("separation", 8)
     header_bg.add_child(header)
-    header.add_child(_button("‹", func() -> void: back_requested.emit()))
+    _back_button = _button("‹", func() -> void: back_requested.emit())
+    _back_button.custom_minimum_size = Vector2(35, 36)
+    _back_button.tooltip_text = "Предыдущее окно"
+    header.add_child(_back_button)
     _header_icon = TextureRect.new()
     _header_icon.custom_minimum_size = Vector2(28, 28)
     _header_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -143,7 +148,11 @@ func _ready() -> void:
     _header_title = _label("УПРАВЛЕНИЕ", 20, TEXT)
     titles.add_child(_scope)
     titles.add_child(_header_title)
-    header.add_child(_button("✕", func() -> void: close_requested.emit()))
+    _close_button = _button("✕", func() -> void: close_requested.emit())
+    _close_button.custom_minimum_size = Vector2(40, 38)
+    _close_button.tooltip_text = "Закрыть окно"
+    _close_button.mouse_filter = Control.MOUSE_FILTER_STOP
+    header.add_child(_close_button)
     add_child(_hline())
     _tabs = HFlowContainer.new()
     _tabs.add_theme_constant_override("h_separation", 4)

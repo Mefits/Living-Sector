@@ -131,6 +131,55 @@ func _run() -> void:
     assert(_contains_text(workspace, "Нет активного физического N14 рейса."))
     assert(ui.call("_fleet_diagnostic_text").contains("пристыковано: 1"))
     assert(ui.call("_fleet_diagnostic_text").contains("В полёте: 1"))
+    # BLOCK 1 / shell behavior: every close action must work, and a
+    # collapsed outliner must have an immediately visible reopening tab.
+    var manager_close: Button = workspace.get("_close_button")
+    assert(manager_close != null and manager_close.mouse_filter == Control.MOUSE_FILTER_STOP)
+    manager_close.pressed.emit()
+    assert(not (ui.get("_window") as PanelContainer).visible)
+    ui.call("_toggle_alerts")
+    var alerts: PanelContainer = ui.get("_alerts_popover")
+    assert(alerts.visible)
+    assert(not (ui.get("_selection_card") as PanelContainer).visible)
+    ui.call("present",world,economy,"earth","","",22,false,1.0,
+        "running","details")
+    assert(not (ui.get("_selection_card") as PanelContainer).visible)
+    var alert_close: Button = ui.get("_alerts_close_button")
+    assert(alert_close != null and alert_close.mouse_filter == Control.MOUSE_FILTER_STOP)
+    alert_close.pressed.emit()
+    assert(not alerts.visible)
+    var outliner_close: Button = ui.get("_outliner_close_button")
+    outliner_close.pressed.emit()
+    assert(not (ui.get("_outliner") as PanelContainer).visible)
+    assert((ui.get("_outliner_reopen") as Button).visible)
+    (ui.get("_outliner_reopen") as Button).pressed.emit()
+    assert((ui.get("_outliner") as PanelContainer).visible)
+    assert(not (ui.get("_outliner_reopen") as Button).visible)
+    var rail: PanelContainer = ui.get("_rail")
+    assert(rail != null and rail.size.x >= 100)
+    var buttons: Dictionary = ui.get("_rail_buttons")
+    assert(buttons.size() == 6)
+    for button in buttons.values():
+        assert(button is Button)
+        assert(button.get_child_count() > 0)
+        assert((button.get_child(0) as VBoxContainer).get_child_count() == 2)
+    # Verify the same non-overlapping Figma layout at 1366/140%,
+    # 1366/125% and 1920/125% logical viewport sizes.
+    for logical in [Vector2(976, 548), Vector2(1092, 614),
+            Vector2(1536, 864)]:
+        host.size = logical
+        ui.size = logical
+        ui.call("_layout_window")
+        var panel: Rect2 = (ui.get("_window") as PanelContainer).get_rect()
+        var list_rect: Rect2 = (ui.get("_outliner") as PanelContainer).get_rect()
+        var breadcrumb: Rect2 = (ui.get("_nav_panel") as PanelContainer).get_rect()
+        var popup: Rect2 = alerts.get_rect()
+        var header: Rect2 = (ui.get("_top") as PanelContainer).get_rect()
+        assert(panel.end.x <= list_rect.position.x)
+        assert(panel.position.y >= breadcrumb.end.y)
+        assert(popup.position.y >= breadcrumb.end.y)
+        assert(popup.position.y >= header.end.y)
+        assert(rail.size.x < panel.position.x)
     host.queue_free()
     print("SYSTEMBALANCE_FIGMA_LAYOUT_SCENE_PASS")
     quit(0)
