@@ -225,7 +225,9 @@ func _owner_loop(seed: Dictionary) -> void:
             began_usec, advance_end_usec, projection_end_usec)
         # Only completed, successful, single-paid-tick requests are attributable.
         # The window includes FrameView/projection elapsed separately; not CPU.
-        if answer["ok"] and int(answer["timing"].get("paid_ticks", 0)) == 1:
+        if answer["ok"] and RequestMetrics.accept_single_paid_tick_sample(
+                answer["timing"].merged({"after_tick": sim.tick_count}),
+                before_tick, sim.tick_count):
             var sample: Dictionary = answer["timing"].duplicate(true)
             sample["after_tick"] = sim.tick_count
             paid_tick_timings.append(sample)
