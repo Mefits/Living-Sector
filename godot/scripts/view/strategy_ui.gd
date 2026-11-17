@@ -750,8 +750,8 @@ func present(world: Dictionary, economy: Dictionary, body: String,
     if _footer_status != null:
         _footer_status.text = ("СЕКТОР / %s   ·   %s   ·   ТИК %d   ·   %s" % [
             str(_world.get("system", {}).get("name", "—")),
-            "КАРТА СИСТЕМЫ" if bool(_game.get("_in_system"))
-                else "КАРТА СЕКТОРА",
+            "КАРТА СИСТЕМЫ" if _game != null and bool(
+                _game.get("_in_system")) else "КАРТА СЕКТОРА",
             _tick, "ПАУЗА" if _paused else "НАБЛЮДЕНИЕ"])
     _pause.text = "▶" if _paused else "⏸"
     _brand_scope.text = ("КОЛОНИЯ · " + _body_name(_effective_body()).to_upper() + " ▾"
