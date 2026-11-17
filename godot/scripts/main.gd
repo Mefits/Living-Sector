@@ -18,8 +18,13 @@ const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
 const StrategyUI = preload("res://scripts/view/strategy_ui.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
-const UI_SCALES = [1.0, 1.15, 1.25, 1.4]
-const DEFAULT_UI_SCALE_INDEX: int = 2
+# 140% was too small on 2860px-class displays. Scale is selectable and
+# persisted separately from N38 saves. 160% desktop / 180% high-DPI default.
+const UI_SCALES = [1.25, 1.4, 1.6, 1.8, 2.0]
+const NORMAL_UI_SCALE_INDEX: int = 2
+const HIGHDPI_UI_SCALE_INDEX: int = 3
+const UI_PREFERENCES_PATH: String = "user://living-sector-display.cfg"
+var _ui_scale_index: int = NORMAL_UI_SCALE_INDEX
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const WorkerN158 = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const ReadOnlyWorldModel = preload("res://scripts/sim/world_model.gd")
@@ -108,7 +113,16 @@ var _worker_live_frames: int = 0
 var _worker_live_cpu_us: Array[int] = []
 
 func _ready() -> void:
-    get_window().content_scale_factor = float(UI_SCALES[DEFAULT_UI_SCALE_INDEX])
+    var physical_pixels: Vector2i = get_window().size
+    _ui_scale_index = (HIGHDPI_UI_SCALE_INDEX
+        if physical_pixels.x >= 2350 or physical_pixels.y >= 1350
+        else NORMAL_UI_SCALE_INDEX)
+    var display_prefs := ConfigFile.new()
+    if display_prefs.load(UI_PREFERENCES_PATH) == OK:
+        _ui_scale_index = clampi(int(display_prefs.get_value(
+            "display", "ui_scale_index", _ui_scale_index)),
+            0, UI_SCALES.size() - 1)
+    get_window().content_scale_factor = float(UI_SCALES[_ui_scale_index])
     _ui_profile_log = OS.get_cmdline_user_args().has("--p2-ui-profile") or (
         OS.get_environment("LS_PROFILE_UI_FRAMES") == "1")
     var background := ColorRect.new()
@@ -1350,7 +1364,13 @@ func _change_ui_scale(index: int) -> void:
     if index < 0 or index >= UI_SCALES.size():
         return
     var value: float = float(UI_SCALES[index])
+    _ui_scale_index = index
     get_window().content_scale_factor = value
+    var prefs := ConfigFile.new()
+    prefs.set_value("display", "ui_scale_index", index)
+    prefs.save(UI_PREFERENCES_PATH)
+    if _strategy_ui != null:
+        _strategy_ui.call("_layout_window")
     if _system_view != null:
         _system_view.set_ui_viewport_scale(value)
 

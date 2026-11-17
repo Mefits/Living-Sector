@@ -156,7 +156,12 @@ func _run() -> void:
     assert((ui.get("_outliner") as PanelContainer).visible)
     assert(not (ui.get("_outliner_reopen") as Button).visible)
     var rail: PanelContainer = ui.get("_rail")
-    assert(rail != null and rail.size.x >= 100)
+    assert(rail != null and absf(rail.size.x - 64.0) < 1.0)
+    var scale_menu: OptionButton = ui.get("_ui_scale_menu")
+    assert(scale_menu.item_count == 5)
+    assert(scale_menu.get_item_text(0) == "125%")
+    assert(scale_menu.get_item_text(3) == "180%")
+    assert(scale_menu.get_item_text(4) == "200%")
     var buttons: Dictionary = ui.get("_rail_buttons")
     assert(buttons.size() == 6)
     for button in buttons.values():
@@ -180,6 +185,21 @@ func _run() -> void:
         assert(popup.position.y >= breadcrumb.end.y)
         assert(popup.position.y >= header.end.y)
         assert(rail.size.x < panel.position.x)
+    # At 200% on 1366×768, workspace wins over optional outliner
+    # instead of taking the time-control area or the screen right edge.
+    host.size = Vector2(683, 384)
+    ui.size = host.size
+    ui.call("_route_workspace", "fleet", "Корабли")
+    ui.call("_layout_window")
+    assert(not (ui.get("_outliner") as PanelContainer).visible)
+    assert((ui.get("_outliner_reopen") as Button).visible)
+    var big_scale_window: Rect2 = (ui.get("_window") as PanelContainer).get_rect()
+    assert(big_scale_window.end.x <= 683.0)
+    assert(big_scale_window.position.x >= rail.size.x)
+    assert(big_scale_window.position.y >= (
+        ui.get("_nav_panel") as PanelContainer).get_rect().end.y)
+    ui.call("_close_window")
+    assert((ui.get("_outliner") as PanelContainer).visible)
     host.queue_free()
     print("SYSTEMBALANCE_FIGMA_LAYOUT_SCENE_PASS")
     quit(0)

@@ -16,7 +16,7 @@ const AMBER = Color("#C99B54")
 # Figma shell block 1: all geometry uses the same logical pixel grid.
 const TOP_H: float = 82.0
 const FOOT_H: float = 24.0
-const RAIL_W: float = 108.0
+const RAIL_W: float = 64.0
 const OUT_W: float = 276.0
 const GUTTER: float = 12.0
 const TEXT = Color("#C4D0D3")
@@ -403,6 +403,8 @@ func _build_footer() -> void:
     panel.add_child(_footer_status)
 
 func _build_left() -> void:
+    # Figma Make .leftnav: width 64px, rows 58px, icon + Russian caption
+    # + numeric keyboard hint. Physical readability comes from UI scaling.
     _rail = _panel()
     _rail.add_theme_stylebox_override("panel",
         _style(Color("#08131C"), Color("#294049"), 0, 0, 1, 0))
@@ -415,28 +417,29 @@ func _build_left() -> void:
     add_child(_rail)
     var column := VBoxContainer.new()
     column.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    column.add_theme_constant_override("separation", 4)
+    column.add_theme_constant_override("separation", 3)
     _rail.add_child(column)
     var scroll := ScrollContainer.new()
     scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
     scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    scroll.mouse_filter = Control.MOUSE_FILTER_STOP
     column.add_child(scroll)
     var menu := VBoxContainer.new()
     menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    menu.add_theme_constant_override("separation", 3)
+    menu.add_theme_constant_override("separation", 0)
     scroll.add_child(menu)
-    for item in [
+    for spec in [
         {"name":"Колонии", "action":"colony", "icon":"colony", "key":"1"},
         {"name":"Экономика", "action":"economy", "icon":"economy", "key":"2"},
         {"name":"Строительство", "action":"construction", "icon":"construction", "key":"3"},
         {"name":"Исследования", "action":"research", "icon":"research", "key":"4"},
-        {"name":"Флот", "action":"fleet", "icon":"fleet", "key":"5"},
+        {"name":"Флоты", "action":"fleet", "icon":"fleet", "key":"5"},
         {"name":"Управление", "action":"administration", "icon":"administration", "key":"6"}
     ]:
-        var action: String = str(item["action"])
-        var btn := _button("", _activate.bind(action), 11)
-        btn.custom_minimum_size = Vector2(94, 55)
-        btn.tooltip_text = str(item["name"]) + " [" + str(item["key"]) + "]"
+        var action: String = str(spec["action"])
+        var btn := _button("", _activate.bind(action), 9)
+        btn.custom_minimum_size = Vector2(56, 58)
+        btn.tooltip_text = str(spec["name"]) + " [" + str(spec["key"]) + "]"
         btn.add_theme_stylebox_override("normal",
             _style(Color("#08131C"), LINE, 0, 0, 0, 1))
         menu.add_child(btn)
@@ -444,40 +447,54 @@ func _build_left() -> void:
         var content := VBoxContainer.new()
         content.mouse_filter = Control.MOUSE_FILTER_IGNORE
         content.alignment = BoxContainer.ALIGNMENT_CENTER
-        content.add_theme_constant_override("separation", 4)
+        content.add_theme_constant_override("separation", 2)
         btn.add_child(content)
         content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
         var glyph := TextureRect.new()
-        glyph.texture = FigmaIcons.texture(str(item["icon"]), 20, TEAL)
-        glyph.custom_minimum_size = Vector2(21, 21)
+        glyph.texture = FigmaIcons.texture(str(spec["icon"]), 19, TEAL)
+        glyph.custom_minimum_size = Vector2(19, 19)
         glyph.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
         glyph.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
         glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
         content.add_child(glyph)
-        var label := _label(str(item["name"]), 10, TEXT)
-        label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-        content.add_child(label)
+        var name: String = str(spec["name"])
+        var caption := _label(name, 8, TEXT)
+        caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        caption.tooltip_text = btn.tooltip_text
+        content.add_child(caption)
+        var hotkey := _label(str(spec["key"]), 8, Color("#526B73"))
+        hotkey.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+        hotkey.offset_left = -13
+        hotkey.offset_right = -3
+        hotkey.offset_top = 2
+        hotkey.offset_bottom = 14
+        btn.add_child(hotkey)
+
     var bottom := VBoxContainer.new()
-    bottom.add_theme_constant_override("separation", 4)
+    bottom.add_theme_constant_override("separation", 2)
     column.add_child(bottom)
-    var objects := _button("☷  Объекты", _toggle_outliner, 11)
-    objects.custom_minimum_size.y = 34
+    var objects := _button("Объекты", _toggle_outliner, 9)
+    objects.tooltip_text = "Показать или скрыть правый аутлайнер"
+    objects.custom_minimum_size.y = 29
     bottom.add_child(objects)
-    _tools_button = _button("⋯  Меню", _show_nav_tools, 11)
-    _tools_button.custom_minimum_size.y = 33
-    _tools_button.tooltip_text = "Карта, наблюдение, сохранение и загрузка"
+    _tools_button = _button("⋯ Меню", _show_nav_tools, 10)
+    _tools_button.tooltip_text = "Журнал, карта, сохранение и загрузка"
+    _tools_button.custom_minimum_size.y = 29
     bottom.add_child(_tools_button)
     _ui_scale_menu = OptionButton.new()
-    _ui_scale_menu.tooltip_text = "Масштаб интерфейса: 100 / 115 / 125 / 140%"
+    _ui_scale_menu.tooltip_text = "Размер интерфейса 125–200%; сохраняется"
     _ui_scale_menu.add_theme_font_size_override("font_size", 11)
     _ui_scale_menu.add_theme_color_override("font_color", TEXT)
     _ui_scale_menu.add_theme_stylebox_override("normal", _style(BG2))
-    _ui_scale_menu.add_theme_stylebox_override("hover", _style(Color("#183239"), TEAL))
-    _ui_scale_menu.add_theme_stylebox_override("pressed", _style(Color("#183239"), TEAL))
-    _ui_scale_menu.custom_minimum_size.y = 32
-    for percent in [100, 115, 125, 140]:
+    _ui_scale_menu.add_theme_stylebox_override("hover",
+        _style(Color("#183239"), TEAL))
+    _ui_scale_menu.add_theme_stylebox_override("pressed",
+        _style(Color("#183239"), TEAL))
+    _ui_scale_menu.custom_minimum_size.y = 30
+    for percent in [125, 140, 160, 180, 200]:
         _ui_scale_menu.add_item("%d%%" % percent)
-    _ui_scale_menu.select(2)
+    _ui_scale_menu.select(clampi(int(_game.get("_ui_scale_index"))
+        if _game != null else 2, 0, _ui_scale_menu.item_count - 1))
     _ui_scale_menu.item_selected.connect(_set_ui_scale)
     bottom.add_child(_ui_scale_menu)
     _tools_menu = PopupMenu.new()
@@ -764,27 +781,40 @@ func _update_selection_card() -> void:
 
 func _layout_window() -> void:
     var vw: float = maxf(640.0, size.x)
-    var vh: float = maxf(400.0, size.y)
+    var vh: float = maxf(350.0, size.y)
     if _brand_box != null:
-        var compact: bool = vw < 1160.0
-        _brand_box.custom_minimum_size.x = 164.0 if compact else 184.0
+        # At 180/200% on a smaller monitor, keep FPS/time controls visible.
+        # Hidden resource chips are still available in Economy / Stocks.
+        var count: int = (6 if vw >= 1220.0 else (
+            5 if vw >= 1020.0 else (4 if vw >= 855.0 else 3)))
+        _brand_box.custom_minimum_size.x = (
+            140.0 if vw < 845.0 else (158.0 if vw < 1160.0 else 184.0))
         for i in range(_metric_boxes.size()):
             var resource_tile: Control = _metric_boxes[i].get_parent()
-            # Speed controls win over the final resource at 140%/1366px.
-            resource_tile.visible = (i < 5 or vw >= 1015.0)
+            resource_tile.visible = i < count
             _metric_boxes[i].custom_minimum_size.x = (
-                87.0 if compact else 109.0)
+                80.0 if vw < 845.0 else (
+                87.0 if vw < 1160.0 else 105.0))
         if _time_area != null:
             _time_area.custom_minimum_size.x = (
-                170.0 if compact else 204.0)
+                170.0 if vw < 1160.0 else 204.0)
     if _rail != null:
         _rail.offset_top = TOP_H
         _rail.offset_right = RAIL_W
         _rail.offset_bottom = -FOOT_H
     var left: float = RAIL_W + GUTTER
+    # Management panels take priority at extreme UI scale. On narrow
+    # logical viewports, the outliner can be restored after closing window.
+    var show_outliner: bool = (_show_outliner and (
+        vw >= 810.0 or _window == null or not _window.visible))
+    if _outliner != null:
+        _outliner.visible = show_outliner
+    if _outliner_reopen != null:
+        _outliner_reopen.visible = not show_outliner
     var reserved_right: float = (
-        OUT_W + GUTTER if _show_outliner else GUTTER)
-    var right: float = maxf(left + 300.0, vw - reserved_right)
+        OUT_W + GUTTER if show_outliner else GUTTER)
+    var right: float = minf(vw - GUTTER, maxf(
+        left + 260.0, vw - reserved_right))
     if _outliner != null:
         _outliner.offset_left = -(OUT_W + 8.0)
         _outliner.offset_right = -8.0
@@ -819,7 +849,7 @@ func _layout_window() -> void:
     if _footer_panel != null:
         _footer_panel.offset_left = RAIL_W
         _footer_panel.offset_right = (
-            -(OUT_W + 8.0) if _show_outliner else -8.0)
+            -(OUT_W + 8.0) if show_outliner else -8.0)
         _footer_panel.offset_top = -FOOT_H
         _footer_panel.offset_bottom = 0.0
 
@@ -864,10 +894,15 @@ func _toggle_scope() -> void:
     _update_window()
 
 func _toggle_outliner() -> void:
+    # When a narrow viewport hides the list behind a management panel,
+    # clicking the reveal button closes that panel instead of toggling
+    # the logical preference into the wrong state.
+    if _show_outliner and _outliner != null and not _outliner.visible and (
+            _window != null and _window.visible):
+        _close_window()
+        _layout_window()
+        return
     _show_outliner = not _show_outliner
-    _outliner.visible = _show_outliner
-    if _outliner_reopen != null:
-        _outliner_reopen.visible = not _show_outliner
     _layout_window()
 
 func _close_window() -> void:
@@ -877,6 +912,7 @@ func _close_window() -> void:
     _workspace_focus = ""
     _update_selection_card()
     _sync_rail_active()
+    _layout_window()
 
 func _activate(kind: String) -> void:
     if _alerts_popover != null and _alerts_popover.visible:
@@ -917,6 +953,7 @@ func _activate(kind: String) -> void:
     _update_window()
     _update_selection_card()
     _sync_rail_active()
+    _layout_window()
 
 func _select_body(id: String) -> void:
     if _game == null:
