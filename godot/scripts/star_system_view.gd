@@ -62,6 +62,9 @@ var _world: Dictionary = {}
 var _live_fleet: Dictionary = {}
 var _selected_body_id: String = ""
 var _zoom: float = 1.0
+## Compensates the logical viewport shrink introduced by the *global UI*
+## content_scale_factor at close-up only. Native physical world untouched.
+var _ui_viewport_scale: float = 1.0
 var _pan: Vector2 = Vector2.ZERO
 var _dragging: bool = false
 var _drag_distance: float = 0.0
@@ -666,9 +669,27 @@ func _radius_transform(radius: float) -> float:
     return pow(maxf(radius, 0.0), ORBIT_COMPRESSION)
 
 
+func set_ui_viewport_scale(value: float) -> void:
+    var normalized: float = clampf(value, 1.0, 1.5)
+    if is_equal_approx(_ui_viewport_scale, normalized):
+        return
+    _ui_viewport_scale = normalized
+    _follow_orbit_valid = false
+    queue_redraw()
+
+
 func _orbit_scale() -> float:
     var available: float = maxf(90.0, minf(size.x, size.y) * 0.40)
-    return available / maxf(1.0, _radius_transform(_max_orbit_radius))
+    # In Godot, global Window.content_scale_factor=1.4 reduces this
+    # Control's logical viewport dimensions to ~1/1.4. The native
+    # SystemBalance orbit scale used that smaller value directly, while
+    # planet glyph radii only depend on _zoom. Near a planet, this makes
+    # moons appear artificially close. Restore 100%-UI map geometry at
+    # close zoom, without changing the original moon projection formula.
+    var viewport_compensation: float = lerpf(1.0, _ui_viewport_scale,
+        smoothstep(8.0, 32.0, _zoom))
+    return available * viewport_compensation / maxf(1.0,
+        _radius_transform(_max_orbit_radius))
 
 func _center() -> Vector2:
     return size * 0.5 + _pan
