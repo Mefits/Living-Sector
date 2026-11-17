@@ -168,9 +168,13 @@ func _owner_loop(seed: Dictionary) -> void:
                 answer["ok"] = bool(outcome.get("ok", false))
                 if not answer["ok"]:
                     answer["error"] = str(outcome.get("error", "n38_load_failed"))
-                    # A failed load may not be safe to continue without a
-                    # verified rollback; forbid further economy mutations.
-                    frozen = true
+                    # SaveState restores the original in-memory checkpoint on
+                    # a compatible-but-rejected save. A missing/corrupt save
+                    # with successful rollback must NOT freeze a healthy game.
+                    # Only an unprotected state or failed rollback is fatal.
+                    frozen = answer["error"].contains("rollback failed") or (
+                        answer["error"].contains("Cannot protect live state"))
+                    answer["fatal"] = frozen
         var phase_failure: Dictionary = sim.last_phase_failure()
         if not phase_failure.is_empty():
             answer["ok"] = false
