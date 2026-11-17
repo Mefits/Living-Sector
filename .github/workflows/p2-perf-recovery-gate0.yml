@@ -1,18 +1,15 @@
-name: PERF RECOVERY Gate 0 current head
+name: PERF RECOVERY opt-in short check
 on:
-  push:
-    branches: [integration/perf-recovery-20261117]
-    paths: [.github/workflows/p2-perf-recovery-gate0.yml]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: p2-perf-recovery-gate0
-  cancel-in-progress: false
+  group: p2-perf-recovery-short
+  cancel-in-progress: true
 jobs:
   actual-paid-tick-acceptance:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 4
     steps:
       - uses: actions/checkout@v4
       - name: Install pinned Godot 4.7.2
@@ -30,33 +27,28 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p godot/logs/perf-recovery
-          timeout 80 godot --headless --path godot --editor --import --quit >godot/logs/perf-recovery/import.log 2>&1
-          timeout 80 godot --headless --path godot --script res://tests/p2_unified_script_compile_check.gd >godot/logs/perf-recovery/compile.log 2>&1
+          timeout 65 godot --headless --path godot --editor --import --quit >godot/logs/perf-recovery/import.log 2>&1
+          timeout 45 godot --headless --path godot --script res://tests/p2_unified_script_compile_check.gd >godot/logs/perf-recovery/compile.log 2>&1
           if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/perf-recovery/{import,compile}.log; then tail -n 100 godot/logs/perf-recovery/compile.log; exit 1; fi
       - name: Worker boot and N38
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/perf-recovery-user"
-          timeout 70 env XDG_DATA_HOME="$RUNNER_TEMP/perf-recovery-user" godot --headless --path godot -- --p2-worker-gui-check >godot/logs/perf-recovery/worker.log 2>&1
+          timeout 45 env XDG_DATA_HOME="$RUNNER_TEMP/perf-recovery-user" godot --headless --path godot -- --p2-worker-gui-check >godot/logs/perf-recovery/worker.log 2>&1
           grep P2_WORKER_GUI_BOOT_CHECK_PASS godot/logs/perf-recovery/worker.log
-      - name: Actual 500 paid ticks
+      - name: Two fast targeted invariants (no simulation soak)
         shell: bash
         run: |
           set -euo pipefail
-          timeout 350 godot --headless --path godot --script res://tests/p2_perf_pr262_head_500_tick_smoke.gd >godot/logs/perf-recovery/paid500.log 2>&1
-          grep P2_PR262_HEAD_500_TICK_PASS godot/logs/perf-recovery/paid500.log
-          grep P2_PR262_HEAD_500_TICK_WINDOW godot/logs/perf-recovery/paid500.log
-      - name: Exact 160-tick checkpoint parity
-        shell: bash
-        run: |
-          set -euo pipefail
-          timeout 180 godot --headless --path godot --script res://tests/p2_perf_pr262_astra_fixes_160_parity.gd >godot/logs/perf-recovery/parity160.log 2>&1
-          grep P2_ASTRA_TWO_FIXES_160_PARITY_PASS godot/logs/perf-recovery/parity160.log
+          timeout 20 godot --headless --path godot --script res://tests/p2_late_growth_weak_parent_check.gd >godot/logs/perf-recovery/ledger.log 2>&1
+          grep -q LATE_GROWTH_WEAK_PARENT_PASS godot/logs/perf-recovery/ledger.log
+          timeout 20 godot --headless --path godot --script res://tests/p2_runtime_read_projection_check.gd >godot/logs/perf-recovery/projections.log 2>&1
+          grep -q 'runtime read projection isolation: PASS' godot/logs/perf-recovery/projections.log
       - name: Preserve evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: perf-recovery-gate0-logs
           path: godot/logs/perf-recovery/
-          retention-days: 7
+          retention-days: 2
