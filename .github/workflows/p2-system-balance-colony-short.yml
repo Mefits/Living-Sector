@@ -1,0 +1,108 @@
+name: Living Sector SystemBalance integrated colony and Figma HUD short gate
+on:
+  push:
+    branches:
+      - feature/SystemBalance
+    paths:
+      - .github/workflows/p2-system-balance-colony-short.yml
+      - godot/scripts/main.gd
+      - godot/scripts/star_system_view.gd
+      - godot/scripts/sim/phase2/sol_physical_assets_projection.gd
+      - godot/scripts/view/**
+      - godot/tests/p2_*colony*.gd
+      - godot/tests/p2_system_balance_colony_roads_check.gd
+      - godot/tests/p2_sol_moon_closeup_lod_check.gd
+      - godot/tests/p2_strategy_ui_systembalance_check.gd
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  parse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot/bin"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 150 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot/bin"
+          mv "$RUNNER_TEMP/godot/bin/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/bin/godot"
+          chmod +x "$RUNNER_TEMP/godot/bin/godot"
+          echo "$RUNNER_TEMP/godot/bin" >> "$GITHUB_PATH"
+      - name: Import Godot project without missing script errors
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 90s godot --headless --path godot --editor --import --quit > import.log 2>&1
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script' import.log; then
+            tail -n 120 import.log
+            exit 1
+          fi
+      - name: Check adapted SystemBalance roads and complete UI preloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 90s godot --headless --path godot --script res://tests/p2_system_balance_colony_roads_check.gd > test.log 2>&1
+          tail -n 80 test.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' test.log
+          grep -q 'SYSTEM_BALANCE_COLONY_ROADS_PASS' test.log
+      - name: Validate thin colony HUD, local resources and unknown metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 90s godot --headless --path godot --script res://tests/p2_colony_quick_strip_check.gd > hud.log 2>&1
+          tail -n 80 hud.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' hud.log
+          grep -q 'COLONY_QUICK_STRIP_PASS' hud.log
+      - name: Validate contextual cards and UI scale entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout 30s godot --headless --path godot --script res://tests/p2_colony_context_cards_check.gd > cards.log 2>&1; then
+            tail -n 120 cards.log
+            exit 1
+          fi
+          tail -n 80 cards.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' cards.log
+          grep -q 'COLONY_CONTEXT_CARDS_PASS' cards.log
+      - name: Verify strategy Figma HUD scope isolation and contextual data
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout 30s godot --headless --path godot --script res://tests/p2_strategy_ui_systembalance_check.gd > strategy.log 2>&1; then
+            tail -n 100 strategy.log
+            exit 1
+          fi
+          tail -n 55 strategy.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Assertion failed' strategy.log
+          grep -q 'SYSTEMBALANCE_FIGMA_HUD_MERGE_PASS' strategy.log
+      - name: Test parented Sol moon close-up size and orbit display
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout 30s godot --headless --path godot --script res://tests/p2_sol_moon_closeup_lod_check.gd > moon.log 2>&1; then
+            tail -n 100 moon.log
+            exit 1
+          fi
+          tail -n 50 moon.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' moon.log
+          grep -q 'SOL_MOON_CLOSEUP_LOD_PASS' moon.log
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-balance-colony-short-logs
+          path: |
+            import.log
+            test.log
+            hud.log
+            cards.log
+            moon.log
+            strategy.log
+          if-no-files-found: ignore
+          retention-days: 4
