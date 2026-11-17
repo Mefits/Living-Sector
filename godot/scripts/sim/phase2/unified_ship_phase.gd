@@ -139,9 +139,11 @@ static func depart(world: Dictionary, graph: RefCounted,
     if not motion.depart(state, graph, ship_id, destination,
             positions, tick, tick_scale):
         return {"ok": false, "reason": "native_departure_rejected"}
-    var updated: Dictionary = {}
-    for id in state.ships:
-        updated[str(id)] = (state.ships[id] as Dictionary).duplicate(true)
-    return {"ok": true, "changed": true, "ships": updated,
+    # ShipState.restore() already deep-detached every fleet row from World.
+    # motion.depart() mutates only this exclusively owned fleet; copying
+    # every row again for a BT travel preview costs O(all ship cargo/BT)
+    # per departure proposal, even though N146 will revalidate the command.
+    # Return the owned snapshot, never world["ships"] or a shallow alias.
+    return {"ok": true, "changed": true, "ships": state.ships,
         "next_token": motion.next_token(),
         "outcomes": {ship_id: "departed_to_" + destination}}
