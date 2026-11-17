@@ -324,8 +324,14 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     # Other World domains are read-only here and remain authoritative.
     var lifecycle_world: Dictionary = _copy_world("L196_owned_root", false)
     lifecycle_world["facilities"] = _world["facilities"].duplicate(true)
-    lifecycle_world["markets"] = _world["markets"].duplicate(true)
-    lifecycle_world["populations"] = _world["populations"].duplicate(true)
+    # N130 only writes markets on its 20x cadence; N156 Payroll only
+    # writes populations when a paid repair candidate exists. The
+    # off-cadence stages are read-only for these authoritative domains.
+    # Detach before either writer, never expose a mutable canonical alias.
+    if bool(initial["due"]["restock"]):
+        lifecycle_world["markets"] = _world["markets"].duplicate(true)
+    if not initial["repair_candidates"].is_empty():
+        lifecycle_world["populations"] = _world["populations"].duplicate(true)
     # Receipts accumulate indefinitely; cloning the whole N9 history on
     # every no-op orbit tick would make long-term simulation quadratic.
     # No new maintenance payments are possible unless there is a paid
