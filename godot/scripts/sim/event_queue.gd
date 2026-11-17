@@ -152,11 +152,20 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
     return true
 
 func _less(a: Dictionary, b: Dictionary) -> bool:
-    for key in ["due_tick", "phase"]:
-        if int(a[key]) != int(b[key]):
-            return int(a[key]) < int(b[key])
-    if str(a["entity_id"]) != str(b["entity_id"]):
-        return str(a["entity_id"]) < str(b["entity_id"])
+    # Hot comparator for dispatch and snapshots: avoid constructing an
+    # Array of field names and repeated conversions for each comparison.
+    var a_tick: int = int(a["due_tick"])
+    var b_tick: int = int(b["due_tick"])
+    if a_tick != b_tick:
+        return a_tick < b_tick
+    var a_phase: int = int(a["phase"])
+    var b_phase: int = int(b["phase"])
+    if a_phase != b_phase:
+        return a_phase < b_phase
+    var a_entity: String = str(a["entity_id"])
+    var b_entity: String = str(b["entity_id"])
+    if a_entity != b_entity:
+        return a_entity < b_entity
     return int(a["sequence"]) < int(b["sequence"])
 
 func _whole(v: Variant, minimum: int) -> bool:
