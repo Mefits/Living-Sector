@@ -100,6 +100,8 @@ func _run() -> void:
         assert((workspace.get("_content") as VBoxContainer).get_child_count() > 0)
         assert((workspace.get("_tabs") as HBoxContainer).get_child_count() >= 3)
         assert(workspace.get("_tabs_scroll") is ScrollContainer)
+    assert(workspace.has_method("_issue_line"))
+    assert(workspace.has_method("_restore_workspace_scroll"))
     ui.call("_workspace_back")
     assert(workspace.get("_mode") == "administration")
     ui.call("_close_window")
@@ -125,6 +127,16 @@ func _run() -> void:
         if descendant is HFlowContainer:
             col_sections = descendant
     assert(col_sections != null and col_sections.get_child_count() == 2)
+    # Live N39 alert displays an actual clickable Figma issue-line, not
+    # demo shortage text or an inert generic button.
+    economy["facilities"]["farm"]["condition"] = 0.74
+    ui.call("_route_workspace", "economy", "Баланс")
+    ui.call("present",world,economy,"earth","","",24,false,1.0,
+        "running","details")
+    ui.call("_route_workspace", "colony", "Обзор")
+    assert(_contains_text(workspace, "Состояние 74%"))
+    assert(_contains_text(workspace, "Genesis Farm"))
+    assert(not _contains_text(workspace, "LS-044"))
     ui.call("_close_window")
     ui.call("_toggle_outliner")
     assert(not (ui.get("_outliner") as PanelContainer).visible)

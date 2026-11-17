@@ -64,6 +64,7 @@ var _scroll: ScrollContainer
 var _content: VBoxContainer
 var _last_signature: String = ""
 var _last_render_ms: int = -1
+var _scroll_by_page: Dictionary = {}
 
 func _box(fill: Color = SURFACE, outlined: bool = true) -> StyleBoxFlat:
     var style := StyleBoxFlat.new()
@@ -299,6 +300,10 @@ func show_state(mode: String, tab: String, world: Dictionary,
         prior_body != body or prior_facility != facility or prior_ship != ship)
     if changed:
         _last_signature = ""
+        if _scroll != null:
+            var old_page: String = "%s|%s|%s|%s|%s" % [
+                prior_mode, prior_tab, prior_body, prior_facility, prior_ship]
+            _scroll_by_page[old_page] = _scroll.scroll_vertical
         if _filter != null and not _filter.text.is_empty():
             _filter.clear()
     var signature: String = "%s|%s|%s|%s|%s|%s|%d" % [
@@ -313,6 +318,21 @@ func show_state(mode: String, tab: String, world: Dictionary,
     _last_render_ms = now
     _last_signature = signature
     _render()
+    if changed and _scroll != null:
+        var page_key: String = "%s|%s|%s|%s|%s" % [
+            _mode, _tab, _body, _facility, _ship]
+        var restore: int = int(_scroll_by_page.get(page_key, 0))
+        # Scroll ranges only settle after controls lay out.
+        call_deferred("_restore_workspace_scroll", page_key, restore)
+
+func _restore_workspace_scroll(page_key: String, offset: int) -> void:
+    if _scroll == null:
+        return
+    var current: String = "%s|%s|%s|%s|%s" % [
+        _mode, _tab, _body, _facility, _ship]
+    if current != page_key:
+        return
+    _scroll.scroll_vertical = offset
 
 func _render() -> void:
     if _content == null:
@@ -462,14 +482,27 @@ func _pair(parent: Node, name: String, value: String,
         tone: Color = TEXT) -> void:
     if not _match(name + " " + value):
         return
+    var row_bg := PanelContainer.new()
+    var row_style := _box(Color("#0B1B24"), false)
+    row_style.border_width_top = 1
+    row_style.border_color = Color("#1D3138")
+    row_style.content_margin_left = 7
+    row_style.content_margin_right = 7
+    row_style.content_margin_top = 3
+    row_style.content_margin_bottom = 3
+    row_bg.add_theme_stylebox_override("panel", row_style)
+    parent.add_child(row_bg)
     var row := HBoxContainer.new()
-    row.custom_minimum_size.y = 27
+    row.custom_minimum_size.y = 23
     row.add_theme_constant_override("separation", 12)
-    parent.add_child(row)
+    row_bg.add_child(row)
     var key := _label(name, 11, MUTED)
     key.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     row.add_child(key)
-    row.add_child(_label(value, 12, tone))
+    var answer := _label(value, 12, tone)
+    answer.tooltip_text = value
+    answer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+    row.add_child(answer)
 
 func _metric_strip(parent: Node, pairs: Array) -> void:
     # Figma uses a 4-up metric strip; HFlow wraps to two columns on
@@ -532,7 +565,7 @@ func _table(parent: Node, headings: Array, rows: Array,
 func _table_row(parent: Node, cells: Array, columns: int,
         heading: bool, callback: Callable, row_index: int = 0) -> void:
     var container: Control
-    var fill: Color = Color("#132A34") if heading else (
+    var fill: Color = Color("#08151C") if heading else (
         Color("#0D2029") if row_index % 2 == 0 else Color("#0B1B24"))
     if callback.is_valid():
         var btn := Button.new()
@@ -544,8 +577,8 @@ func _table_row(parent: Node, cells: Array, columns: int,
         normal.border_color = Color("#213943")
         normal.content_margin_left = 9
         normal.content_margin_right = 9
-        normal.content_margin_top = 7
-        normal.content_margin_bottom = 7
+        normal.content_margin_top = 3 if heading else 6
+        normal.content_margin_bottom = 3 if heading else 6
         btn.add_theme_stylebox_override("normal", normal)
         var hover := _box(Color("#1B3740"), false)
         hover.border_color = TEAL
@@ -562,14 +595,16 @@ func _table_row(parent: Node, cells: Array, columns: int,
         cell_style.border_color = Color("#213943")
         cell_style.content_margin_left = 9
         cell_style.content_margin_right = 9
-        cell_style.content_margin_top = 7
-        cell_style.content_margin_bottom = 7
+        cell_style.content_margin_top = 3 if heading else 6
+        cell_style.content_margin_bottom = 3 if heading else 6
         panel.add_theme_stylebox_override("panel", cell_style)
         parent.add_child(panel)
         container = panel
+    # Figma dense-head is 25px, data rows 34px; no vertical box drift.
+    container.custom_minimum_size.y = 25 if heading else 34
     var row := HBoxContainer.new()
     row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    row.custom_minimum_size.y = 20
+    row.custom_minimum_size.y = 15 if heading else 20
     row.add_theme_constant_override("separation", 7)
     container.add_child(row)
     for i in range(columns):
@@ -584,7 +619,7 @@ func _table_row(parent: Node, cells: Array, columns: int,
                 tint = TEAL
             elif text_value == "—":
                 tint = MUTED
-        var cell := _label(text_value, 10 if heading else 12, tint)
+        var cell := _label(text_value, 9 if heading else 12, tint)
         cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         cell.size_flags_stretch_ratio = 1.55 if i == 0 else 1.0
         cell.tooltip_text = text_value
@@ -592,8 +627,85 @@ func _table_row(parent: Node, cells: Array, columns: int,
 
 func _link(parent: Node, label: String,
         mode: String, tab: String, focus: String = "") -> void:
-    parent.add_child(_button(label, func() -> void:
-        navigate_requested.emit(mode, tab, focus), true))
+    var action := _button(label, func() -> void:
+        navigate_requested.emit(mode, tab, focus), true)
+    action.alignment = HORIZONTAL_ALIGNMENT_LEFT
+    action.custom_minimum_size.y = 29
+    action.add_theme_font_size_override("font_size", 10)
+    var normal := _box(Color("#0D1E26"), false)
+    normal.border_width_top = 1
+    normal.border_color = Color("#294049")
+    normal.content_margin_left = 9
+    normal.content_margin_right = 9
+    normal.content_margin_top = 4
+    normal.content_margin_bottom = 4
+    action.add_theme_stylebox_override("normal", normal)
+    var hover := _box(Color("#132D34"), false)
+    hover.border_width_top = 1
+    hover.border_color = TEAL
+    hover.content_margin_left = 9
+    hover.content_margin_right = 9
+    hover.content_margin_top = 4
+    hover.content_margin_bottom = 4
+    action.add_theme_stylebox_override("hover", hover)
+    action.tooltip_text = "Открыть раздел «%s» → %s" % [
+        str(TITLES.get(mode, mode)), tab]
+    parent.add_child(action)
+
+func _issue_line(parent: Node, headline: String, description: String,
+        on_open: Callable, critical: bool = true) -> void:
+    # Figma .issue-line: native 47px clickable alert with icon, two lines
+    # and a compact action on the right. Values come from N39 only.
+    var button := Button.new()
+    button.text = ""
+    button.focus_mode = Control.FOCUS_NONE
+    button.custom_minimum_size.y = 49
+    button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    button.tooltip_text = headline + "\n" + description
+    var base := _box(Color("#201A14") if critical else Color("#0D2029"), false)
+    base.border_width_top = 1
+    base.border_color = Color("#59442D") if critical else Color("#20343B")
+    base.set_content_margin_all(0)
+    button.add_theme_stylebox_override("normal", base)
+    var hover := _box(Color("#2B241A") if critical else Color("#173038"), false)
+    hover.border_width_top = 1
+    hover.border_color = AMBER if critical else TEAL
+    hover.set_content_margin_all(0)
+    button.add_theme_stylebox_override("hover", hover)
+    if on_open.is_valid():
+        button.pressed.connect(on_open)
+    else:
+        button.disabled = true
+    parent.add_child(button)
+    var row := HBoxContainer.new()
+    row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row.add_theme_constant_override("separation", 8)
+    button.add_child(row)
+    row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    row.offset_left = 9
+    row.offset_right = -9
+    row.offset_top = 5
+    row.offset_bottom = -5
+    var icon := TextureRect.new()
+    icon.custom_minimum_size = Vector2(18, 18)
+    icon.texture = FigmaIcons.texture("alert" if critical else "facility",
+        17, AMBER if critical else TEAL)
+    icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+    icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row.add_child(icon)
+    var labels := VBoxContainer.new()
+    labels.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    labels.add_theme_constant_override("separation", 2)
+    labels.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row.add_child(labels)
+    labels.add_child(_label(headline, 11, Color("#D4C4A7") if critical else TEXT))
+    labels.add_child(_label(description, 9, MUTED))
+    if on_open.is_valid():
+        var go := _label("ОТКРЫТЬ  ›", 9, AMBER if critical else TEAL)
+        go.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+        row.add_child(go)
 
 func _empty(message: String) -> void:
     var block := _section("ДАННЫЕ НЕДОСТУПНЫ")
@@ -770,14 +882,23 @@ func _colony() -> void:
             for raw in facilities:
                 var id: String = str(raw["id"])
                 var live: Variant = _economy.get("facilities", {}).get(id, {})
-                if live is Dictionary and (bool(live.get("abandoned", false)) or (
-                        live.has("condition") and float(live["condition"]) < 0.8)):
-                    var title: String = str(raw["cells"][0])
-                    problem.add_child(_button("⚠ " + title + " · повреждение/износ",
-                        func() -> void: select_requested.emit("facility", id)))
-                    problems += 1
+                if not (live is Dictionary):
+                    continue
+                var abandoned: bool = bool(live.get("abandoned", false))
+                var worn: bool = (live.has("condition") and
+                    float(live["condition"]) < 0.8)
+                if not abandoned and not worn:
+                    continue
+                var title: String = str(raw["cells"][0])
+                var status: String = ("Заброшено · подтверждено N39" if abandoned
+                    else "Состояние %.0f%% · N39" % (
+                        float(live["condition"]) * 100.0))
+                _issue_line(problem, title, status,
+                    func() -> void: select_requested.emit("facility", id))
+                problems += 1
             if problems == 0:
-                _note(problem, "Подтверждённых сигналов износа нет. Остальные причины — в N39.")
+                _note(problem,
+                    "Подтверждённых сигналов износа нет. Остальные причины — в N39.")
             # Figma overview: two neighboring compact sections after the
             # full-width summary and alerts. HFlow stacks on small screens.
             var pair := HFlowContainer.new()
