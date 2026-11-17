@@ -3346,7 +3346,14 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
             "tick": tick, "paid": [], "blocked": []}
     if not (proposed.get("heads") is Dictionary) or not (proposed.get("shifts") is Array):
         return {"ok": false, "fatal": true, "reason": "invalid_n143_source_intents"}
-    var staged: Dictionary = _copy_world("L3098", true)
+    # N143 only writes these domains. Detach them before the first paid
+    # shift so a rejected transaction cannot mutate authoritative World.
+    # Keep the full Schema/accounts oracle and N9 fork below unchanged.
+    var staged: Dictionary = _copy_world("L3098_owned_root", false)
+    for domain in ["research_directors", "research", "research_receipts",
+            "research_mandates", "faction_charters", "faction_treasuries",
+            "facilities", "populations", "markets"]:
+        staged[domain] = _world[domain].duplicate(true)
     if proposed["heads"].size() != staged["research_directors"].size():
         return {"ok": false, "fatal": true, "reason": "missing_native_research_head"}
     for fid in proposed["heads"]:
