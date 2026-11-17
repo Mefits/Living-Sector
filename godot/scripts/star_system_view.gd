@@ -971,8 +971,15 @@ func _draw_physical_sol_assets(scale: float) -> void:
         # confusing this presentation gap with physical N43 altitude.
         # At close zoom the old +20px gap is roughly doubled; distant
         # overview keeps a compact readable station near the planet.
+        # At extreme zoom an extra fixed 40px is too close to the
+        # enormous enlarged planet symbol. Increase clearance with
+        # glyph size, capped for mouse reach and predictable framing.
+        # Native N43 still orbits at the same 800km physical altitude.
+        var near_surface_zoom: float = clampf(
+            (_zoom - 10.0) / 38.0, 0.0, 1.0)
         var orbit_gap_px: float = lerpf(18.0, 40.0,
-            clampf((_zoom - 1.0) / 8.0, 0.0, 1.0))
+            clampf((_zoom - 1.0) / 8.0, 0.0, 1.0)) + (
+            minf(body_radius * 0.10, 80.0) * near_surface_zoom)
         var display_radius: float = maxf(
             body_radius + orbit_gap_px, physical_compressed)
         var pos: Vector2 = body_pos + direction * display_radius
@@ -984,14 +991,25 @@ func _draw_physical_sol_assets(scale: float) -> void:
             if source_offset is Array and source_offset.size() == 2:
                 var native_offset: Vector2 = Vector2(
                     float(source_offset[0]), float(source_offset[1]))
-                _station_draw_records.append({
-                    "location": str(facility["location"]),
-                    "native": native_info["position"],
-                    "native_radius": native_info["native_radius"],
-                    "screen": pos,
-                    "native_global_screen": _native_screen_global(
-                        native_info["position"], native_offset, scale)
-                })
+                var body_native: Dictionary = (
+                    StationShipProjection.native_body_position(
+                    _body_index, native_offset, str(facility["body"])))
+                if body_native.get("ok", false):
+                    _station_draw_records.append({
+                        "location": str(facility["location"]),
+                        "native": native_info["position"],
+                        "native_radius": native_info["native_radius"],
+                        "screen": pos,
+                        "native_global_screen": _native_screen_global(
+                            native_info["position"], native_offset, scale),
+                        "body_native": body_native["position"],
+                        "body_native_radius": SolOrbits.physical_radius_native(
+                            str(facility["body"])),
+                        "body_screen": body_pos,
+                        "body_global_screen": _native_screen_global(
+                            body_native["position"], native_offset, scale),
+                        "screen_orbit_radius": display_radius
+                    })
         if _zoom >= 2.0:
             draw_arc(body_pos, display_radius, 0, TAU, 60,
                 Color(0.35, 0.51, 0.59, 0.24), 1.0, true)
