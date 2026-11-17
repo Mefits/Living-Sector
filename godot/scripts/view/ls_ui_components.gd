@@ -26,6 +26,29 @@ static func tab(text: String, active: bool, action: Callable) -> Button:
     button.pressed.connect(action)
     return button
 
+## Stable per-table column widths and weights shared by header and every row.
+## Five equally weighted columns follow Figma Make .dense-row.five. Four-column
+## ID tables may use the .dense-row.four (0.35:1.5:0.8:1.5) layout; ordinary
+## 4-column N39 tables retain a readable first column instead.
+static func table_column_profile(headings: Array) -> Array[Vector2]:
+    var profile: Array[Vector2] = []
+    var count: int = maxi(1, headings.size())
+    var id_heading: bool = not headings.is_empty() and (
+        str(headings[0]).to_upper() in ["ID", "№"])
+    for i in range(count):
+        var min_width := 100.0
+        var weight := 1.0
+        if count == 5:
+            min_width = 115.0
+        elif count == 4 and id_heading:
+            min_width = 55.0 if i == 0 else 110.0
+            weight = [0.35, 1.5, 0.8, 1.5][i]
+        elif i == 0:
+            min_width = 150.0
+            weight = 1.5
+        profile.append(Vector2(min_width, weight))
+    return profile
+
 static func table_row(heading: bool, odd: bool, action: Callable) -> Control:
     var row: Control
     if action.is_valid() and not heading:
