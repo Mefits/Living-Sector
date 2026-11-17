@@ -103,7 +103,7 @@ func _run() -> void:
     assert(not displayed.contains("STALE EARTH"))
     assert(displayed.contains("нет активного рейса"))
     assert(ui.call("_fleet_diagnostic_text").contains("пристыковано: 1"))
-    assert(ui.call("_fleet_diagnostic_text").contains("в полёте: 1"))
+    assert(ui.call("_fleet_diagnostic_text").contains("В полёте: 1"))
     host.queue_free()
     print("SYSTEMBALANCE_FIGMA_LAYOUT_SCENE_PASS")
     quit(0)
