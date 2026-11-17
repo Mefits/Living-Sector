@@ -2,6 +2,7 @@ extends SceneTree
 ## Run: godot --headless --path godot --script res://tests/p2_system_balance_colony_roads_check.gd
 const Roads = preload("res://scripts/view/colony_roads_projection.gd")
 const Assets = preload("res://scripts/sim/phase2/sol_physical_assets_projection.gd")
+const Labels = preload("res://scripts/view/facility_labels_ru.gd")
 const View = preload("res://scripts/star_system_view.gd")
 const Main = preload("res://scripts/main.gd")
 
@@ -18,6 +19,13 @@ func _initialize() -> void:
         {"id": "farm", "name": "Farm", "type": "farm", "body": "earth",
             "location": "earth-station", "faction_id": "a"}
     ]}
+    # Localized UI text is separated from immutable native names/IDs.
+    assert(Labels.display_name(source["facilities"][1]) == "Добывающий комплекс")
+    assert(Labels.display_name(source["facilities"][2]) == "Перерабатывающий комплекс")
+    assert(Labels.display_name(source["facilities"][3]) == "Фабрика" or
+        Labels.display_name(source["facilities"][3]) == "Промышленный комплекс")
+    assert(Labels.type_name("station") == "Орбитальная станция")
+    assert(Labels.type_name("custom_unknown") == "custom_unknown")
     var assets: Dictionary = Assets.build(source)
     assert(assets.get("surface", []).size() == 4)
     assert(assets.get("orbital", []).size() == 1)
