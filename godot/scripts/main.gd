@@ -43,6 +43,7 @@ var _startup_error: String = ""
 var _fatal_restore_error: String = ""
 var _pause_button: Button
 var _speed_menu: OptionButton
+var _new_game_dialog: ConfirmationDialog
 var _map: Control
 var _system_view
 var _back_button: Button
@@ -209,6 +210,10 @@ func _ready() -> void:
     load_button.text = "Загрузить"
     load_button.pressed.connect(_load_game)
     toolbar.add_child(load_button)
+    var new_game_button := Button.new()
+    new_game_button.text = "Новая игра"
+    new_game_button.pressed.connect(_new_game)
+    toolbar.add_child(new_game_button)
     _open_button = Button.new()
     _open_button.text = "Открыть систему"
     _open_button.pressed.connect(_open_selected_system)
@@ -871,13 +876,10 @@ func _worker_receive(result: Dictionary) -> void:
             return
         _worker_booted = true
         _worker_tick = int(result.get("tick", 0))
-        # Use SaveState on the SAME owner thread; no GUI-owned second N158.
-        if (FileAccess.file_exists(P2_WORKER_SAVE_PATH) or
-                FileAccess.file_exists(P2_WORKER_SAVE_PATH + ".bak") or
-                FileAccess.file_exists(P2_WORKER_SAVE_PATH + ".pending")):
-            _worker_loading = true
-            if _worker_send("load", {"path": P2_WORKER_SAVE_PATH}) <= 0:
-                _worker_loading = false
+        # A normal F5 launch always starts from the original seed at tick 0.
+        # Existing N38 worker checkpoints are ONLY loaded on explicit request
+        # via the "Загрузить" menu. Never auto-restore on startup.
+        _notice = "Новая игра · тик 0. Сохранение можно загрузить через меню."
         _worker_update_status()
         return
     if kind == "load":
@@ -886,9 +888,13 @@ func _worker_receive(result: Dictionary) -> void:
         if kind == "save":
             _notice = "N38 сохранение отклонено: " + str(
                 result.get("error", "unknown"))
+        elif kind == "load" and not bool(result.get("fatal", false)):
+            # SaveState rolled back to the original live checkpoint. A missing
+            # or incompatible save is a user-facing error, not a frozen world.
+            _notice = "Загрузка не удалась: " + str(result.get(
+                "error", "неизвестная ошибка"))
         else:
-            # Fail closed: the owner may be mid-recovery or have rejected a
-            # native transaction. Never send more ticks or pretend success.
+            # An unrecoverable rollback/phase error must still stop mutation.
             _worker_failed = "N158 worker: " + kind + " — " + str(
                 result.get("error", "rejected"))
             push_error(_worker_failed)
@@ -1137,6 +1143,32 @@ func _change_speed(index: int) -> void:
     _runner.advance_frame(0.0)
     _update_status()
 
+func _checkpoint_exists(path: String) -> bool:
+    return FileAccess.file_exists(path) or FileAccess.file_exists(
+        path + ".bak") or FileAccess.file_exists(path + ".pending")
+
+func _new_game() -> void:
+    # Restart the current scene, not the process or the saved file. _exit_tree
+    # shuts down the old authoritative worker before _ready starts a new seed.
+    # The confirmation prevents accidental loss of unsaved progress.
+    if _new_game_dialog == null:
+        _new_game_dialog = ConfirmationDialog.new()
+        _new_game_dialog.title = "Новая игра"
+        _new_game_dialog.dialog_text = (
+            "Начать новую игру с тика 0?\n"
+            + "Несохранённый прогресс текущей игры будет потерян.\n"
+            + "Существующие файлы сохранений останутся на диске.")
+        _new_game_dialog.ok_button_text = "Начать новую игру"
+        _new_game_dialog.confirmed.connect(_restart_new_game)
+        add_child(_new_game_dialog)
+    _new_game_dialog.popup_centered()
+
+func _restart_new_game() -> void:
+    var outcome: Error = get_tree().reload_current_scene()
+    if outcome != OK:
+        _notice = "Не удалось начать новую игру: " + str(outcome)
+        _update_status()
+
 func _save_game(save_path: String = "") -> void:
     if _worker_mode:
         if _worker_failed.is_empty():
@@ -1161,6 +1193,10 @@ func _load_game(save_path: String = "") -> void:
     if _worker_mode:
         if _worker_failed.is_empty():
             var path: String = P2_WORKER_SAVE_PATH if save_path.is_empty() else save_path
+            if not _checkpoint_exists(path):
+                _notice = "Нет сохранения для загрузки. Начата новая игра."
+                _worker_update_status()
+                return
             _worker_loading = true
             if _worker_send("load", {"path": path}) <= 0:
                 _worker_loading = false
@@ -1168,6 +1204,10 @@ func _load_game(save_path: String = "") -> void:
     if not _runner:
         return
     var target: String = P2_SAVE_PATH if save_path.is_empty() else save_path
+    if not _checkpoint_exists(target):
+        _notice = "Нет сохранения для загрузки. Текущая игра не изменена."
+        _update_status()
+        return
     var result: Dictionary = SaveState.load_runner(_runner, _seed, target)
     if result.get("ok", false):
         _fatal_restore_error = ""
