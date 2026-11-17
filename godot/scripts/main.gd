@@ -43,7 +43,7 @@ var _details: RichTextLabel
 var _status: Label
 var _observer_panel: PanelContainer
 var _observer_button: Button
-var _strategy_ui: Control
+var _strategy_ui
 var _ship_choice: OptionButton
 var _ship_destination: LineEdit
 var _cargo_commodity: LineEdit
