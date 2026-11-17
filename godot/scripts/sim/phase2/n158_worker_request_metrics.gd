@@ -68,7 +68,7 @@ static func count_delta(earlier: Dictionary, later: Dictionary) -> Dictionary:
 ## rather than silently dividing wall time and calling it CPU time.
 ## Samples are primitive detached dictionaries, never references to World.
 static func bounded_paid_tick_window(samples: Array, end_tick: int) -> Dictionary:
-    if not CHECKPOINTS.has(end_tick):
+    if not CHECKPOINTS.has(end_tick) or samples.size() > 100:
         return {}
     var start_tick: int = maxi(1, end_tick - 99)
     var times: Array[int] = []
@@ -86,7 +86,9 @@ static func bounded_paid_tick_window(samples: Array, end_tick: int) -> Dictionar
         if not entry.has("after_tick") or typeof(entry["after_tick"]) != TYPE_INT:
             return {}
         var tick: int = entry["after_tick"]
-        if tick <= last_tick or tick < start_tick or tick > end_tick:
+        # Do not silently turn an internal paid-tick gap into a sparse window.
+        # The only permitted partial window is a contiguous prefix.
+        if tick != last_tick + 1 or tick > end_tick:
             return {}
         for field in ["advance_wall_usec", "projection_wall_usec", "request_wall_usec"]:
             if not entry.has(field) or typeof(entry[field]) != TYPE_INT or entry[field] < 0:
