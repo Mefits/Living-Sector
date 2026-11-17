@@ -130,17 +130,39 @@ func _run() -> void:
     assert(table_scroll.horizontal_scroll_mode == ScrollContainer.SCROLL_MODE_AUTO)
     var table_grid: VBoxContainer = table_scroll.get_child(0)
     assert(table_grid.get_child_count() == 3)
-    assert(table_grid.custom_minimum_size.x >= 500.0)
+    assert(table_grid.custom_minimum_size.x >= 480.0)
+    # All tables use one common sizing profile, not independent per-row
+    # content sizing. The original CSS uses equal columns for five-col rows.
+    var five: Array[Vector2] = workspace.LSComponents.table_column_profile(
+        ["Корабль", "Класс", "Задача", "Груз", "Статус"])
+    assert(five.size() == 5)
+    for size in five:
+        assert(size.x == 115.0 and size.y == 1.0)
+    var short_id: Array[Vector2] = workspace.LSComponents.table_column_profile(
+        ["ID", "Состояние", "Товар", "Назначение"])
+    assert(short_id[0].x == 55.0)
+    assert(is_equal_approx(short_id[0].y, 0.35))
     var widths: Array = []
+    var weights: Array = []
     for entry in table_grid.get_children():
         var cells_row: HBoxContainer = entry.get_child(0)
         var widths_row: Array = []
+        var weights_row: Array = []
         for cell in cells_row.get_children():
             widths_row.append(cell.custom_minimum_size.x)
+            weights_row.append(cell.size_flags_stretch_ratio)
         if widths.is_empty():
             widths = widths_row
+            weights = weights_row
         else:
             assert(widths_row == widths)
+            assert(weights_row == weights)
+        if entry is Button:
+            # Button is Control rather than Container: explicit full width
+            # anchors are required to keep row cells aligned to the header.
+            assert(is_equal_approx(cells_row.anchor_right, 1.0))
+            assert(cells_row.offset_left == 9)
+            assert(cells_row.offset_right == -9)
     table_probe.free()
     assert(workspace.has_method("_restore_workspace_scroll"))
     ui.call("_workspace_back")
