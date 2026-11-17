@@ -105,6 +105,11 @@ static func build() -> Theme:
     search_frame.content_margin_right = 5
     var window_icon := _flat(Color("#0B2029"), Color("#33555B"),
         1, 5, 5, 1, 1, 1)
+    var window_shell := _flat(Color("#09141C"), Color("#31505A"),
+        1, 0, 0, 1, 1, 1)
+    window_shell.shadow_size = 10
+    window_shell.shadow_color = Color(0, 0, 0, 0.60)
+    ui_theme.set_stylebox(&"panel", &"LSWindowPanel", window_shell)
     ui_theme.set_stylebox(&"panel", &"LSWorkspaceHeader", workspace_header)
     ui_theme.set_stylebox(&"panel", &"LSWorkspaceToolbar", workspace_toolbar)
     ui_theme.set_stylebox(&"panel", &"LSSearchFrame", search_frame)
