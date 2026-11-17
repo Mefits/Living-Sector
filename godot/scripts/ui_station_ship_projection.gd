@@ -102,6 +102,9 @@ static func corrected_screen(native_position: Vector2,
             chosen = station
     if chosen.is_empty():
         return global_screen
+    if native_position.distance_to(
+            chosen["native"] as Vector2) <= 0.0000001:
+        return chosen["screen"] # exact native N14–N43 docking pixel
     var native_direction: Vector2 = native_position - (
         chosen["body_native"] as Vector2)
     var outward: Vector2 = Vector2(
@@ -110,16 +113,14 @@ static func corrected_screen(native_position: Vector2,
         chosen["body_global_screen"] as Vector2)
     var baseline: float = screen_displacement.length()
     var minimum: float = float(chosen["screen_orbit_radius"])
-    # All native positions outside real Earth remain outside its
-    # SCHEMATIC disc. This also prevents a radial inward screen loop
-    # immediately after a genuine N14 departure from the station.
+    # Use a MONOTONIC outward mapping: not a stationary rim clamp or
+    # fading station offset that sends vessels into the globe center.
+    # As the uncorrected screen displacement grows, the safety boost
+    # vanishes smoothly and the system map takes over.
+    var x: float = clampf(
+        baseline / (minimum * SCREEN_TRANSITION_MULTIPLIER), 0.0, 1.0)
+    var smooth: float = x * x * (3.0 - 2.0 * x)
+    var radial: float = baseline + minimum * (1.0 - smooth)
     var safe_point: Vector2 = (
-        chosen["body_screen"] as Vector2) + outward * maxf(
-            minimum, baseline)
-    if baseline <= minimum:
-        return safe_point
-    var fade: float = (baseline - minimum) / (
-        minimum * (SCREEN_TRANSITION_MULTIPLIER - 1.0))
-    fade = clampf(fade, 0.0, 1.0)
-    var smooth: float = fade * fade * (3.0 - 2.0 * fade)
+        chosen["body_screen"] as Vector2) + outward * radial
     return safe_point.lerp(global_screen, smooth)
