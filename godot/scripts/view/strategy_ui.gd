@@ -50,6 +50,12 @@ var _pause: Button
 var _outliner: PanelContainer
 var _outliner_list: VBoxContainer
 var _outliner_signature: String = ""
+var _outliner_filter_mode: String = "all"
+var _outliner_filter_buttons: Dictionary = {}
+var _outliner_group_open: Dictionary = {
+    "colonies":true, "bodies":false, "production":true,
+    "stations":true, "fleet":true, "construction":true}
+
 var _window: PanelContainer
 var _workspace_ui
 var _workspace_history: Array[Dictionary] = []
@@ -259,6 +265,19 @@ func _build_outliner() -> void:
     caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     head.add_child(caption)
     head.add_child(_button("×", _toggle_outliner, 15))
+    var filters := HBoxContainer.new()
+    filters.add_theme_constant_override("separation", 3)
+    col.add_child(filters)
+    for entry in [
+        {"mode":"all","text":"ВСЕ"},
+        {"mode":"flight","text":"В ПУТИ"},
+        {"mode":"docked","text":"У ДОКА"}]:
+        var key: String = str(entry["mode"])
+        var filter_btn := _button(str(entry["text"]),
+            _set_outliner_filter.bind(key), 11)
+        filter_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        filters.add_child(filter_btn)
+        _outliner_filter_buttons[key] = filter_btn
     var scroll := ScrollContainer.new()
     scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
     scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -713,14 +732,36 @@ func _outliner_entry(label: String, callback: Callable,
         btn.add_theme_stylebox_override("normal", _style(BG2, TEAL))
     _outliner_list.add_child(btn)
 
-func _group(title: String) -> void:
-    _outliner_list.add_child(_label(title, 13, TEAL))
+func _set_outliner_filter(mode: String) -> void:
+    if _outliner_filter_mode == mode:
+        return
+    _outliner_filter_mode = mode
+    _outliner_signature = ""
+    _update_outliner()
+
+func _toggle_outliner_group(key: String) -> void:
+    _outliner_group_open[key] = not bool(_outliner_group_open.get(key, true))
+    _outliner_signature = ""
+    _update_outliner()
+
+func _outliner_heading(key: String, title: String,
+        total: int) -> bool:
+    var open: bool = bool(_outliner_group_open.get(key, true))
+    var icon: String = "⌄ " if open else "› "
+    var label: String = "%s%s   %d" % [icon, title, total]
+    var btn := _button(label, _toggle_outliner_group.bind(key), 12)
+    btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+    btn.add_theme_color_override("font_color", TEAL)
+    btn.add_theme_stylebox_override("normal", _style(Color("#0E2228"), LINE))
+    _outliner_list.add_child(btn)
+    return open
 
 func _update_outliner() -> void:
     if _outliner_list == null or _world.is_empty():
         return
     var signature: String = str(_world.get("system", {}).get("id", "")) + (
-        "|" + _body + "|" + _facility + "|" + _ship)
+        "|" + _body + "|" + _facility + "|" + _ship + "|" + _outliner_filter_mode +
+        "|" + JSON.stringify(_outliner_group_open))
     for body in _world.get("bodies", []):
         if body is Dictionary:
             signature += ":" + str(body.get("id", ""))
@@ -730,122 +771,140 @@ func _update_outliner() -> void:
     var ships: Variant = _economy.get("ships", {})
     if ships is Dictionary:
         for id in ships:
-            var row: Variant = ships[id]
-            if row is Dictionary and str(row.get("system_id", "")) == str(
-                    _world.get("system", {}).get("id", "")):
-                var route: Variant = row.get("transit", {})
-                var underway: bool = route is Dictionary and not route.is_empty()
-                signature += ":" + str(id) + (
-                    ":flight" if underway else (
-                    ":docked" if not str(row.get("docked_at", "")).is_empty()
-                    else ":idle"))
-    if signature == _outliner_signature:
-        return
-    _outliner_signature = signature
-    for child in _outliner_list.get_children():
-        _outliner_list.remove_child(child)
-        child.queue_free()
-    _group("ПЛАНЕТЫ И СПУТНИКИ")
-    for body in _world.get("bodies", []):
-        if body is Dictionary:
-            var id: String = str(body.get("id", ""))
-            _outliner_entry("◉ " + _body_name(id),
-                _select_body.bind(id), id == _body)
-    _group("СТАНЦИИ И ПРЕДПРИЯТИЯ")
-    for facility in _world.get("facilities", []):
-        if facility is Dictionary:
-            var id: String = str(facility.get("id", ""))
-            _outliner_entry("⌑ " + FacilityNames.display_name(facility),
-                _select_facility.bind(id), id == _facility)
-    var flying_here: int = 0
-    if ships is Dictionary:
-        for id in ships:
-            var entry: Variant = ships[id]
-            if entry is Dictionary and str(entry.get("system_id", "")) == str(
-                    _world.get("system", {}).get("id", "")):
-                var flight: Variant = entry.get("transit", {})
-                if flight is Dictionary and not flight.is_empty():
-                    flying_here += 1
-    _group("КОРАБЛИ · В ПОЛЁТЕ %d" % flying_here)
-    if ships is Dictionary:
-        var n: int = 0
-        for id in ships:
             var item: Variant = ships[id]
             if not (item is Dictionary) or str(item.get("system_id", "")) != str(
                     _world.get("system", {}).get("id", "")):
                 continue
-            var route: Variant = item.get("transit", {})
-            var flying: bool = route is Dictionary and not route.is_empty()
-            var docked: bool = not str(item.get("docked_at", "")).is_empty()
-            var marker: String = "↗ " if flying else (
-                "■ " if docked else "○ ")
+            var transit: Variant = item.get("transit", {})
+            signature += ":" + str(id) + (
+                ":flight" if transit is Dictionary and not transit.is_empty()
+                else ":docked" if not str(item.get("docked_at", "")).is_empty()
+                else ":idle")
+    var construction: Variant = _economy.get("construction_sites", {})
+    if construction is Dictionary:
+        signature += ":build=" + str(construction.size())
+    if signature == _outliner_signature:
+        return
+    _outliner_signature = signature
+    for key in _outliner_filter_buttons:
+        var b: Button = _outliner_filter_buttons[key]
+        b.add_theme_stylebox_override("normal", _style(
+            Color("#1D4147") if key == _outliner_filter_mode else BG))
+        b.add_theme_color_override("font_color",
+            TEAL if key == _outliner_filter_mode else MUTED)
+    _clear_outliner_entries()
+    var areas: Dictionary = {}
+    var production: Array[Dictionary] = []
+    var stations: Array[Dictionary] = []
+    var local_locations: Dictionary = {}
+    for raw in _world.get("facilities", []):
+        if not (raw is Dictionary):
+            continue
+        var facility: Dictionary = raw
+        var body_id: String = str(facility.get("body", ""))
+        var loc: String = str(facility.get("location", ""))
+        areas[body_id] = true
+        local_locations[loc] = true
+        if str(facility.get("type", "")) in ["station", "orbital_station"]:
+            stations.append(facility)
+        else:
+            production.append(facility)
+    var inhabited: Array[Dictionary] = []
+    var other_bodies: Array[Dictionary] = []
+    for raw in _world.get("bodies", []):
+        if not (raw is Dictionary):
+            continue
+        if areas.has(str(raw.get("id", ""))):
+            inhabited.append(raw)
+        else:
+            other_bodies.append(raw)
+    if _outliner_filter_mode == "all":
+        if _outliner_heading("colonies", "КОЛОНИИ", inhabited.size()):
+            for item in inhabited:
+                var id: String = str(item.get("id", ""))
+                _outliner_entry("◉ " + _body_name(id),
+                    _select_body.bind(id), id == _body,
+                    "Планета/тело с подтверждёнными объектами N39")
+        if _outliner_heading("production", "ПРОИЗВОДСТВО", production.size()):
+            for item in production:
+                var id: String = str(item.get("id", ""))
+                _outliner_entry("⌑ " + FacilityNames.display_name(item),
+                    _select_facility.bind(id), id == _facility,
+                    str(item.get("location", "")))
+        if _outliner_heading("stations", "СТАНЦИИ", stations.size()):
+            for item in stations:
+                var id: String = str(item.get("id", ""))
+                _outliner_entry("⬡ " + FacilityNames.display_name(item),
+                    _select_facility.bind(id), id == _facility,
+                    str(item.get("location", "")))
+    var fleet_rows: Array[Dictionary] = []
+    var flying: int = 0
+    if ships is Dictionary:
+        for sid in ships:
+            var raw: Variant = ships[sid]
+            if not (raw is Dictionary) or str(raw.get("system_id", "")) != str(
+                    _world.get("system", {}).get("id", "")):
+                continue
+            var transit: Variant = raw.get("transit", {})
+            var inflight: bool = transit is Dictionary and not transit.is_empty()
+            var docked: bool = not str(raw.get("docked_at", "")).is_empty()
+            if inflight:
+                flying += 1
+            if _outliner_filter_mode == "flight" and not inflight:
+                continue
+            if _outliner_filter_mode == "docked" and not docked:
+                continue
+            fleet_rows.append({"id":str(sid), "data":raw,
+                "inflight":inflight, "docked":docked})
+    if _outliner_heading("fleet", "КОРАБЛИ · ЛЕТЯТ %d" % flying,
+            fleet_rows.size()):
+        for row in fleet_rows.slice(0, 24):
+            var id: String = str(row["id"])
+            var ship: Dictionary = row["data"]
+            var in_flight: bool = bool(row["inflight"])
+            var at_dock: bool = bool(row["docked"])
+            var prefix: String = "↗ " if in_flight else (
+                "■ " if at_dock else "○ ")
+            var transit: Variant = ship.get("transit", {})
             var hint: String = ("N14: %s → %s" % [
-                str(route.get("from", "—")), str(route.get("to", "—"))]
-                if flying else (
-                "Пристыкован: " + str(item.get("docked_at", ""))
-                if docked else "Без активного N14 рейса"))
-            _outliner_entry(marker + str(item.get("name", id)),
-                _select_ship.bind(str(id)), str(id) == _ship, hint)
-            n += 1
-            if n >= 16:
-                _outliner_list.add_child(_label("Остальные корабли — в разделе «Флот»", 11, MUTED))
-                break
-    _outliner_list.add_child(_label("Источник: действующий World / N39", 10, MUTED))
+                str(transit.get("from", "—")),
+                str(transit.get("to", "—"))]
+                if in_flight else (
+                "Пристыкован: " + str(ship.get("docked_at", ""))
+                if at_dock else "Нет активного N14 рейса"))
+            _outliner_entry(prefix + str(ship.get("name", id)),
+                _select_ship.bind(id), id == _ship, hint)
+    if _outliner_filter_mode == "all":
+        var local_sites: Array[Dictionary] = []
+        if construction is Dictionary:
+            for id in construction:
+                var raw: Variant = construction[id]
+                if not (raw is Dictionary):
+                    continue
+                var loc: String = str(raw.get("location_name",
+                    raw.get("location", "")))
+                if not local_locations.has(loc) or bool(raw.get("completed", false)):
+                    continue
+                local_sites.append({"id":str(id), "location":loc})
+        if _outliner_heading("construction", "СТРОИТЕЛЬСТВО",
+                local_sites.size()):
+            for site in local_sites:
+                _outliner_entry("▱ " + str(site["id"]),
+                    _route_workspace.bind("construction", "Проекты", str(site["id"])),
+                    false, str(site["location"]))
+        if _outliner_heading("bodies", "ДРУГИЕ ТЕЛА", other_bodies.size()):
+            for body in other_bodies:
+                var id: String = str(body.get("id", ""))
+                _outliner_entry("◉ " + _body_name(id),
+                    _select_body.bind(id), id == _body)
+    _outliner_list.add_child(_label(
+        "Реальные источники: N39 / N43 · %s" % str(
+        _world.get("system", {}).get("name", "—")), 11, MUTED))
 
-## Cross-workspace navigation is a local UI history, not a second
-## simulation or new modal window for every React route.
-func _route_workspace(mode: String, tab: String, focus: String = "") -> void:
-    if _window.visible and not _window_mode.is_empty() and (
-            _window_mode != mode or _tab != tab or _workspace_focus != focus):
-        _workspace_history.append({
-            "mode":_window_mode, "tab":_tab, "focus":_workspace_focus,
-            "body":_body, "facility":_facility, "ship":_ship})
-        if _workspace_history.size() > 20:
-            _workspace_history.pop_front()
-    _window_mode = mode
-    _tab = tab
-    _workspace_focus = focus
-    _window.show()
-    _update_window()
-    _update_selection_card()
-
-func _select_from_workspace(kind: String, id: String) -> void:
-    if id.is_empty():
-        return
-    if _window.visible and not _window_mode.is_empty():
-        _workspace_history.append({
-            "mode":_window_mode, "tab":_tab, "focus":_workspace_focus,
-            "body":_body, "facility":_facility, "ship":_ship})
-    match kind:
-        "facility":
-            _select_facility(id)
-            _window_mode = "facility"
-            _tab = "Процесс"
-        "ship":
-            _select_ship(id)
-            _window_mode = "ship"
-            _tab = "Обзор"
-        "body":
-            _select_body(id)
-            _window_mode = "colony"
-            _tab = "Обзор"
-        _:
-            return
-    _workspace_focus = id
-    _window.show()
-    _update_window()
-
-func _workspace_back() -> void:
-    if _workspace_history.is_empty():
-        _close_window()
-        return
-    var record: Dictionary = _workspace_history.pop_back()
-    _window_mode = str(record.get("mode", ""))
-    _tab = str(record.get("tab", "Обзор"))
-    _workspace_focus = str(record.get("focus", ""))
-    # Selection in the actual game remains authoritative. History only
-    # navigates presentation and never resurrects a stale N39 object.
-    _update_window()
+func _clear_outliner_entries() -> void:
+    for child in _outliner_list.get_children():
+        _outliner_list.remove_child(child)
+        child.queue_free()
 
 func _tabs_for_mode() -> Array[String]:
     match _window_mode:
