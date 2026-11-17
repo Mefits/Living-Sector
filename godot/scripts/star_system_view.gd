@@ -81,6 +81,7 @@ var _facilities_by_body: Dictionary = {}
 var _body_ids_by_location: Dictionary = {}
 var _ships_by_body: Dictionary = {}
 var _ship_ids_by_body: Dictionary = {}
+var _ship_ids_by_location: Dictionary = {}
 var _ship_pins: Array = []
 var _selected_ship_id: String = ""
 var _selected_facility_id: String = ""
@@ -147,6 +148,7 @@ func _rebuild_facility_index() -> void:
 func _rebuild_ship_index() -> void:
     _ships_by_body.clear()
     _ship_ids_by_body.clear()
+    _ship_ids_by_location.clear()
     var ids: Array = _live_fleet.keys()
     ids.sort()
     for sid in ids:
@@ -158,6 +160,10 @@ func _rebuild_ship_index() -> void:
         if not (transit is Dictionary) or not transit.is_empty():
             continue
         var location: String = str(ship.get("location", ""))
+        if not location.is_empty():
+            if not _ship_ids_by_location.has(location):
+                _ship_ids_by_location[location] = []
+            (_ship_ids_by_location[location] as Array).append(str(sid))
         for bid in _body_ids_by_location.get(location, []):
             _ships_by_body[bid] = int(_ships_by_body.get(bid, 0)) + 1
             if not _ship_ids_by_body.has(bid):
@@ -832,7 +838,16 @@ func _draw_system() -> void:
         # Facilities have their OWN real IDs and orbital/surface map
         # objects, not a decorative facility-count square on the planet.
         var local_ships: int = _live_ship_count(bid)
-        if local_ships > 0:
+        var station_carries_ships: bool = false
+        for asset in _physical_assets.get("orbital", []):
+            if str(asset["body"]) == bid and (
+                    (_ship_ids_by_location.get(
+                    str(asset["location"]), []) as Array).size() > 0):
+                station_carries_ships = true
+                break
+        # Physically docked ships belong at the real station icon, not
+        # a false aggregate marker at the center of the planet.
+        if local_ships > 0 and not station_carries_ships:
             # The marker represents real ships AT this location; active
             # transits are in the live observer, not fake diagram pixels.
             var fleet_marker: Vector2 = position + Vector2(
@@ -923,6 +938,16 @@ func _draw_physical_sol_assets(scale: float) -> void:
             Color("#6ca1ba"), true)
         _facility_pins.append({"id": str(facility["id"]),
             "position": pos, "hit_radius": 15.0})
+        var docked_ids: Array = _ship_ids_by_location.get(
+            str(facility["location"]), [])
+        if not docked_ids.is_empty():
+            var docked_marker: Vector2 = pos + Vector2(-11, -11)
+            draw_circle(docked_marker, 3.0, Color("#85d1e0"))
+            if docked_ids.has(_selected_ship_id):
+                draw_arc(docked_marker, 7.0, 0, TAU, 16,
+                    Color("#fff0b0"), 1.5, true)
+            _ship_pins.append({"position": docked_marker,
+                "ship_ids": docked_ids.duplicate(), "hit_radius": 9.0})
         if _zoom >= 7.0 or _focused_body_id == str(facility["body"]):
             draw_string(font, pos + Vector2(17, -9),
                 "Орбитальная станция", HORIZONTAL_ALIGNMENT_LEFT,
