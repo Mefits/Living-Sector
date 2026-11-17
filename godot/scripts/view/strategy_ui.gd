@@ -19,7 +19,8 @@ const AMBER = Color("#C99B54")
 const TOP_H: float = 82.0
 const FOOT_H: float = 24.0
 const RAIL_W: float = 64.0
-const OUT_W: float = 276.0
+const OUT_W: float = 264.0
+const COMPACT_OUT_W: float = 242.0
 const GUTTER: float = 12.0
 const TEXT = Color("#C4D0D3")
 const MUTED = Color("#748B92")
@@ -72,6 +73,7 @@ var _alerts_contents: VBoxContainer
 var _alerts_signature: String = ""
 var _footer_status: Label
 var _outliner: PanelContainer
+var _outliner_scope: Label
 var _outliner_list: VBoxContainer
 var _outliner_signature: String = ""
 var _outliner_filter_mode: String = "all"
@@ -577,11 +579,18 @@ func _build_outliner() -> void:
     col.add_theme_constant_override("separation", 7)
     _outliner.add_child(col)
     var head := HBoxContainer.new()
+    head.custom_minimum_size.y = 43
+    head.add_theme_constant_override("separation", 5)
     col.add_child(head)
-    var caption := _label("АУТЛАЙНЕР", 15, Color("#D3DDDD"))
-    caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    head.add_child(caption)
-    _outliner_close_button = _button("×", _toggle_outliner, 16)
+    var header_titles := VBoxContainer.new()
+    header_titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    header_titles.add_theme_constant_override("separation", 2)
+    head.add_child(header_titles)
+    _outliner_scope = _label("СЕКТОР", 9, Color("#608187"))
+    header_titles.add_child(_outliner_scope)
+    var caption := _label("Аутлайнер", 15, Color("#D3DDDD"))
+    header_titles.add_child(caption)
+    _outliner_close_button = _button("›", _toggle_outliner, 19)
     _outliner_close_button.custom_minimum_size = Vector2(36, 32)
     _outliner_close_button.tooltip_text = "Свернуть аутлайнер"
     head.add_child(_outliner_close_button)
@@ -837,6 +846,7 @@ func _layout_window() -> void:
         _rail.offset_right = RAIL_W
         _rail.offset_bottom = -FOOT_H
     var left: float = RAIL_W + GUTTER
+    var out_w: float = (OUT_W if vw >= 1450.0 else COMPACT_OUT_W)
     # Management panels take priority at extreme UI scale. On narrow
     # logical viewports, the outliner can be restored after closing window.
     var show_outliner: bool = (_show_outliner and (
@@ -846,11 +856,11 @@ func _layout_window() -> void:
     if _outliner_reopen != null:
         _outliner_reopen.visible = not show_outliner
     var reserved_right: float = (
-        OUT_W + GUTTER if show_outliner else GUTTER)
+        out_w + GUTTER if show_outliner else GUTTER)
     var right: float = minf(vw - GUTTER, maxf(
         left + 260.0, vw - reserved_right))
     if _outliner != null:
-        _outliner.offset_left = -(OUT_W + 8.0)
+        _outliner.offset_left = -(out_w + 8.0)
         _outliner.offset_right = -8.0
         _outliner.offset_top = header_h + 9.0
         _outliner.offset_bottom = -(FOOT_H + 5.0)
@@ -883,7 +893,7 @@ func _layout_window() -> void:
     if _footer_panel != null:
         _footer_panel.offset_left = RAIL_W
         _footer_panel.offset_right = (
-            -(OUT_W + 8.0) if show_outliner else -8.0)
+            -(out_w + 8.0) if show_outliner else -8.0)
         _footer_panel.offset_top = -FOOT_H
         _footer_panel.offset_bottom = 0.0
 
@@ -1186,7 +1196,7 @@ func _outliner_entry(label: String, callback: Callable,
     row_button.tooltip_text = (name + "\n" + hint +
         ("\n" + technical_detail if not technical_detail.is_empty() else "")
         if not hint.is_empty() else name)
-    row_button.custom_minimum_size.y = 46 if not hint.is_empty() else 34
+    row_button.custom_minimum_size.y = 44 if not hint.is_empty() else 36
     row_button.add_theme_stylebox_override("normal",
         _style(Color("#142832") if selected else Color("#0B1922"),
             TEAL if selected else Color("#1F343C"),
@@ -1203,14 +1213,22 @@ func _outliner_entry(label: String, callback: Callable,
     row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     row.offset_left = 7
     row.offset_right = -6
+    var glyph_tile := PanelContainer.new()
+    glyph_tile.custom_minimum_size = Vector2(29, 29)
+    glyph_tile.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    glyph_tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    var glyph_style := _style(Color("#10252C"),
+        TEAL if selected else Color("#274A4C"))
+    glyph_style.set_content_margin_all(4)
+    glyph_tile.add_theme_stylebox_override("panel", glyph_style)
+    row.add_child(glyph_tile)
     var mark := TextureRect.new()
-    mark.custom_minimum_size = Vector2(19, 19)
-    mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    mark.custom_minimum_size = Vector2(17, 17)
     mark.texture = FigmaIcons.texture(icon_key, 17, TEAL if selected else accent)
     mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
     mark.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
     mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    row.add_child(mark)
+    glyph_tile.add_child(mark)
     var text_column := VBoxContainer.new()
     text_column.add_theme_constant_override("separation", 2)
     text_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1221,6 +1239,12 @@ func _outliner_entry(label: String, callback: Callable,
     if not hint.is_empty():
         var detail := _label(hint, 10, MUTED)
         text_column.add_child(detail)
+    var state: String = ("В ПУТИ" if label.begins_with("↗ ") else (
+        "ДОК" if label.begins_with("■ ") else ""))
+    if not state.is_empty():
+        var state_label := _label(state, 9, TEAL if state == "В ПУТИ" else AMBER)
+        state_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+        row.add_child(state_label)
 
 func _set_outliner_filter(mode: String) -> void:
     if _outliner_filter_mode == mode:
@@ -1238,14 +1262,24 @@ func _outliner_heading(key: String, title: String,
         total: int) -> bool:
     var open: bool = bool(_outliner_group_open.get(key, true))
     var icon: String = "⌄ " if open else "› "
-    var label: String = "%s%s   %d" % [icon, title, total]
-    var btn := _button(label, _toggle_outliner_group.bind(key), 12)
+    var btn := _button("", _toggle_outliner_group.bind(key), 11)
     btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-    btn.add_theme_color_override("font_color", TEAL)
     btn.add_theme_stylebox_override("normal",
-        _style(Color("#0E2228"), LINE, 0, 0, 0, 1))
-    btn.custom_minimum_size.y = 31
+        _style(Color("#0B1A22"), LINE, 0, 0, 0, 1))
+    btn.custom_minimum_size.y = 29
     _outliner_list.add_child(btn)
+    var group_row := HBoxContainer.new()
+    group_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    btn.add_child(group_row)
+    group_row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    group_row.offset_left = 6
+    group_row.offset_right = -7
+    var group_title := _label(icon + title.to_upper(), 10, TEAL)
+    group_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    group_row.add_child(group_title)
+    var group_count := _label(str(total), 10, MUTED)
+    group_count.tooltip_text = "%d подтверждённых объектов" % total
+    group_row.add_child(group_count)
     return open
 
 func _update_outliner() -> void:
@@ -1278,6 +1312,9 @@ func _update_outliner() -> void:
     if signature == _outliner_signature:
         return
     _outliner_signature = signature
+    if _outliner_scope != null:
+        _outliner_scope.text = "СЕКТОР · " + str(
+            _world.get("system", {}).get("name", "—")).to_upper()
     for key in _outliner_filter_buttons:
         var b: Button = _outliner_filter_buttons[key]
         b.add_theme_stylebox_override("normal", _style(

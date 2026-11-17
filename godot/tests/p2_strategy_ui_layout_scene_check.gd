@@ -164,6 +164,8 @@ func _run() -> void:
     assert(scale_menu.get_item_text(4) == "200%")
     var buttons: Dictionary = ui.get("_rail_buttons")
     assert(buttons.size() == 6)
+    var scope_label: Label = ui.get("_outliner_scope")
+    assert(scope_label != null and scope_label.text.contains("SOL"))
     for button in buttons.values():
         assert(button is Button)
         assert(button.get_child_count() > 0)
@@ -186,11 +188,16 @@ func _run() -> void:
         assert(popup.position.y >= header.end.y)
         # Previously native PanelContainer grew beyond hardcoded TOP_H=82,
         # obscuring the first rail item and the "Открыть систему" breadcrumb.
-        assert(header.size.y >= header.get_combined_minimum_size().y)
+        var header_control: PanelContainer = ui.get("_top")
+        assert(header.size.y >= header_control.get_combined_minimum_size().y)
         assert(rail.position.y >= header.end.y)
         assert(list_rect.position.y >= header.end.y)
         assert(breadcrumb.position.y >= header.end.y)
         assert(absf(float(ui.get("_effective_top_h")) - header.size.y) < 2.0)
+        if logical.x >= 1450.0:
+            assert(absf(list_rect.size.x - 264.0) < 2.0)
+        else:
+            assert(absf(list_rect.size.x - 242.0) < 2.0)
         if not rail.size.x < panel.position.x:
             print("RAIL_WINDOW_GEOMETRY ", JSON.stringify({
                 "logical":str(logical), "rail":str(rail.get_rect()),
