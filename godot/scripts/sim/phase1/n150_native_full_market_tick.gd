@@ -112,6 +112,11 @@ static func _retain_orders(orders: Array, tick: int, expiry: int, already_owned:
 	# retained orders in-place, preserving source order without allocating
 	# another array proportional to the growing pending-order list.
 	# Standalone callers still receive an independently deep-owned array.
+	# Empty order books dominate quiet markets: avoid entering the compaction
+	# loop or allocating a second empty Array. Owned results remain detached
+	# by tick_one_market; standalone empty output has no mutable elements.
+	if orders.is_empty():
+		return {"ok": true, "orders": orders if already_owned else []}
 	var remaining: Array = [] if not already_owned else orders
 	var write_at: int = 0
 	for read_at in range(orders.size()):
