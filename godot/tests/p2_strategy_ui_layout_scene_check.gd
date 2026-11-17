@@ -71,17 +71,35 @@ func _run() -> void:
     assert(readout.contains("PING —"))
     ui.call("_open_selection_details")
     assert((ui.get("_window") as PanelContainer).visible)
-    assert((ui.get("_window_ship_links") as HFlowContainer).visible)
+    var workspace: Control = ui.get("_workspace_ui")
+    assert(workspace != null)
+    assert(workspace.get("_mode") == "colony")
+    assert(workspace.get("_tab") == "Обзор")
+    assert((workspace.get("_content") as VBoxContainer).get_child_count() > 0)
     ui.call("_switch_tab", "Логистика")
-    var ships_text: String = (ui.get("_window_text") as RichTextLabel).text
-    assert(ships_text.contains("Test Freighter"))
-    assert(ships_text.contains("Ice Miner"))
-    assert(ships_text.contains("Добыча льда"))
-    assert(not ships_text.contains("In Flight"))
-    ui.call("_switch_tab", "Обзор")
-    assert((ui.get("_window_cards") as GridContainer).get_child_count() == 4)
-    ui.call("_switch_tab","Строительство")
-    assert((ui.get("_window_text") as RichTextLabel).text.contains("yard"))
+    assert(workspace.get("_tab") == "Логистика")
+    assert(_contains_text(workspace, "Test Freighter"))
+    assert(_contains_text(workspace, "Ice Miner"))
+    assert(_contains_text(workspace, "Добыча льда"))
+    assert(not _contains_text(workspace, "In Flight"))
+    ui.call("_switch_tab", "Строительство")
+    assert(_contains_text(workspace, "yard"))
+    # All seven Figma management workspaces must have their own real
+    # tabbed native pages, even if N39 does not yet expose research.
+    var destinations: Dictionary = {
+        "colony":"Обзор", "facility":"Процесс",
+        "economy":"Баланс", "construction":"Проекты",
+        "fleet":"Корабли", "administration":"Приоритеты ИИ",
+        "research":"Прогресс"
+    }
+    for mode in destinations:
+        ui.call("_route_workspace", str(mode), str(destinations[mode]))
+        assert(workspace.get("_mode") == mode)
+        assert(workspace.get("_tab") == destinations[mode])
+        assert((workspace.get("_content") as VBoxContainer).get_child_count() > 0)
+        assert((workspace.get("_tabs") as HFlowContainer).get_child_count() >= 3)
+    ui.call("_workspace_back")
+    assert(workspace.get("_mode") == "administration")
     ui.call("_close_window")
     assert(not (ui.get("_window") as PanelContainer).visible)
     assert((ui.get("_selection_card") as PanelContainer).visible)
@@ -89,21 +107,35 @@ func _run() -> void:
     assert(not (ui.get("_outliner") as PanelContainer).visible)
     ui.call("_toggle_outliner")
     assert((ui.get("_outliner") as PanelContainer).visible)
-    # Regression: selecting a ship after Earth must not keep Earth's
-    # diagnostic text under a misleading "КОРАБЛЬ" title.
+    # Regression: selecting a ship after Earth must never display Earth
+    # debug text inside a ship's contextual management workspace.
     ui.call("_open_selection_details")
     ui.call("present",world,economy,"","","ship-a",21,false,1.0,
         "running","STALE EARTH TECHNICAL DETAILS",
         {"n153_blocked_this_tick":2,
             "n153_first_blocker":"no_real_route"})
     assert(ui.get("_window_mode") == "ship")
-    ui.call("_switch_tab","Данные")
-    var displayed: String = (ui.get("_window_text") as RichTextLabel).text
-    assert(displayed.contains("Test Freighter"))
-    assert(not displayed.contains("STALE EARTH"))
-    assert(displayed.contains("нет активного рейса"))
+    ui.call("_switch_tab","Обзор")
+    assert(workspace.get("_mode") == "ship")
+    assert(_contains_text(workspace, "Test Freighter"))
+    assert(not _contains_text(workspace, "STALE EARTH"))
+    ui.call("_switch_tab","Маршрут")
+    assert(_contains_text(workspace, "Нет активного физического N14 рейса."))
     assert(ui.call("_fleet_diagnostic_text").contains("пристыковано: 1"))
     assert(ui.call("_fleet_diagnostic_text").contains("В полёте: 1"))
     host.queue_free()
     print("SYSTEMBALANCE_FIGMA_LAYOUT_SCENE_PASS")
     quit(0)
+
+
+func _contains_text(root: Node, fragment: String) -> bool:
+    if root is Label and root.text.contains(fragment):
+        return true
+    if root is Button and root.text.contains(fragment):
+        return true
+    if root is RichTextLabel and root.text.contains(fragment):
+        return true
+    for child in root.get_children():
+        if _contains_text(child, fragment):
+            return true
+    return false
