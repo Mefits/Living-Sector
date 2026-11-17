@@ -24,9 +24,10 @@ func _initialize() -> void:
     assert(owned == oracle and before == frozen,
         "N130 off-cadence mutated read-only market or population")
     # Negative: writing a shared domain without detaching would corrupt World.
-    var unsafe: Dictionary = frozen.duplicate(false)
+    var negative_source: Dictionary = before.duplicate(true)
+    var unsafe: Dictionary = negative_source.duplicate(false)
     unsafe["markets"]["m"]["supply"]["fuel"] = 999.0
-    assert(frozen["markets"]["m"]["supply"]["fuel"] == 999.0,
+    assert(negative_source["markets"]["m"]["supply"]["fuel"] == 999.0,
         "negative mutable alias fixture failed")
     assert(before["markets"]["m"]["supply"]["fuel"] == 40.0,
         "negative fixture unexpectedly modified authoritative source")
