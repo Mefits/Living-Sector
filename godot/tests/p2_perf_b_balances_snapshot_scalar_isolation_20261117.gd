@@ -12,7 +12,7 @@ func _initialize() -> void:
 	detached["injected"] = 42
 	assert(ledger.balance("a") == 100)
 	assert(ledger.balance("b") == 0)
-	assert(ledger.balance("injected") == 0)
+	assert(ledger.balance("injected") == -1)
 	var payment: Dictionary = ledger.transfer("b-scalar-copy-1", "a", "b", 25, 1, "test")
 	assert(payment.get("ok", false))
 	assert(ledger.balance("a") == 75)
