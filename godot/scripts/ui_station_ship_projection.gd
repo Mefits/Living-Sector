@@ -121,6 +121,18 @@ static func corrected_screen(native_position: Vector2,
         baseline / (minimum * SCREEN_TRANSITION_MULTIPLIER), 0.0, 1.0)
     var smooth: float = x * x * (3.0 - 2.0 * x)
     var radial: float = baseline + minimum * (1.0 - smooth)
-    var safe_point: Vector2 = (
-        chosen["body_screen"] as Vector2) + outward * radial
-    return safe_point.lerp(global_screen, smooth)
+    # Interpolate DIRECTION on the unit circle, never Cartesian
+    # endpoints whose lengths differ. A raw vector lerp shrank the
+    # projected orbit radius by ~50px between consecutive outbound
+    # N14 samples and made the ship visibly loop *toward* Earth.
+    var raw_direction: Vector2 = (
+        screen_displacement / baseline if baseline > 0.000000001
+        else outward)
+    var combined_direction: Vector2 = outward.lerp(
+        raw_direction, smooth).normalized()
+    var camera_offset: Vector2 = (
+        chosen["body_global_screen"] as Vector2) - (
+        chosen["body_screen"] as Vector2)
+    var local_center: Vector2 = (
+        chosen["body_screen"] as Vector2) + camera_offset * smooth
+    return local_center + combined_direction * radial
