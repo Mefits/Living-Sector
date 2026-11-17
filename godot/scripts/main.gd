@@ -17,6 +17,7 @@ const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
+const ColonyQuickStrip = preload("res://scripts/view/colony_quick_strip.gd")
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const WorkerN158 = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const ReadOnlyWorldModel = preload("res://scripts/sim/world_model.gd")
@@ -36,6 +37,7 @@ var _fatal_restore_error: String = ""
 var _pause_button: Button
 var _speed_menu: OptionButton
 var _map: Control
+var _colony_strip: HFlowContainer
 var _system_view
 var _back_button: Button
 var _open_button: Button
@@ -274,6 +276,14 @@ func _ready() -> void:
     map_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     map_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
     columns.add_child(map_panel)
+    # A thin source-backed strip belongs ABOVE the map, not over the
+    # planet drawing or in the right inspector. It consumes no N39 ticks.
+    var map_column := VBoxContainer.new()
+    map_column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    map_column.add_theme_constant_override("separation", 3)
+    map_panel.add_child(map_column)
+    _colony_strip = ColonyQuickStrip.new()
+    map_column.add_child(_colony_strip)
 
     # One container owns two read-only views: sector and its selected system.
     # No second World, clock, or gameplay state is constructed here.
@@ -281,7 +291,7 @@ func _ready() -> void:
     map_stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     map_stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
     map_stage.custom_minimum_size = Vector2(420, 420)
-    map_panel.add_child(map_stage)
+    map_column.add_child(map_stage)
     _map = SystemMap.new()
     map_stage.add_child(_map)
     _map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1466,6 +1476,8 @@ func _return_to_sector() -> void:
         _back_button.text = "← К сектору"
         return
     _in_system = false
+    if _colony_strip != null:
+        _colony_strip.hide()
     _system_view.visible = false
     _map.visible = true
     _back_button.visible = false
@@ -1687,6 +1699,19 @@ func _show_facility_details(world: Dictionary,
 
 
 func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> void:
+    # Reuse the existing completed UI frame; do not call economy_snapshot
+    # just to refresh six small buttons. Clicks only open an info menu.
+    if _colony_strip != null and _in_system:
+        var quick_body: String = _selected_body_id
+        if quick_body.is_empty() and not _selected_facility_id.is_empty():
+            for facility in world.get("facilities", []):
+                if str(facility.get("id", "")) == _selected_facility_id:
+                    quick_body = str(facility.get("body", ""))
+                    break
+        var quick_economy: Dictionary = shared_economy
+        if quick_economy.is_empty() and _worker_mode:
+            quick_economy = _worker_economy
+        _colony_strip.show_colony(world, quick_body, quick_economy)
     if not _selected_facility_id.is_empty():
         if _show_facility_details(world, shared_economy):
             return
