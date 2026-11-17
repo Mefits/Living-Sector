@@ -173,3 +173,23 @@ static func compare_checkpoint_pair(baseline: Dictionary, candidate: Dictionary)
         "request_wall_delta_usec": float(candidate["request_wall_avg_usec"]) - float(baseline["request_wall_avg_usec"]),
         "improved": new_usec < old_usec
     }
+
+## Bounded A/C/D phase timing adapter; one row per real paid tick.
+static func phase_window(rows: Array, end_tick: int) -> Dictionary:
+    if not CHECKPOINTS.has(end_tick) or rows.size() != 100:
+        return {}
+    var totals: Dictionary = {}
+    for i in range(100):
+        var row: Variant = rows[i]
+        if typeof(row) != TYPE_DICTIONARY or row.get("tick", -1) != end_tick - 99 + i:
+            return {}
+        for phase in ["ships", "dock_queue", "markets", "factions"]:
+            if not row.has(phase) or typeof(row[phase]) != TYPE_INT or int(row[phase]) < 0:
+                return {}
+            totals[phase] = int(totals.get(phase, 0)) + int(row[phase])
+    var averages: Dictionary = {}
+    for phase in totals:
+        averages[phase] = float(totals[phase]) / 100.0
+    return {"from_tick": end_tick - 99, "to_tick": end_tick,
+        "observed_paid_ticks": 100, "phase_total_usec": totals,
+        "phase_avg_usec": averages, "time_kind": "elapsed_wall_not_cpu"}
