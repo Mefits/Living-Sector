@@ -187,6 +187,12 @@ func _run() -> void:
             return
         last_native = current
 
+    # Restore the original UI zoom before the earlier dock/undock
+    # assertions, whose saved icon coordinate belongs to zoom 52.
+    screen.set("_zoom", 52.0)
+    screen.queue_redraw()
+    await process_frame
+    await process_frame
     var docked: Dictionary = ship.duplicate(true)
     docked["location"] = "earth-station"
     docked["transit"] = {}
