@@ -6,6 +6,7 @@ const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 const FullWorkspaces = preload("res://scripts/view/strategy_workspaces.gd")
 const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
 const LSTheme = preload("res://scripts/view/ls_ui_theme.gd")
+const LSComponents = preload("res://scripts/view/ls_ui_components.gd")
 ## Living Sector strategy HUD — Figma-inspired, read-only presentation.
 ## The game owns the map, authoritative economy, orders and clock.
 ## Never requests a new world_snapshot or invents per-tick trends.
@@ -714,16 +715,11 @@ func _update_navigation() -> void:
         _nav_panel.tooltip_text = "Esc — назад; навигация не перезапускает симуляцию"
 
 func _build_window() -> void:
-    _window = _panel()
+    # Full Figma workspace shell now shares the same Theme source
+    # as inner panels. Zero inset avoids duplicate 8px page padding.
+    _window = LSComponents.chrome_panel(&"LSWindowPanel")
     _window.z_index = 50
     _window.mouse_filter = Control.MOUSE_FILTER_STOP
-    var workspace_frame := _style(Color("#09141C"), Color("#31505A"))
-    # WorkspaceShell already owns its 49px heading and page padding.
-    # Avoid a second 8px PanelContainer inset around all seven pages.
-    workspace_frame.set_content_margin_all(0)
-    workspace_frame.shadow_size = 10
-    workspace_frame.shadow_color = Color(0, 0, 0, 0.60)
-    _window.add_theme_stylebox_override("panel", workspace_frame)
     _window.visible = false
     _window.anchor_bottom = 1.0
     add_child(_window)
