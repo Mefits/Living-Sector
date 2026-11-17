@@ -27,6 +27,7 @@ var _cached_seed_stats: Dictionary = {}
 var _selected_system: String = "system-sol"
 var _selected_body_id: String = ""
 var _selected_ship_id: String = ""
+var _selected_facility_id: String = ""
 var _in_system: bool = false
 var _notice: String = ""
 var _startup_error: String = ""
@@ -75,6 +76,7 @@ var _worker_paused: bool = false
 var _worker_elapsed: float = 0.0
 var _worker_last_view_usec: int = -1
 var _worker_calendar_text: String = ""
+var _worker_native_time_units: float = 0.0
 var _worker_economy: Dictionary = {}
 var _worker_native: Dictionary = {}
 var _worker_summary: Dictionary = {}
@@ -289,6 +291,7 @@ func _ready() -> void:
     _system_view.connect("body_selected", _on_body_selected)
     _system_view.connect("body_open_requested", _on_body_open_requested)
     _system_view.connect("ship_selected", _on_ship_selected)
+    _system_view.connect("facility_selected", _on_facility_selected)
 
     var details_panel := PanelContainer.new()
     details_panel.custom_minimum_size = Vector2(355, 0)
@@ -857,6 +860,10 @@ func _worker_receive(result: Dictionary) -> void:
         _worker_view_dirty = true
     if result.has("calendar_text"):
         _worker_calendar_text = str(result["calendar_text"])
+    if result.has("native_time_units"):
+        _worker_native_time_units = float(result["native_time_units"])
+        if _in_system and _system_view != null:
+            _system_view.set_native_station_time(_worker_native_time_units)
     if result.get("economy") is Dictionary:
         _worker_economy = result["economy"]
         _worker_fleet = _worker_economy.get("ships", {})
@@ -1166,6 +1173,8 @@ func _flush_finished_tick_views(delta: float) -> void:
         var current: Dictionary = _model.system_by_id(_selected_system)
         if not current.is_empty():
             _system_view.update_world(current)
+            _system_view.set_native_station_time(
+                _runner.calendar.native_time_units)
             _last_orbit_presentation_tick = latest
             need_fleet = _last_fleet_presentation_tick < 0 or (
                 latest - _last_fleet_presentation_tick >= UI_FLEET_MIN_TICKS)
@@ -1247,6 +1256,11 @@ func _refresh_selection(shared_economy: Dictionary = {},
             if refresh_live_view:
                 _system_view.update_world(current)
                 _system_view.set_live_fleet(_worker_fleet)
+                _system_view.set_native_station_time(
+                    _worker_native_time_units)
+            if _worker_economy.has("facilities"):
+                _system_view.set_live_facilities(
+                    _worker_economy["facilities"])
             _show_body_details(current, _worker_economy)
         else:
             _select_world(current, _worker_economy)
@@ -1259,6 +1273,11 @@ func _refresh_selection(shared_economy: Dictionary = {},
             if refresh_live_view:
                 _system_view.update_world(selected)
                 _system_view.set_live_fleet(_runner.fleet_snapshot())
+                _system_view.set_native_station_time(
+                    _runner.calendar.native_time_units)
+            if shared_economy.has("facilities"):
+                _system_view.set_live_facilities(
+                    shared_economy["facilities"])
             _show_body_details(selected, shared_economy)
         else:
             _select_world(selected, shared_economy)
@@ -1423,10 +1442,14 @@ func _open_world(world: Dictionary) -> void:
     _selected_system = sid
     _selected_body_id = ""
     _selected_ship_id = ""
+    _selected_facility_id = ""
     _in_system = true
     _map.visible = false
     _system_view.visible = true
     _system_view.set_world(current)
+    _system_view.set_native_station_time(
+        _worker_native_time_units if _worker_mode
+        else _runner.calendar.native_time_units)
     _system_view.call("set_live_fleet", _worker_fleet if _worker_mode
         else _runner.fleet_snapshot())
     _map.call("select_system", sid)
@@ -1451,6 +1474,7 @@ func _return_to_sector() -> void:
     _open_button.visible = true
     _selected_body_id = ""
     _selected_ship_id = ""
+    _selected_facility_id = ""
     _refresh_selection()
 
 
@@ -1458,6 +1482,7 @@ func _on_body_selected(body: Dictionary) -> void:
     if not _in_system or _model == null:
         return
     _selected_ship_id = ""
+    _selected_facility_id = ""
     _selected_body_id = str(body.get("id", ""))
     var current: Dictionary = _model.system_by_id(_selected_system)
     if not current.is_empty():
@@ -1468,6 +1493,7 @@ func _on_body_open_requested(body: Dictionary) -> void:
     if not _in_system or _model == null or _system_view == null:
         return
     _selected_ship_id = ""
+    _selected_facility_id = ""
     var id: String = str(body.get("id", ""))
     if id.is_empty() or not _system_view.focus_body(id):
         return
@@ -1478,12 +1504,26 @@ func _on_body_open_requested(body: Dictionary) -> void:
         _show_body_details(current)
 
 
+## One real source facility ID, not a newly minted decorative module.
+func _on_facility_selected(facility_id: String) -> void:
+    if not _in_system or _model == null or _system_view == null:
+        return
+    _selected_facility_id = facility_id
+    _selected_ship_id = ""
+    _selected_body_id = ""
+    var current: Dictionary = _model.system_by_id(_selected_system)
+    if not current.is_empty():
+        _show_body_details(current, _worker_economy if _worker_mode
+            else _runner.economy_snapshot())
+
+
 ## Both moving vessels and docked fleets use their authentic N39 ship
 ## snapshot. Never mint a UI ship, modify AI or call the worker thread.
 func _on_ship_selected(ship_id: String) -> void:
     if not _in_system or _model == null or _system_view == null:
         return
     _selected_ship_id = ship_id
+    _selected_facility_id = ""
     _selected_body_id = ""
     var current: Dictionary = _model.system_by_id(_selected_system)
     if not current.is_empty():
@@ -1557,7 +1597,97 @@ func _show_ship_details(fleet: Dictionary) -> bool:
     return true
 
 
+## A selected station or surface enterprise has its own real N39
+## state, owner, labor and money. The five frozen Sol entities currently
+## share an economic location; this is shown honestly, not faked away.
+func _show_facility_details(world: Dictionary,
+        shared_economy: Dictionary = {}) -> bool:
+    var source: Dictionary = {}
+    for row in world.get("facilities", []):
+        if str(row.get("id", "")) == _selected_facility_id:
+            source = row
+            break
+    if source.is_empty():
+        _selected_facility_id = ""
+        return false
+    var id: String = _selected_facility_id
+    var kind: String = str(source.get("type", ""))
+    var orbital: bool = kind in ["station", "shipyard"]
+    var location: String = str(source.get("location", ""))
+    var body_id: String = str(source.get("body", ""))
+    var economy: Dictionary = shared_economy
+    if economy.is_empty():
+        if _worker_mode:
+            economy = _worker_economy
+        elif _runner != null:
+            economy = _runner.economy_snapshot()
+    var live_facilities: Dictionary = economy.get("facilities", {})
+    var lines: Array[String] = [
+        "ОРБИТАЛЬНАЯ СТАНЦИЯ" if orbital else "ПРЕДПРИЯТИЕ ПЛАНЕТЫ",
+        str(source.get("name", id)),
+        "ID: " + id, "Тип: " + kind,
+        "Небесное тело: " + body_id,
+        "Владелец: " + str(source.get("faction_id", "—")),
+        ""
+    ]
+    if orbital:
+        lines.append("Стыковочных мест: %d" % int(
+            source.get("docking_capacity", 0)))
+        var services: Array = source.get("services", [])
+        lines.append("Службы: " + (", ".join(PackedStringArray(services))
+            if not services.is_empty() else "нет"))
+        lines.append("Орбитальный узел N43; корабли используют эту")
+        lines.append("локацию для реального N14 сближения и стыковки.")
+    else:
+        lines.append("Положение предприятия на глобусе схематично.")
+        lines.append("Это отдельный исходный объект N39, не станционный слот.")
+    lines.append("")
+    lines.append("ЖИВАЯ ЭКОНОМИКА N39")
+    if live_facilities.has(id):
+        var live: Dictionary = live_facilities[id]
+        lines.append("Средства: %d CR" % int(live.get("credits", 0)))
+        lines.append("Работники: %d" % int(live.get(
+            "assigned_workers", 0)))
+        var shift: Dictionary = live.get("work_shift", {})
+        if shift.is_empty():
+            lines.append("Оплаченная смена: нет данных")
+        else:
+            lines.append("Смена: тик %d · зарплата %d CR" % [
+                int(shift.get("tick", 0)), int(shift.get("wages", 0))])
+        var stock: Dictionary = live.get("module_stock", {}).get(
+            "stock", {})
+        if not stock.is_empty():
+            lines.append("Ресурсы предприятия:")
+            var goods: Array = stock.keys()
+            goods.sort()
+            for commodity in goods:
+                if float(stock[commodity]) > 0.0:
+                    lines.append(" • %s: %s" % [
+                        str(commodity), str(stock[commodity])])
+    else:
+        lines.append("Нет подтверждённого состояния N39 для объекта")
+    var ships: Dictionary = economy.get("ships", {})
+    var docked_count: int = 0
+    if orbital:
+        for sid in ships:
+            var ship: Dictionary = ships[sid]
+            if str(ship.get("location", "")) == location and (
+                    (ship.get("transit", {}) as Dictionary).is_empty()):
+                docked_count += 1
+        lines.append("Кораблей в общей локации: %d" % docked_count)
+    lines.append("")
+    lines.append("Логистический адрес: " + location)
+    lines.append("Сейчас объекты Земли используют общий адрес")
+    lines.append("в эталонной экономике. Отдельные перевозки")
+    lines.append("поверхность ↔ орбита ещё не введены.")
+    _details.text = "\n".join(lines)
+    return true
+
+
 func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> void:
+    if not _selected_facility_id.is_empty():
+        if _show_facility_details(world, shared_economy):
+            return
     if not _selected_ship_id.is_empty():
         var fleet: Dictionary = shared_economy.get("ships", {})
         if fleet.is_empty():
