@@ -56,6 +56,10 @@ static func count_delta(earlier: Dictionary, later: Dictionary) -> Dictionary:
             return {}
         if typeof(earlier[key]) != TYPE_INT or typeof(later[key]) != TYPE_INT:
             return {}
+        # Counts originate from authoritative non-negative sizes. Reject forged
+        # negative snapshots rather than reporting a plausible cleanup delta.
+        if int(earlier[key]) < 0 or int(later[key]) < 0:
+            return {}
         delta[key] = int(later[key]) - int(earlier[key])
     return delta
 
