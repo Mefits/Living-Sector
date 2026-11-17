@@ -62,6 +62,11 @@ static func metric_panel() -> PanelContainer:
     panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     return panel
 
+static func chrome_panel(variation: StringName) -> PanelContainer:
+    var panel := PanelContainer.new()
+    panel.theme_type_variation = variation
+    return panel
+
 static func section_panel() -> PanelContainer:
     var panel := PanelContainer.new()
     panel.theme_type_variation = &"LSSectionPanel"
