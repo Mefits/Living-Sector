@@ -87,13 +87,17 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
     var contract_ids: Array = []
     for cid in contracts:
         var c: Dictionary = contracts[cid]
+        # Reject unrelated contracts before normalizing status: the global
+        # ContractBoard grows, while most entries belong to other factions.
+        # The source status filter still runs for every matching commitment.
+        var owner: String = str(c.get("requestor_id", ""))
+        var sponsorship: String = str(c.get("faction_id", ""))
+        if owner != faction and owner != "faction/" + faction and sponsorship != faction:
+            continue
         var status: String = str(c.get("status", "")).to_lower()
         if status in ["paid", "expired"]:
             continue
-        var owner: String = str(c.get("requestor_id", ""))
-        var sponsorship: String = str(c.get("faction_id", ""))
-        if owner == faction or owner == "faction/" + faction or sponsorship == faction:
-            contract_ids.append(cid)
+        contract_ids.append(cid)
     contract_ids.sort()
     for cid in contract_ids:
         var c: Dictionary = contracts[cid]
