@@ -43,6 +43,7 @@ const ORBIT_LINE_OPACITY: float = 0.30
 const SATELLITE_ORBIT_LINE_OPACITY: float = 0.25
 const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
+const StationShipProjection = preload("res://scripts/ui_station_ship_projection.gd")
 const SolAssets = preload("res://scripts/sim/phase2/sol_physical_assets_projection.gd")
 const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const SolOrbits = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
@@ -88,6 +89,10 @@ var _selected_facility_id: String = ""
 var _physical_assets: Dictionary = {"orbital": [], "surface": []}
 var _live_facility_status: Dictionary = {}
 var _facility_pins: Array = []
+## Bounded screen records of real Sol stations. Never N39 objects or nodes.
+var _station_draw_records: Array = []
+## At most one ephemeral UI interpolation per actual arrival receipt.
+var _recent_arrivals: Dictionary = {}
 var _native_station_time: float = 0.0
 var _native_station_time_from: float = 0.0
 var _station_time_started_usec: int = -1
@@ -249,7 +254,12 @@ func _process(delta: float) -> void:
                 camera_changed = true
 
     var now_usec: int = Time.get_ticks_usec()
-    if camera_changed or (
+    for sid in _recent_arrivals.keys():
+        var row: Dictionary = _recent_arrivals[sid]
+        if VisualMotion.alpha(int(row["started_usec"]),
+                int(row["duration_usec"]), now_usec) >= 1.0:
+            _recent_arrivals.erase(sid)
+    if camera_changed or not _recent_arrivals.is_empty() or (
             _station_time_started_usec >= 0 and (
             VisualMotion.alpha(_station_time_started_usec,
                 _station_time_duration_usec, now_usec) < 1.0)) or (
@@ -271,6 +281,8 @@ func set_world(world: Dictionary) -> void:
     _selected_facility_id = ""
     _ship_pins.clear()
     _facility_pins.clear()
+    _station_draw_records.clear()
+    _recent_arrivals.clear()
     _live_facility_status.clear()
     _native_station_time = 0.0
     _native_station_time_from = 0.0
@@ -343,8 +355,45 @@ func set_live_fleet(fleet: Dictionary) -> void:
         var old_transit: Variant = older.get("transit", {})
         if not (new_transit is Dictionary) or not (old_transit is Dictionary):
             continue
+        if old_transit.is_empty() and not new_transit.is_empty():
+            # A genuine N14 receipt carries its actual physical launch
+            # coordinate. Interpolate only between two committed points,
+            # never generate a synthetic undock path or free movement.
+            var live_row: Variant = fleet.get(sid, {})
+            if live_row is Dictionary:
+                var source_receipt: Variant = live_row.get("transit", {})
+                if source_receipt is Dictionary:
+                    var real_start: Variant = source_receipt.get(
+                        "departure_position", null)
+                    if VisualMotion.valid_xy(real_start):
+                        moving_origins[sid] = real_start
+            continue
+        if new_transit.is_empty() and not old_transit.is_empty():
+            # Preserve the last REAL N14 position for a single transition
+            # into its N43 station marker after the canonical arrival.
+            # The native movement has already been paid and committed.
+            var arrival_location: String = str(
+                newer.get("location", ""))
+            var source_last: Variant = _visual_ship_position(
+                sid, older, now_usec)
+            if VisualMotion.valid_xy(source_last) and (
+                    _is_sol_station_location(arrival_location)):
+                var dock_native: Dictionary = _station_native_location(
+                    arrival_location)
+                if dock_native.get("ok", false):
+                    var from_xy: Vector2 = Vector2(
+                        float(source_last[0]), float(source_last[1]))
+                    if from_xy.distance_to(dock_native["position"]) <= 0.15:
+                        _recent_arrivals[sid] = {
+                            "from": [from_xy.x, from_xy.y],
+                            "location": arrival_location,
+                            "started_usec": now_usec,
+                            "duration_usec": VisualMotion.sample_duration(
+                                _last_ship_commit_usec, now_usec, 160000)
+                        }
+            continue
         if new_transit.is_empty() or old_transit.is_empty():
-            continue # Departure/arrival must NOT be animated as a fake flight.
+            continue
         var old_position: Variant = _visual_ship_position(sid, older, now_usec)
         var new_position: Variant = new_transit.get("position", null)
         if VisualMotion.valid_xy(old_position) and (
@@ -771,6 +820,7 @@ func _draw_system() -> void:
     _body_pins.clear()
     _ship_pins.clear()
     _facility_pins.clear()
+    _station_draw_records.clear()
     if _world.is_empty():
         return
     var system: Dictionary = _world.get("system", {})
@@ -883,6 +933,7 @@ func _draw_system() -> void:
     # radial display is compressed by the same source orbit transform as
     # the planets; there is no fabricated travel or per-frame motion.
     _draw_real_native_transits(system, scale)
+    _draw_true_arrival_transitions(system, scale)
     draw_string(font, Vector2(14.0, 26.0),
         "%s  /  %d тел  /  масштаб ×%.1f" % [str(system.get("name", "?")), bodies.size(), _zoom],
         HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color("#dce8ee"))
@@ -919,6 +970,22 @@ func _draw_physical_sol_assets(scale: float) -> void:
         var display_radius: float = maxf(
             body_radius + 20.0, physical_compressed)
         var pos: Vector2 = body_pos + direction * display_radius
+        var native_info: Dictionary = _station_native_location(
+            str(facility["location"]))
+        if native_info.get("ok", false):
+            var source_offset: Variant = _world.get(
+                "system", {}).get("universe_offset", [0.0, 0.0])
+            if source_offset is Array and source_offset.size() == 2:
+                var native_offset: Vector2 = Vector2(
+                    float(source_offset[0]), float(source_offset[1]))
+                _station_draw_records.append({
+                    "location": str(facility["location"]),
+                    "native": native_info["position"],
+                    "native_radius": native_info["native_radius"],
+                    "screen": pos,
+                    "native_global_screen": _native_screen_global(
+                        native_info["position"], native_offset, scale)
+                })
         if _zoom >= 2.0:
             draw_arc(body_pos, display_radius, 0, TAU, 60,
                 Color(0.35, 0.51, 0.59, 0.24), 1.0, true)
@@ -1050,6 +1117,100 @@ func _draw_globe_detail(body: Dictionary, center: Vector2, radius: float,
 ## the system diagram uses the same orbit with a nonlinear radial scale
 ## and flipped vertical screen axis. This function never advances travel,
 ## invents a route or changes the ship's canonical N39 location.
+## N43 phase is authoritative. Body and station positions are derived
+## from committed read-only WorldModel angles and the real native calendar.
+func _is_sol_station_location(location: String) -> bool:
+    if location.is_empty() or str(
+            _world.get("system", {}).get("id", "")) != "system-sol":
+        return false
+    for station in _physical_assets.get("orbital", []):
+        if str(station["location"]) == location:
+            return true
+    return false
+
+
+func _station_native_location(location: String) -> Dictionary:
+    var source: Dictionary = {}
+    for station in _physical_assets.get("orbital", []):
+        if str(station["location"]) == location:
+            source = station
+            break
+    if source.is_empty():
+        return {"ok": false}
+    var raw: Variant = _world.get(
+        "system", {}).get("universe_offset", null)
+    if not (raw is Array) or raw.size() != 2:
+        return {"ok": false}
+    var offset: Vector2 = Vector2(float(raw[0]), float(raw[1]))
+    # Substituting the equivalent orbital phase for the displayed
+    # calendar time makes the same station position as the UI easing;
+    # N43 itself remains untouched.
+    var displayed_angle: float = _visual_station_time(
+        Time.get_ticks_usec())
+    var display_native_units: float = displayed_angle * (
+        N43.FACILITY_ORBIT_PERIOD / 360.0)
+    return StationShipProjection.station_native_position(
+        _body_index, offset, str(source["body"]), location,
+        display_native_units)
+
+
+func _native_screen_global(native: Vector2,
+        offset: Vector2, scale: float) -> Vector2:
+    var local: Vector2 = native - offset
+    var distance: float = local.length()
+    if distance <= 0.0:
+        return _center()
+    return _center() + Vector2(
+        local.x, -local.y) / distance * (
+        _radius_transform(distance) * scale * _zoom)
+
+
+func _native_screen_for_ship(native: Vector2,
+        offset: Vector2, scale: float) -> Vector2:
+    var original: Vector2 = _native_screen_global(
+        native, offset, scale)
+    if str(_world.get("system", {}).get("id", "")) != "system-sol":
+        return original
+    return StationShipProjection.corrected_screen(
+        native, original, _station_draw_records)
+
+
+## Interpolate only between two ACTUAL completed physical states:
+## last observed native in-flight N14 position and an N43 station
+## already reached by the paid arrival. Never changes transit/credits.
+func _draw_true_arrival_transitions(system: Dictionary,
+        scale: float) -> void:
+    if _recent_arrivals.is_empty() or str(
+            system.get("id", "")) != "system-sol":
+        return
+    var raw: Variant = system.get("universe_offset", null)
+    if not (raw is Array) or raw.size() != 2:
+        return
+    var offset: Vector2 = Vector2(float(raw[0]), float(raw[1]))
+    for sid in _recent_arrivals:
+        var state: Dictionary = _recent_arrivals[sid]
+        var destination: String = str(state["location"])
+        var docked: Dictionary = _station_native_location(destination)
+        if not docked.get("ok", false):
+            continue
+        var from: Variant = state["from"]
+        var target: Vector2 = docked["position"]
+        var alpha: float = VisualMotion.alpha(
+            int(state["started_usec"]), int(state["duration_usec"]),
+            _draw_now_usec)
+        if alpha >= 1.0:
+            continue
+        var current: Vector2 = Vector2(
+            float(from[0]), float(from[1])).lerp(target, alpha)
+        var marker: Vector2 = _native_screen_for_ship(
+            current, offset, scale)
+        var color: Color = Color("#8ec9da", 1.0 - alpha)
+        draw_circle(marker, 3.4, color)
+        if str(sid) == _selected_ship_id:
+            draw_arc(marker, 7.0, 0.0, TAU, 16,
+                Color("#fff0b0", 1.0 - alpha), 1.3, true)
+
+
 func _draw_real_native_transits(system: Dictionary,
         scale: float) -> void:
     var system_offset: Variant = system.get("universe_offset", null)
@@ -1078,16 +1239,16 @@ func _draw_real_native_transits(system: Dictionary,
         if not (native_xy[0] is int or native_xy[0] is float) or (
                 not (native_xy[1] is int or native_xy[1] is float)):
             continue
-        var physical: Vector2 = Vector2(float(native_xy[0]),
-            float(native_xy[1])) - offset
-        if not is_finite(physical.x) or not is_finite(physical.y):
+        var native_position: Vector2 = Vector2(
+            float(native_xy[0]), float(native_xy[1]))
+        if not is_finite(native_position.x) or not is_finite(
+                native_position.y):
             continue
-        var distance: float = physical.length()
-        var display: Vector2 = Vector2.ZERO
-        if distance > 0.0:
-            display = Vector2(physical.x, -physical.y) / distance * (
-                _radius_transform(distance) * scale * _zoom)
-        var screen: Vector2 = _center() + display
+        # A ship at the actual N43 dock has the SAME screen position
+        # as the station icon, even with intentionally expanded glyph
+        # radii. Correction vanishes farther from stations.
+        var screen: Vector2 = _native_screen_for_ship(
+            native_position, offset, scale)
         if not bounds.has_point(screen):
             continue # Cross-system transfers are not painted in this map.
         var tone: Color = Color("#8ec9da")
@@ -1107,15 +1268,9 @@ func _draw_real_native_transits(system: Dictionary,
                     if not (raw_point is Array) or raw_point.size() != 2:
                         break
                     var wp: Vector2 = Vector2(
-                        float(raw_point[0]), float(raw_point[1])) - offset
-                    var waypoint_distance: float = wp.length()
-                    var screen_waypoint: Vector2 = _center()
-                    if waypoint_distance > 0.0:
-                        screen_waypoint += Vector2(
-                            wp.x, -wp.y) / waypoint_distance * (
-                            _radius_transform(waypoint_distance) *
-                            scale * _zoom)
-                    line.append(screen_waypoint)
+                        float(raw_point[0]), float(raw_point[1]))
+                    line.append(_native_screen_for_ship(
+                        wp, offset, scale))
                 if line.size() > 1:
                     draw_polyline(line, Color(0.51, 0.81, 0.90, 0.7),
                         1.7, true)
