@@ -290,7 +290,7 @@ func set_live_fleet(fleet: Dictionary) -> void:
                 if str(sid) == _selected_ship_id:
                     var points: Variant = transit.get(
                         "navigation_waypoints", [])
-                    if points is Array and (points as Array).size() <= 8:
+                    if points is Array and (points as Array).size() <= 24:
                         visual_transit["navigation_waypoints"] = (
                             points as Array).duplicate(true)
             else:
