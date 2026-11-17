@@ -1803,7 +1803,13 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary,
     for account in balances:
         if _ledger.balance(str(account)) != int(balances[account]):
             return false
-    _world = staged.duplicate(true)
+    # The proposal is caller-owned. Publish only detached writable domains;
+    # all other domains were compared against the authoritative World above.
+    # Never retain proposal aliases, even when the caller reuses its stage.
+    var committed: Dictionary = _world.duplicate(false)
+    for domain in ["ships", "markets", "dock_receipts", "cargo_receipts"]:
+        committed[domain] = staged[domain].duplicate(true)
+    _world = committed
     return true
 
 
