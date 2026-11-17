@@ -313,6 +313,8 @@ func _ready() -> void:
     map_stage.add_child(_map)
     _map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _system_view = StarSystemView.new()
+    _system_view.set_ui_viewport_scale(float(
+        UI_SCALES[DEFAULT_UI_SCALE_INDEX]))
     _system_view.visible = false
     map_stage.add_child(_system_view)
     _system_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -1328,6 +1330,8 @@ func _change_ui_scale(index: int) -> void:
     if index < 0 or index >= UI_SCALES.size():
         return
     get_window().content_scale_factor = float(UI_SCALES[index])
+    if _system_view != null:
+        _system_view.set_ui_viewport_scale(float(UI_SCALES[index]))
 
 
 func _reset_map() -> void:
