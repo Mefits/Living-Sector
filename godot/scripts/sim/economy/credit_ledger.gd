@@ -392,6 +392,9 @@ func _profile_inner_fork() -> RefCounted:
 		child.set("_profile_snapshot_calls", _profile_snapshot_calls)
 		child.set("_profile_snapshot_usec", _profile_snapshot_usec)
 		child.set("_profile_snapshot_max_usec", _profile_snapshot_max_usec)
+		child.set("_profile_snapshot_rebuild_calls", _profile_snapshot_rebuild_calls)
+		child.set("_profile_snapshot_rebuild_usec", _profile_snapshot_rebuild_usec)
+		child.set("_profile_snapshot_copy_usec", _profile_snapshot_copy_usec)
 	return child
 
 ## Validate old immutable N9 receipt provenance by scanning the existing
