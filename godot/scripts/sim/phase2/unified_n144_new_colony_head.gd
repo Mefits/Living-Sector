@@ -12,7 +12,8 @@ static func _rejected(reason: String) -> Dictionary:
         "blocked": [], "plan": {}, "candidate": {}}
 
 static func _score(world: Dictionary, original: RefCounted, graph: RefCounted,
-        faction: String, body_id: String, source: String) -> float:
+        faction: String, body_id: String, source: String,
+        station_systems: Dictionary = {}) -> float:
     var body_rec: Dictionary = original.body_by_id(body_id)
     var body: Dictionary = body_rec.get("value", {})
     var supplies: Dictionary = world.get("bodies", {}).get(body_id, {}).get("resources", {})
@@ -27,15 +28,10 @@ static func _score(world: Dictionary, original: RefCounted, graph: RefCounted,
     var d: float = float(distance.get("distance", -1.0))
     if not is_finite(d) or d < 0.0:
         return -1.0
-    var same_system: bool = false
-    for facility in world.get("facilities", {}).values():
-        if str(facility.get("faction", "")) != faction or (
-                str(facility.get("type", "")) != "station"):
-            continue
-        var home_rec: Dictionary = original.body_by_id(str(facility.get("body_id", "")))
-        if str(home_rec.get("system_id", "")) == str(body_rec.get("system_id", "")):
-            same_system = true
-            break
+    # The source rule is "any station of this faction in the target
+    # system". Precomputed once per proposal instead of scanning every
+    # facility and resolving each station's body for each body/source pair.
+    var same_system: bool = station_systems.has(str(body_rec.get("system_id", "")))
     # Exact Rust colony.rs value, not arbitrary planet order:
     # gas value rises when original sponsoring market has <50 Gas.
     var gas_value: float = gas * (0.55 if local_gas < 50.0 else 0.10)
@@ -78,6 +74,17 @@ static func propose(world: Dictionary, original: RefCounted, graph: RefCounted,
     ids.sort()
     var source_ids: Array = world["markets"].keys()
     source_ids.sort()
+    # Preserve the frozen any-station predicate, including stations which
+    # are not sponsoring markets. Resolve their home system only once.
+    # This reduces repeated O(bodies * sources * facilities) lookups to
+    # O(facilities + bodies * sources) while keeping score and tie order.
+    var station_systems: Dictionary = {}
+    for facility in world.get("facilities", {}).values():
+        if str(facility.get("faction", "")) != faction or (
+                str(facility.get("type", "")) != "station"):
+            continue
+        var home_rec: Dictionary = original.body_by_id(str(facility.get("body_id", "")))
+        station_systems[str(home_rec.get("system_id", ""))] = true
     var best: Dictionary = {}
     var best_score: float = -INF
     var blocked: Array = []
@@ -104,7 +111,7 @@ static func propose(world: Dictionary, original: RefCounted, graph: RefCounted,
                     "reason": str(candidate.get("reason", "source_preflight_blocked"))})
                 continue
             var score: float = _score(world, original, graph, faction,
-                body_id, source)
+                body_id, source, station_systems)
             if score <= 0.0:
                 blocked.append({"body_id": body_id, "source": source,
                     "reason": "n144_invalid_original_valuation"})
