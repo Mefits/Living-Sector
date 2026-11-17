@@ -15,6 +15,7 @@ on:
       - godot/tests/p2_native_navigation_check.gd
       - godot/tests/p2_moving_planet_avoidance_check.gd
       - godot/tests/p2_n14_nav_500_check.gd
+      - godot/tests/p2_smooth_n14_navigation_check.gd
       - godot/scripts/sim/orbits/native_satellite_orbit_profiles.gd
       - godot/tests/p2_physical_satellite_orbits_check.gd
       - godot/scripts/sim/ship_transit.gd
@@ -114,6 +115,20 @@ jobs:
             tail -n 140 "$RUNNER_TEMP/planet_nav.log"; exit 1;
           fi
           grep 'P2 MOVING PLANET AVOIDANCE PASS' "$RUNNER_TEMP/planet_nav.log"
+      - name: Smooth real N14 tangent arcs, multi-chord speed and paid fuel
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 40s godot --headless --path godot --script res://tests/p2_smooth_n14_navigation_check.gd >"$RUNNER_TEMP/smooth_nav.log" 2>&1 || {
+            tail -n 150 "$RUNNER_TEMP/smooth_nav.log"; exit 1;
+          }
+          grep -q 'P2 SMOOTH N14 PASS' "$RUNNER_TEMP/smooth_nav.log" || {
+            tail -n 120 "$RUNNER_TEMP/smooth_nav.log"; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|P2 SMOOTH N14 FAIL:' "$RUNNER_TEMP/smooth_nav.log"; then
+            tail -n 120 "$RUNNER_TEMP/smooth_nav.log"; exit 1;
+          fi
+          grep 'P2 SMOOTH N14 PASS' "$RUNNER_TEMP/smooth_nav.log"
       - name: Bound actual 500-ship N14 guidance, detour and saved receipt cost
         shell: bash
         run: |
@@ -184,6 +199,6 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/ship_ui.log" "$RUNNER_TEMP/ship_scale.log" "$RUNNER_TEMP/navigation.log" "$RUNNER_TEMP/planet_nav.log" "$RUNNER_TEMP/nav500.log" "$RUNNER_TEMP/satellites.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log"; do
+          for f in "$RUNNER_TEMP/parse.log" "$RUNNER_TEMP/ship_ui.log" "$RUNNER_TEMP/ship_scale.log" "$RUNNER_TEMP/navigation.log" "$RUNNER_TEMP/planet_nav.log" "$RUNNER_TEMP/smooth_nav.log" "$RUNNER_TEMP/nav500.log" "$RUNNER_TEMP/satellites.log" "$RUNNER_TEMP/n14.log" "$RUNNER_TEMP/sol.log"; do
             if test -f "$f"; then echo "--- $f"; tail -n 140 "$f"; fi
           done
