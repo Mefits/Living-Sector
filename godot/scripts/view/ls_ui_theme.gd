@@ -19,6 +19,7 @@ static func _flat(bg: Color, edge: Color, bottom: int = 0, xpad: int = 0, ypad: 
 static func build() -> Theme:
     var ui_theme: Theme = THEME_SOURCE.duplicate(true) as Theme
     ui_theme.set_type_variation(&"LSPrimaryButton", &"Button")
+    ui_theme.set_type_variation(&"LSSecondaryButton", &"Button")
     ui_theme.set_type_variation(&"LSNavButton", &"Button")
     ui_theme.set_type_variation(&"LSTabButton", &"Button")
     ui_theme.set_type_variation(&"LSActiveTabButton", &"LSTabButton")
@@ -30,6 +31,21 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSMetricValue", &"Label")
     ui_theme.set_type_variation(&"LSMetricNote", &"Label")
 
+    # Ordinary workspace actions, previously rebuilt via _box() per control.
+    # Preserve the original 12×10px padding while moving style ownership
+    # to Theme. Disabled buttons do not inherit interactive hover effects.
+    var action_normal := _flat(Color("#122631"), Color.TRANSPARENT, 0, 12, 10)
+    var action_hover := _flat(Color("#18343B"), Color("#243942"), 1, 12, 10)
+    var action_pressed := _flat(Color("#1F4248"), Color("#243942"), 1, 12, 10)
+    var action_focus := _flat(Color.TRANSPARENT, Color.TRANSPARENT)
+    for variation in [&"LSPrimaryButton", &"LSSecondaryButton"]:
+        ui_theme.set_font_size(&"font_size", variation, 13)
+        ui_theme.set_color(&"font_hover_color", variation, Color("#53B5AC"))
+        ui_theme.set_stylebox(&"normal", variation, action_normal)
+        ui_theme.set_stylebox(&"hover", variation, action_hover)
+        ui_theme.set_stylebox(&"pressed", variation, action_pressed)
+        ui_theme.set_stylebox(&"focus", variation, action_focus)
+    ui_theme.set_color(&"font_color", &"LSSecondaryButton", Color("#C4D0D3"))
     ui_theme.set_color(&"font_color", &"LSPrimaryButton", Color("#53B5AC"))
     ui_theme.set_color(&"font_color", &"LSNavButton", Color("#748B92"))
     ui_theme.set_color(&"font_hover_color", &"LSNavButton", Color("#A6CFCB"))
