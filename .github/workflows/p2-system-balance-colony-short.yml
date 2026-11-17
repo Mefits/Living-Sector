@@ -49,6 +49,14 @@ jobs:
           tail -n 80 hud.log
           ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' hud.log
           grep -q 'COLONY_QUICK_STRIP_PASS' hud.log
+      - name: Validate contextual cards and UI scale entry point
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 90s godot --headless --path godot --script res://tests/p2_colony_context_cards_check.gd > cards.log 2>&1
+          tail -n 80 cards.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' cards.log
+          grep -q 'COLONY_CONTEXT_CARDS_PASS' cards.log
       - name: Logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -58,5 +66,6 @@ jobs:
             import.log
             test.log
             hud.log
+            cards.log
           if-no-files-found: ignore
           retention-days: 4
