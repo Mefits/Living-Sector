@@ -361,6 +361,7 @@ func _ready() -> void:
     if data.has("error"):
         _status.text = "Ошибка импорта Galaxy"
         _details.text = str(data["error"])
+        _detail_tabs.current_tab = 1
         _startup_error = str(data["error"])
         push_error(_startup_error)
         return
@@ -396,12 +397,14 @@ func _ready() -> void:
         if not _model.load_seed(_seed):
             _startup_error = "Не удалось создать read-only UI карту"
             _details.text = _startup_error
+            _detail_tabs.current_tab = 1
             push_error(_startup_error)
             return
         _worker_owner = WorkerN158.new()
         if not _worker_owner.launch(_seed):
             _startup_error = "Не удалось запустить единственный N158 worker"
             _details.text = _startup_error
+            _detail_tabs.current_tab = 1
             push_error(_startup_error)
             return
         _sync_speed_control()
@@ -410,6 +413,7 @@ func _ready() -> void:
         if not _runner.start_from_seed(_seed):
             _status.text = "Ошибка индексации исходного мира"
             _details.text = "Не удалось собрать физический мир P2: " + str(_runner.boot_error())
+            _detail_tabs.current_tab = 1
             _startup_error = _details.text + " / " + str(_runner.boot_error())
             push_error(_startup_error)
             return
