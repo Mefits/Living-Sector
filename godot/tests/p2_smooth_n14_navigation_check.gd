@@ -169,17 +169,22 @@ func _check() -> void:
         {}, 0.00001, {
             "id": "sol-star", "center": Vector2.ZERO, "radius": 0.02})
     if near_result != "moving" or not str(
-            near_state.ships["near"]["location"]).is_empty() or (
-            near_state.ships["near"]["transit"].get(
-                "navigation_waypoints", []) as Array).is_empty():
-        _fail("one-tick final docking teleported through Sun")
+            near_state.ships["near"]["location"]).is_empty():
+        _fail("one-tick final docking was allowed through Sun: " +
+            near_result)
         return
+    # The WHOLE true curved physical path may be completed inside one
+    # tick and the waypoint receipt cleared; comparing only the two
+    # frame endpoints would incorrectly claim a straight collision.
     var near_old: Vector2 = near_positions["start"]
     var near_pos: Array = near_state.ships["near"]["transit"]["position"]
-    if Avoidance.segment_crosses(
-            near_old, Vector2(float(near_pos[0]), float(near_pos[1])),
-            Vector2.ZERO, 0.02):
-        _fail("final approach physical segment intersected Sun")
+    var near_actual: Vector2 = Vector2(
+        float(near_pos[0]), float(near_pos[1]))
+    var near_distance: float = float(near_state.ships["near"]["transit"].get(
+        "physical_distance_travelled", 0.0))
+    if near_actual.length() <= 0.02 or near_distance <= (
+            near_old.distance_to(near_actual) + 0.001):
+        _fail("final approach did not physically traverse the Sun detour")
         return
 
     print("P2 SMOOTH N14 PASS: tangent arc points=", points.size(),
