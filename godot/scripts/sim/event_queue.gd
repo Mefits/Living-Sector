@@ -59,6 +59,10 @@ func cancel(event_id: String) -> bool:
     return true
 
 func take_due(tick: int, phase: int) -> Array[Dictionary]:
+    # Most phases have no queued events. Avoid allocating a boundary key
+    # when the authoritative event store is empty (including after cancel).
+    if _pending.is_empty():
+        return []
     # Only visit events in this boundary; canonical sorting is independent
     # of the swap-removal storage order.
     var boundary: String = _due_key(tick, phase)
