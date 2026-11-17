@@ -121,13 +121,23 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.RUNNING, "reason": "n108_source_gate_arrival_pending"}
         if not str(ship.get("docked_at", "")).is_empty():
             return {"status": Bt.RUNNING, "reason": "n108_actual_n21_gate_undock_needed"}
-        var gates: Array = []
-        for fid in world.get("facilities", {}):
-            var fac: Dictionary = world["facilities"][fid]
-            if str(fac.get("type", "")) == "gate" and str(
-                    fac.get("location", "")) == location and fac.get(
-                    "gate_link", null) is Dictionary:
-                gates.append(str(fid))
+        # N84 may evaluate many GateJump leaves in the same paid tick.
+        # Build the gate roster once per proposal, retaining the original
+        # facilities iteration order and ambiguous-gate rejection. N84 only
+        # mutates ship rows; N39 applies gate/facility changes after proposal.
+        # dock_ticks is call-scoped scratch, never stored in World/N38.
+        if not dock_ticks.has("_n84_gate_roster"):
+            var gate_roster: Dictionary = {}
+            for fid in world.get("facilities", {}):
+                var fac: Dictionary = world["facilities"][fid]
+                if str(fac.get("type", "")) == "gate" and fac.get(
+                        "gate_link", null) is Dictionary:
+                    var gate_location: String = str(fac.get("location", ""))
+                    if not gate_roster.has(gate_location):
+                        gate_roster[gate_location] = []
+                    gate_roster[gate_location].append(str(fid))
+            dock_ticks["_n84_gate_roster"] = gate_roster
+        var gates: Array = dock_ticks["_n84_gate_roster"].get(location, [])
         if gates.size() != 1:
             return {"status": Bt.RUNNING, "reason": "n108_unbuilt_or_ambiguous_source_gate"}
         var origin: Dictionary = world["facilities"][gates[0]]
