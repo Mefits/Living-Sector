@@ -54,39 +54,72 @@ static func station_native_position(bodies: Dictionary,
         "native_radius": local_radius}
 
 
-## An orbital icon is drawn outside a deliberately oversized planet glyph.
-## At an actual docked station coordinate this maps EXACTLY onto its icon.
-## The correction fades to zero outside a bounded native neighborhood,
-## avoiding independent free-floating station/ship display geometries.
-## 500 ships x 1 station => 500 trivial distance checks; no N14 solver.
+## A physical ship leaving a 800-km dock is still physically only a
+## fraction of a *native* Earth radius away. The presentation draws Earth
+## as an enormous selectable disc. Straight global radial projection
+## therefore puts the authentic near-Earth ship INSIDE that display disc.
+## Do not fade the dock's screen offset toward Earth's CENTER as before.
+## Instead use the real planetocentric DIRECTION and maintain a bounded
+## display clearance until the underlying system map catches up.
+##
+## This is a pure CanvasItem projection. Ships inside the actual physical
+## surface are intentionally left uncorrected so a simulation collision
+## is not hidden by the interface. One Sol station => O(ships), with no
+## N14 aim_point, world traversal, rendering node, or economy mutation.
+const SCREEN_TRANSITION_MULTIPLIER: float = 1.6
+
 static func corrected_screen(native_position: Vector2,
         global_screen: Vector2, station_records: Array) -> Vector2:
     var chosen: Dictionary = {}
-    var best_ratio: float = INF
+    var chosen_gap: float = INF
     for station in station_records:
         if not (station is Dictionary) or not (
                 station.get("native") is Vector2) or not (
                 station.get("screen") is Vector2) or not (
-                station.get("native_global_screen") is Vector2):
+                station.get("body_native") is Vector2) or not (
+                station.get("body_screen") is Vector2) or not (
+                station.get("body_global_screen") is Vector2):
             continue
-        var local_radius: float = float(
-            station.get("native_radius", 0.0))
-        if local_radius <= 0.0:
+        var center: Vector2 = station["body_native"]
+        var distance: float = native_position.distance_to(center)
+        var true_radius: float = float(
+            station.get("body_native_radius", -1.0))
+        if not is_finite(distance) or true_radius <= 0.0 or (
+                distance <= true_radius):
+            # Actual surface intersections remain visible and diagnosable.
             continue
-        var fade_radius: float = clampf(
-            local_radius * 100.0,
-            MIN_LOCAL_BLEND_RADIUS, MAX_LOCAL_BLEND_RADIUS)
-        var gap: float = native_position.distance_to(
-            station["native"])
-        var ratio: float = gap / fade_radius
-        if ratio >= 1.0 or ratio >= best_ratio:
+        var native_delta: Vector2 = native_position - center
+        var screen_delta: Vector2 = global_screen - (
+            station["body_global_screen"] as Vector2)
+        var unscaled_distance: float = screen_delta.length()
+        var ring_radius: float = float(
+            station.get("screen_orbit_radius", 0.0))
+        if ring_radius <= 0.0 or unscaled_distance >= (
+                ring_radius * SCREEN_TRANSITION_MULTIPLIER):
             continue
-        best_ratio = ratio
-        chosen = station
+        if distance < chosen_gap:
+            chosen_gap = distance
+            chosen = station
     if chosen.is_empty():
         return global_screen
-    var t: float = clampf(best_ratio, 0.0, 1.0)
-    var weight: float = 1.0 - t * t * (3.0 - 2.0 * t)
-    return global_screen + (
-        (chosen["screen"] as Vector2) -
-        (chosen["native_global_screen"] as Vector2)) * weight
+    var native_direction: Vector2 = native_position - (
+        chosen["body_native"] as Vector2)
+    var outward: Vector2 = Vector2(
+        native_direction.x, -native_direction.y).normalized()
+    var screen_displacement: Vector2 = global_screen - (
+        chosen["body_global_screen"] as Vector2)
+    var baseline: float = screen_displacement.length()
+    var minimum: float = float(chosen["screen_orbit_radius"])
+    # All native positions outside real Earth remain outside its
+    # SCHEMATIC disc. This also prevents a radial inward screen loop
+    # immediately after a genuine N14 departure from the station.
+    var safe_point: Vector2 = (
+        chosen["body_screen"] as Vector2) + outward * maxf(
+            minimum, baseline)
+    if baseline <= minimum:
+        return safe_point
+    var fade: float = (baseline - minimum) / (
+        minimum * (SCREEN_TRANSITION_MULTIPLIER - 1.0))
+    fade = clampf(fade, 0.0, 1.0)
+    var smooth: float = fade * fade * (3.0 - 2.0 * fade)
+    return safe_point.lerp(global_screen, smooth)
