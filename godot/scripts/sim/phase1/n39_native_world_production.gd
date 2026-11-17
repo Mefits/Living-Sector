@@ -3851,8 +3851,16 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
     var board_next := ContractBoard.new(ledger_next)
     if not board_next.restore(next_board):
         return {"ok": false, "fatal": true, "reason": "n152_board_restore_rejected"}
-    var staged: Dictionary = _copy_world("L3596", true)
+    # N152 owns only the contract board and refunded wallet domains.  A full
+    # World clone here grows with unrelated ships, markets and history.
+    # Detach wallet domains before any writes, including rejected refunds.
+    var staged: Dictionary = _copy_world("L3596_owned_root", false)
     staged["contract_board"] = next_board.duplicate(true)
+    if not proposal["refunded"].is_empty():
+        staged["escrow_balances"] = _world["escrow_balances"].duplicate(true)
+        staged["facilities"] = _world["facilities"].duplicate(true)
+        staged["populations"] = _world["populations"].duplicate(true)
+        staged["faction_treasuries"] = _world["faction_treasuries"].duplicate(true)
     for item in proposal["refunded"]:
         var id: String = str(item["contract_id"])
         var escrow: String = str(item["escrow"])
