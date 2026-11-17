@@ -26,6 +26,25 @@ static func tab(text: String, active: bool, action: Callable) -> Button:
     button.pressed.connect(action)
     return button
 
+static func table_row(heading: bool, odd: bool, action: Callable) -> Control:
+    var row: Control
+    if action.is_valid() and not heading:
+        var button := Button.new()
+        button.flat = true
+        button.focus_mode = Control.FOCUS_NONE
+        button.theme_type_variation = (
+            &"LSRowActionOdd" if odd else &"LSRowActionEven")
+        button.pressed.connect(action)
+        row = button
+    else:
+        var panel := PanelContainer.new()
+        panel.theme_type_variation = (
+            &"LSRowHeader" if heading else (
+                &"LSRowPlainOdd" if odd else &"LSRowPlainEven"))
+        row = panel
+    row.custom_minimum_size.y = 25 if heading else 34
+    return row
+
 static func metric_text(value: String, role: StringName) -> Label:
     var label := Label.new()
     label.text = value
