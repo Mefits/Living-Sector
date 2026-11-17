@@ -2470,7 +2470,11 @@ func apply_native_colony_foundation(tick: int, faction: String,
     if _world["construction_receipts"].has(receipt_id) or _ledger.has_receipt(receipt_id):
         return {"ok": false, "reason": "n151_colony_approval_replayed"}
     var original_money: Dictionary = _ledger.snapshot()
-    var staged: Dictionary = _copy_world("L2232", true)
+    # N151 approval writes only the site registry and its receipt registry.
+    # Detach both nested domains before mutation; other World domains stay read-only.
+    var staged: Dictionary = _copy_world("L2232_owned_root", false)
+    staged["construction_sites"] = _world["construction_sites"].duplicate(true)
+    staged["construction_receipts"] = _world["construction_receipts"].duplicate(true)
     staged["construction_sites"][site_id] = site.duplicate(true)
     staged["construction_receipts"][receipt_id] = {
         "id": receipt_id, "kind": "colony_approved",
