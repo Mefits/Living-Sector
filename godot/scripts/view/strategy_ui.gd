@@ -99,6 +99,7 @@ var _tabs_signature: String = ""
 var _cards_signature: String = ""
 var _ui_scale_menu: OptionButton
 var _scale_button: Button
+var _scale_caption: Label
 var _scale_popup: PopupMenu
 var _status_text: String = ""
 var _diagnostic_text: String = ""
@@ -409,6 +410,20 @@ func _build_footer() -> void:
     _footer_status = _label("СЕКТОР · Наблюдение", 11, MUTED)
     panel.add_child(_footer_status)
 
+# Native Godot Buttons include text in their minimum width even when
+# clip_text=true. Put visible text in a mouse-ignored child to preserve
+# the exact 64px Figma rail without sacrificing readable labels.
+func _rail_utility_button(caption: String,
+        action: Callable) -> Button:
+    var btn := _button("", action, 9)
+    btn.custom_minimum_size = Vector2(48, 29)
+    var text_label := _label(caption, 9, TEXT)
+    text_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    text_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+    btn.add_child(text_label)
+    text_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    return btn
+
 func _build_left() -> void:
     # Figma Make .leftnav: width 64px, rows 58px, icon + Russian caption
     # + numeric keyboard hint. Physical readability comes from UI scaling.
@@ -480,13 +495,11 @@ func _build_left() -> void:
     var bottom := VBoxContainer.new()
     bottom.add_theme_constant_override("separation", 2)
     column.add_child(bottom)
-    var objects := _button("Список", _toggle_outliner, 9)
+    var objects := _rail_utility_button("Список", _toggle_outliner)
     objects.tooltip_text = "Показать или скрыть правый аутлайнер"
-    objects.custom_minimum_size.y = 29
     bottom.add_child(objects)
-    _tools_button = _button("⋯ Меню", _show_nav_tools, 10)
+    _tools_button = _rail_utility_button("⋯ Меню", _show_nav_tools)
     _tools_button.tooltip_text = "Журнал, карта, сохранение и загрузка"
-    _tools_button.custom_minimum_size.y = 29
     bottom.add_child(_tools_button)
     # OptionButton inside a 64px PanelContainer forced its minimum width
     # to 98px. Keep the compatibility picker for tests, but render a
@@ -499,10 +512,10 @@ func _build_left() -> void:
         if _game != null else 2, 0, _ui_scale_menu.item_count - 1))
     _ui_scale_menu.item_selected.connect(_set_ui_scale)
     add_child(_ui_scale_menu)
-    _scale_button = _button(
+    _scale_button = _rail_utility_button(
         _ui_scale_menu.get_item_text(_ui_scale_menu.selected),
-        _show_scale_choices, 10)
-    _scale_button.custom_minimum_size.y = 29
+        _show_scale_choices)
+    _scale_caption = _scale_button.get_child(0) as Label
     _scale_button.tooltip_text = "Выбор размера интерфейса (125–200%)"
     bottom.add_child(_scale_button)
     _scale_popup = PopupMenu.new()
@@ -918,8 +931,8 @@ func update_performance(fps: int, sim_ms: float, ui_ms: float,
 func _set_ui_scale(index: int) -> void:
     if _ui_scale_menu != null and index >= 0 and index < _ui_scale_menu.item_count:
         _ui_scale_menu.select(index)
-        if _scale_button != null:
-            _scale_button.text = _ui_scale_menu.get_item_text(index)
+        if _scale_caption != null:
+            _scale_caption.text = _ui_scale_menu.get_item_text(index)
         if _scale_popup != null:
             for i in range(_scale_popup.item_count):
                 _scale_popup.set_item_checked(i, i == index)
