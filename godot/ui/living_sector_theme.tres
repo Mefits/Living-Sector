@@ -1,8 +1,8 @@
 [gd_resource type="Theme" load_steps=8 format=3]
 
 [sub_resource type="StyleBoxFlat" id="button_normal"]
-bg_color = Color("#122631")
-border_color = Color("#243942")
+bg_color = Color(0.070588, 0.14902, 0.192157, 1)
+border_color = Color(0.141176, 0.223529, 0.258824, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -14,8 +14,8 @@ content_margin_bottom = 5.0
 anti_aliasing = false
 
 [sub_resource type="StyleBoxFlat" id="button_hover"]
-bg_color = Color("#18343B")
-border_color = Color("#53B5AC")
+bg_color = Color(0.094118, 0.203922, 0.231373, 1)
+border_color = Color(0.32549, 0.709804, 0.67451, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -27,8 +27,8 @@ content_margin_bottom = 5.0
 anti_aliasing = false
 
 [sub_resource type="StyleBoxFlat" id="button_pressed"]
-bg_color = Color("#1F4248")
-border_color = Color("#53B5AC")
+bg_color = Color(0.121569, 0.258824, 0.282353, 1)
+border_color = Color(0.32549, 0.709804, 0.67451, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -40,8 +40,8 @@ content_margin_bottom = 5.0
 anti_aliasing = false
 
 [sub_resource type="StyleBoxFlat" id="button_disabled"]
-bg_color = Color("#0D1B24")
-border_color = Color("#243942")
+bg_color = Color(0.05098, 0.105882, 0.141176, 1)
+border_color = Color(0.141176, 0.223529, 0.258824, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -53,8 +53,8 @@ content_margin_bottom = 5.0
 anti_aliasing = false
 
 [sub_resource type="StyleBoxFlat" id="panel"]
-bg_color = Color("#09141C")
-border_color = Color("#31505A")
+bg_color = Color(0.035294, 0.078431, 0.109804, 1)
+border_color = Color(0.192157, 0.313725, 0.352941, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -66,8 +66,8 @@ content_margin_bottom = 5.0
 anti_aliasing = false
 
 [sub_resource type="StyleBoxFlat" id="input"]
-bg_color = Color("#071218")
-border_color = Color("#273E45")
+bg_color = Color(0.027451, 0.070588, 0.094118, 1)
+border_color = Color(0.152941, 0.243137, 0.270588, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -79,8 +79,8 @@ content_margin_bottom = 5.0
 anti_aliasing = false
 
 [sub_resource type="StyleBoxFlat" id="input_focus"]
-bg_color = Color("#071218")
-border_color = Color("#53B5AC")
+bg_color = Color(0.027451, 0.070588, 0.094118, 1)
+border_color = Color(0.32549, 0.709804, 0.67451, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
@@ -93,18 +93,18 @@ anti_aliasing = false
 
 [resource]
 default_font_size = 13
-Button/colors/font_color = Color("#C4D0D3")
-Button/colors/font_hover_color = Color("#A4E8DE")
-Button/colors/font_pressed_color = Color("#D2ECE9")
-Button/colors/font_disabled_color = Color("#748B92")
+Button/colors/font_color = Color(0.768627, 0.815686, 0.827451, 1)
+Button/colors/font_hover_color = Color(0.643137, 0.909804, 0.870588, 1)
+Button/colors/font_pressed_color = Color(0.823529, 0.92549, 0.913725, 1)
+Button/colors/font_disabled_color = Color(0.454902, 0.545098, 0.572549, 1)
 Button/styles/normal = SubResource("button_normal")
 Button/styles/hover = SubResource("button_hover")
 Button/styles/pressed = SubResource("button_pressed")
 Button/styles/disabled = SubResource("button_disabled")
 PanelContainer/styles/panel = SubResource("panel")
-LineEdit/colors/font_color = Color("#C4D0D3")
-LineEdit/colors/font_placeholder_color = Color("#748B92")
+LineEdit/colors/font_color = Color(0.768627, 0.815686, 0.827451, 1)
+LineEdit/colors/font_placeholder_color = Color(0.454902, 0.545098, 0.572549, 1)
 LineEdit/styles/normal = SubResource("input")
 LineEdit/styles/focus = SubResource("input_focus")
-Label/colors/font_color = Color("#C4D0D3")
+Label/colors/font_color = Color(0.768627, 0.815686, 0.827451, 1)
 Label/font_sizes/font_size = 13
