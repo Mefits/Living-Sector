@@ -67,8 +67,8 @@ func _initialize() -> void:
                 assigned += 1
             var goal: String = str(ship.get("current_goal", "—"))
             goals[goal] = int(goals.get(goal, 0)) + 1
-            var class_name: String = str(ship.get("class", "?"))
-            classes[class_name] = int(classes.get(class_name, 0)) + 1
+            var ship_class: String = str(ship.get("class", "?"))
+            classes[ship_class] = int(classes.get(ship_class, 0)) + 1
             var memory: Variant = ship.get("memory", {})
             var knowledge: Variant = memory.get("price_knowledge", {}) if (
                 memory is Dictionary) else {}
