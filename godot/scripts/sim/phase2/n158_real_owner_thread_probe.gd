@@ -106,6 +106,9 @@ func _owner_loop(seed: Dictionary) -> void:
     _publish({"ticket": 0, "kind": "boot", "ok": true,
         "tick": sim.tick_count, "ships": sim.fleet_snapshot().size()})
     var frozen: bool = false
+    # E: exactly the last 100 single-paid-tick request timings, detached scalars.
+    # Multi-tick requests invalidate coverage; never divide their elapsed time.
+    var paid_tick_timings: Array[Dictionary] = []
     while true:
         _wake.wait()
         _mutex.lock()
@@ -216,6 +219,20 @@ func _owner_loop(seed: Dictionary) -> void:
         var projection_end_usec: int = Time.get_ticks_usec()
         answer["timing"] = RequestMetrics.summarize(before_tick, sim.tick_count,
             began_usec, advance_end_usec, projection_end_usec)
+        # Only completed, successful, single-paid-tick requests are attributable.
+        # The window includes FrameView/projection elapsed separately; not CPU.
+        if answer["ok"] and int(answer["timing"].get("paid_ticks", 0)) == 1:
+            var sample: Dictionary = answer["timing"].duplicate(true)
+            sample["after_tick"] = sim.tick_count
+            paid_tick_timings.append(sample)
+            if paid_tick_timings.size() > 100:
+                paid_tick_timings.pop_front()
+            if RequestMetrics.CHECKPOINTS.has(sim.tick_count):
+                answer["paid_tick_window"] = RequestMetrics.bounded_paid_tick_window(
+                    paid_tick_timings, sim.tick_count)
+        elif sim.tick_count > before_tick or kind in ["restore", "load"]:
+            # Gaps and state rewinds cannot be stitched into a valid 100-tick run.
+            paid_tick_timings.clear()
         _publish(answer)
     # sim is released on this same owner thread. No live reference escapes.
 
