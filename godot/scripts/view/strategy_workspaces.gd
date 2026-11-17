@@ -59,6 +59,7 @@ var _tabs: HBoxContainer
 var _tabs_scroll: ScrollContainer
 var _tabs_signature: String = ""
 var _filter: LineEdit
+var _filter_clear: Button
 var _updated: Label
 var _scroll: ScrollContainer
 var _content: VBoxContainer
@@ -247,8 +248,15 @@ func _ready() -> void:
     _filter.add_theme_stylebox_override("focus", transparent_style)
     _filter.text_changed.connect(func(_value: String) -> void:
         _last_signature = ""
+        _filter_clear.visible = not _filter.text.is_empty()
         _render())
     search_row.add_child(_filter)
+    _filter_clear = _button("×", func() -> void: _filter.clear())
+    _filter_clear.custom_minimum_size = Vector2(21, 21)
+    _filter_clear.add_theme_font_size_override("font_size", 15)
+    _filter_clear.tooltip_text = "Очистить поиск"
+    _filter_clear.visible = false
+    search_row.add_child(_filter_clear)
     var spacer := Control.new()
     spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     toolbar.add_child(spacer)
@@ -281,6 +289,9 @@ func _fit_toolbar() -> void:
     # The tick remains visible in the global HUD on compact windows.
     # Removing this secondary label preserves space for the live filter.
     _updated.visible = size.x >= 500.0
+    if _focus_badge != null:
+        # Long source IDs belong in the tooltip, not across the close button.
+        _focus_badge.visible = not _focus.is_empty() and size.x >= 670.0
 
 
 func set_can_go_back(can_go_back: bool) -> void:
@@ -354,6 +365,7 @@ func _render() -> void:
     _header_title.text = ( _body_name() if _mode == "colony" else (
         _facility_name() if _mode == "facility" else (
         _ship_name() if _mode == "ship" else section_name)))
+    _header_title.tooltip_text = _header_title.text
     if _header_icon != null:
         _header_icon.texture = FigmaIcons.texture(
             "colony" if _mode == "colony" else (
@@ -370,9 +382,9 @@ func _render() -> void:
         _world.get("system", {}).get("name", "—")).to_upper() + (
         "   /   " + section_name)
     _updated.text = "ОБНОВЛЕНО: ТИК %d · N39" % _tick
-    _focus_badge.visible = not _focus.is_empty()
     _focus_badge.text = "ФОКУС: " + _focus
     _focus_badge.tooltip_text = _focus
+    _fit_toolbar()
     var tab_signature: String = _mode + "|" + _tab
     if tab_signature != _tabs_signature:
         _tabs_signature = tab_signature
