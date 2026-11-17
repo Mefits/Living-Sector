@@ -103,6 +103,14 @@ func _run() -> void:
     ui.call("_close_window")
     assert(not (ui.get("_window") as PanelContainer).visible)
     assert((ui.get("_selection_card") as PanelContainer).visible)
+    # Figma skin smoke: real two-line outliner rows, dark section panels,
+    # selected-tab underline and N39-backed condition bar must be native.
+    ui.call("_route_workspace", "colony", "Обзор")
+    assert(_contains_type(workspace, "PanelContainer"))
+    assert(_contains_type(workspace, "HFlowContainer"))
+    var colonized_title: String = str(workspace.get("_header_title").text)
+    assert(colonized_title == "КОЛОНИЯ")
+    ui.call("_close_window")
     ui.call("_toggle_outliner")
     assert(not (ui.get("_outliner") as PanelContainer).visible)
     ui.call("_toggle_outliner")
@@ -137,5 +145,14 @@ func _contains_text(root: Node, fragment: String) -> bool:
         return true
     for child in root.get_children():
         if _contains_text(child, fragment):
+            return true
+    return false
+
+
+func _contains_type(root: Node, typename: String) -> bool:
+    if root.get_class() == typename:
+        return true
+    for child in root.get_children():
+        if _contains_type(child, typename):
             return true
     return false

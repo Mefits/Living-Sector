@@ -8,13 +8,13 @@ const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
 ## Living Sector strategy HUD — Figma-inspired, read-only presentation.
 ## The game owns the map, authoritative economy, orders and clock.
 ## Never requests a new world_snapshot or invents per-tick trends.
-const BG = Color("#0B171E")
-const BG2 = Color("#10212A")
-const LINE = Color("#31505A")
+const BG = Color("#09141C")
+const BG2 = Color("#0D1B24")
+const LINE = Color("#243942")
 const TEAL = Color("#53B5AC")
 const AMBER = Color("#C99B54")
-const TEXT = Color("#D3DDDD")
-const MUTED = Color("#81999F")
+const TEXT = Color("#C4D0D3")
+const MUTED = Color("#748B92")
 const METRICS: Array[Dictionary] = [
     {"key": "population", "label": "НАСЕЛЕНИЕ", "symbol": "●"},
     {"key": "food", "label": "ЕДА", "symbol": "◒"},
@@ -98,6 +98,7 @@ func _style(color: Color, border: Color = LINE, left: int = 1,
     box.content_margin_right = 8
     box.content_margin_top = 6
     box.content_margin_bottom = 6
+    box.anti_aliasing = false
     return box
 
 func _label(value: String, size_px: int = 14, color: Color = TEXT) -> Label:
@@ -107,6 +108,7 @@ func _label(value: String, size_px: int = 14, color: Color = TEXT) -> Label:
     label.add_theme_color_override("font_color", color)
     label.clip_text = true
     label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+    label.mouse_filter = Control.MOUSE_FILTER_IGNORE
     return label
 
 func _button(value: String, callback: Callable, size_px: int = 12) -> Button:
@@ -115,9 +117,9 @@ func _button(value: String, callback: Callable, size_px: int = 12) -> Button:
     button.add_theme_font_size_override("font_size", size_px)
     button.add_theme_color_override("font_color", TEXT)
     button.add_theme_color_override("font_hover_color", Color("#A4E8DE"))
-    button.add_theme_stylebox_override("normal", _style(BG))
-    button.add_theme_stylebox_override("hover", _style(Color("#183239"), TEAL))
-    button.add_theme_stylebox_override("pressed", _style(Color("#183239"), TEAL))
+    button.add_theme_stylebox_override("normal", _style(BG, LINE, 0, 0, 0, 1))
+    button.add_theme_stylebox_override("hover", _style(Color("#132B34"), TEAL, 0, 0, 0, 2))
+    button.add_theme_stylebox_override("pressed", _style(Color("#193B42"), TEAL, 0, 0, 0, 2))
     button.add_theme_stylebox_override("focus", _style(Color.TRANSPARENT, TEAL))
     button.focus_mode = Control.FOCUS_NONE
     button.pressed.connect(callback)
@@ -125,7 +127,10 @@ func _button(value: String, callback: Callable, size_px: int = 12) -> Button:
 
 func _panel() -> PanelContainer:
     var panel := PanelContainer.new()
-    panel.add_theme_stylebox_override("panel", _style(BG))
+    var frame: StyleBoxFlat = _style(BG, LINE)
+    frame.shadow_color = Color(0.0, 0.0, 0.0, 0.30)
+    frame.shadow_size = 3
+    panel.add_theme_stylebox_override("panel", frame)
     return panel
 
 func attach(game: Control) -> void:
@@ -148,6 +153,10 @@ func _ready() -> void:
 
 func _build_top() -> void:
     _top = _panel()
+    var top_style := _style(Color("#101D26"), Color("#31505A"), 0, 0, 0, 1)
+    top_style.shadow_size = 5
+    top_style.shadow_color = Color(0, 0, 0, 0.45)
+    _top.add_theme_stylebox_override("panel", top_style)
     _top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
     _top.offset_bottom = 82
     _top.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -158,21 +167,46 @@ func _build_top() -> void:
     var brand := VBoxContainer.new()
     _brand_box = brand
     brand.custom_minimum_size = Vector2(184, 0)
-    brand.add_theme_constant_override("separation", 3)
+    brand.add_theme_constant_override("separation", 4)
     row.add_child(brand)
-    brand.add_child(_label("LIVING SECTOR", 19, TEXT))
+    var brand_identity := HBoxContainer.new()
+    brand_identity.add_theme_constant_override("separation", 7)
+    brand.add_child(brand_identity)
+    var emblem := PanelContainer.new()
+    var emblem_style: StyleBoxFlat = _style(Color("#102832"),
+        Color("#568288"))
+    emblem_style.set_corner_radius_all(4)
+    emblem.add_theme_stylebox_override("panel", emblem_style)
+    emblem.custom_minimum_size = Vector2(33, 30)
+    brand_identity.add_child(emblem)
+    var initials := _label("LS", 13, Color("#93D1CA"))
+    initials.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    initials.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+    emblem.add_child(initials)
+    var wordmark := _label("LIVING SECTOR", 15, Color("#E1E9E9"))
+    wordmark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+    brand_identity.add_child(wordmark)
     _brand_scope = _button("СЕКТОР · ВСЕ РЫНКИ ▾", _toggle_scope, 11)
     _brand_scope.tooltip_text = "Общие запасы рынков всех фракций, НЕ баланс одной фракции"
     brand.add_child(_brand_scope)
     for item in METRICS:
         var box := VBoxContainer.new()
         _metric_boxes.append(box)
-        box.custom_minimum_size = Vector2(121, 0)
+        box.custom_minimum_size = Vector2(112, 0)
         box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         box.add_theme_constant_override("separation", 4)
-        row.add_child(box)
-        box.add_child(_label(str(item["label"]), 12, MUTED))
-        var large := _label(str(item["symbol"]) + " —", 20, TEXT)
+        var resource_tile := PanelContainer.new()
+        resource_tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        var resource_style := _style(Color("#0B1821"), LINE, 0, 0, 1, 0)
+        resource_style.content_margin_left = 9
+        resource_style.content_margin_right = 6
+        resource_style.content_margin_top = 8
+        resource_tile.add_theme_stylebox_override("panel", resource_style)
+        resource_tile.tooltip_text = "Запас на рынках выбранной области. Не изменение за тик."
+        row.add_child(resource_tile)
+        resource_tile.add_child(box)
+        box.add_child(_label(str(item["label"]), 11, MUTED))
+        var large := _label(str(item["symbol"]) + " —", 19, TEXT)
         box.add_child(large)
         _metric_nodes[str(item["key"])] = large
     _alert_button = _button("", _toggle_alerts, 15)
@@ -304,6 +338,8 @@ func _build_footer() -> void:
 
 func _build_left() -> void:
     var rail := _panel()
+    rail.add_theme_stylebox_override("panel",
+        _style(Color("#08131C"), Color("#294049"), 0, 0, 1, 0))
     rail.anchor_bottom = 1.0
     rail.offset_top = 82
     rail.offset_right = 66
@@ -360,6 +396,8 @@ func _build_left() -> void:
 
 func _build_outliner() -> void:
     _outliner = _panel()
+    _outliner.add_theme_stylebox_override("panel",
+        _style(Color("#09141C"), Color("#31505A")))
     _outliner.anchor_left = 1.0
     _outliner.anchor_right = 1.0
     _outliner.anchor_bottom = 1.0
@@ -373,7 +411,7 @@ func _build_outliner() -> void:
     _outliner.add_child(col)
     var head := HBoxContainer.new()
     col.add_child(head)
-    var caption := _label("ОБЪЕКТЫ СИСТЕМЫ", 15)
+    var caption := _label("АУТЛАЙНЕР", 15, Color("#D3DDDD"))
     caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     head.add_child(caption)
     head.add_child(_button("×", _toggle_outliner, 15))
@@ -462,6 +500,10 @@ func _update_navigation() -> void:
 
 func _build_window() -> void:
     _window = _panel()
+    var workspace_frame := _style(Color("#09141C"), Color("#31505A"))
+    workspace_frame.shadow_size = 10
+    workspace_frame.shadow_color = Color(0, 0, 0, 0.60)
+    _window.add_theme_stylebox_override("panel", workspace_frame)
     _window.visible = false
     _window.anchor_bottom = 1.0
     add_child(_window)
@@ -510,6 +552,8 @@ func _build_window() -> void:
 
 func _build_selection_card() -> void:
     _selection_card = _panel()
+    _selection_card.add_theme_stylebox_override("panel",
+        _style(Color("#0C1C25"), TEAL, 2, 1, 1, 1))
     _selection_card.visible = false
     _selection_card.anchor_top = 1.0
     _selection_card.anchor_bottom = 1.0
@@ -842,14 +886,62 @@ func _update_metrics() -> void:
 
 func _outliner_entry(label: String, callback: Callable,
         selected: bool = false, hint: String = "") -> void:
-    var btn := _button(label, callback, 14)
-    btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+    var name: String = label
+    var icon_key: String = "planet"
+    var accent: Color = Color("#72979D")
+    if label.begins_with("⌑ "):
+        icon_key = "facility"
+    elif label.begins_with("⬡ "):
+        icon_key = "station"
+    elif label.begins_with("▱ "):
+        icon_key = "construction"
+    elif label.begins_with("↗ ") or label.begins_with("■ ") or (
+            label.begins_with("○ ")):
+        icon_key = "ship"
+        if label.begins_with("↗ "):
+            accent = TEAL
+        elif label.begins_with("■ "):
+            accent = AMBER
+    if label.length() >= 2 and label.substr(1, 1) == " ":
+        name = label.substr(2)
+    var row_button := _button("", callback, 13)
+    row_button.tooltip_text = (name + "\n" + hint
+        if not hint.is_empty() else name)
+    row_button.custom_minimum_size.y = 46 if not hint.is_empty() else 34
+    row_button.add_theme_stylebox_override("normal",
+        _style(Color("#142832") if selected else Color("#0B1922"),
+            TEAL if selected else Color("#1F343C"),
+            2 if selected else 0, 0, 0, 1))
+    row_button.add_theme_stylebox_override("hover",
+        _style(Color("#18343D"), TEAL, 2, 0, 0, 1))
+    row_button.add_theme_stylebox_override("pressed",
+        _style(Color("#1B4449"), TEAL, 2, 0, 0, 1))
+    _outliner_list.add_child(row_button)
+    var row := HBoxContainer.new()
+    row.add_theme_constant_override("separation", 8)
+    row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row_button.add_child(row)
+    row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    row.offset_left = 7
+    row.offset_right = -6
+    var mark := TextureRect.new()
+    mark.custom_minimum_size = Vector2(19, 19)
+    mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    mark.texture = FigmaIcons.texture(icon_key, 17, TEAL if selected else accent)
+    mark.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    mark.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+    mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row.add_child(mark)
+    var text_column := VBoxContainer.new()
+    text_column.add_theme_constant_override("separation", 2)
+    text_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    text_column.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row.add_child(text_column)
+    var primary := _label(name, 13, Color("#A5E1D9") if selected else TEXT)
+    text_column.add_child(primary)
     if not hint.is_empty():
-        btn.tooltip_text = hint
-    if selected:
-        btn.add_theme_color_override("font_color", TEAL)
-        btn.add_theme_stylebox_override("normal", _style(BG2, TEAL))
-    _outliner_list.add_child(btn)
+        var detail := _label(hint, 10, MUTED)
+        text_column.add_child(detail)
 
 func _set_outliner_filter(mode: String) -> void:
     if _outliner_filter_mode == mode:
@@ -871,7 +963,9 @@ func _outliner_heading(key: String, title: String,
     var btn := _button(label, _toggle_outliner_group.bind(key), 12)
     btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
     btn.add_theme_color_override("font_color", TEAL)
-    btn.add_theme_stylebox_override("normal", _style(Color("#0E2228"), LINE))
+    btn.add_theme_stylebox_override("normal",
+        _style(Color("#0E2228"), LINE, 0, 0, 0, 1))
+    btn.custom_minimum_size.y = 31
     _outliner_list.add_child(btn)
     return open
 

@@ -11,13 +11,13 @@ signal close_requested()
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
 const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
-const BG = Color("#0B171E")
-const SURFACE = Color("#10212A")
-const DEEP = Color("#0D1C23")
-const LINE = Color("#31505A")
+const BG = Color("#071019")
+const SURFACE = Color("#0D1B24")
+const DEEP = Color("#09141C")
+const LINE = Color("#243942")
 const TEAL = Color("#53B5AC")
-const TEXT = Color("#D3DDDD")
-const MUTED = Color("#81999F")
+const TEXT = Color("#C4D0D3")
+const MUTED = Color("#748B92")
 const AMBER = Color("#C99B54")
 const BAD = Color("#CF856A")
 const TABS: Dictionary = {
@@ -70,6 +70,7 @@ func _box(fill: Color = SURFACE, outlined: bool = true) -> StyleBoxFlat:
     style.content_margin_right = 12
     style.content_margin_top = 10
     style.content_margin_bottom = 10
+    style.anti_aliasing = false
     return style
 
 func _label(value: String, size_px: int = 14,
@@ -80,6 +81,7 @@ func _label(value: String, size_px: int = 14,
     control.add_theme_color_override("font_color", tone)
     control.clip_text = true
     control.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+    control.mouse_filter = Control.MOUSE_FILTER_IGNORE
     return control
 
 func _button(value: String, action: Callable = Callable(),
@@ -90,9 +92,12 @@ func _button(value: String, action: Callable = Callable(),
     control.add_theme_font_size_override("font_size", 13)
     control.add_theme_color_override("font_color", TEAL if prominent else TEXT)
     control.add_theme_color_override("font_hover_color", TEAL)
-    control.add_theme_stylebox_override("normal", _box(SURFACE, true))
-    control.add_theme_stylebox_override("hover", _box(Color("#18343B"), true))
-    control.add_theme_stylebox_override("pressed", _box(Color("#1F4248"), true))
+    control.add_theme_stylebox_override("normal",
+        _box(Color("#122631"), false))
+    control.add_theme_stylebox_override("hover",
+        _box(Color("#18343B"), true))
+    control.add_theme_stylebox_override("pressed",
+        _box(Color("#1F4248"), true))
     control.add_theme_stylebox_override("focus", _box(Color.TRANSPARENT, false))
     if action.is_valid():
         control.pressed.connect(action)
@@ -113,10 +118,18 @@ func _clear(parent: Node) -> void:
 func _ready() -> void:
     add_theme_constant_override("separation", 0)
     mouse_filter = Control.MOUSE_FILTER_STOP
+    var header_bg := PanelContainer.new()
+    var hstyle := _box(Color("#122832"), true)
+    hstyle.border_width_left = 0
+    hstyle.border_width_top = 0
+    hstyle.border_width_right = 0
+    hstyle.border_width_bottom = 1
+    header_bg.add_theme_stylebox_override("panel", hstyle)
+    add_child(header_bg)
     var header := HBoxContainer.new()
-    header.custom_minimum_size.y = 53
-    header.add_theme_constant_override("separation", 7)
-    add_child(header)
+    header.custom_minimum_size.y = 55
+    header.add_theme_constant_override("separation", 8)
+    header_bg.add_child(header)
     header.add_child(_button("‹", func() -> void: back_requested.emit()))
     _header_icon = TextureRect.new()
     _header_icon.custom_minimum_size = Vector2(28, 28)
@@ -137,9 +150,21 @@ func _ready() -> void:
     _tabs.add_theme_constant_override("v_separation", 4)
     add_child(_tabs)
     add_child(_hline())
+    var toolbar_bg := PanelContainer.new()
+    toolbar_bg.add_theme_stylebox_override("panel", _box(
+        Color("#0B1921"), false))
+    add_child(toolbar_bg)
     var toolbar := HBoxContainer.new()
-    toolbar.custom_minimum_size.y = 49
-    add_child(toolbar)
+    toolbar.custom_minimum_size.y = 43
+    toolbar.add_theme_constant_override("separation", 10)
+    toolbar_bg.add_child(toolbar)
+    var search_icon := TextureRect.new()
+    search_icon.custom_minimum_size = Vector2(20, 20)
+    search_icon.texture = FigmaIcons.texture("search", 17, MUTED)
+    search_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    search_icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+    search_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    toolbar.add_child(search_icon)
     _filter = LineEdit.new()
     _filter.placeholder_text = "Поиск в этом разделе…"
     _filter.custom_minimum_size.x = 210
@@ -147,8 +172,10 @@ func _ready() -> void:
     _filter.add_theme_font_size_override("font_size", 13)
     _filter.add_theme_color_override("font_color", TEXT)
     _filter.add_theme_color_override("font_placeholder_color", MUTED)
-    _filter.add_theme_stylebox_override("normal", _box(DEEP))
-    _filter.add_theme_stylebox_override("focus", _box(DEEP))
+    var search_style := _box(DEEP)
+    search_style.set_content_margin_all(7)
+    _filter.add_theme_stylebox_override("normal", search_style)
+    _filter.add_theme_stylebox_override("focus", _box(Color("#122D35")))
     _filter.text_changed.connect(func(_value: String) -> void:
         _last_signature = ""
         _render())
@@ -161,7 +188,7 @@ func _ready() -> void:
     _scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
     add_child(_scroll)
     _content = VBoxContainer.new()
-    _content.add_theme_constant_override("separation", 9)
+    _content.add_theme_constant_override("separation", 11)
     _content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     _scroll.add_child(_content)
 
@@ -228,8 +255,7 @@ func _render() -> void:
     for name in tabs_for(_mode):
         var tab_name: String = str(name)
         var active: bool = tab_name == _tab
-        _tabs.add_child(_button(tab_name, func() -> void:
-            navigate_requested.emit(_mode, tab_name, _focus), active))
+        _tabs.add_child(_tab_button(tab_name, active))
     _clear(_content)
     match _mode:
         "colony": _colony()
@@ -243,9 +269,34 @@ func _render() -> void:
         "technical": _technical_workspace()
         _: _empty("Этот раздел пока не подключён.")
 
+func _tab_button(name: String, active: bool) -> Button:
+    var control := _button(name, func() -> void:
+        navigate_requested.emit(_mode, name, _focus), active)
+    var normal := _box(Color("#10252E") if active else BG, false)
+    normal.border_color = TEAL if active else LINE
+    normal.border_width_bottom = 2 if active else 1
+    normal.content_margin_left = 12
+    normal.content_margin_right = 12
+    normal.content_margin_top = 10
+    normal.content_margin_bottom = 10
+    control.add_theme_stylebox_override("normal", normal)
+    var hover := _box(Color("#17343C"), false)
+    hover.border_color = TEAL
+    hover.border_width_bottom = 2
+    control.add_theme_stylebox_override("hover", hover)
+    control.custom_minimum_size.y = 36
+    control.add_theme_color_override("font_color", TEAL if active else MUTED)
+    return control
+
 func _section(title: String, detail: String = "") -> VBoxContainer:
     var card := PanelContainer.new()
-    card.add_theme_stylebox_override("panel", _box(SURFACE))
+    var section_style := _box(SURFACE)
+    section_style.border_color = Color("#28434C")
+    section_style.content_margin_left = 13
+    section_style.content_margin_right = 13
+    section_style.content_margin_top = 12
+    section_style.content_margin_bottom = 13
+    card.add_theme_stylebox_override("panel", section_style)
     card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     _content.add_child(card)
     var inside := VBoxContainer.new()
@@ -253,7 +304,7 @@ func _section(title: String, detail: String = "") -> VBoxContainer:
     card.add_child(inside)
     var header := HBoxContainer.new()
     inside.add_child(header)
-    var heading := _label(title, 16, TEXT)
+    var heading := _label(title, 15, Color("#DAE5E6"))
     heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     header.add_child(heading)
     if not detail.is_empty():
@@ -280,20 +331,27 @@ func _pair(parent: Node, name: String, value: String,
 
 func _metric_strip(parent: Node, pairs: Array) -> void:
     var flow := HFlowContainer.new()
-    flow.add_theme_constant_override("h_separation", 6)
-    flow.add_theme_constant_override("v_separation", 6)
+    flow.add_theme_constant_override("h_separation", 7)
+    flow.add_theme_constant_override("v_separation", 7)
     parent.add_child(flow)
     for item in pairs:
         if not (item is Dictionary):
             continue
         var tile := PanelContainer.new()
-        tile.add_theme_stylebox_override("panel", _box(DEEP))
-        tile.custom_minimum_size = Vector2(140, 69)
+        var tile_style := _box(DEEP)
+        tile_style.border_width_left = 2
+        tile_style.border_color = TEAL
+        tile_style.content_margin_top = 12
+        tile_style.content_margin_bottom = 12
+        tile.add_theme_stylebox_override("panel", tile_style)
+        tile.custom_minimum_size = Vector2(148, 86)
         flow.add_child(tile)
         var col := VBoxContainer.new()
+        col.add_theme_constant_override("separation", 5)
         tile.add_child(col)
-        col.add_child(_label(str(item.get("label", "—")), 11, MUTED))
-        col.add_child(_label(str(item.get("value", "—")), 20, TEXT))
+        col.add_child(_label(str(item.get("label", "—")).to_upper(), 11, MUTED))
+        var figure := _label(str(item.get("value", "—")), 23, Color("#E0E9E9"))
+        col.add_child(figure)
 
 func _table(parent: Node, headings: Array, rows: Array,
         route: String = "", tab: String = "", kind: String = "") -> void:
@@ -315,7 +373,7 @@ func _table(parent: Node, headings: Array, rows: Array,
         elif not route.is_empty():
             callback = func() -> void:
                 navigate_requested.emit(route, tab, str(item.get("id", "")))
-        _table_row(parent, cells, columns, false, callback)
+        _table_row(parent, cells, columns, false, callback, shown)
         shown += 1
         if shown >= 60:
             _note(parent, "Показаны первые 60 записей. Используйте поиск.")
@@ -324,32 +382,55 @@ func _table(parent: Node, headings: Array, rows: Array,
         _note(parent, "Нет подтверждённых записей для выбранного раздела.")
 
 func _table_row(parent: Node, cells: Array, columns: int,
-        heading: bool, callback: Callable) -> void:
+        heading: bool, callback: Callable, row_index: int = 0) -> void:
     var container: Control
+    var fill: Color = Color("#132A34") if heading else (
+        Color("#0D2029") if row_index % 2 == 0 else Color("#0B1B24"))
     if callback.is_valid():
         var btn := Button.new()
         btn.flat = true
         btn.focus_mode = Control.FOCUS_NONE
         btn.pressed.connect(callback)
-        btn.add_theme_stylebox_override("normal", _box(DEEP))
-        btn.add_theme_stylebox_override("hover", _box(Color("#1C3A43")))
-        btn.add_theme_stylebox_override("pressed", _box(Color("#22505A")))
+        var normal := _box(fill, false)
+        normal.border_width_bottom = 1
+        normal.border_color = Color("#213943")
+        btn.add_theme_stylebox_override("normal", normal)
+        var hover := _box(Color("#1B3740"), false)
+        hover.border_color = TEAL
+        hover.border_width_bottom = 1
+        btn.add_theme_stylebox_override("hover", hover)
+        btn.add_theme_stylebox_override("pressed",
+            _box(Color("#23505A"), true))
         parent.add_child(btn)
         container = btn
     else:
         var panel := PanelContainer.new()
-        panel.add_theme_stylebox_override("panel", _box(DEEP))
+        var cell_style := _box(fill, false)
+        cell_style.border_width_bottom = 1
+        cell_style.border_color = Color("#213943")
+        panel.add_theme_stylebox_override("panel", cell_style)
         parent.add_child(panel)
         container = panel
     var row := HBoxContainer.new()
-    row.add_theme_constant_override("separation", 4)
+    row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row.add_theme_constant_override("separation", 7)
     container.add_child(row)
     for i in range(columns):
-        var cell := _label(str(cells[i]) if i < cells.size() else "—",
-            12 if heading else 13, TEAL if heading else TEXT)
+        var text_value: String = str(cells[i]) if i < cells.size() else "—"
+        var tint: Color = MUTED if heading else TEXT
+        if not heading and i > 0:
+            var lower: String = text_value.to_lower()
+            if lower.contains("нет ") or lower.contains("износ") or (
+                    lower.contains("заброш") or lower.contains("блокир")):
+                tint = BAD
+            elif lower.contains("в пути") or lower.contains("строится"):
+                tint = TEAL
+            elif text_value == "—":
+                tint = MUTED
+        var cell := _label(text_value, 11 if heading else 13, tint)
         cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-        cell.size_flags_stretch_ratio = 1.5 if i == 0 else 1.0
-        cell.tooltip_text = cell.text
+        cell.size_flags_stretch_ratio = 1.55 if i == 0 else 1.0
+        cell.tooltip_text = text_value
         row.add_child(cell)
 
 func _link(parent: Node, label: String,
@@ -608,6 +689,29 @@ func _local_ships(body_id: String) -> void:
     _note(tip, "Корабли в N14 transit не считаются уже прибывшими.")
     _link(tip, "ОТКРЫТЬ ВЕСЬ ФЛОТ ›", "fleet", "Корабли")
 
+func _condition_bar(parent: Node, value: Variant) -> void:
+    if not (value is int or value is float):
+        return
+    var level: float = float(value)
+    if not is_finite(level) or level < 0.0 or level > 1.0:
+        return
+    var tint: Color = TEAL if level >= 0.8 else (
+        AMBER if level >= 0.5 else BAD)
+    var meter := ProgressBar.new()
+    meter.min_value = 0.0
+    meter.max_value = 1.0
+    meter.value = level
+    meter.show_percentage = false
+    meter.custom_minimum_size.y = 9
+    var back := _box(Color("#172D36"), false)
+    back.set_content_margin_all(0)
+    meter.add_theme_stylebox_override("background", back)
+    var fill := _box(tint, false)
+    fill.set_content_margin_all(0)
+    meter.add_theme_stylebox_override("fill", fill)
+    meter.tooltip_text = "N39: состояние %.1f%%" % (level * 100.0)
+    parent.add_child(meter)
+
 func _facility_workspace() -> void:
     var source: Dictionary = _facility_source()
     if source.is_empty():
@@ -627,6 +731,7 @@ func _facility_workspace() -> void:
             _pair(section, "Назначенные работники",
                 str(live.get("assigned_workers", "—")))
             _pair(section, "Состояние объекта", str(live.get("condition", "—")))
+            _condition_bar(section, live.get("condition", null))
             _pair(section, "Последняя оплаченная смена",
                 str(live.get("work_shift", {}).get("tick", "—")))
             _note(section, "Точные входы, выпуск и причина простоя — только при наличии записи N39.")
