@@ -27,7 +27,16 @@ static func _real_contract_dock(world: Dictionary,
             str(contract.get("mission_category", "")) != "strategy.colony.v1" or
             str(contract.get("destination_location", "")) != location):
         return {}
-    for site_id in world.get("construction_sites", {}):
+    # Construction contracts name exactly one authoritative site. Avoid a
+    # full scan of the growing colony-site history on every N84 dock leaf.
+    # Passenger contracts retain the original ordered scan/tie-break.
+    var site_ids: Array = world.get("construction_sites", {}).keys()
+    if str(contract.get("contract_type", "")) == "construction":
+        var required_site: String = str(contract.get("colony_site_id", ""))
+        if not world.get("construction_sites", {}).has(required_site):
+            return {}
+        site_ids = [required_site]
+    for site_id in site_ids:
         var site: Dictionary = world["construction_sites"][site_id]
         if str(site.get("location_name", "")) != location or (
                 str(site.get("faction_id", "")) != str(contract.get("faction_id", "")) or
