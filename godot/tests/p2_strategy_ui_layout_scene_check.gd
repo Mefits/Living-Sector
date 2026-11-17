@@ -101,6 +101,30 @@ func _run() -> void:
         assert((workspace.get("_tabs") as HBoxContainer).get_child_count() >= 3)
         assert(workspace.get("_tabs_scroll") is ScrollContainer)
     assert(workspace.has_method("_issue_line"))
+    # Shared Figma table rows use a single scrollable width grid. Dense
+    # columns remain aligned even when the management window is narrow.
+    var table_probe := VBoxContainer.new()
+    workspace.call("_table", table_probe,
+        ["ОБЪЕКТ", "СОСТОЯНИЕ", "СКЛАД", "ЛОКАЦИЯ"],
+        [{"cells":["Farm", "Работает", "55", "Earth"]},
+         {"cells":["Long factory name", "—", "100", "Mars"]}])
+    assert(table_probe.get_child(0) is ScrollContainer)
+    var table_scroll: ScrollContainer = table_probe.get_child(0)
+    assert(table_scroll.horizontal_scroll_mode == ScrollContainer.SCROLL_MODE_AUTO)
+    var table_grid: VBoxContainer = table_scroll.get_child(0)
+    assert(table_grid.get_child_count() == 3)
+    assert(table_grid.custom_minimum_size.x >= 500.0)
+    var widths: Array = []
+    for entry in table_grid.get_children():
+        var cells_row: HBoxContainer = entry.get_child(0)
+        var widths_row: Array = []
+        for cell in cells_row.get_children():
+            widths_row.append(cell.custom_minimum_size.x)
+        if widths.is_empty():
+            widths = widths_row
+        else:
+            assert(widths_row == widths)
+    table_probe.free()
     assert(workspace.has_method("_restore_workspace_scroll"))
     ui.call("_workspace_back")
     assert(workspace.get("_mode") == "administration")
