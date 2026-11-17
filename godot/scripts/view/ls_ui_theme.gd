@@ -44,6 +44,13 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSSelectionPanel", &"PanelContainer")
     ui_theme.set_type_variation(&"LSNavButtonSelected", &"LSNavButton")
     ui_theme.set_type_variation(&"LSNavUtilityButton", &"LSNavButton")
+    ui_theme.set_type_variation(&"LSOutlinerItem", &"Button")
+    ui_theme.set_type_variation(&"LSOutlinerSelectedItem", &"LSOutlinerItem")
+    ui_theme.set_type_variation(&"LSOutlinerGroup", &"Button")
+    ui_theme.set_type_variation(&"LSOutlinerGlyph", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSOutlinerSelectedGlyph", &"LSOutlinerGlyph")
+    ui_theme.set_type_variation(&"LSOutlinerFilter", &"Button")
+    ui_theme.set_type_variation(&"LSOutlinerFilterActive", &"LSOutlinerFilter")
     ui_theme.set_type_variation(&"LSPrimaryButton", &"Button")
     ui_theme.set_type_variation(&"LSSecondaryButton", &"Button")
     ui_theme.set_type_variation(&"LSNavButton", &"Button")
@@ -165,6 +172,39 @@ static func build() -> Theme:
     ui_theme.set_stylebox(&"panel", &"LSSelectionPanel",
         _flat(Color("#0C1C25"), Color("#53B5AC"),
             1, 8, 6, 2, 1, 1))
+
+    # Figma .outline-item 42px, .group-head and selected state.
+    # Outliner entries are reconstructed only when selection/data changes.
+    ui_theme.set_stylebox(&"normal", &"LSOutlinerItem",
+        _flat(Color.TRANSPARENT, Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"hover", &"LSOutlinerItem",
+        _flat(Color("#12272F"), Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"pressed", &"LSOutlinerItem",
+        _flat(Color("#153038"), Color("#53B5AC"), 0, 0, 0, 2))
+    ui_theme.set_stylebox(&"normal", &"LSOutlinerSelectedItem",
+        _flat(Color("#153038"), Color("#53B5AC"), 0, 0, 0, 2))
+    ui_theme.set_stylebox(&"hover", &"LSOutlinerSelectedItem",
+        _flat(Color("#153038"), Color("#53B5AC"), 0, 0, 0, 2))
+    ui_theme.set_stylebox(&"normal", &"LSOutlinerGroup",
+        _flat(Color("#0B1A22"), Color("#243942"), 1, 8, 0))
+    ui_theme.set_stylebox(&"hover", &"LSOutlinerGroup",
+        _flat(Color("#11252D"), Color("#243942"), 1, 8, 0))
+    ui_theme.set_stylebox(&"panel", &"LSOutlinerGlyph",
+        _flat(Color("#10252C"), Color("#274A4C"), 1, 4, 4, 1, 1, 1))
+    ui_theme.set_stylebox(&"panel", &"LSOutlinerSelectedGlyph",
+        _flat(Color("#10252C"), Color("#53B5AC"), 1, 4, 4, 1, 1, 1))
+    ui_theme.set_stylebox(&"normal", &"LSOutlinerFilter",
+        _flat(Color("#09141C"), Color("#243942"), 1, 4, 4, 1, 1, 1))
+    ui_theme.set_stylebox(&"hover", &"LSOutlinerFilter",
+        _flat(Color("#132B34"), Color("#53B5AC"), 1, 4, 4, 1, 1, 1))
+    ui_theme.set_stylebox(&"normal", &"LSOutlinerFilterActive",
+        _flat(Color("#1D4147"), Color("#53B5AC"), 1, 4, 4, 1, 1, 1))
+    for v in [&"LSOutlinerItem", &"LSOutlinerGroup", &"LSOutlinerFilter"]:
+        ui_theme.set_stylebox(&"focus", v,
+            _flat(Color.TRANSPARENT, Color.TRANSPARENT))
+    ui_theme.set_color(&"font_color", &"LSOutlinerFilter", Color("#748B92"))
+    ui_theme.set_color(&"font_color", &"LSOutlinerFilterActive", Color("#53B5AC"))
+    ui_theme.set_font_size(&"font_size", &"LSOutlinerFilter", 9)
 
     # Ordinary workspace actions, previously rebuilt via _box() per control.
     # Preserve the original 12×10px padding while moving style ownership
