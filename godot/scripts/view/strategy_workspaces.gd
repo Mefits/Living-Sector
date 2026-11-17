@@ -11,6 +11,7 @@ signal close_requested()
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
 const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
+const LSComponents = preload("res://scripts/view/ls_ui_components.gd")
 const BG = Color("#071019")
 const SURFACE = Color("#0D1B24")
 const DEEP = Color("#09141C")
@@ -420,40 +421,15 @@ func _reveal_active_tab(mode: String, tab: String) -> void:
             return
 
 func _tab_button(name: String, active: bool) -> Button:
-    var btn := _button(name, func() -> void:
-        navigate_requested.emit(_mode, name, _focus), active)
-    btn.add_theme_font_size_override("font_size", 8)
-    var normal := _box(Color("#11242C") if active else Color("#09151D"), false)
-    normal.border_color = TEAL if active else LINE
-    normal.border_width_bottom = 2 if active else 1
-    normal.content_margin_left = 13
-    normal.content_margin_right = 13
-    normal.content_margin_top = 8
-    normal.content_margin_bottom = 8
-    btn.add_theme_stylebox_override("normal", normal)
-    var hover := _box(Color("#102129"), false)
-    hover.border_color = TEAL
-    hover.border_width_bottom = 2
-    hover.content_margin_left = 13
-    hover.content_margin_right = 13
-    hover.content_margin_top = 8
-    hover.content_margin_bottom = 8
-    btn.add_theme_stylebox_override("hover", hover)
-    btn.custom_minimum_size.y = 36
-    btn.add_theme_color_override("font_color",
-        Color("#A6D8D3") if active else Color("#668087"))
-    btn.tooltip_text = name
-    return btn
+    # The same Theme-backed tab component is used in every workspace.
+    # The route still carries the live mode/focus, not demo Figma values.
+    return LSComponents.tab(name, active, func() -> void:
+        navigate_requested.emit(_mode, name, _focus))
 
 # Every workspace uses the same Figma section header (31px) and body
 # padding. The optional host supports the two-column colony overview.
 func _section(title: String, detail: String = "", host: Node = null) -> VBoxContainer:
-    var card := PanelContainer.new()
-    var style := _box(Color("#0B1921"))
-    style.border_color = Color("#263E45")
-    style.set_content_margin_all(0)
-    card.add_theme_stylebox_override("panel", style)
-    card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    var card: PanelContainer = LSComponents.section_panel()
     if host is HFlowContainer:
         card.custom_minimum_size.x = 300
     if host == null:
@@ -530,8 +506,8 @@ func _pair(parent: Node, name: String, value: String,
     row.add_child(answer)
 
 func _metric_strip(parent: Node, pairs: Array) -> void:
-    # Figma uses a 4-up metric strip; HFlow wraps to two columns on
-    # narrow window sizes without hiding real N39 values.
+    # Figma four-up metric strip; native HFlow wraps on narrow windows.
+    # Theme owns all tile colors, padding and font sizes.
     var flow := HFlowContainer.new()
     flow.add_theme_constant_override("h_separation", 0)
     flow.add_theme_constant_override("v_separation", 4)
@@ -539,25 +515,18 @@ func _metric_strip(parent: Node, pairs: Array) -> void:
     for item in pairs:
         if not (item is Dictionary):
             continue
-        var tile := PanelContainer.new()
-        var tile_style := _box(Color("#0D1F27"), false)
-        tile_style.border_width_right = 1
-        tile_style.border_color = Color("#20373F")
-        tile_style.content_margin_left = 10
-        tile_style.content_margin_right = 9
-        tile_style.content_margin_top = 6
-        tile_style.content_margin_bottom = 6
-        tile.add_theme_stylebox_override("panel", tile_style)
-        tile.custom_minimum_size = Vector2(138, 58)
-        tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        var tile: PanelContainer = LSComponents.metric_panel()
         flow.add_child(tile)
         var col := VBoxContainer.new()
         col.add_theme_constant_override("separation", 3)
         tile.add_child(col)
-        col.add_child(_label(str(item.get("label", "—")).to_upper(), 7, MUTED))
-        col.add_child(_label(str(item.get("value", "—")), 13, Color("#D5E0E0")))
+        col.add_child(LSComponents.metric_text(
+            str(item.get("label", "—")).to_upper(), &"LSMetricCaption"))
+        col.add_child(LSComponents.metric_text(
+            str(item.get("value", "—")), &"LSMetricValue"))
         if item.has("note") and not str(item["note"]).is_empty():
-            col.add_child(_label(str(item["note"]), 7, TEAL))
+            col.add_child(LSComponents.metric_text(
+                str(item["note"]), &"LSMetricNote"))
 
 func _table(parent: Node, headings: Array, rows: Array,
         route: String = "", tab: String = "", kind: String = "") -> void:
