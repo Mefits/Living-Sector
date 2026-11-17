@@ -201,6 +201,22 @@ func station_radius_for_location(location: String) -> float:
         "station_radius", FACILITY_ORBIT_RADIUS))
 
 
+## Same N43 native clock for real N14 station intercept and UI orbit.
+## Frozen legacy period remains untouched outside verified Sol.
+func station_period_for_location(location: String) -> float:
+    if not _loaded or not _locations.has(location):
+        return -1.0
+    var info: Dictionary = _locations[location]
+    if not bool(info.get("station", false)):
+        return -1.0
+    var bid: String = str(info["body_id"])
+    if str(info.get("system_id", "")) == "system-sol" and (
+            float(_bodies.get(bid, {}).get(
+            "physical_radius", 0.0)) > 0.0):
+        return SatelliteProfile.STATION_ORBIT_PERIOD_NATIVE
+    return FACILITY_ORBIT_PERIOD
+
+
 ## Exact final approach to Sol physical bodies. Not a tolerance used for
 ## screen-space picking or a free Rust 0.01-unit arrival bubble.
 func arrival_tolerance_for_location(location: String) -> float:
@@ -380,11 +396,12 @@ func ephemeris_for_location(location: String, model: RefCounted,
     if orbits.is_empty():
         return {"ok": false, "reason": "missing_body_ephemeris"}
     if bool(info["station"]):
+        var station_period: float = station_period_for_location(location)
         orbits.append({"radius": float(_bodies[body_id]["station_radius"]),
             "angle": fposmod(
                 float(initial_facility_angle(location)) +
-                360.0 * elapsed_native_units / FACILITY_ORBIT_PERIOD, 360.0),
-            "period": FACILITY_ORBIT_PERIOD})
+                360.0 * elapsed_native_units / station_period, 360.0),
+            "period": station_period})
     if orbits.size() > 4:
         return {"ok": false, "reason": "ephemeris_depth_exceeded"}
     return {"ok": true, "trajectory": {
@@ -416,9 +433,10 @@ func positions_from_world(model: RefCounted, elapsed_native_units: float,
         var body_center: Vector2 = body_positions[info["body_id"]]
         if bool(info["station"]):
             var initial_angle: float = float(initial_facility_angle(str(loc)))
+            var station_period: float = station_period_for_location(str(loc))
             var phase: float = deg_to_rad(fposmod(
                 initial_angle +
-                360.0 * elapsed_native_units / FACILITY_ORBIT_PERIOD, 360.0))
+                360.0 * elapsed_native_units / station_period, 360.0))
             positions[loc] = body_center + Vector2(
                 cos(phase), sin(phase)) * float(
                 _bodies[str(info["body_id"])]["station_radius"])
