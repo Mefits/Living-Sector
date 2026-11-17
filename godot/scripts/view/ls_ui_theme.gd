@@ -35,6 +35,11 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSMetricCaption", &"Label")
     ui_theme.set_type_variation(&"LSMetricValue", &"Label")
     ui_theme.set_type_variation(&"LSMetricNote", &"Label")
+    ui_theme.set_type_variation(&"LSWorkspaceHeader", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSWorkspaceToolbar", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSSearchFrame", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSSectionHeader", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSWindowIconFrame", &"PanelContainer")
     ui_theme.set_type_variation(&"LSRowHeader", &"PanelContainer")
     ui_theme.set_type_variation(&"LSRowPlainEven", &"PanelContainer")
     ui_theme.set_type_variation(&"LSRowPlainOdd", &"PanelContainer")
@@ -91,6 +96,21 @@ static func build() -> Theme:
     ui_theme.set_font_size(&"font_size", &"LSMetricValue", 13)
     ui_theme.set_color(&"font_color", &"LSMetricNote", Color("#53B5AC"))
     ui_theme.set_font_size(&"font_size", &"LSMetricNote", 7)
+    # Shared workspace chrome: original Figma Make V1 geometry.
+    var workspace_header := _flat(Color("#152C35"), Color("#35515A"), 1)
+    var workspace_toolbar := _flat(Color("#0A161D"), Color("#1E343B"), 1, 8, 3)
+    var section_header := _flat(Color("#0D1E26"), Color("#22383F"), 1, 9, 0)
+    var search_frame := _flat(Color("#071218"), Color("#273E45"),
+        1, 7, 2, 1, 1, 1)
+    search_frame.content_margin_right = 5
+    var window_icon := _flat(Color("#0B2029"), Color("#33555B"),
+        1, 5, 5, 1, 1, 1)
+    ui_theme.set_stylebox(&"panel", &"LSWorkspaceHeader", workspace_header)
+    ui_theme.set_stylebox(&"panel", &"LSWorkspaceToolbar", workspace_toolbar)
+    ui_theme.set_stylebox(&"panel", &"LSSearchFrame", search_frame)
+    ui_theme.set_stylebox(&"panel", &"LSSectionHeader", section_header)
+    ui_theme.set_stylebox(&"panel", &"LSWindowIconFrame", window_icon)
+
     # One table row vocabulary for Economy, Fleet, Colonies and Projects.
     # Keep normal/hover/pressed padding identical to avoid shifting columns.
     var table_edge := Color("#213943")
