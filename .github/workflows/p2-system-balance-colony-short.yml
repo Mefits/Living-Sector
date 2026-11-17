@@ -1,7 +1,21 @@
 name: Living Sector SystemBalance integrated colony and Figma HUD short gate
 on:
+  push:
+    branches:
+      - feature/SystemBalance
+    paths:
+      - .github/workflows/p2-system-balance-colony-short.yml
+      - godot/scripts/main.gd
+      - godot/scripts/star_system_view.gd
+      - godot/scripts/sim/phase2/sol_physical_assets_projection.gd
+      - godot/scripts/view/**
+      - godot/tests/p2_*colony*.gd
+      - godot/tests/p2_system_balance_colony_roads_check.gd
+      - godot/tests/p2_sol_moon_closeup_lod_check.gd
+      - godot/tests/p2_strategy_ui_systembalance_check.gd
+      - godot/tests/p2_strategy_ui_layout_scene_check.gd
+      - godot/tests/p2_real_ship_activity_probe.gd
   workflow_dispatch:
-
 permissions:
   contents: read
 jobs:
