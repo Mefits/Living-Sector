@@ -10,6 +10,7 @@ signal close_requested()
 
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
+const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
 const BG = Color("#0B171E")
 const SURFACE = Color("#10212A")
 const DEEP = Color("#0D1C23")
@@ -49,6 +50,7 @@ var _focus: String = ""
 var _tick: int = 0
 var _debug_text: String = ""
 var _header_title: Label
+var _header_icon: TextureRect
 var _scope: Label
 var _tabs: HFlowContainer
 var _filter: LineEdit
@@ -116,8 +118,11 @@ func _ready() -> void:
     header.add_theme_constant_override("separation", 7)
     add_child(header)
     header.add_child(_button("‹", func() -> void: back_requested.emit()))
-    var mark := _label("◈", 25, TEAL)
-    header.add_child(mark)
+    _header_icon = TextureRect.new()
+    _header_icon.custom_minimum_size = Vector2(28, 28)
+    _header_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    _header_icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+    header.add_child(_header_icon)
     var titles := VBoxContainer.new()
     titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     header.add_child(titles)
@@ -205,6 +210,11 @@ func _render() -> void:
     if _content == null:
         return
     _header_title.text = str(TITLES.get(_mode, _mode))
+    if _header_icon != null:
+        _header_icon.texture = FigmaIcons.texture(
+            "colony" if _mode == "colony" else (
+            "facility" if _mode == "facility" else (
+            "fleet" if _mode == "ship" else _mode)), 24, TEAL)
     var location: String = str(_world.get("system", {}).get("name", "Сектор"))
     if _mode == "colony":
         location += " / " + _body_name()
