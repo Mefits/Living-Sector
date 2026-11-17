@@ -179,8 +179,11 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.SUCCESS}
         if not (ship.get("transit", {}) as Dictionary).is_empty():
             return {"status": Bt.RUNNING, "reason": "physical_n14_transit_active"}
+        if not dock_ticks.has("_n84_transit_envelope"):
+            dock_ticks["_n84_transit_envelope"] = {}
         var proposed: Dictionary = ShipPhase.preview_depart(world, graph,
-            positions, tick, scale, ship_id, to)
+            positions, tick, scale, ship_id, to,
+            dock_ticks["_n84_transit_envelope"])
         if not proposed.get("ok", false):
             return {"status": Bt.RUNNING,
                 "reason": str(proposed.get("reason", "n14_departure_not_ready"))}
@@ -732,7 +735,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                 # Defensive fallback for commands not originating in this
                 # leaf, or for a changed token; never trust stale previews.
                 native_move = ShipPhase.preview_depart(staged, graph,
-                    positions, tick, scale, str(ship_id), str(command["to"]))
+                    positions, tick, scale, str(ship_id), str(command["to"]),
+                    dock_ticks.get("_n84_transit_envelope", {}))
             if not native_move.get("ok", false):
                 return {"ok": false, "reason": "n14_authoritative_departure_rejected",
                     "ship_id": str(ship_id)}
