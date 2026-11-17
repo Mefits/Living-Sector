@@ -76,12 +76,18 @@ static func live_status(facility: Dictionary,
         return {"present": false}
     var row: Dictionary = live_facilities[id]
     var shift: Dictionary = row.get("work_shift", {})
+    var paid_workers: int = 0
+    var shift_roster: Variant = shift.get("workers", {})
+    if shift_roster is Dictionary:
+        for quantity in shift_roster.values():
+            paid_workers += maxi(0, int(quantity))
     return {
         "present": true,
         "credits": int(row.get("credits", 0)),
         "workers": int(row.get("assigned_workers", 0)),
         "shift_tick": int(shift.get("tick", -1)),
         "shift_wages": int(shift.get("wages", 0)),
+        "shift_workers": paid_workers,
         "status": str(row.get("status", "")),
         "modules": int(row.get("modules", []).size()) if row.get(
             "modules", []) is Array else 0
