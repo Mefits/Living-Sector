@@ -34,16 +34,26 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [ ] Remaining specialized controls and complete Windows visual comparison.
 - [ ] Visual screenshot comparisons.
 
-## Stages 4–7 [NOT STARTED]
+## Stage 4 — native HUD and peripheral shell [IN PROGRESS]
 
-- [ ] Top HUD, left navigation, outliner and footer mapped 1:1.
+- [x] New Theme-backed 58px Figma header (was 82px+), 192px brand, 46px alert and compact N158 pause/×1/×16 controls.
+- [x] Six actual N39 resource chips with icon/name/value layers; no invented market rates or Figma demo trends.
+- [x] Existing FPS/SIM/UIFrame profiler values moved into the 24px statusbar, no new world snapshots.
+- [x] 64px left navigation migrated to shared normal/selected Theme variants with existing game actions.
+- [x] Right outliner shell and header migrated to shared Theme; responsive widths remain game-controlled.
+- [x] Native selected-object card, map breadcrumb and simulation alert popover use shared Theme.
+- [ ] Individual outliner items, nav utility controls and remaining contextual states refined to the Figma layout.
+- [ ] Windows visual comparisons and game behavior checks deliberately deferred until final acceptance.
+
+## Stages 5–7 [NOT STARTED]
+
 - [ ] Seven workspace bodies visually matched to Figma.
 - [ ] 1920×1080 and 1366×768 scaling and keyboard/mouse testing.
 - [ ] Pixel-level screenshot verification + game behavior acceptance.
 
 ## Verification and safety
 
-- No Godot executable available in this workspace; **tests above have not run**.
+- Per user decision: **do not perform Godot tests or visual acceptance until the implementation is finished**. No Godot executable is available in this workspace.
 - No expensive GitHub Actions were triggered.
 - Game engine/economy/AI N39/N158 and true live values remain authoritative.
 - No temporary screenshot or mock data should be substituted for live game state.
@@ -52,3 +62,10 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 Newest substantive commits: `9811ee9` (table column grid), `4a75eb7` (table profile tests), `5f46ff3` (alert/link Theme), `f9613ac` (alert/link use), `19e98bb` (contract tests).
 
 Source-level consistency checks passed: all 7 `.tres` StyleBox subresources resolve; 25 named theme variations and 10 UI factories. New checks verify 4/5-column profiles, clickable-row anchors, navigation link and alert callbacks in source. **No Godot runtime tests were executed.** The layouts still need a real viewport screenshot comparison.
+
+### Implementation checkpoint — 2026-11-18
+
+- `eb2a417`: native 58px header, six live resource chips, FPS/SIM/UI footer and unchanged N158 speed actions.
+- `adb22e1`: Figma 64px navigation rail and outliner shell.
+- `60e5419`: shared Theme for context card, map breadcrumb and alerts.
+- Full visual parity and runtime safety **not yet verified**; user requested checks only at completion.
