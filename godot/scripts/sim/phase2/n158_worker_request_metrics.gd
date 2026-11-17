@@ -255,3 +255,37 @@ static func compare_phase_windows(baseline: Dictionary, candidate: Dictionary,
     return {"accepted": true, "time_kind": "elapsed_wall_not_cpu",
         "from_tick": baseline["from_tick"], "to_tick": baseline["to_tick"],
         "phase_deltas": deltas}
+
+## Detached, bounded ship-subphase evidence from the real N158 profiler.
+## A checkpoint without enabled profiling is not a measurement. Preserve
+## stage-specific sample counts; never label these as 100 paid-tick windows.
+static func checkpoint_ship_subphases(paid_tick: int, report: Dictionary) -> Dictionary:
+    if not CHECKPOINTS.has(paid_tick) or report.get("enabled", false) != true:
+        return {}
+    if typeof(report.get("stages", null)) != TYPE_DICTIONARY:
+        return {}
+    var stages: Dictionary = {}
+    for name in report["stages"]:
+        if typeof(name) != TYPE_STRING or typeof(report["stages"][name]) != TYPE_DICTIONARY:
+            return {}
+        var source: Dictionary = report["stages"][name]
+        for field in ["calls", "window_limit", "total_usec", "p95_usec", "max_usec"]:
+            if typeof(source.get(field, null)) != TYPE_INT or int(source[field]) < 0:
+                return {}
+        var calls: int = int(source["calls"])
+        var limit: int = int(source["window_limit"])
+        if calls < 1 or limit < 1 or calls > limit or limit > 256:
+            return {}
+        var avg: Variant = source.get("average_usec", null)
+        if typeof(avg) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(avg)):
+            return {}
+        if absf(float(source["total_usec"]) / float(calls) - float(avg)) > 0.01:
+            return {}
+        if int(source["p95_usec"]) > int(source["max_usec"]) or int(source["max_usec"]) > int(source["total_usec"]):
+            return {}
+        stages[name] = {"calls": calls, "window_limit": limit,
+            "total_usec": int(source["total_usec"]), "average_usec": float(avg),
+            "p95_usec": int(source["p95_usec"]), "max_usec": int(source["max_usec"])}
+    return {"paid_tick": paid_tick, "stages": stages,
+        "time_kind": "elapsed_wall_not_cpu",
+        "coverage": "last_bounded_subphase_calls_not_paid_ticks"}
