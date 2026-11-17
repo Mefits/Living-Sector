@@ -713,7 +713,10 @@ static func propose(world: Dictionary, graph: RefCounted,
             if str(command.get("kind", "")) != "BeginTransit":
                 return {"ok": false, "reason": "n146_command_not_yet_integrated",
                     "ship_id": str(ship_id)}
-            var native_move: Dictionary = ShipPhase.depart(staged, graph,
+            # The proposal only needs the candidate's transit receipt.
+            # N146/N39 remains authoritative for the eventual departure.
+            # Do not restore and deep-copy every unrelated ship per BT leaf.
+            var native_move: Dictionary = ShipPhase.preview_depart(staged, graph,
                 positions, tick, scale, str(ship_id), str(command["to"]))
             if not native_move.get("ok", false):
                 return {"ok": false, "reason": "n14_authoritative_departure_rejected",
@@ -722,7 +725,10 @@ static func propose(world: Dictionary, graph: RefCounted,
             if int(actual.get("arrival_tick", -1)) != int(command["arrival_tick"]) or str(actual.get("from", "")) != str(command["from"]):
                 return {"ok": false, "reason": "n146_n14_receipt_mismatch",
                     "ship_id": str(ship_id)}
-            staged["ships"] = native_move["ships"]
+            # Keep the already-detached N84 fleet and replace only this
+            # candidate. Replacing the whole fleet would discard other BT
+            # cursor updates made earlier in this same ordered proposal.
+            staged["ships"][ship_id] = native_move["ships"][ship_id]
             staged["ship_next_token"] = int(native_move["next_token"])
             ship = staged["ships"][ship_id]
         if next["tree"] != bt:
