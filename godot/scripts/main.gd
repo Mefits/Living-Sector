@@ -305,7 +305,7 @@ func _ready() -> void:
     map_stage.add_child(_map)
     _map.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _system_view = StarSystemView.new()
-    _system_view.set_ui_viewport_scale(float(UI_SCALES[DEFAULT_UI_SCALE_INDEX]))
+    _system_view.set_ui_viewport_scale(float(UI_SCALES[_ui_scale_index]))
     _system_view.visible = false
     map_stage.add_child(_system_view)
     _system_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
