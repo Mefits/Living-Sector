@@ -80,3 +80,34 @@ func paid_phase_totals(end_tick: int) -> Dictionary:
     return {"from_tick": end_tick - WINDOW_LIMIT + 1,
         "to_tick": end_tick, "observed_paid_ticks": WINDOW_LIMIT,
         "phase_total_usec": totals, "time_kind": "elapsed_wall_not_cpu"}
+
+## Detached phase distribution for an independently confirmed paid-tick window.
+## No source-tick certification is implied by phase execution alone.
+func paid_phase_distribution(end_tick: int) -> Dictionary:
+    var rows: Array = paid_phase_window(end_tick)
+    if rows.is_empty():
+        return {}
+    var averages: Dictionary = {}
+    var p95: Dictionary = {}
+    var maxima: Dictionary = {}
+    var totals: Dictionary = {}
+    for phase in PHASES:
+        var durations: Array[int] = []
+        var total: int = 0
+        for row in rows:
+            var duration: int = int(row[phase])
+            if duration < 0:
+                return {}
+            durations.append(duration)
+            total += duration
+        durations.sort()
+        totals[phase] = total
+        averages[phase] = float(total) / float(WINDOW_LIMIT)
+        p95[phase] = durations[94]
+        maxima[phase] = durations[99]
+    return {"from_tick": end_tick - WINDOW_LIMIT + 1,
+        "to_tick": end_tick, "observed_paid_ticks": WINDOW_LIMIT,
+        "phase_total_usec": totals, "phase_avg_usec": averages,
+        "phase_p95_usec": p95, "phase_max_usec": maxima,
+        "time_kind": "elapsed_wall_not_cpu",
+        "requires_authoritative_source_clock_confirmation": true}
