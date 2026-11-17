@@ -171,6 +171,10 @@ func _record_timing(bucket: Dictionary, site: String, elapsed: int) -> void:
     row["min_usec"] = mini(int(row["min_usec"]), elapsed)
     var samples: Array = row["samples_usec"]
     samples.append(elapsed)
+    # Diagnostic-only rolling window: exact lifetime totals remain in row.
+    # Bound retention and percentile sorting independently of tick count.
+    if samples.size() > 256:
+        samples.pop_front()
     bucket[site] = row
 
 func _measured_schema_validate(site: String, world: Dictionary) -> String:
