@@ -30,3 +30,27 @@ godot --headless --path godot --script res://tests/colony_globe_projection_check
 - Положение зданий стилизовано; маршруты могут пересекать рисунок воды. Для географически корректных дорог понадобится поверхность с реальными наземными координатами.
 - Кружочки обозначают **занятость предприятий**, не реальный cargo receipt. Сверять реальные перевозки надо в N97/N104/N9.
 - Стоимость визуализации необходимо профилировать на Windows с включённым и выключенным глобусом. Не утверждать об улучшении FPS без измерений.
+
+
+## Проверка синтаксиса Godot 4.7.2 (17.11.2026)
+Короткий импорт и запуск теста успешно выполнены в GitHub Actions:
+https://github.com/Mefits/Living-Sector/actions/runs/44091125783
+Результат: `MISSING_PRELOADS 0`, `GODOT_PROJECT_IMPORT_PASS`, `COLONY_GLOBE_PROJECTION_PASS`.
+В частности, `res://scripts/port/n121_native_execution_state.gd` существует и загружается в CI.
+
+### Если локальный Windows Godot показывает Could not resolve script на N121State
+Выполнить из корня репозитория PowerShell (сначала закрыть редактор Godot):
+```powershell
+git switch feature/colony-live-globe-ui-20261117
+git fetch origin
+git pull --ff-only origin feature/colony-live-globe-ui-20261117
+Test-Path .\godot\scripts\port\n121_native_execution_state.gd
+git status --short
+```
+Если `Test-Path` возвращает False, при чистом Git checkout восстановить отсутствующий отслеживаемый файл:
+```powershell
+git restore --source=HEAD -- godot/scripts/port/n121_native_execution_state.gd
+```
+После закрытия редактора удалить **только временный кэш проекта** `godot/.godot` и открыть проект заново. Он пересоздаётся автоматически; сохранения `user://` не трогать. Если код локально изменён (см. `git status`), не применять reset/clean с удалением пользовательских правок.
+
+Режим без удаления кэша: запустить `godot --headless --path godot --editor --import --quit` и проверить полный вывод ошибки. CI не доказывает состояние пользовательской локальной копии.
