@@ -985,6 +985,7 @@ func _fleet_diagnostic_text() -> String:
     var docked: int = 0
     var waiting: int = 0
     var active_contracts: int = 0
+    var known_multiple_markets: int = 0
     var plans: int = 0
     var current: int = 0
     var current_system: String = str(_world.get("system", {}).get("id", ""))
@@ -1002,6 +1003,10 @@ func _fleet_diagnostic_text() -> String:
             waiting += 1
         if not str(ship.get("active_contract_id", "")).is_empty():
             active_contracts += 1
+        var memory: Variant = ship.get("memory", {})
+        if memory is Dictionary and memory.get("price_knowledge", {}) is Dictionary:
+            if (memory.get("price_knowledge", {}) as Dictionary).size() >= 2:
+                known_multiple_markets += 1
         if ship.get("current_bt", null) is Dictionary and not (
                 ship.get("current_bt", {}) as Dictionary).is_empty():
             plans += 1
@@ -1014,6 +1019,8 @@ func _fleet_diagnostic_text() -> String:
             flying, docked, waiting],
         "Контрактов на кораблях: %d  ·  активных планов BT: %d" % [
             active_contracts, plans],
+        "Известно 2+ рынков (для N83): %d / %d кораблей" % [
+            known_multiple_markets, ships.size()],
         ""]
     if not _fleet_diagnostics.is_empty():
         var due: int = int(_fleet_diagnostics.get("n140_ship_fired_this_tick",
@@ -1025,6 +1032,9 @@ func _fleet_diagnostic_text() -> String:
             _fleet_diagnostics.get("n153_accepted", -1)))
         if accepted >= 0:
             lines.append("N153: контрактов принято за тик: %d" % accepted)
+        if _fleet_diagnostics.has("n83_trade_plans_this_tick"):
+            lines.append("N83: торговых планов за тик: %d" % int(
+                _fleet_diagnostics["n83_trade_plans_this_tick"]))
         var launches: int = int(_fleet_diagnostics.get(
             "n153_departures_this_tick",
             (_fleet_diagnostics.get("n84_departures", []) as Array).size()))
@@ -1043,6 +1053,9 @@ func _fleet_diagnostic_text() -> String:
             if not blocker.is_empty() and blocker != "—":
                 lines.append("Первое препятствие: " + blocker)
     lines.append("")
+    if known_multiple_markets == 0 and ships.size() > 0:
+        lines.append("N83: ни один корабль пока не знает цены двух рынков.")
+        lines.append("Без подтверждённых цен N83 не строит торговый маршрут.")
     if flying == 0:
         lines.append("СЕЙЧАС НИ ОДИН КОРАБЛЬ НЕ НАХОДИТСЯ В ПОЛЁТЕ.")
         lines.append("Это реальный статус transit, а не проблема анимации.")
@@ -1084,6 +1097,13 @@ func _ship_diagnostic_text() -> String:
     else:
         lines.append("N14: нет активного рейса")
         lines.append("Наличие корабля не означает, что ИИ назначил полёт.")
+    var memory: Variant = vessel.get("memory", {})
+    if memory is Dictionary:
+        var knowledge: Variant = memory.get("price_knowledge", {})
+        if knowledge is Dictionary:
+            lines.append("Цены известных рынков: %d" % knowledge.size())
+            if knowledge.size() < 2:
+                lines.append("N83: недостаточно данных для поиска торгового маршрута.")
     var bt: Variant = vessel.get("current_bt", null)
     lines.append("План N84: " + (
         "сохранён" if bt is Dictionary and not bt.is_empty()
