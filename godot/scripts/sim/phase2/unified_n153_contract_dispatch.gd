@@ -86,8 +86,8 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
         return {"ok": false, "reason": "insufficient_native_full_route_fuel"}
     # Geometry steps are read-only within this call. Detach only the two
     # paths that escape into the winning contract proposal.
-    return {"ok": true, "path_to_source": (route["inbound"] as Array).duplicate(),
-        "source_to_destination": (route["outbound"] as Array).duplicate()}
+    return {"ok": true, "path_to_source": route["inbound"],
+        "source_to_destination": route["outbound"]}
 
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
@@ -283,8 +283,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                     continue
                 var row: Dictionary = {"contract_id": str(contract_id), "ship_id": str(ship_id),
                     "profit": int(choice["profit"]), "source": source,
-                    "destination": dest, "path_to_source": readiness["path_to_source"],
-                    "path_to_destination": readiness["source_to_destination"],
+                    "destination": dest, "path_to_source": (readiness["path_to_source"] as Array).duplicate(),
+                    "path_to_destination": (readiness["source_to_destination"] as Array).duplicate(),
                     "source_purchase_cost": source_purchase,
                     "ai_bt": candidate_plan["ai_bt"],
                     "n80_score": candidate_plan["n80_score"],
