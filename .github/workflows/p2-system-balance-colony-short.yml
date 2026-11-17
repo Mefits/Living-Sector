@@ -41,6 +41,14 @@ jobs:
           tail -n 80 test.log
           ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' test.log
           grep -q 'SYSTEM_BALANCE_COLONY_ROADS_PASS' test.log
+      - name: Validate thin colony HUD, local resources and unknown metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 90s godot --headless --path godot --script res://tests/p2_colony_quick_strip_check.gd > hud.log 2>&1
+          tail -n 80 hud.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' hud.log
+          grep -q 'COLONY_QUICK_STRIP_PASS' hud.log
       - name: Logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -49,5 +57,6 @@ jobs:
           path: |
             import.log
             test.log
+            hud.log
           if-no-files-found: ignore
           retention-days: 4
