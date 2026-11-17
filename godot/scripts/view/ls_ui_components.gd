@@ -3,6 +3,37 @@ extends RefCounted
 ## never from per-window StyleBox construction.
 ## Callers retain ownership of events and real N39 values.
 
+## HUD components are layout-only wrappers around N39 data. Neither style
+## factory reads game state or allocates a per-tick snapshot.
+static func header_resource() -> PanelContainer:
+    var tile: PanelContainer = chrome_panel(&"LSHeaderResource")
+    tile.custom_minimum_size.x = 104
+    tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return tile
+
+static func header_speed(text: String, action: Callable) -> Button:
+    var button: Button = action_button(text, action)
+    button.theme_type_variation = &"LSHeaderSpeed"
+    button.custom_minimum_size.x = 31
+    button.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    return button
+
+static func header_alert(action: Callable) -> Button:
+    var button: Button = action_button("", action)
+    button.theme_type_variation = &"LSHeaderAlert"
+    button.custom_minimum_size.x = 46
+    button.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    return button
+
+static func header_scope(text: String, action: Callable) -> Button:
+    var button: Button = action_button(text, action)
+    button.theme_type_variation = &"LSHeaderScope"
+    button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+    button.clip_text = true
+    button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+    button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return button
+
 static func action_button(text: String, action: Callable = Callable(),
         prominent: bool = false) -> Button:
     var button := Button.new()
