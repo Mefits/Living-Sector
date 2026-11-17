@@ -62,6 +62,25 @@ static func issue_button(critical: bool, action: Callable) -> Button:
     button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     return button
 
+static func outliner_item(action: Callable, selected: bool) -> Button:
+    var button: Button = action_button("", action)
+    button.theme_type_variation = (
+        &"LSOutlinerSelectedItem" if selected else &"LSOutlinerItem")
+    button.custom_minimum_size.y = 42
+    return button
+
+static func outliner_group(action: Callable) -> Button:
+    var button: Button = action_button("", action)
+    button.theme_type_variation = &"LSOutlinerGroup"
+    button.custom_minimum_size.y = 29
+    return button
+
+static func outliner_filter(text: String, action: Callable) -> Button:
+    var button: Button = action_button(text, action)
+    button.theme_type_variation = &"LSOutlinerFilter"
+    button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return button
+
 static func tab(text: String, active: bool, action: Callable) -> Button:
     var button := Button.new()
     button.text = text
