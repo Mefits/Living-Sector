@@ -42,8 +42,10 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] 64px left navigation migrated to shared normal/selected Theme variants with existing game actions.
 - [x] Right outliner shell and header migrated to shared Theme; responsive widths remain game-controlled.
 - [x] Native selected-object card, map breadcrumb and simulation alert popover use shared Theme.
-- [ ] Individual outliner items, nav utility controls and remaining contextual states refined to the Figma layout.
-- [ ] Windows visual comparisons and game behavior checks deliberately deferred until final acceptance.
+- [x] Native 42px outliner items and selected/hover Theme variants, 29px group headings, 29px glyphs, filter states.
+- [x] Compact 10px titles / 8px hints for the outliner, no extra width or duplicate inline StyleBoxes.
+- [ ] Remaining contextual details and nav utility controls; pixel-level correction waits for final acceptance.
+- [ ] Windows visual comparisons and game behavior checks deliberately deferred until final acceptance (user instruction).
 
 ## Stages 5–7 [NOT STARTED]
 
@@ -69,3 +71,5 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - `adb22e1`: Figma 64px navigation rail and outliner shell.
 - `60e5419`: shared Theme for context card, map breadcrumb and alerts.
 - Full visual parity and runtime safety **not yet verified**; user requested checks only at completion.
+
+- `2b02b75` / `f08b21e` / `da8caf1`: compact Theme-backed N39 outliner entries, icon frames, group headers, and live filter states.
