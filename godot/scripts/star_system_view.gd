@@ -1138,6 +1138,7 @@ func _draw_colony_roads(scale: float) -> void:
         return
     var center: Vector2 = _body_position(body, scale)
     var sites: Dictionary = _colony_roads.get("sites", {})
+    var has_roads: bool = false
     for edge in _colony_roads.get("links", []):
         if str(edge.get("body", "")) != _focused_body_id:
             continue
@@ -1145,6 +1146,7 @@ func _draw_colony_roads(scale: float) -> void:
         var dst: String = str(edge.get("b", ""))
         if not sites.has(src) or not sites.has(dst):
             continue
+        has_roads = true
         var from_pos: Vector2 = center + (sites[src] as Vector2) * radius
         var to_pos: Vector2 = center + (sites[dst] as Vector2) * radius
         var production: bool = str(edge.get("kind", "")) == "production"
@@ -1161,6 +1163,8 @@ func _draw_colony_roads(scale: float) -> void:
             draw_circle(from_pos.lerp(to_pos, phase),
                 clampf(radius * 0.014, 1.5, 3.0),
                 Color(0.93, 0.76, 0.48, alpha))
+    if not has_roads:
+        return
     # Visual-only origin of the road network, not a minted N39 AC.
     var hub: Vector2 = center + ColonyRoads.HUB_SITE * radius
     draw_rect(Rect2(hub - Vector2(4.0, 4.0), Vector2(8.0, 8.0)),
