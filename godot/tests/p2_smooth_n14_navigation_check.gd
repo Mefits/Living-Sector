@@ -148,6 +148,40 @@ func _check() -> void:
     if arrival < 0:
         _fail("smoothed N14 ship never completed its physical course")
         return
+    # Even if a destination is within ONE tick of native velocity,
+    # the direct arrival must NOT jump through the real star zone.
+    var near_state: RefCounted = State.new()
+    if not near_state.add_ship("near", "courier",
+            "fixture-faction", "system-sol", "small"):
+        _fail("near-final-approach fixture missing")
+        return
+    near_state.ships["near"]["location"] = "start"
+    var near_transit: RefCounted = Transit.new()
+    var near_positions: Dictionary = {
+        "start": Vector2(-0.03, 0.0),
+        "target": Vector2(0.03, 0.0)}
+    if not near_transit.depart(near_state, Graph.new(),
+            "near", "target", near_positions, 0, 1.0):
+        _fail("real near-star final approach cannot depart")
+        return
+    var near_result: String = near_transit.advance(
+        near_state, "near", near_positions, 1, 1.0, 1, false,
+        {}, 0.00001, {
+            "id": "sol-star", "center": Vector2.ZERO, "radius": 0.02})
+    if near_result != "moving" or not str(
+            near_state.ships["near"]["location"]).is_empty() or (
+            near_state.ships["near"]["transit"].get(
+                "navigation_waypoints", []) as Array).is_empty():
+        _fail("one-tick final docking teleported through Sun")
+        return
+    var near_old: Vector2 = near_positions["start"]
+    var near_pos: Array = near_state.ships["near"]["transit"]["position"]
+    if Avoidance.segment_crosses(
+            near_old, Vector2(float(near_pos[0]), float(near_pos[1])),
+            Vector2.ZERO, 0.02):
+        _fail("final approach physical segment intersected Sun")
+        return
+
     print("P2 SMOOTH N14 PASS: tangent arc points=", points.size(),
         ", moved=", snappedf(moved, 0.001), " native on first tick, ",
         "waypoints traversed=", points.size() - remaining.size(),
