@@ -2,8 +2,13 @@ extends SceneTree
 ## Quick headless checks:
 ## godot --headless --path godot --script res://tests/colony_globe_projection_check.gd
 const Globe = preload("res://scripts/view/colony_globe_projection.gd")
+const GlobeView = preload("res://scripts/star_system_view.gd")
 
 func _initialize() -> void:
+    # Preloading the actual system view catches transitive GDScript parse errors.
+    var visual: Control = GlobeView.new()
+    assert(visual != null)
+    visual.free()
     var seed: Array = [
         {"id": "s", "name": "Earth orbital station"},
         {"id": "m", "name": "Earth mine"},
