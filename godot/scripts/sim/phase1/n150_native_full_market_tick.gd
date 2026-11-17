@@ -162,7 +162,10 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 	if history["spawned_at_tick"] == null:
 		history["spawned_at_tick"] = tick
 		if flow["seed_demand"].is_empty():
-			flow["seed_demand"] = pricing["demand"].duplicate(true)
+			# pricing is already detached by the market deep copy above.
+			# Transfer its demand map into seed_demand; pricing.demand is
+			# replaced below, so no mutable alias survives the tick.
+			flow["seed_demand"] = pricing["demand"]
 	history["last_tick"] = tick
 	# No production/consumption or speculative market order matching:
 	# those operations were removed from actual frozen Rust runtime.
