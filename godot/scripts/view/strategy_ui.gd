@@ -63,6 +63,7 @@ var _perf_readout: Label
 var _perf_detail_text: String = ""
 var _pause: Button
 var _alert_button: Button
+var _alert_count: Label
 var _alerts_popover: PanelContainer
 var _alerts_contents: VBoxContainer
 var _alerts_signature: String = ""
@@ -229,8 +230,20 @@ func _build_top() -> void:
     _alert_button.icon = FigmaIcons.texture("alert", 20, AMBER)
     _alert_button.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
     _alert_button.tooltip_text = "Журнал важных сигналов N39"
-    _alert_button.custom_minimum_size = Vector2(40, 0)
+    _alert_button.custom_minimum_size = Vector2(42, 0)
     row.add_child(_alert_button)
+    # The alert count is a small badge, NOT Button.text: text next to a 20px
+    # icon overflowed the 40px slot and covered N158 speed controls.
+    _alert_count = _label("", 10, Color("#14150F"))
+    _alert_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    var badge_style := _style(AMBER, AMBER, 0, 0, 0, 0)
+    badge_style.set_content_margin_all(0)
+    _alert_count.add_theme_stylebox_override("normal", badge_style)
+    _alert_count.position = Vector2(27, 4)
+    _alert_count.size = Vector2(16, 16)
+    _alert_count.visible = false
+    _alert_count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    _alert_button.add_child(_alert_count)
     var time_area := VBoxContainer.new()
     _time_area = time_area
     time_area.custom_minimum_size = Vector2(210, 0)
@@ -310,20 +323,34 @@ func _update_alerts() -> void:
     if _alert_button == null:
         return
     var problems: Array[Dictionary] = []
+    var display_names: Dictionary = {}
+    for source in _world.get("facilities", []):
+        if source is Dictionary:
+            display_names[str(source.get("id", ""))] = FacilityNames.display_name(source)
     var live: Variant = _economy.get("facilities", {})
     if live is Dictionary:
         for id in live:
             var raw: Variant = live[id]
             if not (raw is Dictionary):
                 continue
+            var full_name: String = str(display_names.get(str(id), str(id)))
+            var brief: String = full_name
+            if brief.length() > 28:
+                brief = brief.substr(0, 27) + "…"
             if bool(raw.get("abandoned", false)):
                 problems.append({"id":str(id), "title":"Объект заброшен",
-                    "value":"Подтверждено: " + str(id)})
+                    "full_name":full_name, "value":brief + " · заброшен"})
             elif raw.has("condition") and float(raw["condition"]) < 0.8:
                 problems.append({"id":str(id), "title":"Износ предприятия",
-                    "value":"%s · состояние %.2f" % [str(id), float(raw["condition"])]})
+                    "full_name":full_name,
+                    "value":"%s · %.1f%%" % [
+                        brief, float(raw["condition"]) * 100.0]})
     _alert_button.tooltip_text = "Сигналы N39: %d · открыть" % problems.size()
-    _alert_button.text = str(problems.size()) if not problems.is_empty() else ""
+    _alert_button.text = ""
+    if _alert_count != null:
+        _alert_count.text = ("99+" if problems.size() > 99
+            else str(problems.size()))
+        _alert_count.visible = not problems.is_empty()
     if _alerts_contents == null or not _alerts_popover.visible:
         return
     var signature: String = JSON.stringify(problems)
@@ -343,8 +370,12 @@ func _update_alerts() -> void:
                 func() -> void:
                     _toggle_alerts()
                     _select_from_workspace("facility", id), 12)
-            action.tooltip_text = str(issue["title"])
+            action.tooltip_text = ("%s\n%s\nN39 ID: %s" % [
+                str(issue["title"]), str(issue["full_name"]), id])
             action.alignment = HORIZONTAL_ALIGNMENT_LEFT
+            action.clip_text = true
+            action.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+            action.custom_minimum_size.y = 36
             _alerts_contents.add_child(action)
     var all := _button("ЭКОНОМИЧЕСКИЕ УЗКИЕ МЕСТА  ›",
         func() -> void:
