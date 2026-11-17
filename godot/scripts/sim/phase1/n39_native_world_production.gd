@@ -4408,7 +4408,14 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
         return false
     if proposed["populations"].size() != _world["populations"].size():
         return false
-    var staged: Dictionary = _copy_world("L4144", true)
+    # N151 consumption writes only population rows, facility credits and market
+    # supply/consumption windows. Detach these complete domains before the first
+    # ledger transfer: rejected tickets must never mutate authoritative World.
+    # All other domains are read-only and still checked by the full Schema oracle.
+    var staged: Dictionary = _copy_world("L4144_owned_root", false)
+    staged["populations"] = _world["populations"].duplicate(true)
+    staged["facilities"] = _world["facilities"].duplicate(true)
+    staged["markets"] = _world["markets"].duplicate(true)
     var ledger_next: RefCounted = _ledger.fork()
     var purchases: Array = native_result["purchases"]
     for index in range(purchases.size()):
