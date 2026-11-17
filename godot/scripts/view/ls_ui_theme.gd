@@ -40,6 +40,9 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSSearchFrame", &"PanelContainer")
     ui_theme.set_type_variation(&"LSSectionHeader", &"PanelContainer")
     ui_theme.set_type_variation(&"LSWindowIconFrame", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSLinkButton", &"Button")
+    ui_theme.set_type_variation(&"LSIssueButton", &"Button")
+    ui_theme.set_type_variation(&"LSCriticalIssueButton", &"LSIssueButton")
     ui_theme.set_type_variation(&"LSRowHeader", &"PanelContainer")
     ui_theme.set_type_variation(&"LSRowPlainEven", &"PanelContainer")
     ui_theme.set_type_variation(&"LSRowPlainOdd", &"PanelContainer")
@@ -115,6 +118,34 @@ static func build() -> Theme:
     ui_theme.set_stylebox(&"panel", &"LSSearchFrame", search_frame)
     ui_theme.set_stylebox(&"panel", &"LSSectionHeader", section_header)
     ui_theme.set_stylebox(&"panel", &"LSWindowIconFrame", window_icon)
+
+    # Native counterparts of section links and .issue-line in Figma Make.
+    ui_theme.set_font_size(&"font_size", &"LSLinkButton", 10)
+    ui_theme.set_color(&"font_color", &"LSLinkButton", Color("#53B5AC"))
+    ui_theme.set_color(&"font_hover_color", &"LSLinkButton", Color("#53B5AC"))
+    ui_theme.set_stylebox(&"normal", &"LSLinkButton",
+        _flat(Color("#0D1E26"), Color("#294049"), 0, 9, 4, 0, 1, 0))
+    ui_theme.set_stylebox(&"hover", &"LSLinkButton",
+        _flat(Color("#132D34"), Color("#53B5AC"), 0, 9, 4, 0, 1, 0))
+    ui_theme.set_stylebox(&"pressed", &"LSLinkButton",
+        _flat(Color("#132D34"), Color("#53B5AC"), 0, 9, 4, 0, 1, 0))
+    ui_theme.set_stylebox(&"focus", &"LSLinkButton",
+        _flat(Color.TRANSPARENT, Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"normal", &"LSIssueButton",
+        _flat(Color.TRANSPARENT, Color("#20343B"), 0, 0, 0, 0, 1, 0))
+    ui_theme.set_stylebox(&"hover", &"LSIssueButton",
+        _flat(Color("#132830"), Color("#20343B"), 0, 0, 0, 0, 1, 0))
+    ui_theme.set_stylebox(&"pressed", &"LSIssueButton",
+        _flat(Color("#132830"), Color("#53B5AC"), 0, 0, 0, 0, 1, 0))
+    ui_theme.set_stylebox(&"normal", &"LSCriticalIssueButton",
+        _flat(Color("#1C1814"), Color("#20343B"), 0, 0, 0, 0, 1, 0))
+    ui_theme.set_stylebox(&"hover", &"LSCriticalIssueButton",
+        _flat(Color("#132830"), Color("#20343B"), 0, 0, 0, 0, 1, 0))
+    ui_theme.set_stylebox(&"pressed", &"LSCriticalIssueButton",
+        _flat(Color("#132830"), Color("#C99B54"), 0, 0, 0, 0, 1, 0))
+    for variation in [&"LSIssueButton", &"LSCriticalIssueButton"]:
+        ui_theme.set_stylebox(&"focus", variation,
+            _flat(Color.TRANSPARENT, Color.TRANSPARENT))
 
     # Figma Make .dense-row: 34px transparent rows, 1px TOP border,
     # 8px typography, 25px header, and #142930 hover.
