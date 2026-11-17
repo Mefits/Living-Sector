@@ -13,6 +13,12 @@ const BG2 = Color("#0D1B24")
 const LINE = Color("#243942")
 const TEAL = Color("#53B5AC")
 const AMBER = Color("#C99B54")
+# Figma shell block 1: all geometry uses the same logical pixel grid.
+const TOP_H: float = 82.0
+const FOOT_H: float = 24.0
+const RAIL_W: float = 108.0
+const OUT_W: float = 276.0
+const GUTTER: float = 12.0
 const TEXT = Color("#C4D0D3")
 const MUTED = Color("#748B92")
 const METRICS: Array[Dictionary] = [
@@ -40,6 +46,15 @@ var _nav_sector: Button
 var _nav_path: Label
 var _brand_box: VBoxContainer
 var _time_area: VBoxContainer
+var _rail: PanelContainer
+var _rail_buttons: Dictionary = {}
+var _rail_active: String = ""
+var _tools_button: Button
+var _tools_menu: PopupMenu
+var _outliner_reopen: Button
+var _outliner_close_button: Button
+var _alerts_close_button: Button
+var _footer_panel: PanelContainer
 var _metric_boxes: Array[VBoxContainer] = []
 var _brand_scope: Button
 var _metric_nodes: Dictionary = {}
@@ -158,7 +173,8 @@ func _build_top() -> void:
     top_style.shadow_color = Color(0, 0, 0, 0.45)
     _top.add_theme_stylebox_override("panel", top_style)
     _top.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-    _top.offset_bottom = 82
+    _top.offset_bottom = TOP_H
+    _top.z_index = 100
     _top.mouse_filter = Control.MOUSE_FILTER_STOP
     add_child(_top)
     var row := HBoxContainer.new()
@@ -244,9 +260,10 @@ func _build_alerts() -> void:
     _alerts_popover.anchor_right = 1.0
     _alerts_popover.offset_left = -610
     _alerts_popover.offset_right = -282
-    _alerts_popover.offset_top = 78
-    _alerts_popover.offset_bottom = 398
-    _alerts_popover.z_index = 20
+    _alerts_popover.offset_top = TOP_H + 64
+    _alerts_popover.offset_bottom = TOP_H + 380
+    _alerts_popover.z_index = 80
+    _alerts_popover.mouse_filter = Control.MOUSE_FILTER_STOP
     add_child(_alerts_popover)
     var contents := VBoxContainer.new()
     contents.add_theme_constant_override("separation", 7)
@@ -256,7 +273,10 @@ func _build_alerts() -> void:
     var title := _label("СИГНАЛЫ СИМУЛЯЦИИ", 14, TEXT)
     title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     head.add_child(title)
-    head.add_child(_button("×", _toggle_alerts, 14))
+    _alerts_close_button = _button("×", _close_alerts, 16)
+    _alerts_close_button.custom_minimum_size = Vector2(36, 32)
+    _alerts_close_button.tooltip_text = "Закрыть сигналы"
+    head.add_child(_alerts_close_button)
     var scroll := ScrollContainer.new()
     scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
     scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -265,13 +285,26 @@ func _build_alerts() -> void:
     _alerts_contents.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     scroll.add_child(_alerts_contents)
 
+func _close_alerts() -> void:
+    if _alerts_popover == null:
+        return
+    _alerts_popover.hide()
+    _update_selection_card()
+
 func _toggle_alerts() -> void:
     if _alerts_popover == null:
         return
-    _alerts_popover.visible = not _alerts_popover.visible
     if _alerts_popover.visible:
-        _alerts_signature = ""
-        _update_alerts()
+        _close_alerts()
+        return
+    # Popups and management workspaces are mutually exclusive.
+    if _window != null and _window.visible:
+        _close_window()
+    _alerts_popover.show()
+    _alerts_signature = ""
+    _update_alerts()
+    if _selection_card != null:
+        _selection_card.hide()
 
 func _update_alerts() -> void:
     if _alert_button == null:
@@ -321,12 +354,14 @@ func _update_alerts() -> void:
 
 func _build_footer() -> void:
     var panel := _panel()
+    _footer_panel = panel
+    panel.z_index = 10
     panel.anchor_top = 1.0
     panel.anchor_bottom = 1.0
     panel.anchor_left = 0.0
     panel.anchor_right = 1.0
-    panel.offset_left = 65
-    panel.offset_right = -272
+    panel.offset_left = RAIL_W
+    panel.offset_right = -OUT_W
     panel.offset_top = -23
     panel.offset_bottom = 0
     panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -337,48 +372,70 @@ func _build_footer() -> void:
     panel.add_child(_footer_status)
 
 func _build_left() -> void:
-    var rail := _panel()
-    rail.add_theme_stylebox_override("panel",
+    _rail = _panel()
+    _rail.add_theme_stylebox_override("panel",
         _style(Color("#08131C"), Color("#294049"), 0, 0, 1, 0))
-    rail.anchor_bottom = 1.0
-    rail.offset_top = 82
-    rail.offset_right = 66
-    rail.offset_bottom = -4
-    add_child(rail)
-    var rail_column := VBoxContainer.new()
-    rail.add_child(rail_column)
-    var menu_scroll := ScrollContainer.new()
-    menu_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-    menu_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    rail_column.add_child(menu_scroll)
+    _rail.anchor_bottom = 1.0
+    _rail.offset_top = TOP_H
+    _rail.offset_right = RAIL_W
+    _rail.offset_bottom = -FOOT_H
+    _rail.z_index = 22
+    _rail.mouse_filter = Control.MOUSE_FILTER_STOP
+    add_child(_rail)
+    var column := VBoxContainer.new()
+    column.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    column.add_theme_constant_override("separation", 4)
+    _rail.add_child(column)
+    var scroll := ScrollContainer.new()
+    scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    column.add_child(scroll)
     var menu := VBoxContainer.new()
-    menu.add_theme_constant_override("separation", 5)
-    menu_scroll.add_child(menu)
-    for entry in [
-        {"text":"КОЛ", "tip":"Колонии [1]", "action":"colony", "icon":"colony"},
-        {"text":"ЭКН", "tip":"Экономика [2]", "action":"economy", "icon":"economy"},
-        {"text":"СТР", "tip":"Строительство [3]", "action":"construction", "icon":"construction"},
-        {"text":"ИСС", "tip":"Исследования [4]", "action":"research", "icon":"research"},
-        {"text":"ФЛТ", "tip":"Флот и логистика [5]", "action":"fleet", "icon":"fleet"},
-        {"text":"УПР", "tip":"Автономное управление [6]", "action":"administration", "icon":"administration"},
-        {"text":"ОБЪ", "tip":"Показать/скрыть список объектов", "action":"outliner"},
-        {"text":"ДАН", "tip":"Подробные данные N39", "action":"technical"},
-        {"text":"НАБ", "tip":"Наблюдение и диагностика", "action":"observer"},
-        {"text":"КАР", "tip":"Сектор / система", "action":"map"},
-        {"text":"ЦЕН", "tip":"Центрировать карту", "action":"center"},
-        {"text":"СОХ", "tip":"Сохранить игру", "action":"save"},
-        {"text":"ЗАГ", "tip":"Загрузить игру", "action":"load"}
+    menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    menu.add_theme_constant_override("separation", 3)
+    scroll.add_child(menu)
+    for item in [
+        {"name":"Колонии", "action":"colony", "icon":"colony", "key":"1"},
+        {"name":"Экономика", "action":"economy", "icon":"economy", "key":"2"},
+        {"name":"Строительство", "action":"construction", "icon":"construction", "key":"3"},
+        {"name":"Исследования", "action":"research", "icon":"research", "key":"4"},
+        {"name":"Флот", "action":"fleet", "icon":"fleet", "key":"5"},
+        {"name":"Управление", "action":"administration", "icon":"administration", "key":"6"}
     ]:
-        var action: String = str(entry["action"])
-        var btn := _button(str(entry["text"]), _activate.bind(action), 13)
-        btn.tooltip_text = str(entry["tip"])
-        if entry.has("icon"):
-            btn.icon = FigmaIcons.texture(str(entry["icon"]), 21, TEAL)
-            if btn.icon != null:
-                btn.text = ""
-                btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-        btn.custom_minimum_size = Vector2(43, 43)
+        var action: String = str(item["action"])
+        var btn := _button("", _activate.bind(action), 11)
+        btn.custom_minimum_size = Vector2(94, 55)
+        btn.tooltip_text = str(item["name"]) + " [" + str(item["key"]) + "]"
+        btn.add_theme_stylebox_override("normal",
+            _style(Color("#08131C"), LINE, 0, 0, 0, 1))
         menu.add_child(btn)
+        _rail_buttons[action] = btn
+        var content := VBoxContainer.new()
+        content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        content.alignment = BoxContainer.ALIGNMENT_CENTER
+        content.add_theme_constant_override("separation", 4)
+        btn.add_child(content)
+        content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+        var glyph := TextureRect.new()
+        glyph.texture = FigmaIcons.texture(str(item["icon"]), 20, TEAL)
+        glyph.custom_minimum_size = Vector2(21, 21)
+        glyph.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+        glyph.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+        glyph.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        content.add_child(glyph)
+        var label := _label(str(item["name"]), 10, TEXT)
+        label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        content.add_child(label)
+    var bottom := VBoxContainer.new()
+    bottom.add_theme_constant_override("separation", 4)
+    column.add_child(bottom)
+    var objects := _button("☷  Объекты", _toggle_outliner, 11)
+    objects.custom_minimum_size.y = 34
+    bottom.add_child(objects)
+    _tools_button = _button("⋯  Меню", _show_nav_tools, 11)
+    _tools_button.custom_minimum_size.y = 33
+    _tools_button.tooltip_text = "Карта, наблюдение, сохранение и загрузка"
+    bottom.add_child(_tools_button)
     _ui_scale_menu = OptionButton.new()
     _ui_scale_menu.tooltip_text = "Масштаб интерфейса: 100 / 115 / 125 / 140%"
     _ui_scale_menu.add_theme_font_size_override("font_size", 11)
@@ -386,16 +443,52 @@ func _build_left() -> void:
     _ui_scale_menu.add_theme_stylebox_override("normal", _style(BG2))
     _ui_scale_menu.add_theme_stylebox_override("hover", _style(Color("#183239"), TEAL))
     _ui_scale_menu.add_theme_stylebox_override("pressed", _style(Color("#183239"), TEAL))
-    _ui_scale_menu.add_theme_stylebox_override("focus", _style(Color.TRANSPARENT, TEAL))
-    _ui_scale_menu.custom_minimum_size = Vector2(43, 33)
+    _ui_scale_menu.custom_minimum_size.y = 32
     for percent in [100, 115, 125, 140]:
         _ui_scale_menu.add_item("%d%%" % percent)
     _ui_scale_menu.select(2)
     _ui_scale_menu.item_selected.connect(_set_ui_scale)
-    rail_column.add_child(_ui_scale_menu)
+    bottom.add_child(_ui_scale_menu)
+    _tools_menu = PopupMenu.new()
+    for name in [
+        "Аутлайнер", "Технические данные N39", "Наблюдение",
+        "Сектор / система", "Центрировать", "Сохранить", "Загрузить"
+    ]:
+        _tools_menu.add_item(name)
+    _tools_menu.id_pressed.connect(_on_tools_selected)
+    _rail.add_child(_tools_menu)
+
+func _show_nav_tools() -> void:
+    if _tools_button == null or _tools_menu == null:
+        return
+    var pos: Vector2 = _tools_button.get_screen_transform().origin
+    _tools_menu.position = Vector2i(pos + Vector2(RAIL_W + 4, -70))
+    _tools_menu.popup()
+
+func _on_tools_selected(id: int) -> void:
+    var actions: Array[String] = [
+        "outliner", "technical", "observer", "map",
+        "center", "save", "load"]
+    if id >= 0 and id < actions.size():
+        _activate(actions[id])
+
+func _sync_rail_active() -> void:
+    var current: String = _window_mode if _window != null and (
+        _window.visible) else ""
+    if current == _rail_active:
+        return
+    _rail_active = current
+    for action in _rail_buttons:
+        var btn: Button = _rail_buttons[action]
+        var selected: bool = str(action) == current
+        btn.add_theme_stylebox_override("normal", _style(
+            Color("#153139") if selected else Color("#08131C"),
+            TEAL if selected else LINE, 2 if selected else 0, 0, 0, 1))
 
 func _build_outliner() -> void:
     _outliner = _panel()
+    _outliner.z_index = 25
+    _outliner.mouse_filter = Control.MOUSE_FILTER_STOP
     _outliner.add_theme_stylebox_override("panel",
         _style(Color("#09141C"), Color("#31505A")))
     _outliner.anchor_left = 1.0
@@ -414,7 +507,10 @@ func _build_outliner() -> void:
     var caption := _label("АУТЛАЙНЕР", 15, Color("#D3DDDD"))
     caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     head.add_child(caption)
-    head.add_child(_button("×", _toggle_outliner, 15))
+    _outliner_close_button = _button("×", _toggle_outliner, 16)
+    _outliner_close_button.custom_minimum_size = Vector2(36, 32)
+    _outliner_close_button.tooltip_text = "Свернуть аутлайнер"
+    head.add_child(_outliner_close_button)
     var filters := HBoxContainer.new()
     filters.add_theme_constant_override("separation", 3)
     col.add_child(filters)
@@ -436,13 +532,26 @@ func _build_outliner() -> void:
     _outliner_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     _outliner_list.add_theme_constant_override("separation", 3)
     scroll.add_child(_outliner_list)
+    _outliner_reopen = _button("‹  ОБЪЕКТЫ", _toggle_outliner, 11)
+    _outliner_reopen.z_index = 28
+    _outliner_reopen.tooltip_text = "Развернуть аутлайнер"
+    _outliner_reopen.anchor_left = 1.0
+    _outliner_reopen.anchor_right = 1.0
+    _outliner_reopen.offset_left = -122
+    _outliner_reopen.offset_right = -8
+    _outliner_reopen.offset_top = TOP_H + 10
+    _outliner_reopen.offset_bottom = TOP_H + 48
+    _outliner_reopen.visible = false
+    add_child(_outliner_reopen)
 
 ## Persistent map breadcrumb. The former legacy "К сектору" button was
 ## hidden by the Figma shell, which made leaving another system undiscoverable.
 ## Keep this readable at 100–140% without reserving half of the map.
 func _build_navigation() -> void:
     _nav_panel = _panel()
-    _nav_panel.offset_left = 78
+    _nav_panel.z_index = 35
+    _nav_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+    _nav_panel.offset_left = RAIL_W + GUTTER
     _nav_panel.offset_right = 470
     _nav_panel.offset_top = 89
     _nav_panel.offset_bottom = 133
@@ -500,6 +609,8 @@ func _update_navigation() -> void:
 
 func _build_window() -> void:
     _window = _panel()
+    _window.z_index = 50
+    _window.mouse_filter = Control.MOUSE_FILTER_STOP
     var workspace_frame := _style(Color("#09141C"), Color("#31505A"))
     workspace_frame.shadow_size = 10
     workspace_frame.shadow_color = Color(0, 0, 0, 0.60)
@@ -552,6 +663,8 @@ func _build_window() -> void:
 
 func _build_selection_card() -> void:
     _selection_card = _panel()
+    _selection_card.z_index = 40
+    _selection_card.mouse_filter = Control.MOUSE_FILTER_STOP
     _selection_card.add_theme_stylebox_override("panel",
         _style(Color("#0C1C25"), TEAL, 2, 1, 1, 1))
     _selection_card.visible = false
@@ -581,6 +694,8 @@ func _dismiss_selection_card() -> void:
     _selection_card.hide()
 
 func _open_selection_details() -> void:
+    if _alerts_popover != null:
+        _alerts_popover.hide()
     _window_mode = ("ship" if not _ship.is_empty() else (
         "facility" if not _facility.is_empty() else "colony"))
     _tab = "Обзор" if _window_mode != "facility" else "Процесс"
@@ -616,21 +731,65 @@ func _update_selection_card() -> void:
             _selection_summary.text += " · " + str(visiting[0]["name"])
 
 func _layout_window() -> void:
+    var vw: float = maxf(640.0, size.x)
+    var vh: float = maxf(400.0, size.y)
     if _brand_box != null:
-        var compact: bool = size.x < 1150.0
-        _brand_box.custom_minimum_size.x = 148.0 if compact else 184.0
-        for box in _metric_boxes:
-            box.custom_minimum_size.x = 105.0 if compact else 121.0
+        var compact: bool = vw < 1160.0
+        _brand_box.custom_minimum_size.x = 164.0 if compact else 184.0
+        for i in range(_metric_boxes.size()):
+            var resource_tile: Control = _metric_boxes[i].get_parent()
+            # Speed controls win over the final resource at 140%/1366px.
+            resource_tile.visible = (i < 5 or vw >= 1015.0)
+            _metric_boxes[i].custom_minimum_size.x = (
+                87.0 if compact else 109.0)
         if _time_area != null:
-            _time_area.custom_minimum_size.x = 170.0 if compact else 210.0
-    if _window == null:
-        return
-    _window.offset_left = 80
-    # Figma management sheets are intentionally roomy but never permanent.
-    # Leave the 265px right outliner visible at 1366x768 and on wider displays.
-    _window.offset_right = minf(1040.0, maxf(550.0, size.x - 350.0))
-    _window.offset_top = 142
-    _window.offset_bottom = -40
+            _time_area.custom_minimum_size.x = (
+                170.0 if compact else 204.0)
+    if _rail != null:
+        _rail.offset_top = TOP_H
+        _rail.offset_right = RAIL_W
+        _rail.offset_bottom = -FOOT_H
+    var left: float = RAIL_W + GUTTER
+    var reserved_right: float = (
+        OUT_W + GUTTER if _show_outliner else GUTTER)
+    var right: float = maxf(left + 300.0, vw - reserved_right)
+    if _outliner != null:
+        _outliner.offset_left = -(OUT_W + 8.0)
+        _outliner.offset_right = -8.0
+        _outliner.offset_top = TOP_H + 9.0
+        _outliner.offset_bottom = -(FOOT_H + 5.0)
+    if _outliner_reopen != null:
+        _outliner_reopen.offset_top = TOP_H + 10.0
+        _outliner_reopen.offset_bottom = TOP_H + 48.0
+    if _nav_panel != null:
+        _nav_panel.offset_left = left
+        _nav_panel.offset_right = minf(right, left + 376.0)
+        _nav_panel.offset_top = TOP_H + 10.0
+        _nav_panel.offset_bottom = TOP_H + 53.0
+    if _window != null:
+        _window.offset_left = left
+        _window.offset_right = minf(right, left + 930.0)
+        _window.offset_top = TOP_H + 64.0
+        _window.offset_bottom = -(FOOT_H + 12.0)
+    if _selection_card != null:
+        var cr: float = right - 4.0
+        _selection_card.offset_left = maxf(left, cr - 360.0)
+        _selection_card.offset_right = cr
+        _selection_card.offset_top = -205.0
+        _selection_card.offset_bottom = -(FOOT_H + 10.0)
+    if _alerts_popover != null:
+        var ar: float = right - 5.0
+        _alerts_popover.offset_left = maxf(left, ar - 335.0)
+        _alerts_popover.offset_right = ar
+        _alerts_popover.offset_top = TOP_H + 64.0
+        _alerts_popover.offset_bottom = minf(
+            vh - FOOT_H - 9.0, TOP_H + 380.0)
+    if _footer_panel != null:
+        _footer_panel.offset_left = RAIL_W
+        _footer_panel.offset_right = (
+            -(OUT_W + 8.0) if _show_outliner else -8.0)
+        _footer_panel.offset_top = -FOOT_H
+        _footer_panel.offset_bottom = 0.0
 
 ## The already-existing UIFrameProfiler owns timing samples. Reuse its
 ## scalars; do not sample World, N158 or network from the HUD.
@@ -675,6 +834,9 @@ func _toggle_scope() -> void:
 func _toggle_outliner() -> void:
     _show_outliner = not _show_outliner
     _outliner.visible = _show_outliner
+    if _outliner_reopen != null:
+        _outliner_reopen.visible = not _show_outliner
+    _layout_window()
 
 func _close_window() -> void:
     _window.visible = false
@@ -682,8 +844,11 @@ func _close_window() -> void:
     _workspace_history.clear()
     _workspace_focus = ""
     _update_selection_card()
+    _sync_rail_active()
 
 func _activate(kind: String) -> void:
+    if _alerts_popover != null and _alerts_popover.visible:
+        _close_alerts()
     if kind in ["map", "center", "save", "load"]:
         if _game != null:
             match kind:
@@ -809,6 +974,7 @@ func present(world: Dictionary, economy: Dictionary, body: String,
     _update_navigation()
     _update_window()
     _update_selection_card()
+    _sync_rail_active()
 
 func _effective_body() -> String:
     if not _body.is_empty():
@@ -1121,6 +1287,8 @@ func _clear_outliner_entries() -> void:
 
 ## Navigation state shared by the seven Figma workspaces.
 func _route_workspace(mode: String, tab: String, focus: String = "") -> void:
+    if _alerts_popover != null:
+        _alerts_popover.hide()
     if _window.visible and not _window_mode.is_empty() and (
             _window_mode != mode or _tab != tab or _workspace_focus != focus):
         _workspace_history.append({
@@ -1782,7 +1950,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
     var key: int = event.keycode
     if key == KEY_ESCAPE:
         if _alerts_popover != null and _alerts_popover.visible:
-            _alerts_popover.hide()
+            _close_alerts()
         elif _window != null and _window.visible:
             _workspace_back()
         elif _game != null and bool(_game.get("_in_system")):
