@@ -4784,7 +4784,14 @@ func _run_shipyard_modules(tick: int, multiplier: int,
         var plan: Dictionary = candidate["plan"]
         # The source checks stock and input prices BEFORE paying workers.
         # Never deduct goods or award a module on an unfunded wage shift.
-        var staged: Dictionary = _copy_world("L4449", true)
+        # N154 paid module write set: payroll touches facility shifts/credits
+        # and household wealth/employment; manufacturing touches the local
+        # market supply/history. Keep every other authoritative domain shared
+        # for read-only Schema inspection, never expose mutable aliases to pay_shift.
+        var staged: Dictionary = _copy_world("L4449_owned_root", false)
+        staged["facilities"] = _world["facilities"].duplicate(true)
+        staged["populations"] = _world["populations"].duplicate(true)
+        staged["markets"] = _world["markets"].duplicate(true)
         var ledger_copy: RefCounted = _ledger.fork()
         var shift: Dictionary = Payroll.pay_shift(staged, ledger_copy,
             str(id), owner, tick, external_workers,
