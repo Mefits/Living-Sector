@@ -137,9 +137,11 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	# A fork that still sees older immutable shards retains its own cache.
 	# A cache already invalidated by an earlier paid append must not be
 	# replaced with another empty Dictionary on every subsequent append.
-	# Preserve the old detached cache until the next full snapshot rebuild;
-	# only the generation marker controls whether it can be read.
-	_flat_cache_count = -1
+	# Release a previously materialized full-history cache on the FIRST
+	# invalidation; later paid appends do not allocate redundant empty maps.
+	if _flat_cache_count >= 0:
+		_flat_receipt_cache = {}
+		_flat_cache_count = -1
 	if _profile_append:
 		var elapsed: int = maxi(0, Time.get_ticks_usec() - started_usec)
 		_profile_append_calls += 1
