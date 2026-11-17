@@ -30,6 +30,9 @@ var _mode: String = "sector"
 var _window_mode: String = ""
 var _tab: String = "Обзор"
 var _top: PanelContainer
+var _brand_box: VBoxContainer
+var _time_area: VBoxContainer
+var _metric_boxes: Array[VBoxContainer] = []
 var _brand_scope: Button
 var _metric_nodes: Dictionary = {}
 var _clock: Label
@@ -124,15 +127,17 @@ func _build_top() -> void:
     row.add_theme_constant_override("separation", 0)
     _top.add_child(row)
     var brand := VBoxContainer.new()
+    _brand_box = brand
     brand.custom_minimum_size = Vector2(184, 0)
     brand.add_theme_constant_override("separation", 3)
     row.add_child(brand)
-    brand.add_child(_label("L I V I N G  S E C T O R", 15, TEXT))
+    brand.add_child(_label("LIVING SECTOR", 16, TEXT))
     _brand_scope = _button("СЕКТОР · ВСЕ РЫНКИ ▾", _toggle_scope, 11)
     _brand_scope.tooltip_text = "Общие запасы рынков всех фракций, НЕ баланс одной фракции"
     brand.add_child(_brand_scope)
     for item in METRICS:
         var box := VBoxContainer.new()
+        _metric_boxes.append(box)
         box.custom_minimum_size = Vector2(121, 0)
         box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         box.add_theme_constant_override("separation", 4)
@@ -142,6 +147,7 @@ func _build_top() -> void:
         box.add_child(large)
         _metric_nodes[str(item["key"])] = large
     var time_area := VBoxContainer.new()
+    _time_area = time_area
     time_area.custom_minimum_size = Vector2(158, 0)
     row.add_child(time_area)
     _clock = _label("ТИК — · ×1", 11, MUTED)
@@ -166,9 +172,15 @@ func _build_left() -> void:
     rail.offset_right = 66
     rail.offset_bottom = -4
     add_child(rail)
+    var rail_column := VBoxContainer.new()
+    rail.add_child(rail_column)
+    var menu_scroll := ScrollContainer.new()
+    menu_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    menu_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    rail_column.add_child(menu_scroll)
     var menu := VBoxContainer.new()
     menu.add_theme_constant_override("separation", 5)
-    rail.add_child(menu)
+    menu_scroll.add_child(menu)
     for entry in [
         {"text":"КОЛ", "tip":"Открыть колонию", "action":"colony"},
         {"text":"ЭКН", "tip":"Экономика рынков", "action":"economy"},
@@ -199,7 +211,7 @@ func _build_left() -> void:
         _ui_scale_menu.add_item("%d%%" % percent)
     _ui_scale_menu.select(2)
     _ui_scale_menu.item_selected.connect(_set_ui_scale)
-    menu.add_child(_ui_scale_menu)
+    rail_column.add_child(_ui_scale_menu)
 
 func _build_outliner() -> void:
     _outliner = _panel()
@@ -317,6 +329,13 @@ func _update_selection_card() -> void:
         str(projection.get("subtitle", "Данные отсутствуют")))
 
 func _layout_window() -> void:
+    if _brand_box != null:
+        var compact: bool = size.x < 1150.0
+        _brand_box.custom_minimum_size.x = 148.0 if compact else 184.0
+        for box in _metric_boxes:
+            box.custom_minimum_size.x = 105.0 if compact else 121.0
+        if _time_area != null:
+            _time_area.custom_minimum_size.x = 138.0 if compact else 158.0
     if _window == null:
         return
     _window.offset_left = 80
@@ -342,6 +361,8 @@ func _toggle_scope() -> void:
     else:
         _mode = "colony" if _mode == "sector" else "sector"
     _update_metrics()
+    _brand_scope.text = ("КОЛОНИЯ · " + _body_name(_effective_body()).to_upper() + " ▾"
+        if _mode == "colony" else "СЕКТОР · ВСЕ РЫНКИ ▾")
     _update_window()
 
 func _toggle_outliner() -> void:
