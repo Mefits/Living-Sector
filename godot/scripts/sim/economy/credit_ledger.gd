@@ -57,6 +57,11 @@ var _profile_append_old_shard_rows: int = 0
 var _profile_snapshot_calls: int = 0
 var _profile_snapshot_usec: int = 0
 var _profile_snapshot_max_usec: int = 0
+# Split real snapshot time into rebuild (O(R) ID lookup) and detached
+# deep-copy (O(R) records). Only measured on the existing opt-in path.
+var _profile_snapshot_rebuild_calls: int = 0
+var _profile_snapshot_rebuild_usec: int = 0
+var _profile_snapshot_copy_usec: int = 0
 
 func paid_path_profile() -> Dictionary:
 	return {"enabled": _profile_append, "receipt_count": _receipt_count,
@@ -66,7 +71,10 @@ func paid_path_profile() -> Dictionary:
 		"append_old_shard_rows": _profile_append_old_shard_rows,
 		"snapshot_calls": _profile_snapshot_calls,
 		"snapshot_usec": _profile_snapshot_usec,
-		"snapshot_max_usec": _profile_snapshot_max_usec}
+		"snapshot_max_usec": _profile_snapshot_max_usec,
+		"snapshot_rebuild_calls": _profile_snapshot_rebuild_calls,
+		"snapshot_rebuild_usec": _profile_snapshot_rebuild_usec,
+		"snapshot_copy_usec": _profile_snapshot_copy_usec}
 
 
 ## A trusted fork replaces the entire partition header immediately. Avoid
@@ -152,6 +160,7 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 func _snapshot_receipts() -> Dictionary:
 	var started_usec: int = Time.get_ticks_usec() if _profile_append else 0
 	if _flat_cache_count != _receipt_count:
+		var rebuild_started: int = Time.get_ticks_usec() if _profile_append else 0
 		var ordered: Dictionary = {}
 		for chunk in _receipt_order_chunks:
 			for id in chunk:
@@ -161,7 +170,13 @@ func _snapshot_receipts() -> Dictionary:
 				ordered[id] = _receipt_at(id)
 		_flat_receipt_cache = ordered
 		_flat_cache_count = _receipt_count
+		if _profile_append:
+			_profile_snapshot_rebuild_calls += 1
+			_profile_snapshot_rebuild_usec += maxi(0, Time.get_ticks_usec() - rebuild_started)
+	var copy_started: int = Time.get_ticks_usec() if _profile_append else 0
 	var result: Dictionary = _flat_receipt_cache.duplicate(true)
+	if _profile_append:
+		_profile_snapshot_copy_usec += maxi(0, Time.get_ticks_usec() - copy_started)
 	if _profile_append:
 		var elapsed: int = maxi(0, Time.get_ticks_usec() - started_usec)
 		_profile_snapshot_calls += 1
