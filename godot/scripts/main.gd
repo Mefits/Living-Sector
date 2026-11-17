@@ -997,9 +997,14 @@ func _worker_gui_smoke_pump() -> void:
                 if str(_strategy_ui.get("_ship")) != local_id:
                     _worker_failed = "outliner ship context was not synchronized"
                     return
-                _return_to_sector()
+                # Test the ACTUAL Figma breadcrumb, not a direct call to
+                # the legacy hidden back button.
+                if not str((_strategy_ui.get("_nav_back") as Button).text).contains("К СЕКТОРУ"):
+                    _worker_failed = "visible sector breadcrumb missing"
+                    return
+                _strategy_ui.call("_navigate_back")
                 if _in_system or not _map.visible:
-                    _worker_failed = "real GUI return navigation failed"
+                    _worker_failed = "real GUI breadcrumb return navigation failed"
                     return
                 _worker_smoke_path = ("user://tests/p2-worker-gui-" +
                     str(Time.get_ticks_usec()) + ".json")
