@@ -906,6 +906,58 @@ func _clear_outliner_entries() -> void:
         _outliner_list.remove_child(child)
         child.queue_free()
 
+## Navigation state shared by the seven Figma workspaces.
+func _route_workspace(mode: String, tab: String, focus: String = "") -> void:
+    if _window.visible and not _window_mode.is_empty() and (
+            _window_mode != mode or _tab != tab or _workspace_focus != focus):
+        _workspace_history.append({
+            "mode":_window_mode, "tab":_tab, "focus":_workspace_focus,
+            "body":_body, "facility":_facility, "ship":_ship})
+        if _workspace_history.size() > 20:
+            _workspace_history.pop_front()
+    _window_mode = mode
+    _tab = tab
+    _workspace_focus = focus
+    _window.show()
+    _update_window()
+    _update_selection_card()
+
+func _select_from_workspace(kind: String, id: String) -> void:
+    if id.is_empty():
+        return
+    if _window.visible and not _window_mode.is_empty():
+        _workspace_history.append({
+            "mode":_window_mode, "tab":_tab, "focus":_workspace_focus,
+            "body":_body, "facility":_facility, "ship":_ship})
+    match kind:
+        "facility":
+            _select_facility(id)
+            _window_mode = "facility"
+            _tab = "Процесс"
+        "ship":
+            _select_ship(id)
+            _window_mode = "ship"
+            _tab = "Обзор"
+        "body":
+            _select_body(id)
+            _window_mode = "colony"
+            _tab = "Обзор"
+        _:
+            return
+    _workspace_focus = id
+    _window.show()
+    _update_window()
+
+func _workspace_back() -> void:
+    if _workspace_history.is_empty():
+        _close_window()
+        return
+    var record: Dictionary = _workspace_history.pop_back()
+    _window_mode = str(record.get("mode", ""))
+    _tab = str(record.get("tab", "Обзор"))
+    _workspace_focus = str(record.get("focus", ""))
+    _update_window()
+
 func _tabs_for_mode() -> Array[String]:
     match _window_mode:
         "colony":
