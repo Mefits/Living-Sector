@@ -7,12 +7,14 @@ extends Control
 
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
+signal colony_facility_selected(facility_id: String)
 
 const MIN_ZOOM: float = 0.45
 const MAX_ZOOM: float = 32.0
 const WHEEL_ZOOM: float = 1.32
 const BACKGROUND: Color = Color("#0b1421")
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
+const ColonyProjection = preload("res://scripts/view/colony_globe_projection.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
 ## Native Galaxy 0.6.7 stores heliocentric radius/period/angle for ALL
 ## bodies and has NO parent identifier. Do not rewrite Rust orbit physics.
@@ -36,6 +38,13 @@ var _body_pins: Array = []
 var _focused_body_id: String = ""
 var _globe_zoom: float = 1.0
 var _globe_pan: Vector2 = Vector2.ZERO
+var _colony_data: Dictionary = {"nodes": [], "orbit": [], "links": []}
+var _colony_pins: Array[Dictionary] = []
+var _colony_time: float = 0.0
+var _colony_redraw_accum: float = 0.0
+var _colony_has_traffic: bool = false
+var _focus_press: Vector2 = Vector2.ZERO
+var _focus_drag_distance: float = 0.0
 ## U4: detached UI-only indices. The authoritative World is never mutated.
 var _body_index: Dictionary = {}
 var _facilities_by_body: Dictionary = {}
@@ -111,10 +120,17 @@ func _ready() -> void:
     clip_contents = true
 
 
-func _process(_delta: float) -> void:
-    # Only redraw the UI during an active visual transition. This does
-    # not advance orbital physics or any real N158/N39 ship position.
-    if not visible or is_body_focused():
+func _process(delta: float) -> void:
+    # Globe particles are decorative; no N158/N39 updates on draw frames.
+    if not visible:
+        return
+    if is_body_focused():
+        if _colony_has_traffic:
+            _colony_time += minf(maxf(delta, 0.0), 0.05)
+            _colony_redraw_accum += maxf(delta, 0.0)
+            if _colony_redraw_accum >= 1.0 / 30.0:
+                _colony_redraw_accum = 0.0
+                queue_redraw()
         return
     var now_usec: int = Time.get_ticks_usec()
     if (not _body_motion_from.is_empty() and
@@ -132,6 +148,9 @@ func set_world(world: Dictionary) -> void:
     _rebuild_facility_index()
     _selected_body_id = ""
     _focused_body_id = ""
+    _colony_data = {"nodes": [], "orbit": [], "links": []}
+    _colony_pins.clear()
+    _colony_has_traffic = false
     _zoom = 1.0
     _pan = Vector2.ZERO
     _globe_zoom = 1.0
@@ -232,6 +251,19 @@ func update_world(world: Dictionary) -> void:
     if changed:
         queue_redraw()
 
+func set_colony_projection(data: Dictionary) -> void:
+    # Caller supplies ONLY the tiny detached per-body presentation model.
+    if data == _colony_data:
+        return
+    _colony_data = data
+    _colony_has_traffic = false
+    for link in _colony_data.get("links", []):
+        if int(link.get("activity", 0)) > 0:
+            _colony_has_traffic = true
+            break
+    queue_redraw()
+
+
 func select_body(body_id: String) -> void:
     if _selected_body_id == body_id:
         return
@@ -250,6 +282,10 @@ func focus_body(body_id: String) -> bool:
     # A single real world object is shown at globe scale. No extra World.
     _selected_body_id = body_id
     _focused_body_id = body_id
+    _colony_data = {"nodes": [], "orbit": [], "links": []}
+    _colony_pins.clear()
+    _colony_has_traffic = false
+    _colony_time = 0.0
     _globe_zoom = 1.0
     _globe_pan = Vector2.ZERO
     _dragging = false
@@ -259,6 +295,8 @@ func focus_body(body_id: String) -> bool:
 
 func unfocus_body() -> void:
     _focused_body_id = ""
+    _colony_has_traffic = false
+    _colony_pins.clear()
     _globe_pan = Vector2.ZERO
     _globe_zoom = 1.0
     _dragging = false
@@ -692,6 +730,7 @@ func _draw_body_focus() -> void:
     # A muted visible terminator, without gradients or glossy highlights.
     draw_arc(center, radius, 0.18 * PI, 1.15 * PI, 70,
         Color("#192a39"), maxf(2.0, radius * 0.025))
+    _draw_colony_on_focus(center, radius)
     var name: String = str(body.get("name", _focused_body_id))
     draw_string(font, Vector2(18.0, 31.0),
         name + "  /  " + str(body.get("type", "?")), HORIZONTAL_ALIGNMENT_LEFT,
@@ -710,8 +749,78 @@ func _draw_body_focus() -> void:
         "Биом: " + biome + "  ·  объектов: " + str(_facility_count(_focused_body_id)),
         HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#cbdce6"))
     draw_string(font, Vector2(18.0, size.y - 17.0),
-        "Колесо: размер глобуса · ЛКМ: сдвиг · назад: к орбитам · поверхность схематична",
+        "Колесо: размер · ЛКМ: выбрать/сдвиг · сеть и точки — визуальная активность",
         HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color("#819cae"))
+
+
+func _draw_colony_on_focus(center: Vector2, radius: float) -> void:
+    _colony_pins.clear()
+    var surface: Array = _colony_data.get("nodes", [])
+    var orbital: Array = _colony_data.get("orbit", [])
+    if surface.is_empty() and orbital.is_empty():
+        return
+    var hub: Vector2 = center + Vector2(-0.22, -0.24) * radius
+    var positions: Dictionary = {"hub": hub}
+    for entry in surface:
+        positions[str(entry["id"])] = center + (entry["pos"] as Vector2) * radius
+    for link in _colony_data.get("links", []):
+        var a_id: String = str(link.get("a", ""))
+        var b_id: String = str(link.get("b", ""))
+        if not positions.has(a_id) or not positions.has(b_id):
+            continue
+        var a: Vector2 = positions[a_id]
+        var b: Vector2 = positions[b_id]
+        var is_chain: bool = str(link.get("kind", "")) == "production"
+        draw_line(a, b, Color("#92a39a", 0.54 if is_chain else 0.72),
+            maxf(1.0, radius * (0.009 if is_chain else 0.014)), true)
+        var count: int = mini(6, int(link.get("activity", 0)))
+        for index in range(count):
+            var phase: float = fposmod(_colony_time * 0.16 +
+                float(index) / float(count), 1.0)
+            # Access road traffic commutes; production relation is one-way.
+            if not is_chain:
+                phase = 1.0 - absf(2.0 * phase - 1.0)
+            draw_circle(a.lerp(b, phase), clampf(radius * 0.015, 1.5, 3.0),
+                Color("#e1bd7e"))
+    var font: Font = get_theme_default_font()
+    draw_rect(Rect2(hub - Vector2(6, 6), Vector2(12, 12)), Color("#d1c39e"), true)
+    draw_string(font, hub + Vector2(8, -8), "Узел",
+        HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#e7e0ca"))
+    for entry in surface:
+        var point: Vector2 = positions[str(entry["id"])]
+        var tint: Color = Color("#bdc9bd") if int(entry["activity"]) > 0 else Color("#718480")
+        if bool(entry["abandoned"]):
+            tint = Color("#725e62")
+        draw_rect(Rect2(point - Vector2(5, 5), Vector2(10, 10)), tint, true)
+        draw_rect(Rect2(point - Vector2(6, 6), Vector2(12, 12)),
+            Color("#1b323b"), false, 1.0)
+        _colony_pins.append({"id": str(entry["id"]), "position": point})
+    # A real station remains an orbital object; its surface hub is only
+    # a schematic road junction, not a second facility or invented AC.
+    for i in range(orbital.size()):
+        var entry: Dictionary = orbital[i]
+        var point: Vector2 = center + Vector2(0.85, -0.76) * radius +
+            Vector2(0.0, 23.0 * i)
+        if i == 0:
+            draw_line(center + Vector2(0.63, -0.62) * radius, point,
+                Color("#7292a0", 0.5), 1.0, true)
+        draw_rect(Rect2(point - Vector2(7, 5), Vector2(14, 10)),
+            Color("#a9b8c4"), true)
+        draw_string(font, point + Vector2(11, 4),
+            str(entry["type"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 10,
+            Color("#c3d1d8"))
+        _colony_pins.append({"id": str(entry["id"]), "position": point})
+
+
+func _pick_colony_facility(pointer: Vector2) -> void:
+    var nearest: float = 14.0
+    var chosen: String = ""
+    for pin in _colony_pins:
+        var distance: float = pointer.distance_to(pin["position"])
+        if distance < nearest:
+            nearest = distance
+            chosen = str(pin["id"])
+    colony_facility_selected.emit(chosen)
 
 
 func _focus_input(event: InputEvent) -> void:
@@ -725,9 +834,17 @@ func _focus_input(event: InputEvent) -> void:
             queue_redraw()
             accept_event()
         elif event.button_index == MOUSE_BUTTON_LEFT:
-            _dragging = event.pressed
+            if event.pressed:
+                _dragging = true
+                _focus_press = event.position
+                _focus_drag_distance = 0.0
+            else:
+                if _dragging and _focus_drag_distance < 7.0:
+                    _pick_colony_facility(event.position)
+                _dragging = false
             accept_event()
     elif event is InputEventMouseMotion and _dragging:
+        _focus_drag_distance += event.relative.length()
         _globe_pan += event.relative
         queue_redraw()
         accept_event()
