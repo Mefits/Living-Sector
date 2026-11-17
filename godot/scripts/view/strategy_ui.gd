@@ -23,6 +23,7 @@ const METRICS: Array[Dictionary] = [
 var _game: Control
 var _world: Dictionary = {}
 var _economy: Dictionary = {}
+var _fleet_diagnostics: Dictionary = {}
 var _body: String = ""
 var _facility: String = ""
 var _ship: String = ""
@@ -451,7 +452,23 @@ func _select_ship(id: String) -> void:
 
 func present(world: Dictionary, economy: Dictionary, body: String,
         facility: String, ship: String, tick: int, paused: bool,
-        speed: float, status: String, diagnostics: String) -> void:
+        speed: float, status: String, diagnostics: String,
+        fleet_diagnostics: Dictionary = {}) -> void:
+    var selection_changed: bool = body != _body or facility != _facility or (
+        ship != _ship)
+    if selection_changed and _window != null and _window.visible and (
+            _window_mode in ["colony", "facility", "ship"]):
+        if not ship.is_empty():
+            _window_mode = "ship"
+        elif not facility.is_empty():
+            _window_mode = "facility"
+        elif not body.is_empty():
+            _window_mode = "colony"
+        else:
+            _window_mode = ""
+            _window.hide()
+        _tab = "Обзор"
+    _fleet_diagnostics = fleet_diagnostics
     if not world.is_empty():
         _world = world
     if not economy.is_empty():
@@ -702,7 +719,16 @@ func _update_window() -> void:
         _render_cards(projection.get("cards", []))
     else:
         _render_cards([])
-    if _tab == "Данные" or _window_mode == "technical":
+    if _window_mode == "technical":
+        lines.append(_diagnostic_text if not _diagnostic_text.is_empty()
+            else _status_text)
+    elif _tab == "Данные" and _window_mode == "ship":
+        lines.append(_ship_diagnostic_text())
+    elif _tab == "Данные" and _window_mode == "fleet":
+        lines.append(_fleet_diagnostic_text())
+    elif _tab == "Данные" and _window_mode == "facility":
+        lines.append(_production_text())
+    elif _tab == "Данные":
         lines.append(_diagnostic_text if not _diagnostic_text.is_empty()
             else _status_text)
     elif _window_mode == "colony":
@@ -712,7 +738,8 @@ func _update_window() -> void:
     elif _window_mode == "ship":
         lines.append(_ship_window_text(projection))
     elif _window_mode == "fleet":
-        lines.append(_ships_text(false, _tab == "Грузы"))
+        lines.append(_fleet_diagnostic_text() + "\n\n" +
+            _ships_text(false, _tab == "Грузы"))
     elif _window_mode == "economy":
         match _tab:
             "Производство":
@@ -889,6 +916,119 @@ func _ship_window_text(projection: Dictionary) -> String:
     var lines: Array[String] = [str(projection.get("subtitle", ""))]
     for item in projection.get("lines", []):
         lines.append(str(item))
+    return "\n".join(lines)
+
+func _fleet_diagnostic_text() -> String:
+    var ships: Variant = _economy.get("ships", null)
+    if not (ships is Dictionary):
+        return "Снимок флота отсутствует —"
+    var flying: int = 0
+    var docked: int = 0
+    var waiting: int = 0
+    var active_contracts: int = 0
+    var plans: int = 0
+    var current: int = 0
+    var current_system: String = str(_world.get("system", {}).get("id", ""))
+    for id in ships:
+        var item: Variant = ships[id]
+        if not (item is Dictionary):
+            continue
+        var ship: Dictionary = item
+        var transit: Variant = ship.get("transit", {})
+        if transit is Dictionary and not transit.is_empty():
+            flying += 1
+        elif not str(ship.get("docked_at", "")).is_empty():
+            docked += 1
+        else:
+            waiting += 1
+        if not str(ship.get("active_contract_id", "")).is_empty():
+            active_contracts += 1
+        if ship.get("current_bt", null) is Dictionary and not (
+                ship.get("current_bt", {}) as Dictionary).is_empty():
+            plans += 1
+        if str(ship.get("system_id", "")) == current_system:
+            current += 1
+    var lines: Array[String] = [
+        "СОСТОЯНИЕ ФЛОТА · N39",
+        "Всего: %d  ·  в этой системе: %d" % [ships.size(), current],
+        "В полёте: %d  ·  пристыковано: %d  ·  без рейса: %d" % [
+            flying, docked, waiting],
+        "Контрактов на кораблях: %d  ·  активных планов BT: %d" % [
+            active_contracts, plans],
+        ""]
+    if not _fleet_diagnostics.is_empty():
+        var due: int = int(_fleet_diagnostics.get("n140_ship_fired_this_tick",
+            _fleet_diagnostics.get("n140_fired", -1)))
+        if due >= 0:
+            lines.append("N140: решение принято для %d кораблей в последнем тике" % due)
+        var accepted: int = int(_fleet_diagnostics.get(
+            "n153_accepted_this_tick",
+            _fleet_diagnostics.get("n153_accepted", -1)))
+        if accepted >= 0:
+            lines.append("N153: контрактов принято за тик: %d" % accepted)
+        var launches: int = int(_fleet_diagnostics.get(
+            "n153_departures_this_tick",
+            (_fleet_diagnostics.get("n84_departures", []) as Array).size()))
+        lines.append("N84 → N14: команд BeginTransit за тик: %d" % launches)
+        var blocked: int = int(_fleet_diagnostics.get(
+            "n153_blocked_this_tick",
+            (_fleet_diagnostics.get("n153_blocked", []) as Array).size()))
+        if blocked > 0:
+            lines.append("N153: отклонено %d предложений" % blocked)
+            var blocker: String = str(_fleet_diagnostics.get(
+                "n153_first_blocker", ""))
+            var reasons: Array = _fleet_diagnostics.get("n153_blocked", [])
+            if blocker.is_empty() and not reasons.is_empty():
+                if reasons[0] is Dictionary:
+                    blocker = str(reasons[0].get("reason", ""))
+            if not blocker.is_empty() and blocker != "—":
+                lines.append("Первое препятствие: " + blocker)
+    lines.append("")
+    if flying == 0:
+        lines.append("СЕЙЧАС НИ ОДИН КОРАБЛЬ НЕ НАХОДИТСЯ В ПОЛЁТЕ.")
+        lines.append("Это реальный статус transit, а не проблема анимации.")
+        lines.append("Для движения нужен действительный приказ N84/N146.")
+    else:
+        lines.append("Физический N14 transit подтверждён у %d кораблей." % flying)
+    lines.append("Показатели ИИ относятся к последнему тиковому шагу,")
+    lines.append("а не ко всей истории игры.")
+    return "\n".join(lines)
+
+func _ship_diagnostic_text() -> String:
+    var ships: Variant = _economy.get("ships", {})
+    if not (ships is Dictionary) or not (
+            ships.get(_ship) is Dictionary):
+        return "Выбранного корабля нет в последнем N39 снимке."
+    var vessel: Dictionary = ships[_ship]
+    var lines: Array[String] = [
+        str(vessel.get("name", _ship)),
+        "ID: " + _ship,
+        "Тип: " + str(vessel.get("class", "—")),
+        "Фракция: " + str(vessel.get("faction_id", "—")),
+        "Локация: " + str(vessel.get("location", "—")),
+        "Текущая цель: " + str(vessel.get("current_goal", "—")),
+        "Активный контракт: " + str(vessel.get("active_contract_id", "—")),
+        "Док: " + str(vessel.get("docked_at", "—")),
+        "Топливо: %s / %s" % [
+            str(vessel.get("fuel", "—")),
+            str(vessel.get("fuel_capacity", "—"))], ""]
+    var transit: Variant = vessel.get("transit", {})
+    if transit is Dictionary and not transit.is_empty():
+        lines.append("ПОДТВЕРЖДЁННЫЙ N14 РЕЙС")
+        lines.append("%s → %s" % [
+            str(transit.get("from", "—")),
+            str(transit.get("to", "—"))])
+        lines.append("Отправление: тик " + str(
+            transit.get("departure_tick", "—")))
+        lines.append("Прибытие: тик " + str(
+            transit.get("arrival_tick", "—")))
+    else:
+        lines.append("N14: нет активного рейса")
+        lines.append("Наличие корабля не означает, что ИИ назначил полёт.")
+    var bt: Variant = vessel.get("current_bt", null)
+    lines.append("План N84: " + (
+        "сохранён" if bt is Dictionary and not bt.is_empty()
+        else "нет"))
     return "\n".join(lines)
 
 func _ships_text(colony_only: bool, cargo_only: bool) -> String:
