@@ -111,23 +111,25 @@ static func build() -> Theme:
     ui_theme.set_stylebox(&"panel", &"LSSectionHeader", section_header)
     ui_theme.set_stylebox(&"panel", &"LSWindowIconFrame", window_icon)
 
-    # One table row vocabulary for Economy, Fleet, Colonies and Projects.
-    # Keep normal/hover/pressed padding identical to avoid shifting columns.
-    var table_edge := Color("#213943")
-    var row_hover_edge := Color("#53B5AC")
-    var header_row := _flat(Color("#08151C"), table_edge, 1, 9, 3)
-    var even_row := _flat(Color("#0D2029"), table_edge, 1, 9, 6)
-    var odd_row := _flat(Color("#0B1B24"), table_edge, 1, 9, 6)
+    # Figma Make .dense-row: 34px transparent rows, 1px TOP border,
+    # 8px typography, 25px header, and #142930 hover.
+    # No invented zebra striping; the section background shows through.
+    var table_edge := Color("#1C3138")
+    var row_normal := _flat(Color.TRANSPARENT, table_edge,
+        0, 9, 0, 0, 1, 0)
+    var row_hover := _flat(Color("#142930"), table_edge,
+        0, 9, 0, 0, 1, 0)
+    var row_pressed := _flat(Color("#142930"), Color("#53B5AC"),
+        0, 9, 0, 0, 1, 0)
+    var header_row := _flat(Color("#08151C"), Color.TRANSPARENT,
+        0, 9, 0)
     ui_theme.set_stylebox(&"panel", &"LSRowHeader", header_row)
-    ui_theme.set_stylebox(&"panel", &"LSRowPlainEven", even_row)
-    ui_theme.set_stylebox(&"panel", &"LSRowPlainOdd", odd_row)
+    ui_theme.set_stylebox(&"panel", &"LSRowPlainEven", row_normal)
+    ui_theme.set_stylebox(&"panel", &"LSRowPlainOdd", row_normal)
     for variation in [&"LSRowActionEven", &"LSRowActionOdd"]:
-        var normal: StyleBoxFlat = even_row if variation == &"LSRowActionEven" else odd_row
-        ui_theme.set_stylebox(&"normal", variation, normal)
-        ui_theme.set_stylebox(&"hover", variation,
-            _flat(Color("#1B3740"), row_hover_edge, 1, 9, 6))
-        ui_theme.set_stylebox(&"pressed", variation,
-            _flat(Color("#23505A"), row_hover_edge, 1, 9, 6))
+        ui_theme.set_stylebox(&"normal", variation, row_normal)
+        ui_theme.set_stylebox(&"hover", variation, row_hover)
+        ui_theme.set_stylebox(&"pressed", variation, row_pressed)
         ui_theme.set_stylebox(&"focus", variation,
             _flat(Color.TRANSPARENT, Color.TRANSPARENT))
     return ui_theme
