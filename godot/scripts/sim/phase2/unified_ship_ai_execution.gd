@@ -579,7 +579,10 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "contract_id": contract_id, "leaf": "",
                 "status": Bt.RUNNING, "reason": missing_plan_reason})
             continue
-        if not (bt is Dictionary) or not Bt.validate(bt):
+        # The autonomous-goal branch already validated this exact BT above.
+        # Avoid a second recursive validation on every paid tick; contract
+        # plans and any other path still pass the original validation.
+        if not (bt is Dictionary) or (contract_id != "" and not Bt.validate(bt)):
             return {"ok": false, "reason": "n84_invalid_saved_plan",
                 "ship_id": str(ship_id)}
         var current_leaf: String = Bt.current_action(bt)
