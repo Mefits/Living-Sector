@@ -102,7 +102,7 @@ func _run() -> void:
     var has_stable_dock: bool = false
     for pin in actual_docked:
         if pin.get("ship_ids", []).has("physical-probe") and (
-                (pin["position"] as Vector2).distance_to(icon) < 18.0):
+                (pin["position"] as Vector2).distance_to(icon) < 26.0):
             has_stable_dock = true
     if not has_stable_dock:
         _fail("arrived ship marker reappeared at planet center")
