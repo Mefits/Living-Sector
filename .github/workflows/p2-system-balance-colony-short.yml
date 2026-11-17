@@ -14,6 +14,7 @@ on:
       - godot/tests/p2_sol_moon_closeup_lod_check.gd
       - godot/tests/p2_strategy_ui_systembalance_check.gd
       - godot/tests/p2_strategy_ui_layout_scene_check.gd
+      - godot/tests/p2_real_ship_activity_probe.gd
   workflow_dispatch:
 permissions:
   contents: read
@@ -105,6 +106,17 @@ jobs:
           tail -n 60 worker.log
           ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Assertion failed' worker.log
           grep -q 'P2_WORKER_GUI_BOOT_CHECK_PASS' worker.log
+      - name: Diagnose autonomous ship departures in 96 real paid N158 ticks
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout 195s godot --headless --path godot --script res://tests/p2_real_ship_activity_probe.gd > ship_probe.log 2>&1; then
+            tail -n 120 ship_probe.log
+            exit 1
+          fi
+          tail -n 35 ship_probe.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|REAL_SHIP_ACTIVITY_PROBE_FAIL' ship_probe.log
+          grep -q 'REAL_SHIP_ACTIVITY_PROBE_PASS' ship_probe.log
       - name: Test parented Sol moon close-up size and orbit display
         shell: bash
         run: |
@@ -130,5 +142,6 @@ jobs:
             strategy.log
             scene.log
             worker.log
+            ship_probe.log
           if-no-files-found: ignore
           retention-days: 4
