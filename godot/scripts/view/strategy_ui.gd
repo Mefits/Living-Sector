@@ -5,6 +5,7 @@ const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 const FullWorkspaces = preload("res://scripts/view/strategy_workspaces.gd")
 const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
+const LSTheme = preload("res://scripts/view/ls_ui_theme.gd")
 ## Living Sector strategy HUD — Figma-inspired, read-only presentation.
 ## The game owns the map, authoritative economy, orders and clock.
 ## Never requests a new world_snapshot or invents per-tick trends.
@@ -161,6 +162,9 @@ func attach(game: Control) -> void:
     _game = game
 
 func _ready() -> void:
+    # Base UI theme is shared; pre-existing per-control overrides stay intact.
+    # New reusable components use named LS* theme variations.
+    theme = LSTheme.build()
     mouse_filter = Control.MOUSE_FILTER_IGNORE
     set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _build_top()
