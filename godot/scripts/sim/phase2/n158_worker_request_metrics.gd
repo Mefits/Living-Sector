@@ -298,3 +298,19 @@ static func checkpoint_ship_subphases(paid_tick: int, report: Dictionary) -> Dic
     return {"paid_tick": paid_tick, "stages": stages,
         "time_kind": "elapsed_wall_not_cpu",
         "coverage": "last_bounded_subphase_calls_not_paid_ticks"}
+
+## The paid-tick worker window is invalid if a request advanced more than one
+## source tick, even when the last 100 requests happen to have distinct IDs.
+## Keep this gate independent from source fingerprint comparisons.
+static func accept_single_paid_tick_sample(sample: Dictionary, before_tick: int,
+        after_tick: int) -> bool:
+    if after_tick != before_tick + 1 or before_tick < 0:
+        return false
+    if sample.get("valid", false) != true or sample.get("paid_ticks", -1) != 1:
+        return false
+    if typeof(sample.get("after_tick", null)) != TYPE_INT or int(sample["after_tick"]) != after_tick:
+        return false
+    for field in ["advance_wall_usec", "projection_wall_usec", "request_wall_usec"]:
+        if typeof(sample.get(field, null)) != TYPE_INT or int(sample[field]) < 0:
+            return false
+    return int(sample["advance_wall_usec"]) + int(sample["projection_wall_usec"]) == int(sample["request_wall_usec"])
