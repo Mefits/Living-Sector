@@ -2,6 +2,7 @@ extends SceneTree
 ## Exercise real Control tree, not only preload/parser or pure projections.
 const UI = preload("res://scripts/view/strategy_ui.gd")
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
+const LSComponents = preload("res://scripts/view/ls_ui_components.gd")
 
 func _initialize() -> void:
     call_deferred("_run")
@@ -133,12 +134,12 @@ func _run() -> void:
     assert(table_grid.custom_minimum_size.x >= 480.0)
     # All tables use one common sizing profile, not independent per-row
     # content sizing. The original CSS uses equal columns for five-col rows.
-    var five: Array[Vector2] = workspace.LSComponents.table_column_profile(
+    var five: Array[Vector2] = LSComponents.table_column_profile(
         ["Корабль", "Класс", "Задача", "Груз", "Статус"])
     assert(five.size() == 5)
     for size in five:
         assert(size.x == 115.0 and size.y == 1.0)
-    var short_id: Array[Vector2] = workspace.LSComponents.table_column_profile(
+    var short_id: Array[Vector2] = LSComponents.table_column_profile(
         ["ID", "Состояние", "Товар", "Назначение"])
     assert(short_id[0].x == 55.0)
     assert(is_equal_approx(short_id[0].y, 0.35))
