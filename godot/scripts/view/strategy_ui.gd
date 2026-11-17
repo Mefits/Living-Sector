@@ -4,6 +4,7 @@ const ContextData = preload("res://scripts/view/colony_context_projection.gd")
 const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 const FullWorkspaces = preload("res://scripts/view/strategy_workspaces.gd")
+const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
 ## Living Sector strategy HUD — Figma-inspired, read-only presentation.
 ## The game owns the map, authoritative economy, orders and clock.
 ## Never requests a new world_snapshot or invents per-tick trends.
@@ -200,12 +201,12 @@ func _build_left() -> void:
     menu.add_theme_constant_override("separation", 5)
     menu_scroll.add_child(menu)
     for entry in [
-        {"text":"КОЛ", "tip":"Открыть колонию", "action":"colony"},
-        {"text":"ЭКН", "tip":"Экономика рынков", "action":"economy"},
-        {"text":"СТР", "tip":"Проекты, материалы, поставщики", "action":"construction"},
-        {"text":"ИСС", "tip":"Исследования и открытия", "action":"research"},
-        {"text":"ФЛТ", "tip":"Корабли, контракты, грузы, маршруты", "action":"fleet"},
-        {"text":"УПР", "tip":"Автономное управление фракциями", "action":"administration"},
+        {"text":"КОЛ", "tip":"Колонии [1]", "action":"colony", "icon":"colony"},
+        {"text":"ЭКН", "tip":"Экономика [2]", "action":"economy", "icon":"economy"},
+        {"text":"СТР", "tip":"Строительство [3]", "action":"construction", "icon":"construction"},
+        {"text":"ИСС", "tip":"Исследования [4]", "action":"research", "icon":"research"},
+        {"text":"ФЛТ", "tip":"Флот и логистика [5]", "action":"fleet", "icon":"fleet"},
+        {"text":"УПР", "tip":"Автономное управление [6]", "action":"administration", "icon":"administration"},
         {"text":"ОБЪ", "tip":"Показать/скрыть список объектов", "action":"outliner"},
         {"text":"ДАН", "tip":"Подробные данные N39", "action":"technical"},
         {"text":"НАБ", "tip":"Наблюдение и диагностика", "action":"observer"},
@@ -217,7 +218,12 @@ func _build_left() -> void:
         var action: String = str(entry["action"])
         var btn := _button(str(entry["text"]), _activate.bind(action), 13)
         btn.tooltip_text = str(entry["tip"])
-        btn.custom_minimum_size = Vector2(43, 41)
+        if entry.has("icon"):
+            btn.icon = FigmaIcons.texture(str(entry["icon"]), 21, TEAL)
+            if btn.icon != null:
+                btn.text = ""
+                btn.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        btn.custom_minimum_size = Vector2(43, 43)
         menu.add_child(btn)
     _ui_scale_menu = OptionButton.new()
     _ui_scale_menu.tooltip_text = "Масштаб интерфейса: 100 / 115 / 125 / 140%"
