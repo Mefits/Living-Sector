@@ -181,7 +181,7 @@ static func phase_window(rows: Array, end_tick: int) -> Dictionary:
     var totals: Dictionary = {}
     for i in range(100):
         var row: Variant = rows[i]
-        if typeof(row) != TYPE_DICTIONARY or row.get("tick", -1) != end_tick - 99 + i:
+        if typeof(row) != TYPE_DICTIONARY or typeof(row.get("tick", null)) != TYPE_INT or int(row["tick"]) != end_tick - 99 + i:
             return {}
         for phase in ["ships", "dock_queue", "markets", "factions"]:
             if not row.has(phase) or typeof(row[phase]) != TYPE_INT or int(row[phase]) < 0:
@@ -204,3 +204,45 @@ static func phase_window(rows: Array, end_tick: int) -> Dictionary:
         "observed_paid_ticks": 100, "phase_total_usec": totals,
         "phase_avg_usec": averages, "phase_p95_usec": p95,
         "phase_max_usec": maxima, "time_kind": "elapsed_wall_not_cpu"}
+
+## E acceptance: phase attribution only after an independently verified
+## same-seed source checkpoint. Never infer parity from equal phase timings.
+## Windows are detached primitive summaries from phase_window(), not World.
+static func compare_phase_windows(baseline: Dictionary, candidate: Dictionary,
+        baseline_fingerprint: String, candidate_fingerprint: String) -> Dictionary:
+    if baseline_fingerprint.strip_edges().is_empty() or baseline_fingerprint != candidate_fingerprint:
+        return {"accepted": false, "reason": "source_parity_unverified"}
+    for side in [baseline, candidate]:
+        if side.get("time_kind", "") != "elapsed_wall_not_cpu" or (
+                side.get("observed_paid_ticks", -1) != 100):
+            return {"accepted": false, "reason": "invalid_window"}
+        if not CHECKPOINTS.has(int(side.get("to_tick", -1))) or (
+                side.get("from_tick", -1) != int(side["to_tick"]) - 99):
+            return {"accepted": false, "reason": "invalid_boundary"}
+        for field in ["phase_total_usec", "phase_avg_usec", "phase_p95_usec", "phase_max_usec"]:
+            if typeof(side.get(field, null)) != TYPE_DICTIONARY:
+                return {"accepted": false, "reason": "missing_" + field}
+        for phase in ["ships", "dock_queue", "markets", "factions"]:
+            for field in ["phase_total_usec", "phase_p95_usec", "phase_max_usec"]:
+                var value: Variant = side[field].get(phase, null)
+                if typeof(value) != TYPE_INT or int(value) < 0:
+                    return {"accepted": false, "reason": "invalid_" + field + "_" + phase}
+            var avg: Variant = side["phase_avg_usec"].get(phase, null)
+            if (typeof(avg) != TYPE_FLOAT and typeof(avg) != TYPE_INT) or (
+                    not is_finite(float(avg)) or float(avg) < 0.0):
+                return {"accepted": false, "reason": "invalid_average_" + phase}
+            if absf(float(side["phase_total_usec"][phase]) / 100.0 - float(avg)) > 0.001:
+                return {"accepted": false, "reason": "inconsistent_average_" + phase}
+            if int(side["phase_p95_usec"][phase]) > int(side["phase_max_usec"][phase]):
+                return {"accepted": false, "reason": "inconsistent_percentile_" + phase}
+    if baseline["from_tick"] != candidate["from_tick"] or baseline["to_tick"] != candidate["to_tick"]:
+        return {"accepted": false, "reason": "mismatched_window"}
+    var deltas: Dictionary = {}
+    for phase in ["ships", "dock_queue", "markets", "factions"]:
+        deltas[phase] = {
+            "avg_delta_usec": float(candidate["phase_avg_usec"][phase]) - float(baseline["phase_avg_usec"][phase]),
+            "p95_delta_usec": int(candidate["phase_p95_usec"][phase]) - int(baseline["phase_p95_usec"][phase]),
+            "max_delta_usec": int(candidate["phase_max_usec"][phase]) - int(baseline["phase_max_usec"][phase])}
+    return {"accepted": true, "time_kind": "elapsed_wall_not_cpu",
+        "from_tick": baseline["from_tick"], "to_tick": baseline["to_tick"],
+        "phase_deltas": deltas}
