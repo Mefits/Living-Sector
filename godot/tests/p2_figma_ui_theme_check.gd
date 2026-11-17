@@ -64,6 +64,19 @@ func _initialize() -> void:
     assert(row_action.theme_type_variation == &"LSRowActionOdd")
     row_action.pressed.emit()
     assert(clicked == ["row"])
+    var five_columns: Array[Vector2] = LSComponents.table_column_profile(
+        ["Судно", "Класс", "Задача", "Груз", "Статус"])
+    assert(five_columns.size() == 5)
+    for column in five_columns:
+        assert(column.x == 115.0 and column.y == 1.0)
+    var four_columns: Array[Vector2] = LSComponents.table_column_profile(
+        ["ID", "Объект", "Количество", "Статус"])
+    assert(four_columns.size() == 4)
+    assert(four_columns[0].x == 55.0)
+    assert(is_equal_approx(four_columns[0].y, 0.35))
+    var regular_columns: Array[Vector2] = LSComponents.table_column_profile(
+        ["Локация", "Жители", "Состояние", "Рост"])
+    assert(regular_columns[0].x == 150.0)
     var row_header: PanelContainer = LSComponents.table_row(
         true, false, Callable()) as PanelContainer
     root.add_child(row_header)
