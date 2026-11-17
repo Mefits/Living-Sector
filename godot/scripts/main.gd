@@ -974,6 +974,25 @@ func _worker_gui_smoke_pump() -> void:
                 if not _in_system or not _system_view.visible:
                     _worker_failed = "real GUI map navigation failed"
                     return
+                # Exercise exact outliner -> selected ship -> physical marker
+                # using one real detached worker N39 ship, not a test sprite.
+                var local_id: String = ""
+                for ship_id in _worker_fleet:
+                    var ship: Variant = _worker_fleet[ship_id]
+                    if ship is Dictionary and str(ship.get("system_id", "")) == "system-sol":
+                        local_id = str(ship_id)
+                        break
+                if local_id.is_empty() or _strategy_ui == null:
+                    _worker_failed = "missing real Sol ship in GUI smoke"
+                    return
+                _strategy_ui.call("_select_ship", local_id)
+                if _selected_ship_id != local_id or str(
+                        _system_view.get("_selected_ship_id")) != local_id:
+                    _worker_failed = "outliner vessel did not highlight on physical map"
+                    return
+                if str(_strategy_ui.get("_ship")) != local_id:
+                    _worker_failed = "outliner ship context was not synchronized"
+                    return
                 _return_to_sector()
                 if _in_system or not _map.visible:
                     _worker_failed = "real GUI return navigation failed"
