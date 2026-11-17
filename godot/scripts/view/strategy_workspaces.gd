@@ -534,7 +534,7 @@ func _table_row(parent: Node, cells: Array, columns: int,
     container.add_child(row)
     for i in range(columns):
         var text_value: String = str(cells[i]) if i < cells.size() else "—"
-        var tint: Color = MUTED if heading else TEXT
+        var tint: Color = Color("#536F75") if heading else Color("#809398")
         if not heading and i > 0:
             var lower: String = text_value.to_lower()
             if lower.contains("нет ") or lower.contains("износ") or (
@@ -544,7 +544,7 @@ func _table_row(parent: Node, cells: Array, columns: int,
                 tint = TEAL
             elif text_value == "—":
                 tint = MUTED
-        var cell := _label(text_value, 8 if heading else 11, tint)
+        var cell := _label(text_value, 7 if heading else 8, tint)
         cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         # Identical minimums for header and every data row make the columns
         # line up while leaving room for long names and real N39 statuses.
