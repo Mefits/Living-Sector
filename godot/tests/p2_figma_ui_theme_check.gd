@@ -18,6 +18,12 @@ func _initialize() -> void:
     assert(t.get_type_variation_base(&"LSSectionPanel") == &"PanelContainer")
     assert(t.get_type_variation_base(&"LSMetricPanel") == &"PanelContainer")
     assert(t.get_type_variation_base(&"LSActiveTabButton") == &"LSTabButton")
+    assert(t.get_type_variation_base(&"LSLinkButton") == &"Button")
+    assert(t.get_type_variation_base(&"LSIssueButton") == &"Button")
+    assert(t.get_type_variation_base(&"LSCriticalIssueButton") == &"LSIssueButton")
+    assert(t.has_stylebox(&"normal", &"LSLinkButton"))
+    assert(t.has_stylebox(&"normal", &"LSIssueButton"))
+    assert(t.has_stylebox(&"normal", &"LSCriticalIssueButton"))
     for chrome in [&"LSWorkspaceHeader", &"LSWorkspaceToolbar",
             &"LSSearchFrame", &"LSSectionHeader", &"LSWindowIconFrame",
             &"LSRowHeader", &"LSRowPlainEven", &"LSRowPlainOdd"]:
@@ -77,6 +83,23 @@ func _initialize() -> void:
     var regular_columns: Array[Vector2] = LSComponents.table_column_profile(
         ["Локация", "Жители", "Состояние", "Рост"])
     assert(regular_columns[0].x == 150.0)
+    var link: Button = LSComponents.section_link(
+        "ОТКРЫТЬ", func() -> void: actions.append("linked"))
+    root.add_child(link)
+    assert(link.theme_type_variation == &"LSLinkButton")
+    link.pressed.emit()
+    assert(actions == ["clicked", "linked"])
+    var critical: Button = LSComponents.issue_button(true, Callable())
+    root.add_child(critical)
+    assert(critical.disabled)
+    assert(critical.theme_type_variation == &"LSCriticalIssueButton")
+    assert(critical.custom_minimum_size.y == 47)
+    var alert: Button = LSComponents.issue_button(
+        false, func() -> void: actions.append("alert"))
+    root.add_child(alert)
+    assert(alert.theme_type_variation == &"LSIssueButton")
+    alert.pressed.emit()
+    assert(actions == ["clicked", "linked", "alert"])
     var row_header: PanelContainer = LSComponents.table_row(
         true, false, Callable()) as PanelContainer
     root.add_child(row_header)
