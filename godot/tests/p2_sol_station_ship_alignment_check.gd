@@ -7,6 +7,17 @@ const Model = preload("res://scripts/sim/world_model.gd")
 const Resolver = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const View = preload("res://scripts/star_system_view.gd")
 const ScreenProjection = preload("res://scripts/ui_station_ship_projection.gd")
+const ShipState = preload("res://scripts/sim/ship_state.gd")
+const Transit = preload("res://scripts/sim/ship_transit.gd")
+const Avoidance = preload("res://scripts/sim/ships/native_avoidance.gd")
+
+class DirectedFlight:
+    extends RefCounted
+    func outgoing(location: String) -> Array:
+        if location == "earth-station":
+            return [{"from": location, "to": "outward-test"}]
+        return []
+
 
 
 func _initialize() -> void:
@@ -85,6 +96,96 @@ func _run() -> void:
             stations) != original_global:
         _fail("station projection contaminated deep-space vessels")
         return
+
+    # Actual BUG REPORT: when the visual Earth disc is hundreds of
+    # pixels across, an N14 vessel that has just departed the 800-km
+    # station must NEVER dive toward the enlarged planet center as
+    # a former dock screen-offset correction fades away.
+    screen.set("_zoom", 512.0)
+    screen.queue_redraw()
+    await process_frame
+    await process_frame
+    var close_records: Array = screen.get("_station_draw_records")
+    if close_records.size() != 1:
+        _fail("maximum-zoom physical station record missing")
+        return
+    var dock_record: Dictionary = close_records[0]
+    var globe_px: Vector2 = dock_record["body_screen"]
+    var drawn_ring: float = float(dock_record["screen_orbit_radius"])
+    var globe_radius: float = float(screen.call("_body_size", earth))
+    if drawn_ring < globe_radius + 108.0:
+        _fail("max zoom station still hugs inflated Earth disc")
+        return
+    var native_center: Vector2 = dock_record["body_native"]
+    var outward_native: Vector2 = (
+        original - native_center).normalized()
+    var offset: Vector2 = Vector2.ZERO
+    var raw_source: Variant = sol.get(
+        "system", {}).get("universe_offset", [0.0, 0.0])
+    if raw_source is Array and raw_source.size() == 2:
+        offset = Vector2(float(raw_source[0]), float(raw_source[1]))
+    var orbit_scale: float = float(screen.call("_orbit_scale"))
+    var last_radius: float = -1.0
+    for dist in [0.0001, 0.001, 0.008, 0.025, 0.05, 0.09, 0.14]:
+        var native_point: Vector2 = native_center + (
+            outward_native * float(dist))
+        var raw_screen: Vector2 = screen.call(
+            "_native_screen_global", native_point, offset, orbit_scale)
+        var corrected: Vector2 = ScreenProjection.corrected_screen(
+            native_point, raw_screen, close_records)
+        var radial: float = corrected.distance_to(globe_px)
+        if radial < globe_radius + 5.0:
+            _fail("departing ship reentered schematic planet disc")
+            return
+        if last_radius >= 0.0 and radial < last_radius - 1.0:
+            _fail("departing ship made an inward loop at max zoom")
+            return
+        last_radius = radial
+    var canonical: RefCounted = ShipState.new()
+    if not canonical.add_ship(
+            "launch-probe", "courier", "test-faction",
+            "system-sol", "small"):
+        _fail("could not instantiate authentic N14 launch")
+        return
+    canonical.ships["launch-probe"]["location"] = "earth-station"
+    var navigation: RefCounted = Transit.new()
+    var destinations: Dictionary = {
+        "earth-station": original,
+        "outward-test": native_center + outward_native * 0.30}
+    if not navigation.depart(
+            canonical, DirectedFlight.new(), "launch-probe",
+            "outward-test", destinations, 0, 1.0):
+        _fail("real N14 departure ignored N43 station origin")
+        return
+    var stored_origin: Array = canonical.ships[
+        "launch-probe"]["transit"]["departure_position"]
+    if Vector2(float(stored_origin[0]), float(stored_origin[1])
+            ).distance_to(original) > 0.00000001:
+        _fail("N14 actually launched from Earth center, not station")
+        return
+    var last_native: Vector2 = original
+    for tick in range(1, 6):
+        var outcome: String = navigation.advance(canonical,
+            "launch-probe", destinations, tick, 1.0, 1, false,
+            {}, 0.00001, {}, [{
+                "id": "earth", "center": native_center,
+                "radius": 6371.0 * 2.0 / 149597870.7 * 1.03
+            }])
+        if outcome != "moving" and outcome != "arrived":
+            _fail("native outbound ship was blocked by own planet: " +
+                outcome)
+            return
+        if outcome == "arrived":
+            break
+        var committed: Array = canonical.ships[
+            "launch-probe"]["transit"]["position"]
+        var current: Vector2 = Vector2(
+            float(committed[0]), float(committed[1]))
+        if Avoidance.segment_crosses(last_native, current,
+                native_center, 6371.0 * 2.0 / 149597870.7 * 1.03):
+            _fail("N14 physically crossed Earth's surface on launch")
+            return
+        last_native = current
 
     var docked: Dictionary = ship.duplicate(true)
     docked["location"] = "earth-station"
