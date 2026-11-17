@@ -60,6 +60,17 @@ jobs:
           tail -n 80 cards.log
           ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' cards.log
           grep -q 'COLONY_CONTEXT_CARDS_PASS' cards.log
+      - name: Test parented Sol moon close-up size and orbit display
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout 30s godot --headless --path godot --script res://tests/p2_sol_moon_closeup_lod_check.gd > moon.log 2>&1; then
+            tail -n 100 moon.log
+            exit 1
+          fi
+          tail -n 50 moon.log
+          ! grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script|Assertion failed' moon.log
+          grep -q 'SOL_MOON_CLOSEUP_LOD_PASS' moon.log
       - name: Logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -70,5 +81,6 @@ jobs:
             test.log
             hud.log
             cards.log
+            moon.log
           if-no-files-found: ignore
           retention-days: 4
