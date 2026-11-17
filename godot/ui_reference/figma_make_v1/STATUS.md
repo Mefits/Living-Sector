@@ -29,7 +29,8 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Reusable interactive and read-only table rows; original Figma dense-row colors/typography and hover states.
 - [x] Workspace callbacks keep their original N39 actions and selection signals.
 - [x] Theme-backed management window shell (original navigation logic remains).
-- [ ] Shared flexible table-column layout and remaining controls.
+- [x] Shared per-table column sizing profile: identical header/data widths, Figma five-column layout, four-column ID exception, and full-width clickable rows.
+- [ ] Remaining specialized controls and complete Windows visual comparison.
 - [ ] Visual screenshot comparisons.
 
 ## Stages 4–7 [NOT STARTED]
@@ -47,6 +48,6 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - No temporary screenshot or mock data should be substituted for live game state.
 - Visual parity **is not yet claimed**.
 
-Newest substantive commits: `49f27b0` (chrome), `085f89c` (table row), `61737da` (dense-row CSS), `7cdf99c` (window shell).
+Newest substantive commits: `49f27b0` (chrome), `085f89c` (table row), `7cdf99c` (window shell), `9811ee9` (table column grid), `e90ff39` / `4a75eb7` (regression checks).
 
-Source-level consistency checks passed: all 7 `.tres` StyleBox subresources resolve; 22 named theme variations, 7 UI factories, 36 theme contract assertions. **These are not runtime tests.**
+Source-level consistency checks passed for prior block: all 7 `.tres` StyleBox subresources resolve; 22 named theme variations, 7 UI factories. Table alignment and source tests have been extended but **not executed in Godot**. The four- and five-column profiles and clickable-row geometry still require a real viewport visual check.
