@@ -3235,7 +3235,14 @@ func apply_native_player_research_policy(tick: int, faction: String,
         return {"ok": true, "tick": tick, "faction_id": faction,
             "operation": operation, "changed": false,
             "status": "N110_ECONOMIC_DIRECTIVE_ALREADY_ABSENT"}
-    var next_world: Dictionary = _copy_world("L2987", true)
+    # N109/N110 policy operations only write their three optional maps.
+    # Keep markets/facilities/directors as read-only inputs and detach
+    # every mutable policy map before applying source governance actions.
+    var next_world: Dictionary = _copy_world("L2987_owned_root", false)
+    for policy_key in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
+        if _world.has(policy_key) and _world[policy_key] is Dictionary:
+            next_world[policy_key] = _world[policy_key].duplicate(true)
     # Rust's original optional Director maps are independent. A legacy
     # checkpoint may contain neither OR only one: do not erase a
     # genuine existing charter while installing the first mandate.
@@ -3346,7 +3353,14 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
             "tick": tick, "paid": [], "blocked": []}
     if not (proposed.get("heads") is Dictionary) or not (proposed.get("shifts") is Array):
         return {"ok": false, "fatal": true, "reason": "invalid_n143_source_intents"}
-    var staged: Dictionary = _copy_world("L3098", true)
+    # N143 only writes these domains. Detach them before the first paid
+    # shift so a rejected transaction cannot mutate authoritative World.
+    # Keep the full Schema/accounts oracle and N9 fork below unchanged.
+    var staged: Dictionary = _copy_world("L3098_owned_root", false)
+    for domain in ["research_directors", "research", "research_receipts",
+            "research_mandates", "faction_charters", "faction_treasuries",
+            "facilities", "populations", "markets"]:
+        staged[domain] = _world[domain].duplicate(true)
     if proposed["heads"].size() != staged["research_directors"].size():
         return {"ok": false, "fatal": true, "reason": "missing_native_research_head"}
     for fid in proposed["heads"]:

@@ -175,10 +175,12 @@ static func advance(world: Dictionary, positions: Dictionary,
             "n140_skipped_count": int(gate["skipped_count"]),
             "n140_stats": gate.get("stats", {}).duplicate(true),
             "n140_recomputed": bool(gate["recomputed"])}
-    var updated: Dictionary = {}
-    for id in ids:
-        updated[str(id)] = (state.ships[id] as Dictionary).duplicate(true)
-    return {"ok": true, "changed": true, "ships": updated,
+    # N140.stage() deep-detaches the entire fleet before motion.advance().
+    # No other writer sees state.ships during this phase, and the N39 caller
+    # owns the returned preview. Re-copying every nested cargo/BT/memory row
+    # here adds a second O(fleet bytes) pass on each moving paid tick.
+    # Never return world["ships"]: only the already detached N140 fleet.
+    return {"ok": true, "changed": true, "ships": state.ships,
         "next_token": motion.next_token(), "outcomes": outcomes,
         "fired": fired.duplicate(true),
         "n140_fired_count": int(gate["fired_count"]),

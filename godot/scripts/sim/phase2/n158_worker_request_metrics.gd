@@ -248,6 +248,11 @@ static func compare_phase_windows(baseline: Dictionary, candidate: Dictionary,
             # Hence total >= max + 5 * p95 (max is one of those six).
             if total < maximum + 5 * percentile:
                 return {"accepted": false, "reason": "impossible_p95_" + phase}
+            # With nearest-rank p95 at index 94, the first 95 values
+            # cannot exceed p95; only the final five can reach max.
+            # Reject an impossible oversized total even when mean is consistent.
+            if total > 95 * percentile + 5 * maximum:
+                return {"accepted": false, "reason": "impossible_p95_upper_" + phase}
     if baseline["from_tick"] != candidate["from_tick"] or baseline["to_tick"] != candidate["to_tick"]:
         return {"accepted": false, "reason": "mismatched_window"}
     var deltas: Dictionary = {}
