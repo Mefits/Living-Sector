@@ -210,6 +210,9 @@ func _owner_loop(seed: Dictionary) -> void:
                 size_world = sim.economy_snapshot()
             answer["size_probe"] = SizeProbe.measure(sim.tick_count, size_world)
             answer["size_probe_wall_usec"] = Time.get_ticks_usec() - size_start_usec
+            # Existing opt-in native profiler; detached bounded scalars only.
+            answer["ship_subphase_profile"] = RequestMetrics.checkpoint_ship_subphases(
+                sim.tick_count, sim.profile_native_ship_subphases())
         var projection_end_usec: int = Time.get_ticks_usec()
         answer["timing"] = RequestMetrics.summarize(before_tick, sim.tick_count,
             began_usec, advance_end_usec, projection_end_usec)
