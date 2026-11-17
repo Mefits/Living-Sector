@@ -1,0 +1,62 @@
+name: PERF RECOVERY Gate 0 current head
+on:
+  push:
+    branches: [integration/perf-recovery-20261117]
+    paths: [.github/workflows/p2-perf-recovery-gate0.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: p2-perf-recovery-gate0
+  cancel-in-progress: false
+jobs:
+  actual-paid-tick-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/perf-recovery"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 150 --silent --show-error https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/perf-recovery"
+          mv "$RUNNER_TEMP/perf-recovery/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/perf-recovery/godot"
+          chmod +x "$RUNNER_TEMP/perf-recovery/godot"
+          echo "$RUNNER_TEMP/perf-recovery" >> "$GITHUB_PATH"
+      - name: Import and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/perf-recovery
+          timeout 80 godot --headless --path godot --editor --import --quit >godot/logs/perf-recovery/import.log 2>&1
+          timeout 80 godot --headless --path godot --script res://tests/p2_unified_script_compile_check.gd >godot/logs/perf-recovery/compile.log 2>&1
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/perf-recovery/{import,compile}.log; then tail -n 100 godot/logs/perf-recovery/compile.log; exit 1; fi
+      - name: Worker boot and N38
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/perf-recovery-user"
+          timeout 70 env XDG_DATA_HOME="$RUNNER_TEMP/perf-recovery-user" godot --headless --path godot -- --p2-worker-gui-check >godot/logs/perf-recovery/worker.log 2>&1
+          grep P2_WORKER_GUI_BOOT_CHECK_PASS godot/logs/perf-recovery/worker.log
+      - name: Actual 500 paid ticks
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 350 godot --headless --path godot --script res://tests/p2_perf_pr262_head_500_tick_smoke.gd >godot/logs/perf-recovery/paid500.log 2>&1
+          grep P2_PR262_HEAD_500_TICK_PASS godot/logs/perf-recovery/paid500.log
+          grep P2_PR262_HEAD_500_TICK_WINDOW godot/logs/perf-recovery/paid500.log
+      - name: Exact 160-tick checkpoint parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 180 godot --headless --path godot --script res://tests/p2_perf_pr262_astra_fixes_160_parity.gd >godot/logs/perf-recovery/parity160.log 2>&1
+          grep P2_ASTRA_TWO_FIXES_160_PARITY_PASS godot/logs/perf-recovery/parity160.log
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-recovery-gate0-logs
+          path: godot/logs/perf-recovery/
+          retention-days: 7
