@@ -37,10 +37,10 @@ static func offer_route_index(roots: Dictionary, source: String, destination: St
     return destinations[destination]
 
 static func legs(cache: Dictionary, here: String, source: String, dest: String,
-        graph: RefCounted, positions: Dictionary) -> Dictionary:
+        graph: RefCounted, positions: Dictionary, detach: bool = true) -> Dictionary:
     # Cache only per-contract origin geometry, not inter-call paths.
     if cache.has(here):
-        return _detached_legs(cache[here])
+        return _detached_legs(cache[here]) if detach else cache[here]
     var result: Dictionary = {}
     if not graph.has_location(source) or not graph.has_location(dest) or not graph.has_location(here):
         result = {"error": "native_route_endpoint_unmapped"}
@@ -74,7 +74,7 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
             result = {"inbound": inbound["locations"],
                 "outbound": outbound["locations"], "steps": steps}
     cache[here] = result
-    return _detached_legs(result)
+    return _detached_legs(result) if detach else result
 
 ## A ship's fuel/cargo decision may inspect or modify its returned leg rows.
 ## The proposal cache owns its arrays; never expose them to another bidder.
