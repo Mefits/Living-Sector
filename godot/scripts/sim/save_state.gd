@@ -293,9 +293,16 @@ static func encoded_checkpoint_budget(snapshot: Dictionary) -> Dictionary:
 ## buffer that is written to .pending; no second checkpoint traversal.
 ## -1 means no encoding attempt in this process. Diagnostic only.
 static var _last_save_encoded_bytes: int = -1
+# Actual CPU-side UTF-8 encoding wall duration of the last attempted save.
+# This measures only the real N38 encode, not checkpoint() or disk/validation.
+# -1 means no encoding has been attempted; diagnostics do not reserialize.
+static var _last_save_encode_usec: int = -1
 
 static func last_save_encoded_bytes() -> int:
     return _last_save_encoded_bytes
+
+static func last_save_encode_usec() -> int:
+    return _last_save_encode_usec
 
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
@@ -321,7 +328,9 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     # Encode the actual on-disk UTF-8 payload once. The N38 size limit
     # applies to bytes, not String length; reuse the measured buffer for
     # writing instead of allocating a second full UTF-8 copy.
+    var encode_started_usec: int = Time.get_ticks_usec()
     var encoded_bytes: PackedByteArray = _encode_checkpoint_text(snapshot).to_utf8_buffer()
+    _last_save_encode_usec = Time.get_ticks_usec() - encode_started_usec
     _last_save_encoded_bytes = encoded_bytes.size()
     if encoded_bytes.size() > MAX_SAVE_BYTES:
         return ERR_OUT_OF_MEMORY
