@@ -94,24 +94,9 @@ func _label(value: String, size_px: int = 14,
 
 func _button(value: String, action: Callable = Callable(),
         prominent: bool = false) -> Button:
-    var control := Button.new()
-    control.text = value
-    control.focus_mode = Control.FOCUS_NONE
-    control.add_theme_font_size_override("font_size", 13)
-    control.add_theme_color_override("font_color", TEAL if prominent else TEXT)
-    control.add_theme_color_override("font_hover_color", TEAL)
-    control.add_theme_stylebox_override("normal",
-        _box(Color("#122631"), false))
-    control.add_theme_stylebox_override("hover",
-        _box(Color("#18343B"), true))
-    control.add_theme_stylebox_override("pressed",
-        _box(Color("#1F4248"), true))
-    control.add_theme_stylebox_override("focus", _box(Color.TRANSPARENT, false))
-    if action.is_valid():
-        control.pressed.connect(action)
-    else:
-        control.disabled = true
-    return control
+    # One Theme-backed button for every workspace action; callers continue
+    # to own their real N39 navigation / input callbacks.
+    return LSComponents.action_button(value, action, prominent)
 
 func _hline() -> HSeparator:
     var rule := HSeparator.new()
