@@ -48,7 +48,7 @@ static func station_native_position(bodies: Dictionary,
         return {"ok": false}
     var angle: float = deg_to_rad(fposmod(float(
         N43.initial_facility_angle(location)) +
-        360.0 * native_units / N43.FACILITY_ORBIT_PERIOD, 360.0))
+        360.0 * native_units / SolOrbits.STATION_ORBIT_PERIOD_NATIVE, 360.0))
     return {"ok": true, "position": parent["position"] +
         Vector2(cos(angle), sin(angle)) * local_radius,
         "native_radius": local_radius}
