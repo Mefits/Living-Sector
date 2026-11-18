@@ -1370,7 +1370,9 @@ func _change_ui_scale(index: int) -> void:
     prefs.set_value("display", "ui_scale_index", index)
     prefs.save(UI_PREFERENCES_PATH)
     if _strategy_ui != null:
-        _strategy_ui.call("_layout_window")
+        # The content scale changes the root Control's logical dimensions.
+        # Let the viewport settle before measuring responsive HUD geometry.
+        _strategy_ui.call_deferred("_layout_window")
     if _system_view != null:
         _system_view.set_ui_viewport_scale(value)
 
