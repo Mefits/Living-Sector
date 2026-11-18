@@ -3052,10 +3052,22 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     # read-only inputs to labor/colony proposals and strict Schema oracle.
     # B3 colony establishment performs its own detached full proposal.
     var staged: Dictionary = _world.duplicate(false)
+    # B3 colony establishment inspects the entire population graph.
+    # Retain the original deep-owned path whenever any site can establish
+    # a colony; ordinary N141 shifts only write the paid household rows.
+    var colony_stage: bool = false
+    for site_id in site_ids:
+        var site_view: Dictionary = _world["construction_sites"][site_id]
+        if site_view.get("labor", {}).get("colony_source", null) != null:
+            colony_stage = true
+            break
     for domain in ["construction_sites", "construction_receipts",
-            "construction_contracts", "populations", "faction_treasuries",
+            "construction_contracts", "faction_treasuries",
             "facilities", "markets"]:
         staged[domain] = _world[domain].duplicate(true)
+    staged["populations"] = (_world["populations"].duplicate(true)
+        if colony_stage else _world["populations"].duplicate(false))
+    var owned_households: Dictionary = {}
     var ledger: RefCounted = _ledger.fork()
     var paid: Array = []
     var blocked: Array = []
@@ -3116,6 +3128,12 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
                 return {"ok": false, "fatal": true, "reason": "n141_original_household_missing"}
             if int(source_household["total_wealth"]) != ledger.balance(Schema.household_account(pid)):
                 return {"ok": false, "fatal": true, "reason": "n141_household_receipt_mismatch"}
+            # The proposal is read-only; detach a household before its first
+            # authoritative write, even if a later site/receipt is rejected.
+            # Multiple paid sites share the same detached row in this stage.
+            if not colony_stage and not owned_households.has(pid):
+                staged["populations"][pid] = staged["populations"][pid].duplicate(true)
+                owned_households[pid] = true
             staged["populations"][pid]["wealth"] = ledger.balance(Schema.household_account(pid))
             staged["populations"][pid]["employed_fraction"] = float(source_household["employed_fraction"])
         staged["construction_sites"][site_id] = site.duplicate(true)
