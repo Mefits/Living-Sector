@@ -285,11 +285,7 @@ static func advance(world: Dictionary, ledger: Variant,
     # the return boundary. Previously every admitted ship deep-copied the
     # growing receipt journal and restored/snapshotted the entire ledger.
     var bank: Variant = ledger
-    if ledger is Dictionary:
-        var staged_bank: RefCounted = Bank.new()
-        if not staged_bank.restore(ledger):
-            return _bad("n9_original_bank_restore_failed")
-        bank = staged_bank
+    var bank_restored: bool = false
     var events: Array = []
     var changed: bool = false
     # Count occupied docks once per paid tick. The old queue loop scanned
@@ -322,6 +318,15 @@ static func advance(world: Dictionary, ledger: Variant,
                     "ship_id": head, "facility_id": str(fid), "tick": tick})
                 changed = true
                 continue
+            # Restore the growing N9 history only if a real paid
+            # admission is about to occur. All-invalid/insolvent queues
+            # retain the previous no-ledger-read behavior.
+            if ledger is Dictionary and fee > 0 and not bank_restored:
+                var staged_bank: RefCounted = Bank.new()
+                if not staged_bank.restore(ledger):
+                    return _bad("n9_original_bank_restore_failed")
+                bank = staged_bank
+                bank_restored = true
             var placed: Dictionary = _admit(
                 staged, bank, str(fid), head, tick, "fifo_tick", occupancy)
             if not placed.get("ok", false):
@@ -332,7 +337,8 @@ static func advance(world: Dictionary, ledger: Variant,
             changed = true
     # Preserve the public N21 dictionary snapshot contract. No mutable
     # Bank instance escapes to N39 or the next paid tick.
-    var committed_ledger: Variant = bank.snapshot() if ledger is Dictionary else bank
+    var committed_ledger: Variant = bank.snapshot() if bank_restored else (
+        ledger.duplicate(true) if ledger is Dictionary else bank)
     return {"ok": true, "changed": changed, "world": staged,
         "ledger_snapshot": committed_ledger, "events": events, "tick": tick,
         "status": "SOURCE_N21_FIFO_DOCK_QUEUE"}
