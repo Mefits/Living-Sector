@@ -50,7 +50,7 @@ func _initialize() -> void:
 	if is_same(old_shard, fast.get("_receipt_partitions")[bucket]) or is_same(old_shard, sibling.get("_receipt_partitions")[bucket]):
 		_fail("fork did not detach shared shard")
 		return
-	if frozen != oracle_sibling.snapshot() or fast.snapshot() != oracle.snapshot() or sibling.snapshot() != oracle_sibling.snapshot():
+	if frozen["receipts"].size() != 5 or frozen["receipts"].has(ids[5]) or frozen["receipts"].has(ids[6]) or fast.snapshot() != oracle.snapshot() or sibling.snapshot() != oracle_sibling.snapshot():
 		_fail("fork oracle parity")
 		return
 	# Simulate a stale private-shard marker after a new shard header was
