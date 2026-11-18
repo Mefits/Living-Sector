@@ -85,3 +85,69 @@ static func compare_late_windows(early: Dictionary, late: Dictionary) -> Diction
     return {"accepted": true, "early_end_tick": early["to_tick"],
         "late_end_tick": late["to_tick"], "deltas": delta,
         "time_kind": "elapsed_wall_not_cpu", "performance_claim": false}
+
+## Detached authoritative N39 size comparison at paid checkpoint boundaries.
+## Exact snapshot oracle still checks full state; these counters localize growth.
+## N9 journal and event queue are intentionally NOT inferred from World.
+static func compare_size_boundary(tick: int, direct: Dictionary,
+        worker: Dictionary) -> Dictionary:
+    const SIZE = preload("res://scripts/sim/phase2/n158_authoritative_size_probe.gd")
+    if not SIZE.CHECKPOINTS.has(tick):
+        return {"accepted": false, "reason": "unsupported_size_boundary"}
+    var snapshots: Array[Dictionary] = []
+    for checkpoint in [direct, worker]:
+        if typeof(checkpoint.get("tick", null)) != TYPE_INT or int(checkpoint["tick"]) != tick:
+            return {"accepted": false, "reason": "source_tick_mismatch"}
+        var native: Variant = checkpoint.get("native_production")
+        if not (native is Dictionary) or not (native.get("world") is Dictionary):
+            return {"accepted": false, "reason": "missing_detached_world"}
+        var measured: Dictionary = SIZE.measure(tick, native["world"])
+        if not measured.get("valid", false):
+            return {"accepted": false, "reason": str(measured.get("reason", "invalid_size"))}
+        snapshots.append(measured)
+    var left: Dictionary = snapshots[0]
+    var right: Dictionary = snapshots[1]
+    # Do not compare only totals: one missing receipt category must be visible.
+    for key in ["ships", "facilities", "dock_waiting", "contracts",
+            "receipt_categories", "missing"]:
+        if left.get(key) != right.get(key):
+            return {"accepted": false, "reason": "size_divergence_" + key,
+                "direct": left.duplicate(true), "worker": right.duplicate(true)}
+    return {"accepted": true, "tick": tick, "counts": left.duplicate(true),
+        "n9_and_events_measured": false}
+
+## Compare actual checkpoint counts across independent early/late boundaries.
+## Missing categories remain missing; never silently treat absence as zero.
+static func compare_size_growth(early: Dictionary, late: Dictionary) -> Dictionary:
+    if not early.get("accepted", false) or not late.get("accepted", false):
+        return {"accepted": false, "reason": "unverified_size_boundary"}
+    var first: int = int(early.get("tick", -1))
+    var last: int = int(late.get("tick", -1))
+    if first < 1 or last <= first:
+        return {"accepted": false, "reason": "non_increasing_boundary"}
+    var a: Variant = early.get("counts")
+    var b: Variant = late.get("counts")
+    if not (a is Dictionary) or not (b is Dictionary):
+        return {"accepted": false, "reason": "missing_size_counts"}
+    if not (a.get("receipt_categories") is Dictionary) or not (
+            b.get("receipt_categories") is Dictionary):
+        return {"accepted": false, "reason": "invalid_receipt_categories"}
+    if a.get("missing", []) != b.get("missing", []):
+        return {"accepted": false, "reason": "changed_size_coverage"}
+    var delta: Dictionary = {}
+    for key in ["ships", "facilities", "dock_waiting", "contracts"]:
+        if typeof(a.get(key, null)) != TYPE_INT or typeof(b.get(key, null)) != TYPE_INT:
+            return {"accepted": false, "reason": "missing_count_" + key}
+        delta[key] = int(b[key]) - int(a[key])
+    var receipts: Dictionary = {}
+    var ac: Dictionary = a["receipt_categories"]
+    var bc: Dictionary = b["receipt_categories"]
+    if ac.keys().size() != bc.keys().size():
+        return {"accepted": false, "reason": "changed_receipt_coverage"}
+    for key in ac:
+        if not bc.has(key) or typeof(ac[key]) != TYPE_INT or typeof(bc[key]) != TYPE_INT:
+            return {"accepted": false, "reason": "changed_receipt_coverage"}
+        receipts[key] = int(bc[key]) - int(ac[key])
+    delta["receipt_categories"] = receipts
+    return {"accepted": true, "from_tick": first, "to_tick": last,
+        "delta": delta, "n9_and_events_measured": false}
