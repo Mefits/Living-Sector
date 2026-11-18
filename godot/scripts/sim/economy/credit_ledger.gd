@@ -794,16 +794,57 @@ static func _record_profile(kind: String, began: int) -> void:
 ## Proof for internal COW transactions. Unchanged shards retain identity;
 ## changed shards must retain every original immutable row. A restored or
 ## replaced history cannot acquire this proof merely by matching its count.
+## Verify the append-only receipt order without copying historical rows.
+## A trusted fork may detach only the old tail; all older chunks are immutable.
+func _retains_receipt_order(parent: RefCounted, trusted: bool) -> bool:
+	var old_chunks: Array = parent.get("_receipt_order_chunks")
+	var old_count: int = parent.receipt_count()
+	if _receipt_count < old_count:
+		return false
+	if old_chunks.size() != (old_count + ORDER_CHUNK_SIZE - 1) / ORDER_CHUNK_SIZE:
+		return false
+	if _receipt_order_chunks.size() != (_receipt_count + ORDER_CHUNK_SIZE - 1) / ORDER_CHUNK_SIZE:
+		return false
+	var checked: int = 0
+	for i in range(_receipt_order_chunks.size()):
+		var chunk: Variant = _receipt_order_chunks[i]
+		if not (chunk is Array) or chunk.is_empty() or chunk.size() > ORDER_CHUNK_SIZE:
+			return false
+		if i < _receipt_order_chunks.size() - 1 and chunk.size() != ORDER_CHUNK_SIZE:
+			return false
+		var start: int = 0
+		if i < old_chunks.size():
+			var original: Variant = old_chunks[i]
+			if not (original is Array) or original.is_empty():
+				return false
+			start = original.size()
+			if chunk.size() < start:
+				return false
+			if not is_same(chunk, original):
+				if trusted and i != old_chunks.size() - 1:
+					return false
+				for j in range(start):
+					if chunk[j] != original[j]:
+						return false
+			checked += start
+		for j in range(start, chunk.size()):
+			var id: Variant = chunk[j]
+			if not (id is String) or id.is_empty() or not _has_receipt_id(id):
+				return false
+			if _receipt_at(id).get("id") != id:
+				return false
+	return checked == old_count
+
 func retains_owned_receipts(parent: RefCounted) -> bool:
 	if parent.get_script() != get_script() or _receipt_count < parent.receipt_count():
 		return false
 	var old: Array = parent.get("_receipt_partitions")
-	# A direct child knows precisely which immutable COW shards it detached.
-	# Parent generation must still match the fork point: a later parent append
-	# or even same-count restore invalidates the shortcut. All other cases use
-	# the original exhaustive oracle, including unrelated/ancestor ledgers.
-	if _fork_source != null and is_same(_fork_source.get_ref(), parent) and (
-			_fork_source_generation == int(parent.get("_receipt_generation"))):
+	var trusted: bool = _fork_source != null and is_same(
+		_fork_source.get_ref(), parent) and (
+		_fork_source_generation == int(parent.get("_receipt_generation")))
+	if not _retains_receipt_order(parent, trusted):
+		return false
+	if trusted:
 		for bucket_value in _fork_changed_shards:
 			var bucket: int = int(bucket_value)
 			if bucket < 0 or bucket >= RECEIPT_PARTITIONS:
@@ -814,6 +855,11 @@ func retains_owned_receipts(parent: RefCounted) -> bool:
 				if not is_same((_receipt_partitions[bucket] as Dictionary).get(id),
 						old[bucket][id]):
 					return false
+		# The write-set is a proof only when all other shards are identical.
+		for bucket in range(RECEIPT_PARTITIONS):
+			if not _fork_changed_shards.has(bucket) and not is_same(
+					_receipt_partitions[bucket], old[bucket]):
+				return false
 		return true
 	for i in range(RECEIPT_PARTITIONS):
 		if is_same(_receipt_partitions[i], old[i]):
