@@ -1086,10 +1086,12 @@ func _draw_physical_sol_assets(scale: float) -> void:
         # Native N43 still orbits at the same 800km physical altitude.
         var near_surface_zoom: float = clampf(
             (_zoom - 10.0) / 38.0, 0.0, 1.0)
-        var orbit_gap_px: float = lerpf(18.0, 40.0,
-            clampf((_zoom - 1.0) / 8.0, 0.0, 1.0)) /
-            _ui_viewport_scale + (minf(body_radius * 0.10,
-            80.0 / _ui_viewport_scale) * near_surface_zoom)
+        var orbit_gap_px: float = (
+            lerpf(18.0, 40.0,
+                clampf((_zoom - 1.0) / 8.0, 0.0, 1.0)) /
+                _ui_viewport_scale +
+            minf(body_radius * 0.10,
+                80.0 / _ui_viewport_scale) * near_surface_zoom)
         var display_radius: float = maxf(
             body_radius + orbit_gap_px, physical_compressed)
         var pos: Vector2 = body_pos + direction * display_radius
