@@ -43,6 +43,7 @@ func _record_phase_elapsed(phase: String, tick: int, elapsed: int, accepted: boo
             row[name] = 0
         row["_seen"] = {}
         row["_calls"] = {}
+        row["_durations"] = {}
         _paid_rows.append(row)
         while not _paid_rows.is_empty() and int(_paid_rows[0]["tick"]) <= tick - WINDOW_LIMIT:
             _paid_rows.pop_front()
@@ -50,6 +51,10 @@ func _record_phase_elapsed(phase: String, tick: int, elapsed: int, accepted: boo
     _paid_rows[_paid_rows.size() - 1]["_seen"][phase] = true
     var counts: Dictionary = _paid_rows[_paid_rows.size() - 1]["_calls"]
     counts[phase] = int(counts.get(phase, 0)) + 1
+    var durations: Dictionary = _paid_rows[_paid_rows.size() - 1]["_durations"]
+    if not durations.has(phase):
+        durations[phase] = []
+    durations[phase].append(elapsed)
 
 func phase_metrics() -> Dictionary:
     return _phase_cost.duplicate(true)
@@ -72,7 +77,7 @@ func paid_phase_window(end_tick: int) -> Array:
     for name in PHASES:
         coverage[name] = 0
     for tick in range(end_tick - WINDOW_LIMIT + 1, end_tick + 1):
-        var row: Dictionary = {"tick": tick, "_seen": {}, "_calls": {}}
+        var row: Dictionary = {"tick": tick, "_seen": {}, "_calls": {}, "_durations": {}}
         for phase in PHASES:
             row[phase] = 0
             row["_calls"][phase] = 0
@@ -81,6 +86,7 @@ func paid_phase_window(end_tick: int) -> Array:
             for phase in PHASES:
                 row[phase] = int(source.get(phase, 0))
                 row["_calls"][phase] = int(source.get("_calls", {}).get(phase, 0))
+                row["_durations"][phase] = source.get("_durations", {}).get(phase, []).duplicate()
                 if row["_calls"][phase] > 0:
                     row["_seen"][phase] = true
                     coverage[phase] = int(coverage[phase]) + row["_calls"][phase]
@@ -150,3 +156,42 @@ func paid_phase_distribution(end_tick: int) -> Dictionary:
         "phase_calls": calls, "phase_active_paid_ticks": active_ticks,
         "time_kind": "elapsed_wall_not_cpu",
         "requires_authoritative_source_clock_confirmation": true}
+
+## Real integrated-phase callsites, not guessed from aggregate paid-tick time.
+## Bounded by the same 100 paid-tick rows. All returned arrays are detached.
+func paid_callsite_costs(end_tick: int) -> Dictionary:
+    var rows: Array = paid_phase_window(end_tick)
+    if rows.size() != WINDOW_LIMIT:
+        return {}
+    var costs: Dictionary = {}
+    for phase in PHASES:
+        var durations: Array[int] = []
+        var total: int = 0
+        var active: int = 0
+        for row in rows:
+            var observed: Array = row["_durations"].get(phase, [])
+            var calls: int = int(row["_calls"].get(phase, 0))
+            if observed.size() != calls or calls < 0 or calls > 10000:
+                return {}
+            if calls > 0:
+                active += 1
+            var tick_total: int = 0
+            for sample in observed:
+                if typeof(sample) != TYPE_INT or int(sample) < 0:
+                    return {}
+                durations.append(int(sample))
+                tick_total += int(sample)
+            if tick_total != int(row[phase]):
+                return {}
+            total += tick_total
+        if durations.is_empty():
+            return {}
+        durations.sort()
+        var p95_index: int = ceili(float(durations.size()) * 0.95) - 1
+        costs[phase] = {"calls": durations.size(), "active_paid_ticks": active,
+            "total_usec": total, "avg_per_call_usec": float(total) / float(durations.size()),
+            "p95_per_call_usec": durations[p95_index],
+            "max_per_call_usec": durations.back()}
+    return {"from_tick": end_tick - WINDOW_LIMIT + 1, "to_tick": end_tick,
+        "observed_paid_ticks": WINDOW_LIMIT, "sites": costs,
+        "time_kind": "elapsed_wall_not_cpu"}
