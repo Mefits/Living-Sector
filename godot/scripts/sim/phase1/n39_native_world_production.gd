@@ -5688,8 +5688,40 @@ func apply_native_faction_relations(tick: int, multiplier: int) -> Dictionary:
         "authority": "n39_one_faction_relations_matrix"}
 
 
+## Shared by recipe and extraction failure paths. A blocked attempt is a
+## physical facility-status transition, never permission to mutate a row
+## still reachable from the previous authoritative World generation.
+## Keep this stage independent of payroll and market stock: a rejected
+## recipe/mining attempt must not publish any proposed inventory or N9 leg.
+func _stage_blocked_facility(source: Dictionary, id: String,
+        reason: String) -> Dictionary:
+    if not source.has("facilities") or not (source["facilities"] is Dictionary):
+        return {}
+    if not source["facilities"].has(id) or not (source["facilities"][id] is Dictionary):
+        return {}
+    var before: Dictionary = source["facilities"][id]
+    if str(before.get("work_blocked_reason", "")) == reason:
+        return source
+    var staged: Dictionary = source.duplicate()
+    staged["facilities"] = source["facilities"].duplicate()
+    var owned: Dictionary = before.duplicate(true)
+    owned["work_blocked_reason"] = reason
+    staged["facilities"][id] = owned
+    return staged
+
 func _blocked(id: String, reason: String) -> Dictionary:
-    _world["facilities"][id]["work_blocked_reason"] = reason
+    var staged: Dictionary = _stage_blocked_facility(_world, id, reason)
+    if staged.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "blocked_facility_missing:" + id}
+    if not is_same(staged, _world):
+        var invalid: String = _measured_schema_validate("blocked_production", staged)
+        if not invalid.is_empty():
+            return {"ok": false, "fatal": true,
+                "reason": "blocked_production_invalid_world:" + invalid}
+        # No wallet or market delta is permitted on the failure path.
+        # Full Schema validation is retained; the stage owns only one row.
+        _world = staged
     return {"ok": false, "reason": reason}
 
 ## Complete physical checkpoint including N9 balances and receipts, labor
