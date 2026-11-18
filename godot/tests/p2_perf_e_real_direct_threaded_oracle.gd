@@ -67,7 +67,6 @@ func _run() -> void:
     var previous_source_counts: Dictionary = {}
     var previous_window: Dictionary = {}
     var observation_samples: Array = []
-    var expected_observations: Array[int] = []
     for tick in range(1, target + 1):
         if Time.get_ticks_msec() - _start_ms >= budget_ms:
             _finish("bounded wall budget exceeded before paid tick " + str(tick), false)
@@ -139,7 +138,6 @@ func _run() -> void:
                     " " + JSON.stringify(observation), false)
                 return
             observation_samples.append(observation)
-            expected_observations.append(tick)
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
             if LATE_WINDOWS.has(tick) and tick <= target:
                 var size_boundary: Dictionary = Acceptance.compare_size_boundary(
@@ -196,6 +194,12 @@ func _run() -> void:
                     _finish("post-restart direct/thread divergence", false)
                     return
                 print("P2_PERF_E_DIRECT_THREAD_RESTART_EXACT tick=", tick)
+    var expected_observations: Array[int] = []
+    for milestone in MILESTONES:
+        if milestone <= target:
+            expected_observations.append(milestone)
+    if target == EXTENDED_TARGET:
+        expected_observations.append_array(EXTENDED_MILESTONES)
     var observation_report: Dictionary = Acceptance.summarize_checkpoint_observations(
         observation_samples, expected_observations)
     if not observation_report.get("accepted", false):
