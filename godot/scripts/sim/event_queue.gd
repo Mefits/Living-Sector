@@ -9,12 +9,31 @@ var _pending: Array[Dictionary] = []
 var _next_sequence: int = 1
 # Position map for O(1) cancellation; _pending remains the sole event store.
 var _positions: Dictionary = {}
-# Boundary -> event ids; cancellation remains O(1) via _positions.
-# This index is rebuilt atomically on restore and is not serialized.
+# Integer due_tick -> phase -> event ids. No string boundary allocations in
+# paid phase polling. The index is derived; _pending remains authoritative.
+# Rebuilt atomically on restore, never serialized.
 var _due_ids: Dictionary = {}
 
-func _due_key(tick: int, phase: int) -> String:
-    return str(tick) + ":" + str(phase)
+func _add_due(event_id: String, due_tick: int, phase: int) -> void:
+    if not _due_ids.has(due_tick):
+        _due_ids[due_tick] = {}
+    var phases: Dictionary = _due_ids[due_tick]
+    if not phases.has(phase):
+        phases[phase] = {}
+    phases[phase][event_id] = true
+
+func _remove_due(event_id: String, due_tick: int, phase: int) -> void:
+    if not _due_ids.has(due_tick):
+        return
+    var phases: Dictionary = _due_ids[due_tick]
+    if not phases.has(phase):
+        return
+    var bucket: Dictionary = phases[phase]
+    bucket.erase(event_id)
+    if bucket.is_empty():
+        phases.erase(phase)
+        if phases.is_empty():
+            _due_ids.erase(due_tick)
 
 func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, kind: String, payload: Dictionary = {}) -> bool:
     if event_id.is_empty() or entity_id.is_empty() or kind.is_empty():
@@ -31,10 +50,7 @@ func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, ki
     _next_sequence += 1
     _positions[event_id] = _pending.size()
     _pending.append(event)
-    var boundary: String = _due_key(due_tick, phase)
-    if not _due_ids.has(boundary):
-        _due_ids[boundary] = {}
-    _due_ids[boundary][event_id] = true
+    _add_due(event_id, due_tick, phase)
     return true
 
 func cancel(event_id: String) -> bool:
@@ -44,11 +60,7 @@ func cancel(event_id: String) -> bool:
     # Dispatch and snapshot both sort by the canonical comparator, not array position.
     var index: int = int(_positions[event_id])
     var removed: Dictionary = _pending[index]
-    var boundary: String = _due_key(int(removed["due_tick"]), int(removed["phase"]))
-    if _due_ids.has(boundary):
-        _due_ids[boundary].erase(event_id)
-        if _due_ids[boundary].is_empty():
-            _due_ids.erase(boundary)
+    _remove_due(event_id, int(removed["due_tick"]), int(removed["phase"]))
     var last: int = _pending.size() - 1
     if index != last:
         var moved: Dictionary = _pending[last]
@@ -59,16 +71,13 @@ func cancel(event_id: String) -> bool:
     return true
 
 func take_due(tick: int, phase: int) -> Array[Dictionary]:
-    # Most phases have no queued events. Avoid allocating a boundary key
-    # when the authoritative event store is empty (including after cancel).
-    if _pending.is_empty():
+    # O(1) numeric lookup on the paid phase path, including idle ticks.
+    if not _due_ids.has(tick):
         return []
-    # Only visit events in this boundary; canonical sorting is independent
-    # of the swap-removal storage order.
-    var boundary: String = _due_key(tick, phase)
-    if not _due_ids.has(boundary):
+    var phases: Dictionary = _due_ids[tick]
+    if not phases.has(phase):
         return []
-    var ids: Array = _due_ids[boundary].keys()
+    var ids: Array = phases[phase].keys()
     var result: Array[Dictionary] = []
     # Consume this entire boundary in one pass. Calling cancel() per item
     # repeatedly rebuilds boundary strings and mutates the same due bucket.
@@ -85,7 +94,9 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
             _positions[str(moved["id"])] = index
         _pending.pop_back()
         _positions.erase(event_id)
-    _due_ids.erase(boundary)
+    phases.erase(phase)
+    if phases.is_empty():
+        _due_ids.erase(tick)
     if result.size() > 1:
         result.sort_custom(Callable(self, "_less"))
     # All returned records were removed from the sole authoritative store.
@@ -136,10 +147,14 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
             "payload": payload.duplicate(true)})
     var staged_due_ids: Dictionary = {}
     for event in staged:
-        var key: String = _due_key(int(event["due_tick"]), int(event["phase"]))
-        if not staged_due_ids.has(key):
-            staged_due_ids[key] = {}
-        staged_due_ids[key][str(event["id"])] = true
+        var due_tick: int = int(event["due_tick"])
+        var event_phase: int = int(event["phase"])
+        if not staged_due_ids.has(due_tick):
+            staged_due_ids[due_tick] = {}
+        var phases: Dictionary = staged_due_ids[due_tick]
+        if not phases.has(event_phase):
+            phases[event_phase] = {}
+        phases[event_phase][str(event["id"])] = true
     var staged_positions: Dictionary = {}
     for i in range(staged.size()):
         staged_positions[str(staged[i]["id"])] = i
