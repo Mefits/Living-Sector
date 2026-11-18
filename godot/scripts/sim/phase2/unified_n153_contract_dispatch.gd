@@ -363,10 +363,13 @@ static func propose(world: Dictionary, graph: RefCounted,
             if fixed_systems.is_empty():
                 fixed_systems[source] = EligibilityIndex.system_for(system_cache, source, resolver)
                 fixed_systems[dest] = EligibilityIndex.system_for(system_cache, dest, resolver)
-            var resolved: Dictionary = fixed_systems.duplicate()
-            resolved[here] = EligibilityIndex.system_for(system_cache, here, resolver)
-            var systems: Dictionary = _bid_system_context(system_context_cache,
-                here, source, dest, resolved)
+            var system_key: Array = [here, source, dest]
+            var systems: Dictionary = system_context_cache.get(system_key, {})
+            if systems.is_empty():
+                var resolved: Dictionary = fixed_systems.duplicate()
+                resolved[here] = EligibilityIndex.system_for(system_cache, here, resolver)
+                systems = _bid_system_context(system_context_cache,
+                    here, source, dest, resolved)
             if str(systems[here]).is_empty() or str(systems[source]).is_empty() or str(systems[dest]).is_empty():
                 _blocked_ship(ship_blockers, "missing_system_for_market")
                 continue
