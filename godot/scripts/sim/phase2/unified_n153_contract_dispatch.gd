@@ -167,6 +167,51 @@ static func _bid_observation(cache: Dictionary, ship_id: String,
     cache[ship_id] = result
     return result
 
+## Immutable-for-this-proposal bidder roster. Do not copy or mutate World ship
+## rows: the canonical World cannot change during a synchronous propose().
+## Assignment remains offer-order dependent and is checked separately.
+static func _bidder_rows(world: Dictionary, ids: Array, factions: Dictionary) -> Array:
+    var rows: Array = []
+    for ship_id in ids:
+        var ship: Dictionary = world["ships"][ship_id]
+        var faction_id: String = str(ship.get("faction_id", ""))
+        var exists: bool = factions.has(faction_id)
+        var outlaw: bool = exists and str(factions[faction_id].get("type", "")) == "outlaw"
+        rows.append({"id": str(ship_id), "ship": ship,
+            "faction": faction_id, "exists": exists, "outlaw": outlaw})
+    return rows
+
+## Seller-specific reputation gates are invariant across posted offers in
+## this one proposal. Cache rejection as well as acceptance; never cache a
+## contract-specific quote, assignment, cargo or payment decision.
+static func _seller_bidder_gate(row: Dictionary, seller_faction: String,
+        buyer_faction: String, posture_cache: Dictionary,
+        gate_cache: Dictionary) -> Dictionary:
+    var seller_cache: Dictionary = gate_cache.get(seller_faction, {})
+    var buyer_cache: Dictionary = seller_cache.get(buyer_faction, {})
+    var ship_id: String = str(row["id"])
+    if buyer_cache.has(ship_id):
+        return buyer_cache[ship_id]
+    var result: Dictionary = {"ok": true}
+    var faction_id: String = str(row["faction"])
+    if not bool(row["exists"]):
+        result = {"ok": false, "reason": "ship_faction_missing_or_already_assigned"}
+    elif bool(row["outlaw"]) and (faction_id != buyer_faction or faction_id != seller_faction):
+        result = {"ok": false, "reason": "outlaw_source_commerce_restricted"}
+    else:
+        var ship: Dictionary = row["ship"]
+        var reputation: Dictionary = ship.get("faction_reputation", {})
+        var posture: Dictionary = EligibilityIndex.posture(posture_cache,
+            faction_id, seller_faction, int(reputation.get(seller_faction, 0)))
+        if not posture.get("ok", false):
+            result = {"ok": false, "reason": "source_reputation_posture_rejected"}
+        else:
+            result = {"ok": true, "multiplier": float(posture["multiplier"])}
+    buyer_cache[ship_id] = result
+    seller_cache[buyer_faction] = buyer_cache
+    gate_cache[seller_faction] = seller_cache
+    return result
+
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
         tick_scale: float, factions: Dictionary = {}) -> Dictionary:
@@ -178,6 +223,8 @@ static func propose(world: Dictionary, graph: RefCounted,
     if not (world.get("markets") is Dictionary) or not (world.get("facilities") is Dictionary):
         return {"ok": false, "reason": "missing_actual_markets"}
     var ships: Array = EligibilityIndex.ship_ids(world)
+    var bidder_rows: Array = _bidder_rows(world, ships, factions)
+    var seller_gate_cache: Dictionary = {} # seller/buyer/ship, proposal-local
     var ids: Array = EligibilityIndex.offer_ids(contracts)
     var posture_cache: Dictionary = {} # Call-scoped; never survives N38 restore.
     var system_cache: Dictionary = {} # Resolver IDs for one proposal only.
@@ -247,23 +294,21 @@ static func propose(world: Dictionary, graph: RefCounted,
         # A posture multiplier and source quote are fixed for this offer.
         # Keep this local: a later offer can change quantity, price or payer.
         var purchase_quotes: Dictionary = {}
-        for ship_id in ships:
-            var ship: Dictionary = world["ships"][ship_id]
-            var ship_faction: String = str(ship.get("faction_id", ""))
-            if not factions.has(ship_faction) or already_assigned.has(str(ship_id)):
+        for bidder in bidder_rows:
+            var ship_id: String = str(bidder["id"])
+            var ship: Dictionary = bidder["ship"]
+            var ship_faction: String = str(bidder["faction"])
+            # Assignment is mutable across offers; never cache it. The old
+            # rejection priority checks it before outlaw/reputation gates.
+            if already_assigned.has(ship_id):
                 _blocked_ship(ship_blockers, "ship_faction_missing_or_already_assigned")
                 continue
-            if str(factions[ship_faction].get("type", "")) == "outlaw" and (ship_faction != buyer_faction or ship_faction != seller_faction):
-                _blocked_ship(ship_blockers, "outlaw_source_commerce_restricted")
+            var bidder_gate: Dictionary = _seller_bidder_gate(bidder,
+                seller_faction, buyer_faction, posture_cache, seller_gate_cache)
+            if not bool(bidder_gate["ok"]):
+                _blocked_ship(ship_blockers, str(bidder_gate["reason"]))
                 continue
-            var reputation: Dictionary = ship.get("faction_reputation", {})
-            var posture: Dictionary = EligibilityIndex.posture(
-                posture_cache, ship_faction, seller_faction,
-                int(reputation.get(seller_faction, 0)))
-            if not posture.get("ok", false):
-                _blocked_ship(ship_blockers, "source_reputation_posture_rejected")
-                continue
-            var posture_multiplier: float = float(posture["multiplier"])
+            var posture_multiplier: float = float(bidder_gate["multiplier"])
             var quote_result: Dictionary = _purchase_quote(purchase_quotes, posture_multiplier, qty, float(source_price))
             if not bool(quote_result["valid"]):
                 _blocked_ship(ship_blockers, "invalid_source_purchase_quote")
@@ -297,7 +342,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 fixed_systems[dest] = EligibilityIndex.system_for(system_cache, dest, resolver)
             systems[source] = fixed_systems[source]
             systems[dest] = fixed_systems[dest]
-            if systems.values().has(""):
+            if str(systems[here]).is_empty() or str(systems[source]).is_empty() or str(systems[dest]).is_empty():
                 _blocked_ship(ship_blockers, "missing_system_for_market")
                 continue
             # Per-ship sensor and comms fields cannot change inside propose().
