@@ -69,7 +69,9 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Workspace receives priority over right outliner on narrow logical viewports; user can reopen it.
 - [x] Window, breadcrumb, context card, alert popover and footer all derive offsets from the same layout.
 - [x] Resource chip counts adapt at five width bands; no game state or N39 snapshot is read by layout.
-- [ ] Finish responsive inner workspace layout, overflow and minimum sizes.
+- [x] Workspace metric grids and colony columns reflow by available logical workspace width, not their own resizes (no 4↔2 oscillation).
+- [x] Tabs retain native horizontal scrolling and live search remains available in narrow windows.
+- [ ] Finish small-screen card height, scroll overflow and remaining HUD controls.
 - [ ] 1920×1080 and 1366×768 visual / input testing deferred until final stage 7.
 
 ## Stage 7 — final acceptance [NOT STARTED]

@@ -67,6 +67,9 @@ var _content: VBoxContainer
 var _last_signature: String = ""
 var _last_render_ms: int = -1
 var _scroll_by_page: Dictionary = {}
+# Reflow controls already built for the active page without re-reading N39.
+var _metric_grids: Array[GridContainer] = []
+var _colony_grids: Array[GridContainer] = []
 
 func _box(fill: Color = SURFACE, outlined: bool = true) -> StyleBoxFlat:
     var style := StyleBoxFlat.new()
@@ -256,6 +259,21 @@ func _fit_toolbar() -> void:
     if _filter != null:
         _filter.placeholder_text = (
             "Поиск" if size.x < 350.0 else "Фильтр по объектам и статусам")
+    _refresh_responsive_columns()
+
+func _refresh_responsive_columns() -> void:
+    # Root workspace width, not a grid's own resized width, determines the
+    # number of columns. This avoids resize-driven 4↔2 feedback loops.
+    var available: float = maxf(0.0, size.x - 46.0)
+    var metrics_columns: int = (
+        4 if available >= 590.0 else (2 if available >= 300.0 else 1))
+    for grid in _metric_grids:
+        if is_instance_valid(grid) and grid.columns != metrics_columns:
+            grid.columns = metrics_columns
+    var pair_columns: int = 2 if available >= 620.0 else 1
+    for grid in _colony_grids:
+        if is_instance_valid(grid) and grid.columns != pair_columns:
+            grid.columns = pair_columns
 
 
 func set_can_go_back(can_go_back: bool) -> void:
@@ -362,6 +380,8 @@ func _render() -> void:
                 # Resolve by current mode/tab when the frame is laid out,
                 # never hold a soon-to-be freed Button in a deferred call.
                 call_deferred("_reveal_active_tab", _mode, _tab)
+    _metric_grids.clear()
+    _colony_grids.clear()
     _clear(_content)
     match _mode:
         "colony": _colony()
@@ -374,6 +394,7 @@ func _render() -> void:
         "ship": _ship_workspace()
         "technical": _technical_workspace()
         _: _empty("Этот раздел пока не подключён.")
+    _refresh_responsive_columns()
 
 func _reveal_active_tab(mode: String, tab: String) -> void:
     if mode != _mode or tab != _tab or _tabs_scroll == null:
@@ -461,20 +482,15 @@ func _pair(parent: Node, name: String, value: String,
     row.add_child(answer)
 
 func _metric_strip(parent: Node, pairs: Array) -> void:
-    # Original Figma Make .metric-strip: four equal-width tiles per row.
-    # Reduce columns on cramped panels without using a global viewport scale.
+    # Exactly four Figma columns when space permits. On laptops/high DPI,
+    # shrink to two/one rather than let 138px minimum tiles overflow.
     var grid := GridContainer.new()
     grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    grid.columns = 4 if size.x >= 660.0 else (2 if size.x >= 350.0 else 1)
+    grid.columns = 1
     grid.add_theme_constant_override("h_separation", 0)
     grid.add_theme_constant_override("v_separation", 0)
     parent.add_child(grid)
-    grid.resized.connect(func() -> void:
-        var columns_now: int = (
-            4 if grid.size.x >= 560.0 else (
-                2 if grid.size.x >= 280.0 else 1))
-        if grid.columns != columns_now:
-            grid.columns = columns_now)
+    _metric_grids.append(grid)
     for item in pairs:
         if not (item is Dictionary):
             continue
@@ -816,15 +832,12 @@ func _colony() -> void:
             # Figma .workspace-grid: two equal columns; collapse to one
             # below desktop space, without truncating real N39 table rows.
             var pair := GridContainer.new()
-            pair.columns = 2 if size.x >= 680.0 else 1
+            pair.columns = 1
             pair.size_flags_horizontal = Control.SIZE_EXPAND_FILL
             pair.add_theme_constant_override("h_separation", 8)
             pair.add_theme_constant_override("v_separation", 8)
             _content.add_child(pair)
-            pair.resized.connect(func() -> void:
-                var wanted := 2 if pair.size.x >= 620.0 else 1
-                if pair.columns != wanted:
-                    pair.columns = wanted)
+            _colony_grids.append(pair)
             var companies := _section("ПРЕДПРИЯТИЯ",
                 "%d объектов" % facilities.size(), pair)
             var compact_facilities: Array[Dictionary] = []
