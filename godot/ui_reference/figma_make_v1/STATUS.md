@@ -10,10 +10,10 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 
 - [x] Original `App.tsx` and `index.css` saved in `godot/ui_reference/figma_make_v1/`.
 - [x] Initial CSS dimensions and component map saved.
-- [ ] Capture and commit authoritative full-resolution screenshot(s) and required image assets.
+- [ ] Authoritative 2560×2160 Figma Make V1 screenshot exported as conversation artifact (SHA-256 `6e094a297485f1eda4478fa265c1d8873f8a8d0f6961ca0ad3b2daa347ceda58`). It is **not** committed to this repository; the original Figma link and pinned React/CSS remain the Git reference.
 - [x] Native SystemFont fallback established: IBM Plex Sans → Segoe UI → Arial → Noto Sans, per CSS font stack; no font files embedded. Exact parity still depends on installed fonts.
 
-## Stage 2 — native Theme [IN PROGRESS]
+## Stage 2 — native Theme [CODE COMPLETE / AWAITING WINDOWS TEST]
 
 - [x] `godot/ui/living_sector_theme.tres` with base Figma palette.
 - [x] `ls_ui_theme.gd`: reusable variations for buttons, tabs, panels, typography and dense rows.
@@ -23,7 +23,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Legacy HUD/Context and workspace local StyleBox skin construction replaced with centralized Theme variants; per-control color accents and font sizes remain where semantically necessary.
 - [ ] Verify native theme parser and rendered game in final acceptance.
 
-## Stage 3 — component library [IN PROGRESS]
+## Stage 3 — component library [CODE COMPLETE / AWAITING WINDOWS TEST]
 
 - [x] `ls_ui_components.gd` factories for action buttons, tabs and metric labels/panels.
 - [x] Reusable header/search/toolbar/section panel wrappers.
@@ -36,7 +36,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [ ] Complete Windows visual comparison postponed until final acceptance.
 - [ ] Visual screenshot comparisons.
 
-## Stage 4 — native HUD and peripheral shell [IN PROGRESS]
+## Stage 4 — native HUD and peripheral shell [CODE COMPLETE / AWAITING WINDOWS TEST]
 
 - [x] New Theme-backed 58px Figma header (was 82px+), 192px brand, 46px alert and compact N158 pause/×1/×16 controls.
 - [x] Six actual N39 resource chips with icon/name/value layers; no invented market rates or Figma demo trends.
@@ -83,9 +83,19 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [ ] Tiny viewport edge cases and measured layout behavior are part of final acceptance.
 - [ ] 1920×1080 and 1366×768 visual / input testing deferred until final stage 7.
 
-## Stage 7 — final acceptance [NOT STARTED]
+## Stage 7 — final acceptance [READY FOR USER TEST; NOT YET VERIFIED]
 
-- [ ] Pixel-level screenshot verification + game behavior acceptance.
+- [ ] User to run `godot/tools/launch_ui_review.ps1` with Godot 4.7.2 on Windows.
+- [ ] Confirm no parse/runtime failures, check N39/N14 actions, scrolling and window sizing.
+- [ ] Compare real Godot screenshots against Figma at 1920×1080 and 1366×768; correct any differences.
+
+## Final handoff
+
+- Branch: `feature/SystemBalance` (no merge into perf worker branches).
+- Windows run guide: `godot/ui_reference/figma_make_v1/TEST_UI_WINDOWS_RU.md`.
+- One-command launcher: `godot/tools/launch_ui_review.ps1`.
+- Final cleanup commit replaced local `_style/_box` StyleBoxes with shared Theme variants; keyboard focus and SystemFont fallback are implemented.
+- **No Godot executable was available in the editing environment, so no native runtime checks or screenshots have passed yet.** This is ready for the user's first Windows test, not a confirmed stable release.
 
 ## Verification and safety
 
@@ -131,3 +141,4 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 
 **All Stage 6 implementation changes are committed, not runtime tested.** No GitHub Actions or Godot validation has been run at the user's request. Stage 7 is the single final validation and correction gate.
 \n- Final cleanup: removed obsolete per-control _style/_box builders from StrategyUI and StrategyWorkspaces, centralized their styles in LSTheme. Long N39 notes no longer clip to ellipsis. **Requires Godot validation before claiming readiness.**\n\n- Pre-test preparation: native SystemFont for Figma font stack and keyboard focus outline; actual font face depends on platform availability. No font binaries were redistributed.\n
+- Final handoff: 2d62f35 (Theme cleanup), ca18a8e (native font/focus), 2477b67 + bb24167 (updated UI regression assertions), 942d43f (Windows smoke launcher). Source-level dependency scan confirms no local _style/_box and no per-control StyleBox overrides remain in the main StrategyUI/StrategyWorkspaces scripts. Native verification still pending.\n
