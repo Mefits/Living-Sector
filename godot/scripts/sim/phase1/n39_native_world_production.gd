@@ -3415,11 +3415,11 @@ func apply_native_player_research_policy(tick: int, faction: String,
 ## All candidates are rebuilt from current live markets/work shifts,
 ## never trusted merely because an AI proposal claims that it paid.
 func apply_native_research_phase(tick: int, source_factions: Dictionary,
-        multiplier: int) -> Dictionary:
+        multiplier: int, manual_factions: Dictionary = {}) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 1:
         return {"ok": false, "reason": "research_outside_live_faction_phase"}
     var proposed: Dictionary = NativeResearch.propose(_world,
-        source_factions, tick, multiplier)
+        source_factions, tick, multiplier, manual_factions)
     if not proposed.get("ok", false):
         return proposed
     if str(proposed.get("status", "")) == "LEGACY_RESEARCH_COMPONENT_ABSENT":
