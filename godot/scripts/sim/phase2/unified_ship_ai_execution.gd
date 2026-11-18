@@ -615,9 +615,8 @@ static func propose(world: Dictionary, graph: RefCounted,
             if own_goal not in ["construct", "retrofit", "refit", "trade_route",
                     "mine", "mine_ice", "deliver_mined_ice", "explore", "refuel"]:
                 continue
-        # This ship may have its N90 transaction, BT cursor, or goal changed.
-        # Detach before any nested write, including N104 resume and N14 preview.
-        ship = _owned_fleet_row(staged["ships"], str(ship_id), owned_ship_rows)
+        # Read-only N104 and BT gates precede the costly nested copy.
+        # Acquire ownership immediately before the first possible write.
         if contract_id.is_empty():
             var assigned_bt: Variant = ship.get("current_bt", null)
             if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
@@ -631,6 +630,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                 if not staged.get("construction_sites", {}).has(target_site):
                     # Native N154 has materialized the construction site:
                     # release only its N91 plan, never its physical dock.
+                    ship = _owned_fleet_row(staged["ships"], str(ship_id),
+                        owned_ship_rows)
                     ship["current_goal"] = "idle"
                     ship["current_bt"] = null
                     ship["current_goal_score"] = 0.0
@@ -646,6 +647,8 @@ static func propose(world: Dictionary, graph: RefCounted,
         if not contract_id.is_empty() and (held.is_empty() or str(held.get("status", "")) not in ["accepted", "picked_up"] or str(held.get("fulfiller_id", "")) != str(ship_id)):
             return {"ok": false, "reason": "n84_missing_actual_n104_obligation",
                 "ship_id": str(ship_id)}
+        # The N104 proof has passed. Resume/tick may mutate nested state.
+        ship = _owned_fleet_row(staged["ships"], str(ship_id), owned_ship_rows)
         var bt: Variant = ship.get("current_bt", null)
         if bt == null:
             var recovered: Dictionary = {}
