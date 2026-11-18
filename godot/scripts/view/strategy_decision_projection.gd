@@ -5,6 +5,18 @@ extends RefCounted
 
 const REASONS: Dictionary = {
     "ready": "Проект допустим по текущим проверкам",
+    "player_manual_control": "Этой фракцией управляет игрок",
+    "player_build_requires_paused_paid_tick": "Для приказа остановите время и выполните хотя бы один игровой тик",
+    "player_faction_not_in_manual_mode": "Сначала включите ручное управление этой фракцией",
+    "unknown_player_faction": "Фракция не найдена в текущем мире",
+    "player_faction_not_found": "Фракция отсутствует в актуальной симуляции",
+    "player_requires_owned_station": "В выбранной локации нет принадлежащей фракции станции или АЦ",
+    "t1_building_not_implemented": "Этот тип постройки ещё не реализован в экономике T1",
+    "invalid_player_build_request": "Неверные параметры приказа на строительство",
+    "construction_native_budget_reserve": "Недостаточно средств для стройки и обязательного резерва",
+    "construction_unavailable_physical_source": "На рынке поставщика нет необходимых материалов",
+    "construction_material_order_already_open": "Для стройплощадки уже выполняется доставка материалов",
+    "source_graph_route_unreachable": "Между поставщиком и стройкой нет доступного маршрута",
     "no_chronic_shortage": "Нет длительного дефицита",
     "no_ready_native_option": "Нет разрешённого готового проекта",
     "no_accessible_stock": "Недостаточно доступных материалов на других рынках",
