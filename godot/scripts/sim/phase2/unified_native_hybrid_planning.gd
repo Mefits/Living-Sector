@@ -22,33 +22,38 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
     for field in ["facilities", "markets", "ships", "populations", "contract_board"]:
         if not (world.get(field) is Dictionary):
             return {"ok": false, "reason": "n100_missing_real_" + field}
-    var facilities: Array = []
+    # Build the faction's ordered facility roster and owner-location lookup
+    # in one pass. The lookup is local to this capture: no stale cache can
+    # survive installation, removal, ownership transfer or relocation.
+    var source_facilities: Dictionary = world["facilities"]
     var facility_ids: Array = []
-    for fid in world["facilities"]:
-        if str(world["facilities"][fid].get("faction", "")) == faction:
+    var owned_locations: Dictionary = {}
+    for fid in source_facilities:
+        var facility: Dictionary = source_facilities[fid]
+        if str(facility.get("faction", "")) == faction:
             facility_ids.append(fid)
+            owned_locations[str(fid)] = str(facility.get("location", ""))
     facility_ids.sort()
+    var facilities: Array = []
     for fid in facility_ids:
-        var f: Dictionary = world["facilities"][fid]
+        var f: Dictionary = source_facilities[fid]
         facilities.append({"facility_id": str(fid),
                 "location_id": str(f.get("location", "")),
                 "facility_type": str(f.get("type", ""))})
+    # Resolve only this faction's market owners. Retain the source location
+    # sort, validation order and exact market DTO; do not cache World rows.
     var markets: Array = []
-    # Market ownership is checked before sorting: global markets grow with
-    # the sector, while this faction's planning snapshot needs only its own.
-    # Keep the original sorted location order and source owner validation.
     var locations: Array = []
-    for loc in world["markets"]:
-        var candidate: Dictionary = world["markets"][loc]
-        var candidate_owner: String = str(candidate.get("owner", ""))
-        if world["facilities"].has(candidate_owner) and str(
-                world["facilities"][candidate_owner].get("faction", "")) == faction:
+    var source_markets: Dictionary = world["markets"]
+    for loc in source_markets:
+        var candidate: Dictionary = source_markets[loc]
+        if owned_locations.has(str(candidate.get("owner", ""))):
             locations.append(loc)
     locations.sort()
     for loc in locations:
-        var m: Dictionary = world["markets"][loc]
+        var m: Dictionary = source_markets[loc]
         var owner: String = str(m.get("owner", ""))
-        if str(world["facilities"][owner].get("location", "")) != str(loc):
+        if str(owned_locations[owner]) != str(loc):
             return {"ok": false, "reason": "n100_wrong_source_market_owner"}
         markets.append({"market_id": str(m.get("id", "")),
             "facility_id": owner, "location_id": str(loc),
