@@ -54,6 +54,7 @@ func _run() -> void:
     var timings: Array = []
     var early_window: Dictionary = {}
     var last_window: Dictionary = {}
+    var early_sizes: Dictionary = {}
     for tick in range(1, target + 1):
         if not direct.queue_control("step", 1):
             _finish("direct step refused at " + str(tick), false)
@@ -102,6 +103,25 @@ func _run() -> void:
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
+            if tick in [100, 300]:
+                var size_boundary: Dictionary = Acceptance.compare_size_boundary(
+                    tick, detached_direct, detached_worker)
+                if not size_boundary.get("accepted", false):
+                    _finish("authoritative size divergence tick " + str(tick) +
+                        " " + JSON.stringify(size_boundary), false)
+                    return
+                print("P2_PERF_E_DIRECT_THREAD_SIZE ", JSON.stringify(size_boundary))
+                if tick == 100:
+                    early_sizes = size_boundary.duplicate(true)
+                elif tick == 300:
+                    var size_growth: Dictionary = Acceptance.compare_size_growth(
+                        early_sizes, size_boundary)
+                    if not size_growth.get("accepted", false):
+                        _finish("invalid direct/thread size growth " +
+                            JSON.stringify(size_growth), false)
+                        return
+                    print("P2_PERF_E_DIRECT_THREAD_SIZE_GROWTH ",
+                        JSON.stringify(size_growth))
             if tick == target:
                 # Exercise actual N38-style runtime restore at a committed boundary.
                 # Both owners restart from independent detached checkpoint trees.
