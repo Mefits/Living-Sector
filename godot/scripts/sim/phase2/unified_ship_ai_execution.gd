@@ -520,6 +520,29 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
 ## All fleet commands are proposed in stable source ship-id order. N14
 ## transit and N21/N90/N97/N108 commands pass one N146 queue; N39/N9
 ## remain the only physical/financial Apply authority.
+## N84 reads all fleet rows, but only BT-active ships can be written here.
+## The shallow roster is private; rows still alias World until explicitly owned.
+## Seal the result before returning so no untouched World cargo/BT/memory
+## dictionaries can escape to N39's later write stages.
+static func _owned_fleet_begin(world_ships: Dictionary) -> Dictionary:
+    return world_ships.duplicate()
+
+static func _owned_fleet_row(staged_ships: Dictionary, ship_id: String,
+        owned: Dictionary) -> Dictionary:
+    if not owned.has(ship_id):
+        staged_ships[ship_id] = (staged_ships[ship_id] as Dictionary).duplicate(true)
+        owned[ship_id] = true
+    return staged_ships[ship_id]
+
+static func _owned_fleet_seal(staged_ships: Dictionary,
+        owned: Dictionary) -> Dictionary:
+    # Keep active rows and BT trees already owned by this proposal. Copy
+    # inactive rows exactly once; caller receives a fully independent fleet.
+    for ship_id in staged_ships:
+        if not owned.has(ship_id):
+            staged_ships[ship_id] = (staged_ships[ship_id] as Dictionary).duplicate(true)
+    return staged_ships
+
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, tick: int, scale: float,
         multiplier: int = 1) -> Dictionary:
@@ -532,7 +555,8 @@ static func propose(world: Dictionary, graph: RefCounted,
     # source state read-only; detach the fleet before the first BT write.
     # N39/N146 remains the sole authoritative mutation/commit path.
     var staged: Dictionary = world.duplicate()
-    staged["ships"] = (world["ships"] as Dictionary).duplicate(true)
+    staged["ships"] = _owned_fleet_begin(world["ships"])
+    var owned_ship_rows: Dictionary = {}
     var cmd_buffer = Commands.new()
     if not cmd_buffer.begin_phase(tick, "ships"):
         return {"ok": false, "reason": "n146_phase_cannot_begin"}
@@ -551,6 +575,10 @@ static func propose(world: Dictionary, graph: RefCounted,
             if own_goal not in ["construct", "retrofit", "refit", "trade_route",
                     "mine", "mine_ice", "deliver_mined_ice", "explore", "refuel"]:
                 continue
+        # This ship may have its N90 transaction, BT cursor, or goal changed.
+        # Detach before any nested write, including N104 resume and N14 preview.
+        ship = _owned_fleet_row(staged["ships"], str(ship_id), owned_ship_rows)
+        if contract_id.is_empty():
             var assigned_bt: Variant = ship.get("current_bt", null)
             if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
                 return {"ok": false, "reason": "n84_invalid_active_source_plan",
@@ -794,6 +822,7 @@ static func propose(world: Dictionary, graph: RefCounted,
             "site_id": N91.target(next["tree"]) if contract_id.is_empty() else "",
             "leaf": current_leaf, "status": str(next["status"]),
             "reason": detail["reason"]})
-    return {"ok": true, "changed": changed, "ships": staged["ships"],
+    return {"ok": true, "changed": changed,
+        "ships": _owned_fleet_seal(staged["ships"], owned_ship_rows),
         "next_token": int(staged.get("ship_next_token", 0)),
         "commands": cmd_buffer.drain(), "trace": records}
