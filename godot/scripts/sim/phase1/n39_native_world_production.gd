@@ -1363,6 +1363,21 @@ func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
 ## existing N84 executor. No unconditional per-tick XP or fake mission.
 ## The original ShipCrewSkills is in the one N39 ship record; immutable
 ## receipt keeps N38 replay deterministic without a second XP wallet.
+## N128 append-only receipt stage. Do not mutate existing receipt rows:
+## they remain shared until the full Schema/accounts oracle accepts the stage.
+## The caller must not publish the stage or leak its registries on rejection.
+static func _n128_owned_grant_stage(world: Dictionary, ship_id: String,
+        skills: Dictionary) -> Dictionary:
+    var stage: Dictionary = world.duplicate()
+    stage["ships"] = world["ships"].duplicate()
+    var ship: Dictionary = world["ships"][ship_id].duplicate(true)
+    ship["crew_skills"] = skills.duplicate(true)
+    stage["ships"][ship_id] = ship
+    stage["native_crew_xp_receipts"] = world.get(
+        "native_crew_xp_receipts", {}).duplicate()
+    return stage
+
+
 func apply_native_n128_crew_xp(tick: int, source_command: Dictionary,
         command_ordinal: int) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick + 1 or command_ordinal < 1:
@@ -1396,18 +1411,14 @@ func apply_native_n128_crew_xp(tick: int, source_command: Dictionary,
     # N128 owns only the ship skill record and its immutable receipt map.
     # Detach both domains before mutation; unrelated World history stays shared
     # only inside this private, unpublished stage (never returned to callers).
-    var stage: Dictionary = _copy_world("n128_crew_xp_root", false)
-    stage["ships"] = _world["ships"].duplicate()
-    stage["ships"][ship_id] = before.duplicate(true)
-    stage["ships"][ship_id]["crew_skills"] = outcome["skills"].duplicate(true)
-    if _world.has("native_crew_xp_receipts"):
-        if not (_world["native_crew_xp_receipts"] is Dictionary):
-            return {"ok": false, "fatal": true, "reason": "n128_corrupt_prior_receipts"}
-        stage["native_crew_xp_receipts"] = _world["native_crew_xp_receipts"].duplicate(true)
-    if not (stage.get("native_crew_xp_receipts", {}) is Dictionary):
+    if _world.has("native_crew_xp_receipts") and (
+            not (_world["native_crew_xp_receipts"] is Dictionary)):
         return {"ok": false, "fatal": true, "reason": "n128_corrupt_prior_receipts"}
-    if not stage.has("native_crew_xp_receipts"):
-        stage["native_crew_xp_receipts"] = {}
+    # Existing receipt rows are immutable append-only provenance. Detach the
+    # registry root, not its entire growing history; the new receipt is owned
+    # by this unpublished stage. Ship data is independently row-detached.
+    var stage: Dictionary = _n128_owned_grant_stage(
+        _world, ship_id, outcome["skills"])
     stage["native_crew_xp_receipts"][receipt_id] = {
         "id": receipt_id, "tick": tick, "ship_id": ship_id,
         "skill": skill, "amount": int(amount), "applied": credited,
