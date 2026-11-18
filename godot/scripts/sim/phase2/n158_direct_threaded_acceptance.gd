@@ -216,3 +216,68 @@ static func compare_source_growth(early: Dictionary, late: Dictionary) -> Dictio
     return {"accepted": true, "from_tick": a["tick"], "to_tick": b["tick"],
         "delta": delta, "counts_early": a.duplicate(true),
         "counts_late": b.duplicate(true)}
+
+
+## Observation cost is outside the paid-tick timing sample. The worker value
+## includes FIFO/answer polling and is NOT worker thread CPU time. A checkpoint
+## is intentionally requested only at milestone boundaries, not on every tick.
+static func checkpoint_observation_sample(tick: int, direct_usec: int,
+        worker_request_usec: int, direct_checkpoint: Dictionary,
+        worker_response: Dictionary) -> Dictionary:
+    if tick < 1 or direct_usec < 0 or worker_request_usec < 0:
+        return {"accepted": false, "reason": "invalid_observation_duration"}
+    if typeof(direct_checkpoint.get("tick", null)) != TYPE_INT or (
+            int(direct_checkpoint["tick"]) != tick):
+        return {"accepted": false, "reason": "direct_checkpoint_tick"}
+    var parity: Dictionary = verify_boundary(tick, direct_checkpoint, worker_response)
+    if not parity.get("accepted", false):
+        return {"accepted": false, "reason": "checkpoint_parity",
+            "difference": parity.get("difference", {})}
+    return {"accepted": true, "tick": tick,
+        "direct_checkpoint_wall_usec": direct_usec,
+        "worker_checkpoint_request_wall_usec": worker_request_usec,
+        "time_kind": "elapsed_wall_not_cpu",
+        "included_in_paid_tick_window": false}
+
+## A bounded report from exact checkpoints, with no World references retained.
+## Missing milestones, duplicates, nonmonotonic ticks, and forged timing are
+## rejected rather than misrepresented as measurement evidence.
+static func summarize_checkpoint_observations(samples: Array,
+        expected_ticks: Array[int]) -> Dictionary:
+    if samples.size() != expected_ticks.size() or samples.is_empty() or (
+            samples.size() > 8):
+        return {"accepted": false, "reason": "incomplete_observations"}
+    var direct_total: int = 0
+    var worker_total: int = 0
+    var direct_max: int = 0
+    var worker_max: int = 0
+    var detached: Array = []
+    var previous: int = -1
+    for i in range(samples.size()):
+        if typeof(samples[i]) != TYPE_DICTIONARY:
+            return {"accepted": false, "reason": "invalid_observation"}
+        var row: Dictionary = samples[i]
+        var tick: int = expected_ticks[i]
+        if tick <= previous or typeof(row.get("tick", null)) != TYPE_INT or (
+                int(row["tick"]) != tick or row.get("accepted", false) != true):
+            return {"accepted": false, "reason": "observation_boundary"}
+        if row.get("time_kind", "") != "elapsed_wall_not_cpu" or (
+                row.get("included_in_paid_tick_window", true) != false):
+            return {"accepted": false, "reason": "observation_attribution"}
+        for key in ["direct_checkpoint_wall_usec", "worker_checkpoint_request_wall_usec"]:
+            if typeof(row.get(key, null)) != TYPE_INT or int(row[key]) < 0:
+                return {"accepted": false, "reason": "invalid_" + key}
+        var d: int = int(row["direct_checkpoint_wall_usec"])
+        var w: int = int(row["worker_checkpoint_request_wall_usec"])
+        direct_total += d
+        worker_total += w
+        direct_max = maxi(direct_max, d)
+        worker_max = maxi(worker_max, w)
+        detached.append({"tick": tick, "direct_usec": d, "worker_request_usec": w})
+        previous = tick
+    return {"accepted": true, "count": samples.size(), "milestones": detached,
+        "direct_total_wall_usec": direct_total, "worker_request_total_wall_usec": worker_total,
+        "direct_max_wall_usec": direct_max, "worker_request_max_wall_usec": worker_max,
+        "time_kind": "elapsed_wall_not_cpu",
+        "included_in_paid_tick_window": false,
+        "performance_claim": false}
