@@ -10,9 +10,13 @@ const Metrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd
 const Acceptance = preload("res://scripts/sim/phase2/n158_direct_threaded_acceptance.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
+const EXTENDED_TARGET: int = 900
+const EXTENDED_MILESTONES: Array[int] = [600, 900]
 const MILESTONES: Array[int] = [1, 20, 60, 100, 200, 300]
 const REQUEST_TIMEOUT_MS: int = 20000
 const TOTAL_BUDGET_MS: int = 180000
+const EXTENDED_BUDGET_MS: int = 480000
+const LATE_WINDOWS: Array[int] = [100, 300, 600, 900]
 var _owner = null
 var _start_ms: int = 0
 
@@ -49,14 +53,23 @@ func _run() -> void:
         _finish("thread pause refused", false)
         return
     # Explicit opt-in: longer parity probe never runs in default 100-tick mode.
-    var target: int = (LATE_TARGET if OS.get_environment("LS_E_LATE_DIRECT_THREAD") == "1"
-        else DEFAULT_TARGET)
+    var mode: String = OS.get_environment("LS_E_LATE_DIRECT_THREAD")
+    var target: int = (EXTENDED_TARGET if mode == "900" else (
+        LATE_TARGET if mode == "1" else DEFAULT_TARGET))
+    var budget_ms: int = (EXTENDED_BUDGET_MS if target == EXTENDED_TARGET
+        else TOTAL_BUDGET_MS)
     var timings: Array = []
     var early_window: Dictionary = {}
     var last_window: Dictionary = {}
     var early_sizes: Dictionary = {}
     var early_source_counts: Dictionary = {}
+    var previous_sizes: Dictionary = {}
+    var previous_source_counts: Dictionary = {}
+    var previous_window: Dictionary = {}
     for tick in range(1, target + 1):
+        if Time.get_ticks_msec() - _start_ms >= budget_ms:
+            _finish("bounded wall budget exceeded before paid tick " + str(tick), false)
+            return
         if not direct.queue_control("step", 1):
             _finish("direct step refused at " + str(tick), false)
             return
@@ -82,7 +95,7 @@ func _run() -> void:
             timings.pop_front()
         # Only exact complete 100-paid-tick windows; never divide a multi-tick
         # request or compare overlapping windows as independent growth evidence.
-        if tick in [100, 300]:
+        if LATE_WINDOWS.has(tick) and tick <= target:
             var window: Dictionary = Acceptance.summarize_window(tick, timings)
             if not window.get("accepted", false):
                 _finish("invalid paid window at " + str(tick) + ": " + str(window), false)
@@ -90,8 +103,17 @@ func _run() -> void:
             if tick == 100:
                 early_window = window.duplicate(true)
             last_window = window.duplicate(true)
+            if not previous_window.is_empty():
+                var window_delta: Dictionary = Acceptance.compare_late_windows(
+                    previous_window, window)
+                if not window_delta.get("accepted", false):
+                    _finish("adjacent window attribution rejected " + str(window_delta), false)
+                    return
+                print("P2_PERF_E_DIRECT_THREAD_ADJACENT_WINDOW ", JSON.stringify(window_delta))
+            previous_window = window.duplicate(true)
             print("P2_PERF_E_DIRECT_THREAD_WINDOW ", JSON.stringify(window))
-        if MILESTONES.has(tick):
+        if MILESTONES.has(tick) or (target == EXTENDED_TARGET and
+                EXTENDED_MILESTONES.has(tick)):
             var detached_direct: Dictionary = direct.checkpoint()
             var response: Dictionary = await _command("checkpoint")
             if not response.get("ok", false) or int(response.get("tick", -1)) != tick:
@@ -104,7 +126,7 @@ func _run() -> void:
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
-            if tick in [100, 300]:
+            if LATE_WINDOWS.has(tick) and tick <= target:
                 var size_boundary: Dictionary = Acceptance.compare_size_boundary(
                     tick, detached_direct, detached_worker)
                 if not size_boundary.get("accepted", false):
@@ -120,26 +142,28 @@ func _run() -> void:
                 print("P2_PERF_E_DIRECT_THREAD_N9_EVENTS ", JSON.stringify(source_boundary))
                 if tick == 100:
                     early_source_counts = source_boundary.duplicate(true)
-                elif tick == 300:
+                if not previous_source_counts.is_empty():
                     var source_growth: Dictionary = Acceptance.compare_source_growth(
-                        early_source_counts, source_boundary)
+                        previous_source_counts, source_boundary)
                     if not source_growth.get("accepted", false):
                         _finish("invalid N9/events growth " + JSON.stringify(source_growth), false)
                         return
                     print("P2_PERF_E_DIRECT_THREAD_N9_EVENTS_GROWTH ",
                         JSON.stringify(source_growth))
+                previous_source_counts = source_boundary.duplicate(true)
                 print("P2_PERF_E_DIRECT_THREAD_SIZE ", JSON.stringify(size_boundary))
                 if tick == 100:
                     early_sizes = size_boundary.duplicate(true)
-                elif tick == 300:
+                if not previous_sizes.is_empty():
                     var size_growth: Dictionary = Acceptance.compare_size_growth(
-                        early_sizes, size_boundary)
+                        previous_sizes, size_boundary)
                     if not size_growth.get("accepted", false):
                         _finish("invalid direct/thread size growth " +
                             JSON.stringify(size_growth), false)
                         return
                     print("P2_PERF_E_DIRECT_THREAD_SIZE_GROWTH ",
                         JSON.stringify(size_growth))
+                previous_sizes = size_boundary.duplicate(true)
             if tick == target:
                 # Exercise actual N38-style runtime restore at a committed boundary.
                 # Both owners restart from independent detached checkpoint trees.
@@ -160,7 +184,7 @@ func _run() -> void:
     if last_window.is_empty():
         _finish("missing final complete paid window", false)
         return
-    if target == LATE_TARGET:
+    if target >= LATE_TARGET:
         var growth: Dictionary = Acceptance.compare_late_windows(early_window, last_window)
         if not growth.get("accepted", false):
             _finish("late window attribution rejected: " + str(growth), false)
@@ -177,7 +201,8 @@ func _command(kind: String, payload: Dictionary = {}) -> Dictionary:
 func _answer(ticket: int, kind: String) -> Dictionary:
     var began: int = Time.get_ticks_msec()
     while Time.get_ticks_msec() - began < REQUEST_TIMEOUT_MS and (
-            Time.get_ticks_msec() - _start_ms < TOTAL_BUDGET_MS):
+            Time.get_ticks_msec() - _start_ms < (EXTENDED_BUDGET_MS if
+                OS.get_environment("LS_E_LATE_DIRECT_THREAD") == "900" else TOTAL_BUDGET_MS)):
         var result: Dictionary = _owner.poll_answer()
         if not result.is_empty():
             if int(result.get("ticket", -1)) != ticket or str(result.get("kind", "")) != kind:
