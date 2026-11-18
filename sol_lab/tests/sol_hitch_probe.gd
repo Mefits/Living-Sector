@@ -65,17 +65,30 @@ func _run_probe() -> void:
  root.add_child(scene)
  scene.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
  await create_timer(1.5).timeout
- for mode in ["x1", "x16", "pause"]:
-  scene.measuring = false
-  scene.samples.clear()
-  scene.paused = mode == "pause"
-  scene.visual_clock.set_paused(scene.paused)
-  scene._set_speed(16 if mode == "x16" else 1)
-  await create_timer(0.3).timeout
-  scene.measuring = true
-  await create_timer(CAPTURE_SECONDS).timeout
-  scene.measuring = false
-  _report(mode, scene.samples)
+ # First, the selected-planet sidebar; then an OPEN construction
+ # dock with one active site (the periodic 0.5s refresh path).
+ for scenario in ["selected", "construction"]:
+  if scenario == "construction":
+   scene.paused = false
+   scene.visual_clock.set_paused(false)
+   var order: Dictionary = scene.construction.order("earth", "mining_rig")
+   if not bool(order.get("ok", false)):
+    push_error("SOL_HITCH_PROBE_SETUP_FAIL: " + str(order))
+    quit(1)
+    return
+   scene._open_build()
+   scene._refresh_construction_ui()
+  for mode in ["x1", "x16", "pause"]:
+   scene.measuring = false
+   scene.samples.clear()
+   scene.paused = mode == "pause"
+   scene.visual_clock.set_paused(scene.paused)
+   scene._set_speed(16 if mode == "x16" else 1)
+   await create_timer(0.3).timeout
+   scene.measuring = true
+   await create_timer(CAPTURE_SECONDS).timeout
+   scene.measuring = false
+   _report(scenario + "/" + mode, scene.samples)
  scene.queue_free()
  Engine.max_fps = 0
  print("SOL_HITCH_PROBE_PASS")
