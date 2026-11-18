@@ -631,9 +631,9 @@ func _body_id() -> String:
     if not _body.is_empty():
         return _body
     if not _facility.is_empty():
-        for raw in _world.get("facilities", []):
-            if raw is Dictionary and str(raw.get("id", "")) == _facility:
-                return str(raw.get("body", ""))
+        var source: Dictionary = _facility_source()
+        if not source.is_empty():
+            return str(source.get("body", ""))
     return ""
 
 func _body_name() -> String:
@@ -647,6 +647,20 @@ func _facility_source() -> Dictionary:
     for raw in _world.get("facilities", []):
         if raw is Dictionary and str(raw.get("id", "")) == _facility:
             return raw
+    # A real N151 colony or later enterprise may exist only in N39.
+    var active: Variant = _economy.get("facilities", {})
+    if active is Dictionary and active.get(_facility) is Dictionary:
+        var live: Dictionary = active[_facility]
+        var bid: String = str(live.get(
+            "body_id", live.get("body", "")))
+        for body in _world.get("bodies", []):
+            if body is Dictionary and str(body.get("id", "")) == bid:
+                var source: Dictionary = live.duplicate(false)
+                source["id"] = _facility
+                source["body"] = bid
+                source["faction_id"] = str(live.get(
+                    "faction_id", live.get("faction", "")))
+                return source
     return {}
 
 func _facility_name() -> String:
@@ -670,6 +684,13 @@ func _locations(body_id: String) -> Dictionary:
     for raw in _world.get("nav_sites", []):
         if raw is Dictionary and str(raw.get("body", "")) == body_id:
             result[str(raw.get("name", ""))] = true
+    var active: Variant = _economy.get("facilities", {})
+    if active is Dictionary:
+        for fid in active:
+            var live: Variant = active[fid]
+            if live is Dictionary and str(live.get("body_id",
+                    live.get("body", ""))) == body_id:
+                result[str(live.get("location", ""))] = true
     return result
 
 func _markets(body_id: String = "") -> Array[Dictionary]:
@@ -712,6 +733,7 @@ func _population(body_id: String) -> int:
 func _facility_rows(body_id: String = "") -> Array[Dictionary]:
     var rows: Array[Dictionary] = []
     var active: Variant = _economy.get("facilities", {})
+    var seen: Dictionary = {}
     for raw in _world.get("facilities", []):
         if not (raw is Dictionary):
             continue
@@ -719,6 +741,7 @@ func _facility_rows(body_id: String = "") -> Array[Dictionary]:
         if not body_id.is_empty() and str(item.get("body", "")) != body_id:
             continue
         var id: String = str(item.get("id", ""))
+        seen[id] = true
         var live: Dictionary = (active.get(id, {})
             if active is Dictionary and active.get(id) is Dictionary else {})
         var count: String = str(live.get("assigned_workers", "—"))
@@ -729,6 +752,36 @@ func _facility_rows(body_id: String = "") -> Array[Dictionary]:
         rows.append({"id":id, "cells":[FacilityNames.display_name(item),
             FacilityNames.type_name(str(item.get("type", "—"))),
             count, condition, str(item.get("location", "—"))]})
+    # Keep live-created real N39 facilities in colony overview and tables.
+    if active is Dictionary:
+        var valid_bodies: Dictionary = {}
+        for body in _world.get("bodies", []):
+            if body is Dictionary:
+                valid_bodies[str(body.get("id", ""))] = true
+        for fid in active:
+            var id: String = str(fid)
+            if seen.has(id) or not (active[fid] is Dictionary):
+                continue
+            var live: Dictionary = active[fid]
+            var bid: String = str(live.get("body_id",
+                live.get("body", "")))
+            if not valid_bodies.has(bid) or (
+                    not body_id.is_empty() and bid != body_id):
+                continue
+            var kind: String = str(live.get("type", ""))
+            if kind not in ["station", "shipyard", "construction_dock",
+                    "mining_rig", "refinery", "farm", "factory",
+                    "laboratory", "research", "power_plant"]:
+                continue
+            var condition: String = "—"
+            var raw_condition: Variant = live.get("condition", null)
+            if raw_condition is float or raw_condition is int:
+                condition = "%.0f%%" % (float(raw_condition) * 100.0)
+            rows.append({"id": id, "cells":[
+                FacilityNames.display_name(live),
+                FacilityNames.type_name(kind),
+                str(live.get("assigned_workers", "—")), condition,
+                str(live.get("location", "—"))]})
     return rows
 
 func _ship_rows() -> Array[Dictionary]:
