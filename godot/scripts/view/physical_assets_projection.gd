@@ -18,20 +18,26 @@ static func _asset(id: String, item: Dictionary) -> Dictionary:
     var colony: bool = (
         (kind in ORBITAL_TYPES) and
         location == bid + "-colony" and not bid.is_empty())
+    var render_kind: String = kind
+    var asset_kind: String = "orbital"
+    if colony:
+        asset_kind = "surface"
+        render_kind = ("colony_construction_dock"
+            if kind == "construction_dock" else "administrative_center")
+    elif kind in SURFACE_TYPES:
+        asset_kind = "surface"
+    var services: Array = []
+    var raw_services: Variant = item.get("services", [])
+    if raw_services is Array:
+        services = raw_services.duplicate(true)
     return {
         "id": id, "name": str(item.get("name", id)),
         "type": kind, "body": bid, "location": location,
         "faction_id": str(item.get("faction_id",
             item.get("faction", ""))),
-        "kind": "surface" if colony or kind in SURFACE_TYPES
-            else "orbital",
-        "render_type": (
-            "colony_construction_dock" if colony and
-            kind == "construction_dock" else
-            "administrative_center" if colony else kind),
+        "kind": asset_kind, "render_type": render_kind,
         "docking_capacity": int(item.get("docking_capacity", 0)),
-        "services": (item.get("services", []) as Array).duplicate(true)
-            if item.get("services", []) is Array else [],
+        "services": services,
         "shared_legacy_location": location == "earth-station"
     }
 
@@ -127,6 +133,10 @@ static func live_status(facility: Dictionary,
     if roster is Dictionary:
         for quantity in roster.values():
             paid_workers += maxi(0, int(quantity))
+    var module_count: int = 0
+    var raw_modules: Variant = row.get("modules", [])
+    if raw_modules is Array:
+        module_count = raw_modules.size()
     return {
         "present": true,
         "credits": int(row.get("credits", 0)),
@@ -135,6 +145,5 @@ static func live_status(facility: Dictionary,
         "shift_wages": int(shift.get("wages", 0)),
         "shift_workers": paid_workers,
         "status": str(row.get("status", "")),
-        "modules": (row.get("modules", []) as Array).size()
-            if row.get("modules", []) is Array else 0
+        "modules": module_count
     }
