@@ -5459,9 +5459,14 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
     # Schema/N9 oracle, but do not clone unrelated growing ship/contract data.
     # Every nested facility/household row written below is detached first.
     var staged: Dictionary = _copy_world("L4930_owned_root", false)
-    staged["faction_treasuries"] = _world["faction_treasuries"].duplicate(true)
-    staged["facilities"] = _world["facilities"].duplicate(true)
-    staged["populations"] = _world["populations"].duplicate(true)
+    # Treasury entries are scalar credits; shallow copy is fully detached.
+    # Facility/household rows are immutable during transfer validation and
+    # detached individually below, only when their wallet balance changes.
+    # Deep-copying both entire registries here made the row detach below a
+    # second deep copy of every paid wallet, including unrelated nested data.
+    staged["faction_treasuries"] = _world["faction_treasuries"].duplicate(false)
+    staged["facilities"] = _world["facilities"].duplicate(false)
+    staged["populations"] = _world["populations"].duplicate(false)
     var wallets: RefCounted = _ledger.fork()
     var records: Array = plan.get("transfers", [])
     if records.size() > 10000:
