@@ -330,19 +330,21 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     # Payroll.pay_shift or lifecycle condition/reserves writes touch it.
     var restock_due: bool = bool(initial["due"]["restock"])
     var lifecycle_owned_rows: Dictionary = {}
-    lifecycle_world["facilities"] = _world["facilities"].duplicate(true) if restock_due else _world["facilities"].duplicate(false)
-    if not restock_due:
-        for candidate in initial["repair_candidates"]:
-            var repair_id: String = str(candidate.get("facility_id", ""))
-            if lifecycle_world["facilities"].has(repair_id) and not lifecycle_owned_rows.has(repair_id):
-                lifecycle_world["facilities"][repair_id] = _world["facilities"][repair_id].duplicate(true)
-                lifecycle_owned_rows[repair_id] = true
+    # Even on N130 cadence, N156 only changes repair candidates and its
+    # lifecycle deltas. N130 buyers/sellers are detached AFTER those changes,
+    # so eligibility reflects the actual post-repair, post-abandonment World.
+    lifecycle_world["facilities"] = _world["facilities"].duplicate(false)
+    for candidate in initial["repair_candidates"]:
+        var repair_id: String = str(candidate.get("facility_id", ""))
+        if lifecycle_world["facilities"].has(repair_id) and not lifecycle_owned_rows.has(repair_id):
+            lifecycle_world["facilities"][repair_id] = _world["facilities"][repair_id].duplicate(true)
+            lifecycle_owned_rows[repair_id] = true
     # N130 only writes markets on its 20x cadence; N156 Payroll only
     # writes populations when a paid repair candidate exists. The
     # off-cadence stages are read-only for these authoritative domains.
     # Detach before either writer, never expose a mutable canonical alias.
-    if bool(initial["due"]["restock"]):
-        lifecycle_world["markets"] = _world["markets"].duplicate(true)
+    # N130 market rows are detached just before ServiceRestock.apply, after
+    # lifecycle has established the final eligible set.
     if not initial["repair_candidates"].is_empty():
         # Payroll.pay_shift selects households by the producer's faction and
         # location, in sorted population-ID order. Only those households can
@@ -417,7 +419,7 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         # The second proposal can differ after a paid repair. Detach any
         # newly affected row before writing; do not mutate the canonical
         # World if a later Schema/ledger/restock guard rejects this stage.
-        if not restock_due and not lifecycle_owned_rows.has(facility_id):
+        if not lifecycle_owned_rows.has(facility_id):
             lifecycle_world["facilities"][facility_id] = _world["facilities"][facility_id].duplicate(true)
             lifecycle_owned_rows[facility_id] = true
         var updated: Dictionary = lifecycle_world["facilities"][facility_id]
@@ -429,6 +431,42 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         # N156 household-derived crew morale doesn't debit Food a second time.
         if delta.has("morale"):
             updated["morale"] = float(delta["morale"])
+    if restock_due:
+        # ServiceRestock.apply iterates all facilities in sorted ID order and
+        # can mutate ONLY a same-faction, live buyer and its market owner.
+        # Compute this conservative union from the POST-lifecycle stage,
+        # before the first N9 payment. All changed rows are detached before
+        # any restock mutation, including a later failed payment/guard.
+        var restock_markets: Dictionary = lifecycle_world["markets"].duplicate()
+        var restock_owned_markets: Dictionary = {}
+        var restock_ids: Array = lifecycle_world["facilities"].keys()
+        restock_ids.sort()
+        for buyer_id in restock_ids:
+            var buyer_view: Dictionary = lifecycle_world["facilities"][buyer_id]
+            if bool(buyer_view.get("abandoned", false)):
+                continue
+            var market_id: String = str(buyer_view.get("location", ""))
+            if not restock_markets.has(market_id):
+                # Let the original N130 validation reject an absent market
+                # (or skip a valid construction dock) without any writes.
+                continue
+            var market_view: Dictionary = restock_markets[market_id]
+            var seller_id: String = str(market_view.get("owner", ""))
+            if not lifecycle_world["facilities"].has(seller_id):
+                continue
+            var seller_view: Dictionary = lifecycle_world["facilities"][seller_id]
+            if str(buyer_view.get("faction", "")) != str(seller_view.get("faction", "")) or (
+                    bool(seller_view.get("abandoned", false))) or (
+                    str(seller_view.get("location", "")) != market_id):
+                continue
+            for owner_id in [buyer_id, seller_id]:
+                if not lifecycle_owned_rows.has(owner_id):
+                    lifecycle_world["facilities"][owner_id] = lifecycle_world["facilities"][owner_id].duplicate(true)
+                    lifecycle_owned_rows[owner_id] = true
+            if not restock_owned_markets.has(market_id):
+                restock_markets[market_id] = market_view.duplicate(true)
+                restock_owned_markets[market_id] = true
+        lifecycle_world["markets"] = restock_markets
     var restocked: Dictionary = ServiceRestock.apply(
         lifecycle_world, lifecycle_ledger, tick, tick_multiplier)
     if not restocked.get("ok", false):
