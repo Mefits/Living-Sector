@@ -3,7 +3,7 @@ const Starter = preload("res://scripts/sol_start_scenario.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 const Building = preload("res://scripts/sol_construction_runtime.gd")
-const Projection = preload("res://scripts/view/physical_assets_projection.gd")
+const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd")
 
 func new_world() -> Dictionary:
  var file: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/sol.json"))
@@ -22,7 +22,7 @@ func _initialize() -> void:
  good = good and not first.order("earth", "farm")["ok"]
  good = good and Model.stock(first.world, "earth") == 999
  good = good and not first.order("luna", "farm")["ok"]
- good = good and Projection.build(first.world)["surface"].size() == 2
+ good = good and PhysicalAssets.build(first.world)["surface"].size() == 2
  var raw_site: Dictionary = first.world["facilities"][1]
  good = good and str(raw_site.get("type", "")) == "construction_site"
  good = good and is_equal_approx(float(raw_site.get(

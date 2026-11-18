@@ -64,7 +64,6 @@ func _initialize() -> void:
  ok = ok and float(stock["food"]) == 10.0
  ok = ok and "не хватает воды" in str(farm.get("production_status", ""))
  ok = ok and is_equal_approx(float(farm["next_batch_native"]), _day(135.0))
- print("FARM_CHECK first/stall ", ok, " supply=",stock," farm=",farm)
  runtime.advance_to(_day(120.0))
  var checkpoint: Variant = JSON.parse_string(JSON.stringify(runtime.snapshot()))
  var restored = _runtime(defaults)
@@ -83,7 +82,6 @@ func _initialize() -> void:
  ok = ok and str(resumed.get("production_status", "")) == "−3 воды, +10 еды"
  ok = ok and is_equal_approx(float(resumed["next_batch_native"]), _day(165.0))
  ok = ok and "Ферма: −3 воды, +10 еды" in restored.inventory_summary("earth")
- print("FARM_CHECK restore/resume ",ok," supply=",warehouse," farm=",resumed," summary=",restored.inventory_summary("earth"))
  # Custom input/output values must apply to the real inventory.
  var tuned: Dictionary = Model.building_defaults({
   "farm_water_in": 4, "farm_food_out": 12})
@@ -97,7 +95,6 @@ func _initialize() -> void:
  ok = ok and float(custom_stock["food"]) == 12.0
  ok = ok and str(_facility(custom, "farm").get(
   "production_status", "")) == "−4 воды, +12 еды"
- print("FARM_CHECK tuned ",ok," stock=",custom_stock," farm=",_facility(custom,"farm"))
  # Distinct sites for AC, mine, refinery and farm, before and after build.
  var visual = _runtime(defaults)
  ok = ok and _sites(visual.world).has(Starter.AC_ID)
@@ -115,14 +112,12 @@ func _initialize() -> void:
  var reloaded = _runtime(defaults)
  ok = ok and reloaded.restore(saved_visual)
  ok = ok and _sites(reloaded.world) == pending
- print("FARM_CHECK surfaces ",ok," pending=",pending," reloaded=", _sites(reloaded.world))
  # A building without a fixed slot must still survive a checkpoint.
  var general = _runtime(defaults)
  ok = ok and bool(general.order("earth", "spaceport").get("ok", false))
  var general_save: Variant = JSON.parse_string(JSON.stringify(general.snapshot()))
  var general_reload = _runtime(defaults)
  ok = ok and general_reload.restore(general_save)
- print("FARM_CHECK generic ",ok)
  if ok:
   print("SOL_FARM_CYCLE_PASS")
   quit(0)
