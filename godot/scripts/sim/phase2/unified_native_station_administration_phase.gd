@@ -59,6 +59,11 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         if not facility_roster.has(facility_key):
             facility_roster[facility_key] = []
         facility_roster[facility_key].append(fid)
+    # The planner consumes stock/prices/limits/shortages and body resources
+    # read-only. Its recipe probes duplicate stock before mutation, while
+    # returned decisions/snapshots contain only owned scalar/decision data.
+    # Borrow these growing World maps for the synchronous planning call;
+    # never retain source references in the persisted administration memory.
     var views: Array = []
     var market_locations: Array = world["markets"].keys()
     market_locations.sort()
@@ -93,7 +98,7 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
                 "actual_workers": (shift.get("workers", {}) as Dictionary).values().reduce(
                     func(total: int, n: Variant) -> int: return total + int(n), 0),
                 "efficiency": float(f.get("fitting_output_mult", 1.0)),
-                "body_resources": resource.get("resources", {}).duplicate(true)})
+                "body_resources": resource.get("resources", {})})
         # A head priority may only come from an ACTUAL persisted Director
         # decision, never a new invented player/AI strategic objective.
         var director: Dictionary = world.get("research_directors", {}).get(faction, {})
@@ -105,10 +110,10 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
             "workforce_limit": real_workforce,
             "occupied_workers": working,
             "market_owner": station_account,
-            "stock": market.get("supply", {}).duplicate(true),
-            "prices": market.get("prices", {}).duplicate(true),
-            "limits": market.get("limits", {}).duplicate(true),
-            "shortages": market.get("history", {}).get("shortage_ticks", {}).duplicate(true),
+            "stock": market.get("supply", {}),
+            "prices": market.get("prices", {}),
+            "limits": market.get("limits", {}),
+            "shortages": market.get("history", {}).get("shortage_ticks", {}),
             "head_priority": actual_priority, "facilities": jobs}
         var planner = Admin.new()
         if snapshots.has(key) and not planner.restore(snapshots[key]):
