@@ -151,3 +151,68 @@ static func compare_size_growth(early: Dictionary, late: Dictionary) -> Dictiona
     delta["receipt_categories"] = receipts
     return {"accepted": true, "from_tick": first, "to_tick": last,
         "delta": delta, "n9_and_events_measured": false}
+
+## N9 and Source events live in the N158 checkpoint envelope, not N39 World.
+## Read only detached committed snapshots. No historical journal copies beyond
+## the checkpoint already required for exact direct/thread parity.
+static func source_growth_counts(tick: int, checkpoint: Dictionary) -> Dictionary:
+    if tick not in [100, 300, 600, 900] or typeof(checkpoint.get("tick")) != TYPE_INT or int(checkpoint["tick"]) != tick:
+        return {"valid": false, "reason": "invalid_source_tick"}
+    var native: Variant = checkpoint.get("native_production")
+    if not (native is Dictionary):
+        return {"valid": false, "reason": "missing_native_checkpoint"}
+    var ledger: Variant = native.get("ledger")
+    if not (ledger is Dictionary):
+        return {"valid": false, "reason": "missing_n9_ledger"}
+    var receipts: Variant = ledger.get("receipts")
+    if not (receipts is Array) and not (receipts is Dictionary):
+        return {"valid": false, "reason": "invalid_n9_receipts"}
+    var event_state: Variant = checkpoint.get("events")
+    if not (event_state is Dictionary):
+        return {"valid": false, "reason": "missing_source_events"}
+    var pending: Variant = event_state.get("pending")
+    if not (pending is Array):
+        return {"valid": false, "reason": "invalid_pending_events"}
+    for receipt in (receipts.values() if receipts is Dictionary else receipts):
+        if not (receipt is Dictionary):
+            return {"valid": false, "reason": "malformed_n9_receipt"}
+    for event in pending:
+        if not (event is Dictionary):
+            return {"valid": false, "reason": "malformed_source_event"}
+    return {"valid": true, "tick": tick, "n9_receipts": receipts.size(),
+        "source_pending_events": pending.size()}
+
+static func compare_source_growth_boundary(tick: int, direct: Dictionary,
+        worker: Dictionary) -> Dictionary:
+    var left: Dictionary = source_growth_counts(tick, direct)
+    var right: Dictionary = source_growth_counts(tick, worker)
+    if not left.get("valid", false):
+        return {"accepted": false, "reason": "direct_" + str(left.get("reason", "invalid"))}
+    if not right.get("valid", false):
+        return {"accepted": false, "reason": "worker_" + str(right.get("reason", "invalid"))}
+    if left != right:
+        return {"accepted": false, "reason": "source_size_divergence",
+            "direct": left, "worker": right}
+    return {"accepted": true, "tick": tick, "counts": left.duplicate(true)}
+
+static func compare_source_growth(early: Dictionary, late: Dictionary) -> Dictionary:
+    if not early.get("accepted", false) or not late.get("accepted", false):
+        return {"accepted": false, "reason": "unverified_source_boundary"}
+    var a: Variant = early.get("counts")
+    var b: Variant = late.get("counts")
+    if not (a is Dictionary) or not (b is Dictionary) or not a.get("valid", false) or not b.get("valid", false):
+        return {"accepted": false, "reason": "missing_source_counts"}
+    if typeof(a.get("tick")) != TYPE_INT or typeof(b.get("tick")) != TYPE_INT or (
+            int(a["tick"]) >= int(b["tick"]) or
+            int(a["tick"]) != int(early.get("tick", -1)) or
+            int(b["tick"]) != int(late.get("tick", -1))):
+        return {"accepted": false, "reason": "invalid_source_growth_ticks"}
+    var delta: Dictionary = {}
+    for key in ["n9_receipts", "source_pending_events"]:
+        if typeof(a.get(key)) != TYPE_INT or typeof(b.get(key)) != TYPE_INT or (
+                int(a[key]) < 0 or int(b[key]) < 0):
+            return {"accepted": false, "reason": "invalid_count_" + key}
+        delta[key] = int(b[key]) - int(a[key])
+    return {"accepted": true, "from_tick": a["tick"], "to_tick": b["tick"],
+        "delta": delta, "counts_early": a.duplicate(true),
+        "counts_late": b.duplicate(true)}
