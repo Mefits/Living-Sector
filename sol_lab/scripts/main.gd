@@ -58,6 +58,7 @@ func _ready() -> void:
     visual_clock.set_speed(float(speed))
     config = _load_config()
     _init_extra_settings()
+    construction.planets = config["planets"]
     construction.setup(world, config["buildings"])
     _build_ui()
     _make_native_map()
@@ -197,6 +198,7 @@ func _apply() -> void:
     if not _save_config():
         _notice("Не удалось сохранить параметры")
         return
+    construction.planets = config["planets"]
     construction.settings = config["buildings"]
     _notice("Баланс сохранён; новые стройки используют новые значения")
 
@@ -208,6 +210,7 @@ func _restore() -> void:
             return
     config = _load_config()
     _init_extra_settings()
+    construction.planets = config["planets"]
     construction.settings = config["buildings"]
     browser.configure(world, config, selected, true)
     browser.set_construction_state(world, construction.sites, native_time)
@@ -282,7 +285,7 @@ func _show_selected() -> void:
             str(body.get("name", selected)),
             "Тип: "+str(body.get("type", "—")),
             "Биом: "+str(body.get("biome", "—")),
-            "Металл на складе: %d" % Model.stock(world,selected),
+            construction.inventory_summary(selected),
             "Строек в очереди: %d" % _pending_on(selected),
             "Ресурсные коэффициенты:"
         ]
@@ -542,8 +545,14 @@ func _update_calendar_label() -> void:
         "×1/×4/×8/×16 ускоряют и строительство, и орбиты.")
 
 func _advance_construction() -> void:
+    var previous_revision: int = construction.batch_revision
     var finished: Array = construction.advance_to(native_time)
     if finished.is_empty():
+        if previous_revision != construction.batch_revision:
+            _show_selected()
+            if browser.visible and browser.page == "build":
+                browser.configure(world, config, selected, false)
+                _refresh_construction_ui()
         return
     _update_native_map()
     _show_selected()
@@ -631,3 +640,4 @@ func _load_game() -> void:
     _refresh_construction_ui()
     _show_selected()
     _notice("Игра загружена: " + Calendar.calendar_text(native_time))
+

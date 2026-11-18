@@ -157,7 +157,7 @@ func _navigate(target: String) -> void:
  queue_mounted = false
  grid = null
  scroll.scroll_vertical = 0
- feedback.text = "Тест строительства: расходы и сроки действуют, производство N39 пока нет."
+ feedback.text = "Шахта и переработчик выпускают партию каждые 30 игровых дней."
  var planet_name: String = ("Земля" if body_id == "earth"
   else ("Луна" if body_id == "luna" else "Марс"))
  if page == "build":
@@ -244,7 +244,7 @@ func _cards(editable: bool) -> void:
   var spacer := Control.new()
   spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
   stack.add_child(spacer)
-  if not bool(building["ported"]):
+  if id not in ["mining_rig", "refinery"]:
    _label(stack, "Производство ещё не подключено", 12,
     Color("#889eae"))
   if not editable:
@@ -415,3 +415,4 @@ func _needs() -> void:
 func _edit_need(value: float, key: String) -> void:
  config["needs"][key] = int(roundf(value))
  feedback.text = "Изменено; сохраните настройки и перезапустите."
+

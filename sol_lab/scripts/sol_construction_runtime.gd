@@ -1,7 +1,7 @@
 extends RefCounted
 ## Sol Lab test-only construction model. Real stock is debited from the
 ## detached Rust Sol market. Sites live in the same map world as buildings.
-## No second N39 simulation, no free facility, no paid labor or production.
+## No second N39 simulation, no free facility, no paid labor or paid shifts.
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 
@@ -11,6 +11,11 @@ var settings: Dictionary = {}
 var now_native: float = 0.0
 var next_id: int = 1
 var sites: Array = []
+const CYCLE_DAYS := 30
+var planets: Dictionary = {}
+var producers: Array = []
+var next_batch: float = INF
+var batch_revision := 0
 
 func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  world = source_world
@@ -18,6 +23,7 @@ func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  now_native = 0.0
  next_id = 1
  sites.clear()
+ _index_producers()
 
 func _market_for(body: String) -> Dictionary:
  var ac_location: String = ""
@@ -88,7 +94,7 @@ func order(body: String, building_id: String) -> Dictionary:
  }
  # Commit once, after every validation: stock and the unique site appear
  # together. There is no synthetic material refund or repeat debit.
- supply["metals"] = int(supply["metals"]) - cost
+ supply["metals"] = float(supply["metals"]) - cost
  market["supply"] = supply
  world["facilities"].append(facility)
  sites.append(new_site)
@@ -119,6 +125,7 @@ func advance_to(new_native: float) -> Array:
    # A missing construction site is not magically converted.
    remaining.append(site)
  sites = remaining
+ _advance_production()
  return completed
 
 func _finish(site: Dictionary) -> bool:
@@ -134,6 +141,7 @@ func _finish(site: Dictionary) -> bool:
   # orbit only after completion, not as a second free building.
   if building_id in ["orbital_platform", "shipyard"]:
    facility["location"] = str(site["body"]) + "-orbit-" + id
+  _register_producer(facility, float(site["finish_native"]))
   facility.erase("construction_start_native")
   facility.erase("construction_finished_native")
   return true
@@ -179,6 +187,10 @@ func restore(data: Dictionary) -> bool:
   var id: String = str(f["id"])
   if all_ids.has(id):
    return false
+  if f.has("next_batch_native"):
+   var due: Variant = f.next_batch_native
+   if not (due is float or due is int) or not is_finite(float(due)) or float(due) <= float(t):
+    return false
   all_ids[id] = f
  for site in input_sites:
   if not (site is Dictionary):
@@ -210,5 +222,69 @@ func restore(data: Dictionary) -> bool:
  world["markets"] = input_markets.duplicate(true)
  sites = input_sites.duplicate(true)
  now_native = float(t)
+ _index_producers()
  next_id = int(seq)
  return true
+
+
+func _index_producers() -> void:
+ producers.clear()
+ next_batch = INF
+ for facility in world.get("facilities", []):
+  _register_producer(facility, now_native)
+
+func _register_producer(facility: Dictionary, start: float) -> void:
+ var kind: String = str(facility.get("type", ""))
+ if kind not in ["mining_rig", "refinery"]:
+  return
+ var body: String = str(facility.get("body", ""))
+ var market := _market_for(body)
+ if market.is_empty():
+  return
+ var due := float(facility.get("next_batch_native", start + Calendar.days_to_native(CYCLE_DAYS)))
+ facility["next_batch_native"] = due
+ producers.append({"facility": facility, "market": market, "recipe": Model.find_building(kind)})
+ next_batch = minf(next_batch, due)
+
+func _advance_production() -> void:
+ var interval := Calendar.days_to_native(CYCLE_DAYS)
+ while now_native >= next_batch:
+  var deadline := next_batch
+  next_batch = INF
+  for entry in producers:
+   var facility: Dictionary = entry.facility
+   var due := float(facility.next_batch_native)
+   if due <= deadline:
+    _run_batch(facility, entry.market.supply, entry.recipe)
+    due += interval
+    facility.next_batch_native = due
+   next_batch = minf(next_batch, due)
+  batch_revision += 1
+
+func _run_batch(facility: Dictionary, supply: Dictionary, recipe: Dictionary) -> void:
+ var row: Dictionary = settings.get(recipe.id, {})
+ var output := Model.calculated(recipe, settings, planets, str(facility.body))
+ if output <= 0:
+  facility["production_status"] = "Нулевая выработка"
+  return
+ for key in recipe.inputs:
+  var required := int(row.get("input_" + key, recipe.inputs[key]))
+  if float(supply.get(key, 0)) < required:
+   facility["production_status"] = "Не хватает: " + Model.resource_label(key)
+   return
+ for key in recipe.inputs:
+  supply[key] = float(supply.get(key, 0)) - int(row.get("input_" + key, recipe.inputs[key]))
+ supply[recipe.product] = snappedf(float(supply.get(recipe.product, 0)) + output, 0.01)
+ facility["production_status"] = "Выпущено: %s %s" % [output, Model.resource_label(recipe.product)]
+
+func inventory_summary(body: String) -> String:
+ var market := _market_for(body)
+ if market.is_empty():
+  return "Нет склада колонии"
+ var stock: Dictionary = market.supply
+ var lines := PackedStringArray(["Склад · руда %s · топливо %s · металл %s" % [
+  stock.get("ore", 0), stock.get("fuel", 0), stock.get("metals", 0)]])
+ for entry in producers:
+  if str(entry.facility.body) == body:
+   lines.append("%s · %s" % [entry.recipe.name, entry.facility.get("production_status", "Первый цикл")])
+ return "\n".join(lines)
