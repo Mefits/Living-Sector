@@ -118,6 +118,7 @@ var _tick: int = 0
 var _debug_text: String = ""
 var _strategy_trace: Dictionary = {}
 var _player_paused: bool = false
+var _manual_notice: String = ""
 var _manual_selected_faction: String = ""
 var _manual_selected_location: String = ""
 var _manual_selected_commodity: String = "ore"
@@ -337,7 +338,8 @@ func show_state(mode: String, tab: String, world: Dictionary,
         ship: String, tick: int, focus: String = "",
         debug_text: String = "",
         strategy_trace: Dictionary = {},
-        player_paused: bool = false) -> void:
+        player_paused: bool = false,
+        manual_notice: String = "") -> void:
     var prior_mode: String = _mode
     var prior_tab: String = _tab
     var prior_body: String = _body
@@ -355,6 +357,7 @@ func show_state(mode: String, tab: String, world: Dictionary,
     _debug_text = debug_text
     _strategy_trace = strategy_trace
     _player_paused = player_paused
+    _manual_notice = manual_notice
     var changed: bool = (prior_mode != mode or prior_tab != _tab or
         prior_body != body or prior_facility != facility or prior_ship != ship)
     if changed:
@@ -367,7 +370,8 @@ func show_state(mode: String, tab: String, world: Dictionary,
             _filter.clear()
     var signature: String = "%s|%s|%s|%s|%s|%s|%d|%s|%s" % [
         _mode, _tab, _body, _facility, _ship, _focus, tick,
-        str(_player_paused), JSON.stringify(_economy.get("player_control", {}))]
+        str(_player_paused), JSON.stringify(_economy.get("player_control", {})) +
+        "|" + _manual_notice]
     if signature == _last_signature:
         return
     # Rendering a window is not a paid game phase. At a stable selection
@@ -1511,8 +1515,12 @@ func _manual_construction_section() -> void:
         "на паузу и выполните хотя бы один тик." if order.disabled else
         "N154 проверит ресурсы, место и бюджет; N39 оплатит N104 контракт.")
     panel.add_child(order)
-    _note(panel, "Результат появится в нижней строке состояния. " +
-        "При отказе игра сообщит причину; приказ не списывает ресурсы в обход N9.")
+    if _manual_notice.begins_with("Приказ") or _manual_notice.begins_with("Стройка") or (
+            _manual_notice.begins_with("Управление") or _manual_notice.begins_with("Переключение")):
+        _note(panel, _manual_notice, TEAL if _manual_notice.begins_with(
+            "Стройка принята") else AMBER)
+    else:
+        _note(panel, "Последний приказ и причина отказа появятся здесь.")
 
 
 func _construction_workspace() -> void:
