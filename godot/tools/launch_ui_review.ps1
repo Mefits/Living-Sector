@@ -35,8 +35,18 @@ if (-not $SkipSmoke) {
     foreach ($check in $checks) {
         Write-Host "Checking $($check.Path)..."
         # Capture logs so Godot parse errors cannot look like a successful test.
-        $log = @(& $found --headless --path $project --script $check.Path 2>&1)
-        $code = $LASTEXITCODE
+        # Godot can print benign diagnostics to stderr while exiting 0.
+        # In Windows PowerShell 5, capture them without a NativeCommandError
+        # from the surrounding Stop preference; the pass marker still gates.
+        $previousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $log = @(& $found --headless --path $project --script $check.Path 2>&1)
+            $code = $LASTEXITCODE
+        }
+        finally {
+            $ErrorActionPreference = $previousErrorActionPreference
+        }
         $log | ForEach-Object { Write-Host $_ }
         $output = $log -join "`n"
         if ($code -ne 0 -or -not $output.Contains($check.Pass)) {
