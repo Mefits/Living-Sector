@@ -68,9 +68,11 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
             var steps: Array = _geometry_steps(inbound["locations"], positions)
             if not cache.has(1):
                 cache[1] = _geometry_steps(outbound["locations"], positions)
-            # Detach row dictionaries: ship-specific callers cannot mutate
-            # the cached outbound geometry through a nested Array element.
-            steps.append_array(_detach_step_rows(cache[1] as Array))
+            # The assembled steps stay private to this proposal's cache.
+            # No external caller receives them without _detached_legs();
+            # reusing immutable scalar rows avoids one dictionary copy per
+            # outbound edge for every distinct bidder origin.
+            steps.append_array(cache[1] as Array)
             result = {"inbound": inbound["locations"],
                 "outbound": outbound["locations"], "steps": steps}
     cache[here] = result
