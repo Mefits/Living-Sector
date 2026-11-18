@@ -482,6 +482,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         if tick % maxi(1, 60 * _tick_multiplier) == 0:
             _last_n134_result = {"ok": true, "tick": tick,
                 "commissioned": [], "blocked": [], "heads": {},
+                "comparisons": {},
                 "status": "N134_SOURCE_EVALUATED"}
             _last_n144_contracts = {"ok": true, "tick": tick,
                 "posted": [], "blocked": [], "decisions": [],
@@ -507,6 +508,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                             "reason": str(planned_build.get("reason", "N134_source_comparison_unavailable"))})
                         continue
                     _last_n134_result["heads"][faction] = planned_build.get("head", {}).duplicate(true)
+                    _last_n134_result["comparisons"][faction] = planned_build.get(
+                        "comparison", {}).duplicate(true)
                     # Miro Chat2 B4: frozen coordination.rs promotes an
                     # ACTUAL established colony's critical N92 Food/Water
                     # shortage (and lower-priority Fuel/Electronics when
@@ -1734,10 +1737,17 @@ func _strategy_ui_trace() -> Dictionary:
                 continue
             if not rows.has(key):
                 rows[key] = {}
+            var valuation: Dictionary = _last_n134_result.get(
+                "comparisons", {}).get(fid, {})
             rows[key]["head"] = {
                 "selected_option": str(head.get("selected_option", "wait")),
                 "reason": str(head.get("reason", "")),
-                "problem": head.get("problem", {})
+                "problem": head.get("problem", {}),
+                "valuation": {
+                    "selected": str(valuation.get("selected", "wait")),
+                    "build_reason": str(valuation.get("build_reason", "")),
+                    "goal": valuation.get("goal", {})
+                }
             }
     return {
         "tick": int(_last_n134_result.get("tick", -1)),
