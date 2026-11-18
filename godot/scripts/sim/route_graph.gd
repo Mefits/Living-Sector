@@ -214,9 +214,7 @@ func shortest_path(start: String, destination: String) -> Dictionary:
 static func _frontier_less(a: Dictionary, b: Dictionary) -> bool:
     var da: float = float(a["distance"])
     var db: float = float(b["distance"])
-    if is_equal_approx(da, db):
-        return str(a["path"]) < str(b["path"])
-    return da < db
+    return da < db or (is_equal_approx(da, db) and str(a["path"]) < str(b["path"]))
 
 static func _frontier_push(heap: Array, item: Dictionary) -> void:
     heap.append(item)
