@@ -183,6 +183,16 @@ static func append_bounded_ship_profile_sample(samples: Array, elapsed_usec: int
     if samples.size() > SHIP_PROFILE_WINDOW:
         samples.pop_front()
 
+## An unfinished begin from an earlier paid tick must not become a late
+## sample for a different tick. -1 means reject the diagnostic only.
+static func ship_profile_elapsed_for_tick(start: Dictionary, tick: int, end_usec: int) -> int:
+    if int(start.get("tick", -1)) != tick:
+        return -1
+    var begin_usec: int = int(start.get("usec", -1))
+    if begin_usec < 0 or end_usec < begin_usec:
+        return -1
+    return end_usec - begin_usec
+
 
 func profile_native_ship_subphases() -> Dictionary:
     var stages: Dictionary = {}
@@ -211,17 +221,19 @@ func _profile_ship_stage(tick: int, stage: String) -> void:
     var now_us: int = Time.get_ticks_usec()
     var key: String = stage
     if stage == "ships_begin":
-        _profile_ship_starts["n14_motion"] = now_us
+        _profile_ship_starts["n14_motion"] = {"tick": tick, "usec": now_us}
     elif stage.ends_with("_begin"):
         key = stage.trim_suffix("_begin")
-        _profile_ship_starts[key] = now_us
+        _profile_ship_starts[key] = {"tick": tick, "usec": now_us}
     elif stage.ends_with("_end"):
         key = stage.trim_suffix("_end")
         if _profile_ship_starts.has(key):
             var samples: Array = _profile_ship_samples.get(key, [])
-            append_bounded_ship_profile_sample(samples, now_us - int(_profile_ship_starts[key]))
-            _profile_ship_samples[key] = samples
+            var elapsed_usec: int = ship_profile_elapsed_for_tick(_profile_ship_starts[key], tick, now_us)
             _profile_ship_starts.erase(key)
+            if elapsed_usec >= 0:
+                append_bounded_ship_profile_sample(samples, elapsed_usec)
+                _profile_ship_samples[key] = samples
     if tick >= 320 and OS.get_environment("LS_PROFILE_SHIP_TRACE") == "1":
         print("LS_SHIP_SUBPHASE tick=", tick, " stage=", stage,
             " usec=", now_us)

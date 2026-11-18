@@ -57,6 +57,11 @@ var _profile_append_old_shard_rows: int = 0
 var _profile_snapshot_calls: int = 0
 var _profile_snapshot_usec: int = 0
 var _profile_snapshot_max_usec: int = 0
+# Split real snapshot time into rebuild (O(R) ID lookup) and detached
+# deep-copy (O(R) records). Only measured on the existing opt-in path.
+var _profile_snapshot_rebuild_calls: int = 0
+var _profile_snapshot_rebuild_usec: int = 0
+var _profile_snapshot_copy_usec: int = 0
 
 func paid_path_profile() -> Dictionary:
 	return {"enabled": _profile_append, "receipt_count": _receipt_count,
@@ -66,7 +71,10 @@ func paid_path_profile() -> Dictionary:
 		"append_old_shard_rows": _profile_append_old_shard_rows,
 		"snapshot_calls": _profile_snapshot_calls,
 		"snapshot_usec": _profile_snapshot_usec,
-		"snapshot_max_usec": _profile_snapshot_max_usec}
+		"snapshot_max_usec": _profile_snapshot_max_usec,
+		"snapshot_rebuild_calls": _profile_snapshot_rebuild_calls,
+		"snapshot_rebuild_usec": _profile_snapshot_rebuild_usec,
+		"snapshot_copy_usec": _profile_snapshot_copy_usec}
 
 
 ## A trusted fork replaces the entire partition header immediately. Avoid
@@ -152,6 +160,7 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 func _snapshot_receipts() -> Dictionary:
 	var started_usec: int = Time.get_ticks_usec() if _profile_append else 0
 	if _flat_cache_count != _receipt_count:
+		var rebuild_started: int = Time.get_ticks_usec() if _profile_append else 0
 		var ordered: Dictionary = {}
 		for chunk in _receipt_order_chunks:
 			for id in chunk:
@@ -161,7 +170,13 @@ func _snapshot_receipts() -> Dictionary:
 				ordered[id] = _receipt_at(id)
 		_flat_receipt_cache = ordered
 		_flat_cache_count = _receipt_count
+		if _profile_append:
+			_profile_snapshot_rebuild_calls += 1
+			_profile_snapshot_rebuild_usec += maxi(0, Time.get_ticks_usec() - rebuild_started)
+	var copy_started: int = Time.get_ticks_usec() if _profile_append else 0
 	var result: Dictionary = _flat_receipt_cache.duplicate(true)
+	if _profile_append:
+		_profile_snapshot_copy_usec += maxi(0, Time.get_ticks_usec() - copy_started)
 	if _profile_append:
 		var elapsed: int = maxi(0, Time.get_ticks_usec() - started_usec)
 		_profile_snapshot_calls += 1
@@ -237,6 +252,11 @@ func commit(operation_id: String, legs: Array, tick: int, kind: String) -> Dicti
 		changes[account] = old_change + delta
 	if debits == 0 or debits != credits:
 		return {"ok": false, "reason": "unbalanced"}
+	# Stage final wallet values once, then publish only after EVERY account
+	# passes. The former two passes repeatedly looked up each old balance
+	# and recomputed its sum on the paid transaction path. This remains an
+	# atomic N9 commit: failed funding/overflow never touches live wallets.
+	var staged_balances: Dictionary = {}
 	for account in changes:
 		var before: int = int(_balances[account])
 		var change: int = int(changes[account])
@@ -244,8 +264,9 @@ func commit(operation_id: String, legs: Array, tick: int, kind: String) -> Dicti
 			return {"ok": false, "reason": "insufficient_funds"}
 		if change > 0 and before > MAX_CREDITS - change:
 			return {"ok": false, "reason": "integer_overflow"}
-	for account in changes:
-		_balances[account] = int(_balances[account]) + int(changes[account])
+		staged_balances[account] = before + change
+	for account in staged_balances:
+		_balances[account] = staged_balances[account]
 	var receipt = {"id": operation_id, "tick": tick, "kind": kind, "legs": legs.duplicate(true)}
 	_append_receipt(operation_id, receipt)
 	return {"ok": true, "receipt": receipt.duplicate(true)}
@@ -377,6 +398,9 @@ func _profile_inner_fork() -> RefCounted:
 		child.set("_profile_snapshot_calls", _profile_snapshot_calls)
 		child.set("_profile_snapshot_usec", _profile_snapshot_usec)
 		child.set("_profile_snapshot_max_usec", _profile_snapshot_max_usec)
+		child.set("_profile_snapshot_rebuild_calls", _profile_snapshot_rebuild_calls)
+		child.set("_profile_snapshot_rebuild_usec", _profile_snapshot_rebuild_usec)
+		child.set("_profile_snapshot_copy_usec", _profile_snapshot_copy_usec)
 	return child
 
 ## Validate old immutable N9 receipt provenance by scanning the existing
@@ -657,11 +681,9 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 		if not _valid_account(account) or not _valid_amount(candidate[account]):
 			return false
 	var receipts: Dictionary = data["receipts"]
-	for key in receipts:
-		if not _valid_account(key) or not (receipts[key] is Dictionary):
-			return false
-		if receipts[key].get("id") != key or not (receipts[key].get("legs") is Array):
-			return false
+	# Validate each receipt while building the detached index. The former
+	# separate validation pass traversed the entire growing history twice.
+	# Nothing is published until every row has passed validation.
 	# Build the complete immutable index locally before publishing ANY
 	# imported account/receipt. This is an untrusted N38/staged boundary.
 	var partitions: Array = []
@@ -672,6 +694,11 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 	var next_count: int = 0
 	var next_kind_counts: Dictionary = {}
 	for id in receipts:
+		var row: Variant = receipts[id]
+		if not _valid_account(id) or not (row is Dictionary):
+			return false
+		if row.get("id") != id or not (row.get("legs") is Array):
+			return false
 		var bucket: int = _bucket_index(str(id))
 		var target: Dictionary = partitions[bucket]
 		target[id] = (receipts[id] as Dictionary).duplicate(true)
@@ -684,7 +711,10 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 		var kind: Variant = receipts[id].get("kind", null)
 		if kind is String:
 			next_kind_counts[kind] = int(next_kind_counts.get(kind, 0)) + 1
-	_balances = candidate.duplicate(true)
+	# Account values were validated above as scalar i64 credits. A shallow
+	# copy is fully detached from untrusted N38 input; deep-copying every
+	# account again adds avoidable traversal/allocation on large restores.
+	_balances = candidate.duplicate()
 	_receipt_partitions = partitions
 	_receipt_order_chunks = order_chunks
 	_receipt_count = next_count
@@ -693,6 +723,9 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 	_fork_source_generation = -1
 	_fork_changed_shards = {}
 	_private_shards = {}
+	# Restored order chunks are a new lineage. Never carry a pre-restore
+	# private-tail marker across an untrusted history replacement.
+	_private_order_chunk = false
 	_receipt_kind_counts = next_kind_counts
 	_flat_receipt_cache = {}
 	_flat_cache_count = -1

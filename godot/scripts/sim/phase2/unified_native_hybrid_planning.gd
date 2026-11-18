@@ -15,40 +15,52 @@ const SEARCH_BUDGET: Dictionary = {"max_nodes": 350, "max_depth": 12}
 const FACTION_SUBSIDY_FLOOR: int = 5000
 static var _sorted_recipe_projection: Array = []
 
-static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary:
+static func _capture_preflight(world: Dictionary, faction: String,
+        tick: int) -> Dictionary:
     if faction.is_empty() or tick < 1 or not world.get(
             "faction_treasuries", {}).has(faction):
         return {"ok": false, "reason": "n100_no_live_faction_treasury"}
     for field in ["facilities", "markets", "ships", "populations", "contract_board"]:
         if not (world.get(field) is Dictionary):
             return {"ok": false, "reason": "n100_missing_real_" + field}
-    var facilities: Array = []
+    return {"ok": true}
+
+static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary:
+    var preflight: Dictionary = _capture_preflight(world, faction, tick)
+    if not preflight.get("ok", false):
+        return preflight
+    # Build the faction's ordered facility roster and owner-location lookup
+    # in one pass. The lookup is local to this capture: no stale cache can
+    # survive installation, removal, ownership transfer or relocation.
+    var source_facilities: Dictionary = world["facilities"]
     var facility_ids: Array = []
-    for fid in world["facilities"]:
-        if str(world["facilities"][fid].get("faction", "")) == faction:
+    var owned_locations: Dictionary = {}
+    for fid in source_facilities:
+        var facility: Dictionary = source_facilities[fid]
+        if str(facility.get("faction", "")) == faction:
             facility_ids.append(fid)
+            owned_locations[str(fid)] = str(facility.get("location", ""))
     facility_ids.sort()
+    var facilities: Array = []
     for fid in facility_ids:
-        var f: Dictionary = world["facilities"][fid]
+        var f: Dictionary = source_facilities[fid]
         facilities.append({"facility_id": str(fid),
                 "location_id": str(f.get("location", "")),
                 "facility_type": str(f.get("type", ""))})
+    # Resolve only this faction's market owners. Retain the source location
+    # sort, validation order and exact market DTO; do not cache World rows.
     var markets: Array = []
-    # Market ownership is checked before sorting: global markets grow with
-    # the sector, while this faction's planning snapshot needs only its own.
-    # Keep the original sorted location order and source owner validation.
     var locations: Array = []
-    for loc in world["markets"]:
-        var candidate: Dictionary = world["markets"][loc]
-        var candidate_owner: String = str(candidate.get("owner", ""))
-        if world["facilities"].has(candidate_owner) and str(
-                world["facilities"][candidate_owner].get("faction", "")) == faction:
+    var source_markets: Dictionary = world["markets"]
+    for loc in source_markets:
+        var candidate: Dictionary = source_markets[loc]
+        if owned_locations.has(str(candidate.get("owner", ""))):
             locations.append(loc)
     locations.sort()
     for loc in locations:
-        var m: Dictionary = world["markets"][loc]
+        var m: Dictionary = source_markets[loc]
         var owner: String = str(m.get("owner", ""))
-        if str(world["facilities"][owner].get("location", "")) != str(loc):
+        if str(owned_locations[owner]) != str(loc):
             return {"ok": false, "reason": "n100_wrong_source_market_owner"}
         markets.append({"market_id": str(m.get("id", "")),
             "facility_id": owner, "location_id": str(loc),
@@ -133,14 +145,21 @@ static func propose(world: Dictionary, faction: String, head: Dictionary,
     if str(head.get("selected_option", "wait")) not in ["deliver", "build", "wait"]:
         return {"ok": true, "status": "original_head_other_domain",
             "faction_id": faction, "tick": tick}
-    var input: Dictionary = capture(world, faction, tick)
-    if not input.get("ok", false):
-        return input
-    var snapshot: Dictionary = input["snapshot"]
+    # Most Head decisions have no source stock goal. Avoid projecting the
+    # entire growing World into a planning DTO for those decisions. Keep the
+    # original capture preflight (clock, treasury, required registries) before
+    # the goal gate so malformed core state is still rejected.
+    var preflight: Dictionary = _capture_preflight(world, faction, tick)
+    if not preflight.get("ok", false):
+        return preflight
     var head_goal: Dictionary = SourceGoal.goal_from_head(head)
     if head_goal.is_empty():
         return {"ok": true, "status": "no_original_head_stock_goal",
             "faction_id": faction, "tick": tick}
+    var input: Dictionary = capture(world, faction, tick)
+    if not input.get("ok", false):
+        return input
+    var snapshot: Dictionary = input["snapshot"]
     var promoted: Dictionary = NativeCatalogue.promote_industry_output_goal(
         snapshot, head_goal)
     if not promoted.is_empty():

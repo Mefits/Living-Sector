@@ -30,12 +30,16 @@ static func _real_contract_dock(world: Dictionary,
     # Construction contracts name exactly one authoritative site. Avoid a
     # full scan of the growing colony-site history on every N84 dock leaf.
     # Passenger contracts retain the original ordered scan/tie-break.
-    var site_ids: Array = world.get("construction_sites", {}).keys()
+    var site_ids: Array = []
     if str(contract.get("contract_type", "")) == "construction":
         var required_site: String = str(contract.get("colony_site_id", ""))
         if not world.get("construction_sites", {}).has(required_site):
             return {}
         site_ids = [required_site]
+    else:
+        # Only passenger contracts need the original ordered site scan.
+        # Avoid allocating every historical site ID for a direct construction lookup.
+        site_ids = world.get("construction_sites", {}).keys()
     for site_id in site_ids:
         var site: Dictionary = world["construction_sites"][site_id]
         if str(site.get("location_name", "")) != location or (
@@ -175,8 +179,11 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.SUCCESS}
         if not (ship.get("transit", {}) as Dictionary).is_empty():
             return {"status": Bt.RUNNING, "reason": "physical_n14_transit_active"}
+        if not dock_ticks.has("_n84_transit_envelope"):
+            dock_ticks["_n84_transit_envelope"] = {}
         var proposed: Dictionary = ShipPhase.preview_depart(world, graph,
-            positions, tick, scale, ship_id, to)
+            positions, tick, scale, ship_id, to,
+            dock_ticks["_n84_transit_envelope"])
         if not proposed.get("ok", false):
             return {"status": Bt.RUNNING,
                 "reason": str(proposed.get("reason", "n14_departure_not_ready"))}
@@ -189,6 +196,11 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
         })
         if cmd.is_empty():
             return {"status": Bt.FAILURE, "reason": "n146_invalid_transit_command"}
+        # A single BT leaf already computed and validated this preview. N84
+        # consumes it after Bt.tick instead of scanning the growing fleet and
+        # restoring the same candidate a second time. Scratch is proposal-local.
+        dock_ticks["_n84_pending_departure"] = {"ship": ship_id, "to": to,
+            "token": int(world.get("ship_next_token", -1)), "preview": proposed}
         return {"status": Bt.RUNNING, "commands": [cmd],
             "reason": "issued_n146_begin_transit"}
     # N91 construction is a noncommercial real engineering task, NOT
@@ -575,7 +587,10 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "contract_id": contract_id, "leaf": "",
                 "status": Bt.RUNNING, "reason": missing_plan_reason})
             continue
-        if not (bt is Dictionary) or not Bt.validate(bt):
+        # The autonomous-goal branch already validated this exact BT above.
+        # Avoid a second recursive validation on every paid tick; contract
+        # plans and any other path still pass the original validation.
+        if not (bt is Dictionary) or (contract_id != "" and not Bt.validate(bt)):
             return {"ok": false, "reason": "n84_invalid_saved_plan",
                 "ship_id": str(ship_id)}
         var current_leaf: String = Bt.current_action(bt)
@@ -706,8 +721,22 @@ static func propose(world: Dictionary, graph: RefCounted,
             if str(command.get("kind", "")) != "BeginTransit":
                 return {"ok": false, "reason": "n146_command_not_yet_integrated",
                     "ship_id": str(ship_id)}
-            var native_move: Dictionary = ShipPhase.depart(staged, graph,
-                positions, tick, scale, str(ship_id), str(command["to"]))
+            # The proposal only needs the candidate's transit receipt.
+            # N146/N39 remains authoritative for the eventual departure.
+            # Do not restore and deep-copy every unrelated ship per BT leaf.
+            var pending_departure: Dictionary = dock_ticks.get("_n84_pending_departure", {})
+            dock_ticks.erase("_n84_pending_departure")
+            var native_move: Dictionary = {}
+            if str(pending_departure.get("ship", "")) == str(ship_id) and (
+                    str(pending_departure.get("to", "")) == str(command["to"]) and
+                    int(pending_departure.get("token", -1)) == int(staged.get("ship_next_token", -2))):
+                native_move = pending_departure.get("preview", {})
+            else:
+                # Defensive fallback for commands not originating in this
+                # leaf, or for a changed token; never trust stale previews.
+                native_move = ShipPhase.preview_depart(staged, graph,
+                    positions, tick, scale, str(ship_id), str(command["to"]),
+                    dock_ticks.get("_n84_transit_envelope", {}))
             if not native_move.get("ok", false):
                 return {"ok": false, "reason": "n14_authoritative_departure_rejected",
                     "ship_id": str(ship_id)}
@@ -715,7 +744,10 @@ static func propose(world: Dictionary, graph: RefCounted,
             if int(actual.get("arrival_tick", -1)) != int(command["arrival_tick"]) or str(actual.get("from", "")) != str(command["from"]):
                 return {"ok": false, "reason": "n146_n14_receipt_mismatch",
                     "ship_id": str(ship_id)}
-            staged["ships"] = native_move["ships"]
+            # Keep the already-detached N84 fleet and replace only this
+            # candidate. Replacing the whole fleet would discard other BT
+            # cursor updates made earlier in this same ordered proposal.
+            staged["ships"][ship_id] = native_move["ships"][ship_id]
             staged["ship_next_token"] = int(native_move["next_token"])
             ship = staged["ships"][ship_id]
         if next["tree"] != bt:
@@ -724,7 +756,12 @@ static func propose(world: Dictionary, graph: RefCounted,
             # An N90 poll may clear a paid acknowledgment without a new
             # command; that single-owner cursor must still be committed.
             changed = true
-        ship["current_bt"] = next["tree"].duplicate(true)
+        # Bt.tick->_tick_node deep-detaches the complete BT before any
+        # cursor mutation. N84 already owns its deep-detached staged fleet.
+        # Keep that exclusively owned result: another recursive clone per
+        # active ship/tick duplicates the same nested Sequence/Selector tree.
+        # Do not alias the original World BT or reuse this result for another ship.
+        ship["current_bt"] = next["tree"]
         if next["status"] == Bt.SUCCESS and contract_id.is_empty() and (
                 str(ship.get("current_goal", "")) in [
                     "trade_route", "mine", "mine_ice",

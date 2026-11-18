@@ -12,7 +12,9 @@ static func _bad(reason: String) -> Dictionary:
     return {"ok": false, "reason": "n21_fifo_" + reason}
 
 static func _queue(fac: Dictionary) -> Array:
-    return fac.get("dock_queue", []).duplicate(true)
+    # N21 queues contain scalar ship IDs; a detached array is sufficient.
+    # Never expose the mutable queue itself to callers.
+    return fac.get("dock_queue", []).duplicate()
 
 static func _occupants(world: Dictionary, fid: String) -> int:
     var count: int = 0
@@ -121,7 +123,11 @@ static func _admit(world: Dictionary, ledger: Variant, fid: String,
     var op_id: String = "n21:dock:" + sid + ":" + str(tick)
     if world.get("dock_receipts", {}).has(op_id):
         return _bad("duplicate_real_dock_receipt")
-    var paid: Variant = ledger.duplicate(true) if ledger is Dictionary else ledger
+    # Only the zero-fee path needs a detached dictionary copy here.
+    # A paid dictionary ledger is restored into Bank and snapshotted below.
+    var paid: Variant = ledger
+    if price == 0 and ledger is Dictionary:
+        paid = ledger.duplicate(true)
     if price > 0:
         var bank: RefCounted = Bank.new() if ledger is Dictionary else ledger
         if ledger is Dictionary and not bank.restore(ledger):
@@ -274,7 +280,12 @@ static func advance(world: Dictionary, ledger: Variant,
             "ledger_snapshot": ledger, "events": [], "tick": tick,
             "status": "SOURCE_N21_FIFO_EMPTY"}
     var staged: Dictionary = _stage_world(world, ledger)
-    var bank: Variant = ledger.duplicate(true) if ledger is Dictionary else ledger
+    # A paid queue can admit multiple ships in one tick. Restore N9 once,
+    # retain its authoritative in-stage receipt order, and snapshot once at
+    # the return boundary. Previously every admitted ship deep-copied the
+    # growing receipt journal and restored/snapshotted the entire ledger.
+    var bank: Variant = ledger
+    var bank_restored: bool = false
     var events: Array = []
     var changed: bool = false
     # Count occupied docks once per paid tick. The old queue loop scanned
@@ -307,6 +318,15 @@ static func advance(world: Dictionary, ledger: Variant,
                     "ship_id": head, "facility_id": str(fid), "tick": tick})
                 changed = true
                 continue
+            # Restore the growing N9 history only if a real paid
+            # admission is about to occur. All-invalid/insolvent queues
+            # retain the previous no-ledger-read behavior.
+            if ledger is Dictionary and fee > 0 and not bank_restored:
+                var staged_bank: RefCounted = Bank.new()
+                if not staged_bank.restore(ledger):
+                    return _bad("n9_original_bank_restore_failed")
+                bank = staged_bank
+                bank_restored = true
             var placed: Dictionary = _admit(
                 staged, bank, str(fid), head, tick, "fifo_tick", occupancy)
             if not placed.get("ok", false):
@@ -315,8 +335,12 @@ static func advance(world: Dictionary, ledger: Variant,
             bank = placed["ledger_snapshot"]
             events.append(placed["receipt"].duplicate(true))
             changed = true
+    # Preserve the public N21 dictionary snapshot contract. No mutable
+    # Bank instance escapes to N39 or the next paid tick.
+    var committed_ledger: Variant = bank.snapshot() if bank_restored else (
+        ledger.duplicate(true) if ledger is Dictionary else bank)
     return {"ok": true, "changed": changed, "world": staged,
-        "ledger_snapshot": bank, "events": events, "tick": tick,
+        "ledger_snapshot": committed_ledger, "events": events, "tick": tick,
         "status": "SOURCE_N21_FIFO_DOCK_QUEUE"}
 
 ## Owned N39 staging writes only these domains. Public snapshot callers

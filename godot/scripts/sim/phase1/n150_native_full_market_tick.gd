@@ -15,6 +15,23 @@ const SHORTAGE_SUPPLY_RATIO: float = 0.1
 const SHORTAGE_MIN_FLOOR: float = 10.0
 const ORDER_EXPIRY_MIN: int = 50
 
+# Opt-in paid-path probe: no World references retained and no timing calls
+# unless explicitly enabled. Counters measure the actual owned market copy.
+static var _copy_probe_enabled: bool = false
+static var _copy_probe_calls: int = 0
+static var _copy_probe_us: int = 0
+static var _copy_probe_trend_rows: int = 0
+
+static func configure_copy_probe(enabled: bool) -> void:
+	_copy_probe_enabled = enabled
+	_copy_probe_calls = 0
+	_copy_probe_us = 0
+	_copy_probe_trend_rows = 0
+
+static func copy_probe_snapshot() -> Dictionary:
+	return {"enabled": _copy_probe_enabled, "calls": _copy_probe_calls,
+		"copy_us": _copy_probe_us, "trend_rows": _copy_probe_trend_rows}
+
 static func _fail(reason: String) -> Dictionary:
 	return {"ok": false, "reason": reason}
 
@@ -82,7 +99,12 @@ static func record_consumption(flow: Dictionary, commodity: String, quantity: fl
 	if quantity <= 0.0:
 		return {"ok": true, "flow": next}
 	var window: Dictionary = next["consumption_window"]
-	var entries: Array = window.get(commodity, []).duplicate(true)
+	# next is already a deep-owned copy of flow, including nested samples.
+	# Avoid copying this growing commodity window a second time on append.
+	var existing: Variant = window.get(commodity, [])
+	if not (existing is Array):
+		return _fail("invalid_consumption_window_entries")
+	var entries: Array = existing
 	entries.append({"tick": tick, "qty": quantity})
 	window[commodity] = entries
 	return {"ok": true, "flow": next}
@@ -112,6 +134,11 @@ static func _retain_orders(orders: Array, tick: int, expiry: int, already_owned:
 	# retained orders in-place, preserving source order without allocating
 	# another array proportional to the growing pending-order list.
 	# Standalone callers still receive an independently deep-owned array.
+	# Empty order books dominate quiet markets: avoid entering the compaction
+	# loop or allocating a second empty Array. Owned results remain detached
+	# by tick_one_market; standalone empty output has no mutable elements.
+	if orders.is_empty():
+		return {"ok": true, "orders": orders if already_owned else []}
 	var remaining: Array = [] if not already_owned else orders
 	var write_at: int = 0
 	for read_at in range(orders.size()):
@@ -148,7 +175,12 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		return _fail("invalid_market_tick")
 	if not native_price_recalculate.is_valid():
 		return _fail("missing_original_price_engine")
+	var copy_start_us: int = Time.get_ticks_usec() if _copy_probe_enabled else 0
 	var result: Dictionary = market.duplicate(true)
+	if _copy_probe_enabled:
+		_copy_probe_us += Time.get_ticks_usec() - copy_start_us
+		_copy_probe_calls += 1
+		_copy_probe_trend_rows += market["history"]["trend_samples"].size()
 	var pricing: Dictionary = result["pricing"]
 	var flow: Dictionary = result["flow"]
 	var orders: Dictionary = result["orders"]
@@ -157,7 +189,10 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 	if history["spawned_at_tick"] == null:
 		history["spawned_at_tick"] = tick
 		if flow["seed_demand"].is_empty():
-			flow["seed_demand"] = pricing["demand"].duplicate(true)
+			# pricing is already detached by the market deep copy above.
+			# Transfer its demand map into seed_demand; pricing.demand is
+			# replaced below, so no mutable alias survives the tick.
+			flow["seed_demand"] = pricing["demand"]
 	history["last_tick"] = tick
 	# No production/consumption or speculative market order matching:
 	# those operations were removed from actual frozen Rust runtime.

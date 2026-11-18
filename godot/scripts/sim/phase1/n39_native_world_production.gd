@@ -323,9 +323,28 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     # updates market supply; all three must be detached BEFORE any writes.
     # Other World domains are read-only here and remain authoritative.
     var lifecycle_world: Dictionary = _copy_world("L196_owned_root", false)
-    lifecycle_world["facilities"] = _world["facilities"].duplicate(true)
-    lifecycle_world["markets"] = _world["markets"].duplicate(true)
-    lifecycle_world["populations"] = _world["populations"].duplicate(true)
+    # N130 can write arbitrary buyer/seller rows in stable ID order, so its
+    # paid cadence retains a fully detached facilities domain. On ordinary
+    # N156 ticks only repair candidates and lifecycle deltas may be written.
+    # Copy the registry, then detach each row BEFORE Payroll._blocked,
+    # Payroll.pay_shift or lifecycle condition/reserves writes touch it.
+    var restock_due: bool = bool(initial["due"]["restock"])
+    var lifecycle_owned_rows: Dictionary = {}
+    lifecycle_world["facilities"] = _world["facilities"].duplicate(true) if restock_due else _world["facilities"].duplicate(false)
+    if not restock_due:
+        for candidate in initial["repair_candidates"]:
+            var repair_id: String = str(candidate.get("facility_id", ""))
+            if lifecycle_world["facilities"].has(repair_id) and not lifecycle_owned_rows.has(repair_id):
+                lifecycle_world["facilities"][repair_id] = _world["facilities"][repair_id].duplicate(true)
+                lifecycle_owned_rows[repair_id] = true
+    # N130 only writes markets on its 20x cadence; N156 Payroll only
+    # writes populations when a paid repair candidate exists. The
+    # off-cadence stages are read-only for these authoritative domains.
+    # Detach before either writer, never expose a mutable canonical alias.
+    if bool(initial["due"]["restock"]):
+        lifecycle_world["markets"] = _world["markets"].duplicate(true)
+    if not initial["repair_candidates"].is_empty():
+        lifecycle_world["populations"] = _world["populations"].duplicate(true)
     # Receipts accumulate indefinitely; cloning the whole N9 history on
     # every no-op orbit tick would make long-term simulation quadratic.
     # No new maintenance payments are possible unless there is a paid
@@ -371,6 +390,12 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     for facility_id in lifecycle["changes"]:
         if not lifecycle_world["facilities"].has(facility_id):
             return {"ok": false, "reason": "lifecycle_unknown_facility"}
+        # The second proposal can differ after a paid repair. Detach any
+        # newly affected row before writing; do not mutate the canonical
+        # World if a later Schema/ledger/restock guard rejects this stage.
+        if not restock_due and not lifecycle_owned_rows.has(facility_id):
+            lifecycle_world["facilities"][facility_id] = _world["facilities"][facility_id].duplicate(true)
+            lifecycle_owned_rows[facility_id] = true
         var updated: Dictionary = lifecycle_world["facilities"][facility_id]
         var delta: Dictionary = lifecycle["changes"][facility_id]
         updated["condition"] = float(delta["condition"])
@@ -409,13 +434,34 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             # Only facilities and the administration projection are written here.
             # Detach facilities before staffing; every other World domain is
             # read-only during this stage and the full Schema oracle remains.
-            var staffed: Dictionary = _copy_world("n18_staffing_root", false)
-            staffed["facilities"] = _world["facilities"].duplicate(true)
-            for facility_id in staffed["facilities"]:
-                if not station_admin["assignments"].has(facility_id):
+            # Validate the complete assignment read-set before allocating any
+            # mutable rows. N18 never writes facility money, inventory or crew
+            # state: only assigned_workers can differ from the previous World.
+            var assignments: Dictionary = station_admin["assignments"]
+            var previous_facilities: Dictionary = _world["facilities"]
+            if assignments.size() != previous_facilities.size():
+                return {"ok": false, "reason": "n18_incomplete_station_staffing"}
+            for facility_id in previous_facilities:
+                if not assignments.has(facility_id) or (
+                        typeof(assignments[facility_id]) != TYPE_INT):
                     return {"ok": false, "reason": "n18_incomplete_station_staffing"}
-                staffed["facilities"][facility_id]["assigned_workers"] = int(
-                    station_admin["assignments"][facility_id])
+            # The root and facilities map are new. Unchanged facility rows
+            # are read-only through this stage and may safely be shared with
+            # the old World; changed rows detach their complete nested graph.
+            # This avoids cloning every market-sized reserves/dock_queue graph
+            # on a staffing tick when only a few worker counts change.
+            var staffed: Dictionary = _copy_world("n18_staffing_root", false)
+            var staffed_facilities: Dictionary = previous_facilities.duplicate()
+            for facility_id in previous_facilities:
+                var assigned: int = int(assignments[facility_id])
+                var previous_row: Dictionary = previous_facilities[facility_id]
+                if assigned == int(previous_row.get("assigned_workers", 0)) and (
+                        previous_row.has("assigned_workers")):
+                    continue
+                var owned_row: Dictionary = previous_row.duplicate(true)
+                owned_row["assigned_workers"] = assigned
+                staffed_facilities[facility_id] = owned_row
+            staffed["facilities"] = staffed_facilities
             staffed["station_administration"] = station_admin["snapshots"].duplicate(true)
             staffed["station_administration_last_tick"] = tick
             var staffing_error: String = _measured_schema_validate("L285", staffed)
@@ -428,6 +474,12 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     var ids: Array = _world["facilities"].keys()
     ids.sort()
     var lod_fired: Dictionary = {}
+    # N18 may have published a row-owned facilities map: unchanged rows can
+    # still be shared with its pre-staffing World. LOD is the next writer.
+    # Decide all due firings from the unchanged read view first, then detach
+    # ONLY the rows whose cursor advances. This preserves source iteration
+    # and prevents an in-place LOD write from escaping across an owned stage.
+    var lod_cursor_updates: Dictionary = {}
     for id in ids:
         var f: Dictionary = _world["facilities"][id]
         # Rust AgentLod::try_fire advances every tick, not just work cadence.
@@ -435,7 +487,22 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             lod_fired[id] = true
         elif tick >= int(f.get("lod_next_tick", 0)):
             lod_fired[id] = true
-            f["lod_next_tick"] = tick + int(f["lod_divisor"])
+            lod_cursor_updates[id] = tick + int(f["lod_divisor"])
+    if not lod_cursor_updates.is_empty():
+        var lod_world: Dictionary = _copy_world("n39_lod_cursor_root", false)
+        var lod_facilities: Dictionary = _world["facilities"].duplicate()
+        for id in ids:
+            if not lod_cursor_updates.has(id):
+                continue
+            var detached: Dictionary = lod_facilities[id].duplicate(true)
+            detached["lod_next_tick"] = int(lod_cursor_updates[id])
+            lod_facilities[id] = detached
+        lod_world["facilities"] = lod_facilities
+        # This cursor transition is money-neutral; retain the complete
+        # production Schema oracle before publishing any owned row.
+        if _measured_schema_validate("n39_lod_cursor_owned", lod_world) != "":
+            return {"ok": false, "reason": "n39_lod_cursor_schema_rejected"}
+        _world = lod_world
     var receipts: Array = []
     var failures: Dictionary = {}
     var recipe_due: bool = tick % (RECIPE_INTERVAL_BASE * tick_multiplier) == 0
@@ -2919,7 +2986,14 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     if site_ids.is_empty():
         return {"ok": true, "status": "N141_NO_ACTIVE_SITES",
             "paid": [], "blocked": []}
-    var staged: Dictionary = _copy_world("L2671", true)
+    # N141 writes only these owned domains. Keep all other registries as
+    # read-only inputs to labor/colony proposals and strict Schema oracle.
+    # B3 colony establishment performs its own detached full proposal.
+    var staged: Dictionary = _world.duplicate(false)
+    for domain in ["construction_sites", "construction_receipts",
+            "construction_contracts", "populations", "faction_treasuries",
+            "facilities", "markets"]:
+        staged[domain] = _world[domain].duplicate(true)
     var ledger: RefCounted = _ledger.fork()
     var paid: Array = []
     var blocked: Array = []
@@ -3613,7 +3687,15 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
         tick, expiry, "faction")
     if not posted.get("ok", false):
         return posted
-    var after: Dictionary = _copy_world("L3351", true)
+    # N154 commission writes only six owned registries. Keep the canonical
+    # ships/markets/facilities and growing history read-only; publishing a
+    # whole deep World here scales with unrelated accumulated state.
+    # Each writable registry is detached recursively before the first write.
+    var after: Dictionary = _copy_world("L3351_owned_root", false)
+    for domain in ["construction_sites", "construction_contracts",
+            "faction_treasuries", "contract_board", "escrow_balances",
+            "construction_receipts"]:
+        after[domain] = _world[domain].duplicate(true)
     if new_site:
         after["construction_sites"][id] = site.duplicate(true)
     after["construction_contracts"][contract_id] = id
@@ -4763,7 +4845,14 @@ func _run_shipyard_modules(tick: int, multiplier: int,
         var plan: Dictionary = candidate["plan"]
         # The source checks stock and input prices BEFORE paying workers.
         # Never deduct goods or award a module on an unfunded wage shift.
-        var staged: Dictionary = _copy_world("L4449", true)
+        # N154 paid module write set: payroll touches facility shifts/credits
+        # and household wealth/employment; manufacturing touches the local
+        # market supply/history. Keep every other authoritative domain shared
+        # for read-only Schema inspection, never expose mutable aliases to pay_shift.
+        var staged: Dictionary = _copy_world("L4449_owned_root", false)
+        staged["facilities"] = _world["facilities"].duplicate(true)
+        staged["populations"] = _world["populations"].duplicate(true)
+        staged["markets"] = _world["markets"].duplicate(true)
         var ledger_copy: RefCounted = _ledger.fork()
         var shift: Dictionary = Payroll.pay_shift(staged, ledger_copy,
             str(id), owner, tick, external_workers,
@@ -4853,10 +4942,20 @@ func apply_native_n121_execution(tick: int, faction: String,
         return {"ok": false, "fatal": true, "reason": "n121_pending_without_n98_ledger"}
     if str(pending["ledger"].get("faction_id", "")) != faction:
         return {"ok": false, "fatal": true, "reason": "n121_mismatched_planner_faction"}
+    # N98 prepare/acknowledge mutate the pending ledger. Detach it from
+    # authoritative native_execution before ANY potentially rejected step.
+    pending = pending.duplicate(true)
     var gate: Dictionary = NativeN98.next_gate(pending["ledger"])
     var kind: String = str(gate.get("kind", ""))
     var ledger_next: RefCounted = _ledger.fork()
-    var staged: Dictionary = _copy_world("L4542", true)
+    # N121 may publish only its execution/planner state and, on paid
+    # delivery, the N104 contract/escrow/treasury registries. No other
+    # World domain is writable. Keep full Schema and N9 oracles below.
+    var staged: Dictionary = _copy_world("L4542_owned_root", false)
+    for domain in ["native_execution", "native_planner_records",
+            "contract_board", "escrow_balances", "faction_treasuries",
+            "native_htn_contracts"]:
+        staged[domain] = _world[domain].duplicate(true)
     var next_state: Dictionary = state.duplicate(true)
     var event: Dictionary = {"ok": true, "due": true, "tick": tick,
         "faction_id": faction, "kind": kind, "status": "awaiting_source_step",
@@ -5136,7 +5235,11 @@ func apply_native_hybrid_planning(tick: int, faction: String,
         _world, faction, head, tick, mode)
     if not candidate.get("ok", false):
         return candidate
-    var staged: Dictionary = _copy_world("L4822", true)
+    # N100 only publishes one planner record and its tick marker.
+    # Detach the owned registry before writing; all other World domains
+    # remain read-only and retain their authoritative identity.
+    var staged: Dictionary = _copy_world("L4822_owned_root", false)
+    staged["native_planner_records"] = _world["native_planner_records"].duplicate(true)
     var record: Dictionary = {
         "faction_id": faction, "tick": tick,
         "status": str(candidate.get("status", "")),
@@ -5194,7 +5297,10 @@ func apply_native_b4_colony_aftercare(tick: int, faction: String,
         return {"ok": true, "due": true, "promoted": false,
             "accepted": false, "faction_id": faction, "tick": tick,
             "status": str(proposed.get("reason", "b4_no_actual_colony_goal"))}
-    var prior: Dictionary = _copy_world("L4880", true)
+    # N100 owns only native_planner_records + its scalar tick. It publishes a
+    # detached registry via an owned root, never mutating previous World rows.
+    # Keep the prior root for rollback without copying growing histories.
+    var prior: Dictionary = _copy_world("b4_n100_prior_owned_root", false)
     var money: Dictionary = _ledger.snapshot()
     var planned: Dictionary = apply_native_hybrid_planning(
         tick, faction, proposed["head"], multiplier)
@@ -5244,7 +5350,13 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
         return {"ok": true, "due": false, "tick": tick, "transfers": []}
     if tick <= int(_world["faction_finance_last_tick"]):
         return {"ok": false, "reason": "n129_duplicate_faction_accounting_tick"}
-    var staged: Dictionary = _copy_world("L4930", true)
+    # N129 owns only the three wallet-backed domains. Preserve the full
+    # Schema/N9 oracle, but do not clone unrelated growing ship/contract data.
+    # Every nested facility/household row written below is detached first.
+    var staged: Dictionary = _copy_world("L4930_owned_root", false)
+    staged["faction_treasuries"] = _world["faction_treasuries"].duplicate(true)
+    staged["facilities"] = _world["facilities"].duplicate(true)
+    staged["populations"] = _world["populations"].duplicate(true)
     var wallets: RefCounted = _ledger.fork()
     var records: Array = plan.get("transfers", [])
     if records.size() > 10000:
