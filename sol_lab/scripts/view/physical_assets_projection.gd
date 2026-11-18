@@ -111,8 +111,12 @@ static func build(world: Dictionary,
             profile = Surface.build({"id": bid,
                 "biome": "terrestrial"}, system_id)
             profiles[bid] = profile
-        facility["site"] = Surface.site_for(
-            profile, str(facility["id"]))
+        # Sol Lab starting AC sits exactly at the visible globe centre.
+        # The original SystemBalance view/camera is not modified.
+        facility["site"] = (Vector2.ZERO
+            if bid == "earth" and str(facility.get("render_type", "")) == (
+                "administrative_center")
+            else Surface.site_for(profile, str(facility["id"])))
         facility["hub_site"] = profile["hub_site"]
     return {
         "orbital": orbital, "surface": surface, "profiles": profiles,

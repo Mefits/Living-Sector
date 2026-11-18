@@ -1,6 +1,7 @@
 extends Control
 ## Sol-only read-only visual slice. This does NOT advance authoritative N158/N39.
 const SolProfile = preload("res://scripts/sol_profile.gd")
+const SolStarter = preload("res://scripts/sol_start_scenario.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const NativeStarSystemView = preload("res://scripts/star_system_view.gd")
 const BuildingBrowser = preload("res://scripts/building_browser.gd")
@@ -26,7 +27,7 @@ func _ready() -> void:
     if not (parsed is Dictionary):
         push_error("Отсутствует исходный Sol")
         return
-    world = parsed
+    world = SolStarter.apply(parsed)
     if not SolProfile.apply_world(world):
         push_error("Отклонены исходные параметры спутников")
         return
