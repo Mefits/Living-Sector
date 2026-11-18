@@ -13,7 +13,7 @@ static func _rejected(reason: String) -> Dictionary:
 
 static func _score(world: Dictionary, original: RefCounted, graph: RefCounted,
         faction: String, body_id: String, source: String,
-        station_systems: Dictionary = {}) -> float:
+        station_systems: Dictionary) -> float:
     var body_rec: Dictionary = original.body_by_id(body_id)
     var body: Dictionary = body_rec.get("value", {})
     var supplies: Dictionary = world.get("bodies", {}).get(body_id, {}).get("resources", {})
