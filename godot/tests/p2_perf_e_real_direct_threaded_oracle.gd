@@ -10,6 +10,7 @@ const Metrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd
 const Acceptance = preload("res://scripts/sim/phase2/n158_direct_threaded_acceptance.gd")
 const PhaseGrowth = preload("res://scripts/sim/phase2/n158_phase_growth_acceptance.gd")
 const CallsiteCosts = preload("res://scripts/sim/phase2/n158_callsite_cost_acceptance.gd")
+const ObservationCosts = preload("res://scripts/sim/phase2/n158_observation_cost_acceptance.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
 const EXTENDED_TARGET: int = 900
@@ -69,6 +70,8 @@ func _run() -> void:
     var previous_source_counts: Dictionary = {}
     var previous_window: Dictionary = {}
     var observation_samples: Array = []
+    var observation_callsite_samples: Array = []
+    var previous_observation_cost: Dictionary = {}
     var phase_reports: Array = []
     var first_phase_window: Dictionary = {}
     var previous_phase_window: Dictionary = {}
@@ -130,7 +133,9 @@ func _run() -> void:
                 _finish("checkpoint request failed " + str(tick), false)
                 return
             var detached_worker: Dictionary = response.get("checkpoint", {})
+            var parity_started: int = Time.get_ticks_usec()
             var parity: Dictionary = Acceptance.verify_boundary(tick, detached_direct, response)
+            var parity_usec: int = Time.get_ticks_usec() - parity_started
             if not parity.get("accepted", false):
                 _finish("exact checkpoint divergence tick " + str(tick) +
                     " " + JSON.stringify(parity.get("difference", {})), false)
@@ -143,6 +148,10 @@ func _run() -> void:
                     " " + JSON.stringify(observation), false)
                 return
             observation_samples.append(observation)
+            var size_oracle_usec: int = 0
+            var source_oracle_usec: int = 0
+            var size_cost_gate: Dictionary = {}
+            var source_cost_gate: Dictionary = {}
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
             if LATE_WINDOWS.has(tick) and tick <= target:
                 var direct_phases: Dictionary = direct.paid_phase_distribution(tick)
@@ -187,14 +196,20 @@ func _run() -> void:
                     "phase_comparison": paid_phase_gate["phase_comparison"]})
                 print("P2_PERF_E_DIRECT_THREAD_PHASES ",
                     JSON.stringify(paid_phase_gate))
+                var size_oracle_started: int = Time.get_ticks_usec()
                 var size_boundary: Dictionary = Acceptance.compare_size_boundary(
                     tick, detached_direct, detached_worker)
                 if not size_boundary.get("accepted", false):
                     _finish("authoritative size divergence tick " + str(tick) +
                         " " + JSON.stringify(size_boundary), false)
                     return
+                size_oracle_usec = Time.get_ticks_usec() - size_oracle_started
+                size_cost_gate = size_boundary
+                var source_oracle_started: int = Time.get_ticks_usec()
                 var source_boundary: Dictionary = Acceptance.compare_source_growth_boundary(
                     tick, detached_direct, detached_worker)
+                source_oracle_usec = Time.get_ticks_usec() - source_oracle_started
+                source_cost_gate = source_boundary
                 if not source_boundary.get("accepted", false):
                     _finish("N9/events source size divergence tick " + str(tick) +
                         " " + JSON.stringify(source_boundary), false)
@@ -224,6 +239,25 @@ func _run() -> void:
                     print("P2_PERF_E_DIRECT_THREAD_SIZE_GROWTH ",
                         JSON.stringify(size_growth))
                 previous_sizes = size_boundary.duplicate(true)
+            var cost_row: Dictionary = ObservationCosts.sample(tick, {
+                "direct_checkpoint": direct_checkpoint_usec,
+                "worker_checkpoint_request": worker_checkpoint_request_usec,
+                "exact_parity_oracle": parity_usec,
+                "size_oracle": size_oracle_usec,
+                "n9_event_oracle": source_oracle_usec}, parity, size_cost_gate, source_cost_gate)
+            if not cost_row.get("accepted", false):
+                _finish("observation callsite attribution failed " + JSON.stringify(cost_row), false)
+                return
+            observation_callsite_samples.append(cost_row)
+            if tick in LATE_WINDOWS:
+                if not previous_observation_cost.is_empty():
+                    var cost_growth: Dictionary = ObservationCosts.compare_growth(
+                        previous_observation_cost, cost_row)
+                    if not cost_growth.get("accepted", false):
+                        _finish("observation growth rejected " + JSON.stringify(cost_growth), false)
+                        return
+                    print("P2_PERF_E_OBSERVATION_CALLSITE_GROWTH ", JSON.stringify(cost_growth))
+                previous_observation_cost = cost_row.duplicate(true)
             if tick == target:
                 # Exercise actual N38-style runtime restore at a committed boundary.
                 # Both owners restart from independent detached checkpoint trees.
@@ -253,6 +287,12 @@ func _run() -> void:
         _finish("checkpoint observation coverage invalid " + JSON.stringify(observation_report), false)
         return
     print("P2_PERF_E_CHECKPOINT_OBSERVATION_COST ", JSON.stringify(observation_report))
+    var observation_calls: Dictionary = ObservationCosts.summarize(
+        observation_callsite_samples, expected_observations)
+    if not observation_calls.get("accepted", false):
+        _finish("observation callsite coverage invalid " + JSON.stringify(observation_calls), false)
+        return
+    print("P2_PERF_E_OBSERVATION_CALLSITES ", JSON.stringify(observation_calls))
     print("P2_PERF_E_PHASE_WINDOW_COVERAGE ", JSON.stringify(phase_reports))
     if target >= LATE_TARGET:
         var late_phase_growth: Dictionary = PhaseGrowth.compare(
