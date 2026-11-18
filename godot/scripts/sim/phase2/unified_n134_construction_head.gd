@@ -193,6 +193,9 @@ static func choose(world: Dictionary, factions: Dictionary,
         return {"ok": true, "authorized": false, "head": head,
             "comparison": comparison_trace,
             "reason": "n134_grant_does_not_match_n154_material_contract"}
+    var grant_reason: String = "source_n134_N111_strategic_colony_infrastructure" if \
+        str(comparison_trace.get("build_reason", "")) == "strategic_colony_infrastructure" else \
+        "source_n134_N111_positive_build"
     return {"ok": true, "authorized": true, "head": head,
         "comparison": comparison_trace, "staged": staged,
-        "reason": "source_n134_N111_positive_build"}
+        "reason": grant_reason}
