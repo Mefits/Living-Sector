@@ -1572,8 +1572,17 @@ func _administration_workspace() -> void:
         if not status.is_empty():
             _pair(section, "Проверка строительства", status)
         if not blocker.is_empty():
-            _pair(section, "Почему стройка не началась",
+            _pair(section, "Проверка материалов и условий",
                 StrategyInsights.reason_text(blocker))
+        var valuation: String = str(item.get("valuation_reason", ""))
+        if not valuation.is_empty():
+            var valuation_goal: Variant = item.get("valuation_goal", {})
+            var target: String = ""
+            if valuation_goal is Dictionary:
+                target = str(valuation_goal.get("commodity", ""))
+            _pair(section, "Экономическая оценка строительства" + (
+                " (" + target + ")" if not target.is_empty() else ""),
+                StrategyInsights.reason_text(valuation))
         if _tab == "Объяснения":
             var alternatives: Array = item.get("offers", [])
             var alternatives_box := _section(

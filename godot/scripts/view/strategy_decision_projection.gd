@@ -144,6 +144,10 @@ static func build(trace: Dictionary, economy: Dictionary,
             "id": fid, "action": str(head.get("action",
                 head.get("selected_option", ""))),
             "head_reason": str(head.get("reason", "")),
+            "valuation_reason": str(head.get(
+                "valuation", {}).get("build_reason", "")),
+            "valuation_goal": head.get("valuation", {}).get(
+                "goal", {}),
             "problem": head.get("problem", {}),
             "construction_status": str(view.get("status", "")),
             "construction_reason": str(view.get("reason", "")),
