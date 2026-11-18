@@ -25,6 +25,7 @@ static func stage(world: Dictionary, location_positions: Dictionary,
     var ids: Array = world["ships"].keys()
     ids.sort()
     var agents: Dictionary = {}
+    var has_lod: bool = false
     for sid in ids:
         var ship: Variant = world["ships"][sid]
         if not (ship is Dictionary):
@@ -34,6 +35,7 @@ static func stage(world: Dictionary, location_positions: Dictionary,
         # Rust ships without AgentLod tick every single native tick.
         # Older P2 checkpoints must not invent an absent component.
         if real_ship.has("lod"):
+            has_lod = true
             if not (real_ship["lod"] is Dictionary):
                 return {"ok": false, "reason": "n140_invalid_lod_component",
                     "ship_id": str(sid)}
@@ -57,6 +59,17 @@ static func stage(world: Dictionary, location_positions: Dictionary,
                 entry["position"] = location_pos
         agents[str(sid)] = entry
     var recomputed: bool = SourceLod.should_recompute(tick, multiplier)
+    # Rust ships without AgentLod always fire. After validating every row,
+    # bypass two recursive agent-map copies and a second sorted gate pass.
+    # Keep the detached fleet boundary and exact recompute metadata.
+    if not has_lod:
+        var every_ship: Dictionary = {}
+        for sid in ids:
+            every_ship[str(sid)] = 1
+        return {"ok": true, "ships": world["ships"].duplicate(true),
+            "changed": false, "fired": every_ship,
+            "fired_count": every_ship.size(), "skipped_count": 0,
+            "recomputed": recomputed, "stats": {}, "tick": tick}
     var stats: Dictionary = {}
     if recomputed:
         var updated: Dictionary = SourceLod.recompute(agents, observers, tick)
