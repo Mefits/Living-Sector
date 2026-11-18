@@ -740,7 +740,7 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 		var row: Variant = receipts[id]
 		if not _valid_account(id) or not (row is Dictionary):
 			return false
-		if row.get("id") != id or not (row.get("legs") is Array):
+		if not _valid_restored_receipt(id, row):
 			return false
 		var bucket: int = _bucket_index(str(id))
 		var target: Dictionary = partitions[bucket]
@@ -775,6 +775,37 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 	_flat_delta_base = {}
 	_flat_delta_base_count = -1
 	_flat_pending_ids = []
+	return true
+
+## Untrusted N38 input is validated before publishing ANY wallet or index.
+## This is structural validation, not a reinterpretation of historical
+## payments: legacy one-leg wages/write-offs and old metadata remain legal.
+## Reject malformed nested legs before they become trusted COW receipt rows.
+## Never coerce float JSON credits into integer money.
+func _valid_restored_receipt(id: Variant, row: Variant) -> bool:
+	if not _valid_account(id) or not (row is Dictionary):
+		return false
+	if row.get("id") != id or not (row.get("legs") is Array):
+		return false
+	if row.has("tick") and (typeof(row["tick"]) != TYPE_INT or int(row["tick"]) < 0):
+		return false
+	if row.has("kind") and not (row["kind"] is String):
+		return false
+	var legs: Array = row["legs"]
+	if legs.is_empty():
+		return false
+	for leg in legs:
+		if not (leg is Dictionary) or not leg.has("account") or not leg.has("delta"):
+			return false
+		if not _valid_account(leg["account"]) or typeof(leg["delta"]) != TYPE_INT:
+			return false
+		if int(leg["delta"]) == -MAX_CREDITS - 1:
+			return false
+	# Preserve optional historical fields but reject malformed known money
+	# metadata that could otherwise be trusted by provenance consumers.
+	for amount_key in ["credits_lost", "wages_credits_accrued"]:
+		if row.has(amount_key) and not _valid_amount(row[amount_key]):
+			return false
 	return true
 
 func _valid_account(value: Variant) -> bool:
