@@ -893,7 +893,7 @@ func _colony() -> void:
         _empty("Выберите колонию в правом списке.")
         return
     match _tab:
-        "Обзор":
+        "Сводка":
             var overview := _section("СОСТОЯНИЕ КОЛОНИИ", _body_name())
             var facilities: Array[Dictionary] = _facility_rows(body)
             var ships: Array[Dictionary] = ShipPresence.ships_at_body(
@@ -947,6 +947,26 @@ func _colony() -> void:
             var next := _section("АВТОНОМНОЕ УПРАВЛЕНИЕ", "", pair)
             _note(next, "Приоритеты и решения — только при публикации данных ИИ.")
             _link(next, "ВСЕ РЕШЕНИЯ ›", "administration", "План действий")
+            var resources := _section("КЛЮЧЕВЫЕ ЗАПАСЫ НА РЫНКАХ", "", pair)
+            var stocks: Array[Dictionary] = []
+            for commodity in ["food", "energy_cells", "metals", "ore"]:
+                var stock: Dictionary = _market_stock_total(commodity, body)
+                stocks.append({"cells": [str(commodity),
+                    str(roundi(float(stock.get("amount", 0.0))))
+                    if bool(stock.get("known", false)) else "—"]})
+            _table(resources, ["Ресурс", "На рынке"], stocks)
+            _link(resources, "ПОСМОТРЕТЬ ЭКОНОМИЧЕСКИЕ ЦЕПОЧКИ ›",
+                "economy", "Рынок и цепочки")
+            var projects := _section("СТРОЙКИ И МАТЕРИАЛЫ", "", pair)
+            _table(projects, ["Проект", "Локация", "Прогресс",
+                "Статус", "Материалы"], _construction_rows(body),
+                "construction", "Проекты и снабжение")
+            _link(projects, "ПРОВЕРИТЬ СТРОЙКИ И ПОСТАВКИ ›",
+                "construction", "Проекты и снабжение")
+            var local_fleet := _section("КОРАБЛИ И ЛОГИСТИКА", "", pair)
+            _local_ships(body)
+            _link(local_fleet, "РЕЙСЫ И КОНТРАКТЫ ›",
+                "fleet", "Рейсы и контракты")
         "Население":
             var panel := _section("НАСЕЛЕНИЕ И ТРУД")
             var lines: Array[Dictionary] = []
@@ -1242,72 +1262,82 @@ func _facility_workspace() -> void:
     var live: Dictionary = (all.get(_facility, {})
         if all is Dictionary and all.get(_facility) is Dictionary else {})
     match _tab:
-        "Процесс":
-            var section := _section("ПРОИЗВОДСТВЕННЫЙ ЦИКЛ", _facility_name())
-            var shift: Variant = live.get("work_shift", {})
-            var input_value: String = (
-                str(shift.get("inputs", "—")) if shift is Dictionary else "—")
-            var output_value: String = (
-                str(shift.get("outputs", "—")) if shift is Dictionary else "—")
-            var last_tick: String = (
-                str(shift.get("tick", "—")) if shift is Dictionary else "—")
-            var flow := HFlowContainer.new()
-            flow.add_theme_constant_override("h_separation", 9)
-            flow.add_theme_constant_override("v_separation", 9)
-            section.add_child(flow)
-            _process_card(flow, "ВХОД · N39", input_value,
-                "За последнюю смену")
-            var arrow_in := _label("→", 16, TEAL)
-            arrow_in.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-            flow.add_child(arrow_in)
-            _process_card(flow, "ПРЕДПРИЯТИЕ", _facility_name(),
-                "Работники: " + str(live.get("assigned_workers", "—")), true)
-            var arrow_out := _label("→", 16, TEAL)
-            arrow_out.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-            flow.add_child(arrow_out)
-            _process_card(flow, "ВЫХОД · N39", output_value,
-                "Последняя смена: тик " + last_tick)
-            _pair(section, "Назначенные работники",
-                str(live.get("assigned_workers", "—")))
-            _pair(section, "Состояние объекта", str(live.get("condition", "—")))
-            _condition_bar(section, live.get("condition", null))
-            _pair(section, "Последняя оплаченная смена", last_tick)
-            _note(section, "Точные входы, выпуск и причина простоя — только при наличии записи N39.")
-            _link(section, "СКЛАД ОБЪЕКТА ›", "facility", "Склад", _facility)
-        "Работники":
-            var section := _section("РАБОТНИКИ И ОПЛАТА")
-            _pair(section, "Назначено", str(live.get("assigned_workers", "—")))
-            var shift: Variant = live.get("work_shift", {})
-            if shift is Dictionary:
-                _pair(section, "Тик последней смены", str(shift.get("tick", "—")))
-                _pair(section, "Оплачено", str(shift.get("wages", "—")))
-                _pair(section, "Работников в смене", str(shift.get("workers", "—")))
-            _pair(section, "Износ / состояние", str(live.get("condition", "—")))
-        "Склад":
-            var section := _section("СКЛАД ПРЕДПРИЯТИЯ")
-            var mod: Variant = live.get("module_stock", {})
-            var stock: Variant = mod.get("stock", {}) if mod is Dictionary else {}
-            _metric_strip(section, [
-                {"label":"Позиции склада", "value":(
-                    str(stock.size()) if stock is Dictionary else "—")},
-                {"label":"Предприятие", "value":_facility_name()},
-                {"label":"Локация", "value":str(source.get("location", "—"))},
-                {"label":"Работники", "value":str(live.get("assigned_workers", "—"))}])
-            var rows: Array[Dictionary] = []
-            if stock is Dictionary:
-                for key in stock:
-                    rows.append({"cells":[str(key), str(stock[key]), "—", "—"]})
-            _table(section, ["Товар","В наличии","Вход","Выход"], rows)
-        "Поставщики":
-            var section := _section("ПОСТАВЩИКИ И КОНТРАКТЫ")
-            _pair(section, "Локация", str(source.get("location", "—")))
-            _pair(section, "Фракция", str(source.get("faction_id", "—")))
-            _note(section, "Не создаём обещанные поставки. Действительные контракты показаны во флоте.")
-            _link(section, "ПОСМОТРЕТЬ КОНТРАКТЫ ›", "fleet", "Контракты")
+        "Процесс и снабжение":
+            _facility_process_section(source, live)
+            _facility_suppliers_section(source, live)
+        "Труд и склад":
+            _facility_workers_section(source, live)
+            _facility_stock_section(source, live)
+
+func _facility_process_section(source: Dictionary, live: Dictionary) -> void:
+    var section := _section("ПРОИЗВОДСТВЕННЫЙ ЦИКЛ", _facility_name())
+    var shift: Variant = live.get("work_shift", {})
+    var input_value: String = (
+        str(shift.get("inputs", "—")) if shift is Dictionary else "—")
+    var output_value: String = (
+        str(shift.get("outputs", "—")) if shift is Dictionary else "—")
+    var last_tick: String = (
+        str(shift.get("tick", "—")) if shift is Dictionary else "—")
+    var flow := HFlowContainer.new()
+    flow.add_theme_constant_override("h_separation", 9)
+    flow.add_theme_constant_override("v_separation", 9)
+    section.add_child(flow)
+    _process_card(flow, "ВХОД · N39", input_value,
+        "За последнюю смену")
+    var arrow_in := _label("→", 16, TEAL)
+    arrow_in.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    flow.add_child(arrow_in)
+    _process_card(flow, "ПРЕДПРИЯТИЕ", _facility_name(),
+        "Работники: " + str(live.get("assigned_workers", "—")), true)
+    var arrow_out := _label("→", 16, TEAL)
+    arrow_out.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+    flow.add_child(arrow_out)
+    _process_card(flow, "ВЫХОД · N39", output_value,
+        "Последняя смена: тик " + last_tick)
+    _pair(section, "Назначенные работники",
+        str(live.get("assigned_workers", "—")))
+    _pair(section, "Состояние объекта", str(live.get("condition", "—")))
+    _condition_bar(section, live.get("condition", null))
+    _pair(section, "Последняя оплаченная смена", last_tick)
+    _note(section, "Точные входы, выпуск и причина простоя — только при наличии записи N39.")
+    _link(section, "СКЛАД ОБЪЕКТА ›", "facility", "Склад", _facility)
+
+func _facility_workers_section(source: Dictionary, live: Dictionary) -> void:
+    var section := _section("РАБОТНИКИ И ОПЛАТА")
+    _pair(section, "Назначено", str(live.get("assigned_workers", "—")))
+    var shift: Variant = live.get("work_shift", {})
+    if shift is Dictionary:
+        _pair(section, "Тик последней смены", str(shift.get("tick", "—")))
+        _pair(section, "Оплачено", str(shift.get("wages", "—")))
+        _pair(section, "Работников в смене", str(shift.get("workers", "—")))
+    _pair(section, "Износ / состояние", str(live.get("condition", "—")))
+
+func _facility_stock_section(source: Dictionary, live: Dictionary) -> void:
+    var section := _section("СКЛАД ПРЕДПРИЯТИЯ")
+    var mod: Variant = live.get("module_stock", {})
+    var stock: Variant = mod.get("stock", {}) if mod is Dictionary else {}
+    _metric_strip(section, [
+        {"label":"Позиции склада", "value":(
+            str(stock.size()) if stock is Dictionary else "—")},
+        {"label":"Предприятие", "value":_facility_name()},
+        {"label":"Локация", "value":str(source.get("location", "—"))},
+        {"label":"Работники", "value":str(live.get("assigned_workers", "—"))}])
+    var rows: Array[Dictionary] = []
+    if stock is Dictionary:
+        for key in stock:
+            rows.append({"cells":[str(key), str(stock[key]), "—", "—"]})
+    _table(section, ["Товар","В наличии","Вход","Выход"], rows)
+
+func _facility_suppliers_section(source: Dictionary, live: Dictionary) -> void:
+    var section := _section("ПОСТАВЩИКИ И КОНТРАКТЫ")
+    _pair(section, "Локация", str(source.get("location", "—")))
+    _pair(section, "Фракция", str(source.get("faction_id", "—")))
+    _note(section, "Не создаём обещанные поставки. Действительные контракты показаны во флоте.")
+    _link(section, "ПОСМОТРЕТЬ КОНТРАКТЫ ›", "fleet", "Контракты")
 
 func _economy_workspace() -> void:
     match _tab:
-        "Баланс":
+        "Рынок и цепочки":
             var section := _section("БАЛАНС РЫНКОВ", "Все фракции, не кошелёк игрока")
             var rows: Array[Dictionary] = []
             var known_commodities: Dictionary = {}
@@ -1337,11 +1367,10 @@ func _economy_workspace() -> void:
             var links := _section("ПРОИЗВОДСТВЕННЫЕ ОБЪЕКТЫ")
             _table(links, ["Предприятие","Тип","Работники","Состояние","Локация"],
                 _facility_rows(), "", "", "facility")
-        "Цепочки":
             _chain()
-            var link := _section("ПЕРЕХОДЫ")
-            _link(link, "КОНТРАКТЫ И ДОСТАВКИ ›", "fleet", "Контракты")
-        "Дефициты", "Узкие места":
+            var link := _section("ДОСТАВКИ И КОНТРАКТЫ")
+            _link(link, "ДЕЙСТВИТЕЛЬНЫЕ ПЕРЕВОЗКИ ›", "fleet", "Рейсы и контракты")
+        "Дефициты и узкие места":
             var section := _section(_tab.to_upper(), "Подтверждённые состояния N39")
             var rows: Array[Dictionary] = []
             var all: Variant = _economy.get("facilities", {})
@@ -1392,169 +1421,193 @@ func _projects(body_id: String = "") -> void:
     _note(section, "Планы ИИ без созданной площадки здесь не считаются стройкой.")
 
 func _construction_workspace() -> void:
-    match _tab:
-        "Проекты":
-            _projects()
-        "Материалы":
-            var section := _section("МАТЕРИАЛЫ ПРОЕКТОВ")
-            _table(section, ["Проект","Локация","Прогресс","Статус","Потребность"],
-                _construction_rows())
-            _link(section, "РЫНКИ И ДОСТУПНОСТЬ ›", "economy", "Баланс")
-        "Поставщики":
-            var section := _section("ПОСТАВЩИКИ СТРОИТЕЛЬСТВА")
-            _note(section, "Подтверждённые рынки доступны ниже. Поставки не считаются обещанными без N39 контракта.")
-            _table(section, ["Товар","В наличии","Рынок","Резерв","Тренд"],
-                _stock_rows())
-            _link(section, "КОНТРАКТЫ ›", "fleet", "Контракты")
-        "Блокировки":
-            var section := _section("ЗАДЕРЖАННЫЕ ПРОЕКТЫ")
-            var rows: Array[Dictionary] = []
-            var sites: Variant = _economy.get("construction_sites", {})
-            if sites is Dictionary:
-                for id in sites:
-                    var raw: Variant = sites[id]
-                    if raw is Dictionary and str(raw.get("blocked_reason", "")).length() > 0:
-                        rows.append({"cells":[str(id),
-                            str(raw.get("blocked_reason", "—")), "—"]})
-            _table(section, ["Проект","Причина блокировки","Срок"], rows)
+    if _tab != "Проекты и снабжение":
+        return
+    _projects()
+    var markets := _section("ДОСТУПНЫЕ МАТЕРИАЛЫ НА РЫНКАХ",
+        "Запас на рынке не равен подтверждённой поставке")
+    _table(markets, ["Ресурс", "В наличии", "Рынок",
+        "Резерв", "Тренд"], _stock_rows())
+    _link(markets, "ПРОВЕРИТЬ РЕЙСЫ И КОНТРАКТЫ ›",
+        "fleet", "Рейсы и контракты")
+    var blocked := _section("ПРИЧИНЫ БЛОКИРОВОК")
+    var rows: Array[Dictionary] = []
+    var sites: Variant = _economy.get("construction_sites", {})
+    if sites is Dictionary:
+        for id in sites:
+            var raw: Variant = sites[id]
+            if raw is Dictionary and not str(
+                    raw.get("blocked_reason", "")).is_empty():
+                rows.append({"cells": [str(id),
+                    str(raw.get("blocked_reason", "—"))]})
+    _table(blocked, ["Проект", "Подтверждённая причина"], rows)
+    _note(blocked, "Сроки и поставки не предсказываются без игровых данных.")
 
 func _fleet_workspace() -> void:
     match _tab:
-        "Корабли":
-            var section := _section("КОРАБЛИ СЕКТОРА", "Выберите строку для карты")
-            var ship_rows: Array[Dictionary] = _ship_rows()
-            var flying: int = 0
-            var docked: int = 0
-            var carrying: int = 0
-            var live_ships: Variant = _economy.get("ships", {})
-            if live_ships is Dictionary:
-                for raw in live_ships.values():
-                    if not (raw is Dictionary):
-                        continue
-                    var transit: Variant = raw.get("transit", {})
-                    if transit is Dictionary and not transit.is_empty():
-                        flying += 1
-                    if not str(raw.get("docked_at", "")).is_empty():
-                        docked += 1
-                    var cargo: Variant = raw.get("cargo", {})
-                    if cargo is Dictionary and not cargo.is_empty():
-                        carrying += 1
-            _metric_strip(section, [
-                {"label":"Корабли N39", "value":str(ship_rows.size())},
-                {"label":"В пути N14", "value":str(flying)},
-                {"label":"У дока", "value":str(docked)},
-                {"label":"С грузом", "value":str(carrying)}])
-            _table(section, ["Корабль","Класс","Задача","Груз","Статус"],
-                ship_rows, "", "", "ship")
-        "Контракты":
-            var section := _section("ДЕЙСТВИТЕЛЬНЫЕ N153 КОНТРАКТЫ")
-            var board: Variant = _economy.get("contract_board", {})
-            var contracts: Variant = board.get("contracts", {}) if board is Dictionary else {}
-            var rows: Array[Dictionary] = []
-            if contracts is Dictionary:
-                for id in contracts:
-                    var item: Variant = contracts[id]
-                    if item is Dictionary:
-                        rows.append({"cells":[str(id), str(item.get("status", "—")),
-                            str(item.get("commodity", "—")), str(item.get("quantity", "—")),
-                            str(item.get("destination", "—"))]})
-            var statuses: Dictionary = {}
-            for entry in rows:
-                var cells: Array = entry["cells"]
-                var name: String = str(cells[1])
-                statuses[name] = int(statuses.get(name, 0)) + 1
-            _metric_strip(section, [
-                {"label":"Контракты N153", "value":str(rows.size())},
-                {"label":"Разных статусов", "value":str(statuses.size())},
-                {"label":"Срок исполнения", "value":"—"},
-                {"label":"История рейсов", "value":"—"}])
-            _table(section, ["ID","Состояние","Товар","Количество","Назначение"], rows)
-        "Грузы":
-            var section := _section("ГРУЗОВЫЕ МАНИФЕСТЫ")
-            var rows: Array[Dictionary] = []
-            var ships: Variant = _economy.get("ships", {})
-            if ships is Dictionary:
-                for id in ships:
-                    var item: Variant = ships[id]
-                    if item is Dictionary:
-                        var cargo: Variant = item.get("cargo", {})
-                        if cargo is Dictionary and not cargo.is_empty():
-                            rows.append({"id":str(id), "cells":[str(item.get("name", id)),
-                                str(cargo), str(item.get("active_contract_id", "—"))]})
-            _table(section, ["Корабль","Груз","Контракт"], rows, "", "", "ship")
-        "Маршруты":
-            var section := _section("ФИЗИЧЕСКИЕ N14 РЕЙСЫ")
-            var rows: Array[Dictionary] = []
-            var ships: Variant = _economy.get("ships", {})
-            if ships is Dictionary:
-                for id in ships:
-                    var item: Variant = ships[id]
-                    if item is Dictionary:
-                        var transit: Variant = item.get("transit", {})
-                        if transit is Dictionary and not transit.is_empty():
-                            rows.append({"id":str(id), "cells":[str(item.get("name", id)),
-                                str(transit.get("from", "—")), str(transit.get("to", "—")),
-                                str(transit.get("arrival_tick", "—"))]})
-            _table(section, ["Судно","Откуда","Куда","Прибытие (тик)"],
-                rows, "", "", "ship")
-        "Стыковка":
-            var section := _section("СТЫКОВКА ПО N39")
-            var rows: Array[Dictionary] = []
-            var ships: Variant = _economy.get("ships", {})
-            if ships is Dictionary:
-                for id in ships:
-                    var item: Variant = ships[id]
-                    if item is Dictionary and not str(item.get("docked_at", "")).is_empty():
-                        rows.append({"id":str(id), "cells":[str(item.get("name", id)),
-                            str(item.get("docked_at", "")), str(item.get("location", "—"))]})
-            _table(section, ["Корабль","Док","Локация"], rows, "", "", "ship")
-        "Поставки":
-            var section := _section("ФАКТИЧЕСКИЕ ПЕРЕВОЗКИ")
-            _note(section, "Нет прогноза «через 3 часа» без реального срока N14 transit.")
-            _link(section, "ПОСМОТРЕТЬ РЕЙСЫ ›", "fleet", "Маршруты")
-            _link(section, "ПОСМОТРЕТЬ КОНТРАКТЫ ›", "fleet", "Контракты")
+        "Рейсы и контракты":
+            _fleet_ships_section()
+            _fleet_routes_section()
+            _fleet_contracts_section()
+        "Грузы и стыковка":
+            _fleet_cargo_section()
+            _fleet_docks_section()
+            _fleet_deliveries_section()
+
+func _fleet_ships_section() -> void:
+    var section := _section("КОРАБЛИ СЕКТОРА", "Выберите строку для карты")
+    var ship_rows: Array[Dictionary] = _ship_rows()
+    var flying: int = 0
+    var docked: int = 0
+    var carrying: int = 0
+    var live_ships: Variant = _economy.get("ships", {})
+    if live_ships is Dictionary:
+        for raw in live_ships.values():
+            if not (raw is Dictionary):
+                continue
+            var transit: Variant = raw.get("transit", {})
+            if transit is Dictionary and not transit.is_empty():
+                flying += 1
+            if not str(raw.get("docked_at", "")).is_empty():
+                docked += 1
+            var cargo: Variant = raw.get("cargo", {})
+            if cargo is Dictionary and not cargo.is_empty():
+                carrying += 1
+    _metric_strip(section, [
+        {"label":"Корабли N39", "value":str(ship_rows.size())},
+        {"label":"В пути N14", "value":str(flying)},
+        {"label":"У дока", "value":str(docked)},
+        {"label":"С грузом", "value":str(carrying)}])
+    _table(section, ["Корабль","Класс","Задача","Груз","Статус"],
+        ship_rows, "", "", "ship")
+
+func _fleet_contracts_section() -> void:
+    var section := _section("ДЕЙСТВИТЕЛЬНЫЕ N153 КОНТРАКТЫ")
+    var board: Variant = _economy.get("contract_board", {})
+    var contracts: Variant = board.get("contracts", {}) if board is Dictionary else {}
+    var rows: Array[Dictionary] = []
+    if contracts is Dictionary:
+        for id in contracts:
+            var item: Variant = contracts[id]
+            if item is Dictionary:
+                rows.append({"cells":[str(id), str(item.get("status", "—")),
+                    str(item.get("commodity", "—")), str(item.get("quantity", "—")),
+                    str(item.get("destination", "—"))]})
+    var statuses: Dictionary = {}
+    for entry in rows:
+        var cells: Array = entry["cells"]
+        var name: String = str(cells[1])
+        statuses[name] = int(statuses.get(name, 0)) + 1
+    _metric_strip(section, [
+        {"label":"Контракты N153", "value":str(rows.size())},
+        {"label":"Разных статусов", "value":str(statuses.size())},
+        {"label":"Срок исполнения", "value":"—"},
+        {"label":"История рейсов", "value":"—"}])
+    _table(section, ["ID","Состояние","Товар","Количество","Назначение"], rows)
+
+func _fleet_cargo_section() -> void:
+    var section := _section("ГРУЗОВЫЕ МАНИФЕСТЫ")
+    var rows: Array[Dictionary] = []
+    var ships: Variant = _economy.get("ships", {})
+    if ships is Dictionary:
+        for id in ships:
+            var item: Variant = ships[id]
+            if item is Dictionary:
+                var cargo: Variant = item.get("cargo", {})
+                if cargo is Dictionary and not cargo.is_empty():
+                    rows.append({"id":str(id), "cells":[str(item.get("name", id)),
+                        str(cargo), str(item.get("active_contract_id", "—"))]})
+    _table(section, ["Корабль","Груз","Контракт"], rows, "", "", "ship")
+
+func _fleet_routes_section() -> void:
+    var section := _section("ФИЗИЧЕСКИЕ N14 РЕЙСЫ")
+    var rows: Array[Dictionary] = []
+    var ships: Variant = _economy.get("ships", {})
+    if ships is Dictionary:
+        for id in ships:
+            var item: Variant = ships[id]
+            if item is Dictionary:
+                var transit: Variant = item.get("transit", {})
+                if transit is Dictionary and not transit.is_empty():
+                    rows.append({"id":str(id), "cells":[str(item.get("name", id)),
+                        str(transit.get("from", "—")), str(transit.get("to", "—")),
+                        str(transit.get("arrival_tick", "—"))]})
+    _table(section, ["Судно","Откуда","Куда","Прибытие (тик)"],
+        rows, "", "", "ship")
+
+func _fleet_docks_section() -> void:
+    var section := _section("СТЫКОВКА ПО N39")
+    var rows: Array[Dictionary] = []
+    var ships: Variant = _economy.get("ships", {})
+    if ships is Dictionary:
+        for id in ships:
+            var item: Variant = ships[id]
+            if item is Dictionary and not str(item.get("docked_at", "")).is_empty():
+                rows.append({"id":str(id), "cells":[str(item.get("name", id)),
+                    str(item.get("docked_at", "")), str(item.get("location", "—"))]})
+    _table(section, ["Корабль","Док","Локация"], rows, "", "", "ship")
+
+func _fleet_deliveries_section() -> void:
+    var section := _section("ФАКТИЧЕСКИЕ ПЕРЕВОЗКИ")
+    _note(section, "Нет прогноза «через 3 часа» без реального срока N14 transit.")
+    _link(section, "ПОСМОТРЕТЬ РЕЙСЫ ›", "fleet", "Маршруты")
+    _link(section, "ПОСМОТРЕТЬ КОНТРАКТЫ ›", "fleet", "Контракты")
 
 func _administration_workspace() -> void:
-    var section := _section(_tab.to_upper(), "Решения автономной симуляции")
+    var section := _section(_tab.to_upper(), "Реальные решения автономных фракций")
     var reasons: Variant = _economy.get("autonomy_diagnostics", {})
     var actions: Variant = _economy.get("ai_actions", {})
-    if _tab in ["Приоритеты ИИ", "Обоснование"]:
-        if reasons is Dictionary and not reasons.is_empty():
+    if _tab == "Цели и задачи":
+        var has_priorities: bool = reasons is Dictionary and not reasons.is_empty()
+        if has_priorities:
             for key in reasons:
-                if _tab == "Приоритеты ИИ":
-                    _planner_priority(section, str(key), reasons[key])
-                else:
-                    _reason_row(section, str(key), str(reasons[key]))
+                if str(key) == "consequences":
+                    continue
+                _planner_priority(section, str(key), reasons[key])
         else:
-            _note(section, "ИИ выполняется, но человекочитаемые приоритеты/объяснения в N39 ещё не опубликованы.")
-    elif _tab == "План действий":
+            _note(section,
+                "Цели фракции пока не опубликованы симуляцией.")
+        var tasks := _section("ОЧЕРЕДЬ ДЕЙСТВИЙ")
         if actions is Dictionary and not actions.is_empty():
             for id in actions:
-                _reason_row(section, str(id), str(actions[id]))
+                _reason_row(tasks, str(id), str(actions[id]))
         else:
-            _note(section, "Не опубликован список актуальных действий ИИ. Не выдумываем планы из макета.")
+            _note(tasks, "Список текущих решений ИИ пока недоступен.")
     else:
-        var consequences: Variant = (
-            reasons.get("consequences", {}) if reasons is Dictionary else {})
-        if consequences is Dictionary and not consequences.is_empty():
-            for key in consequences:
-                _reason_row(section, str(key), str(consequences[key]))
-        else:
-            _note(section, "Подтверждённые последствия пока не опубликованы в N39.")
-    _link(section, "ПРОВЕРИТЬ ЭКОНОМИЧЕСКИЕ УЗКИЕ МЕСТА ›", "economy", "Узкие места")
+        var has_explanations: bool = false
+        if reasons is Dictionary:
+            for key in reasons:
+                if str(key) == "consequences":
+                    continue
+                _reason_row(section, str(key), str(reasons[key]))
+                has_explanations = true
+            var consequences: Variant = reasons.get("consequences", {})
+            if consequences is Dictionary and not consequences.is_empty():
+                var consequences_box := _section("ПОДТВЕРЖДЁННЫЕ ПОСЛЕДСТВИЯ")
+                for key in consequences:
+                    _reason_row(consequences_box, str(key),
+                        str(consequences[key]))
+                has_explanations = true
+        if not has_explanations:
+            _note(section, "Объяснения и последствия ещё не опубликованы.")
+    _link(section, "ЭКОНОМИЧЕСКИЕ УЗКИЕ МЕСТА ›",
+        "economy", "Дефициты и узкие места")
 
 func _research_workspace() -> void:
-    var section := _section(_tab.to_upper(), "Научная программа")
+    var section := _section("ТЕКУЩАЯ НАУЧНАЯ ПРОГРАММА")
     var state: Variant = _economy.get("research", null)
     if state is Dictionary and not state.is_empty():
-        var subset: Variant = state
-        if _tab == "Предпосылки" and state.get("prerequisites", null) is Dictionary:
-            subset = state["prerequisites"]
-        elif _tab == "Открытия" and state.get("unlocks", null) is Dictionary:
-            subset = state["unlocks"]
-        if subset is Dictionary:
-            for id in subset:
-                _research_entry(section, str(id), subset[id])
+        for id in state:
+            if str(id) in ["prerequisites", "unlocks"]:
+                continue
+            _research_entry(section, str(id), state[id])
+        for key in ["prerequisites", "unlocks"]:
+            var rows: Variant = state.get(key, null)
+            if rows is Dictionary and not rows.is_empty():
+                var sub := _section("ПРЕДПОСЫЛКИ" if key == "prerequisites"
+                    else "ОТКРЫТИЯ")
+                for id in rows:
+                    _research_entry(sub, str(id), rows[id])
     else:
         var placeholder: PanelContainer = LSComponents.research_card()
         section.add_child(placeholder)
@@ -1565,8 +1618,7 @@ func _research_workspace() -> void:
             "ИССЛЕДОВАНИЕ · —", &"LSResearchTitle"))
         _note(pending, "N39 ещё не опубликовал исследование, очки и срок.")
         _note(pending, "Прототипные 72% и технология из макета не подставляются.")
-    if _tab == "Открытия":
-        _note(section, "Реальные разблокировки показываются только после события исследования.")
+    _note(section, "Открытия и условия показываются только после публикации игровых данных.")
 
 func _ship_workspace() -> void:
     var ship: Dictionary = _ship_source()
