@@ -2,6 +2,7 @@ extends Control
 ## Sol-only read-only visual slice. This does NOT advance authoritative N158/N39.
 const SolProfile = preload("res://scripts/sol_profile.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
+const NativeStarSystemView = preload("res://scripts/star_system_view.gd")
 const BuildingBrowser = preload("res://scripts/building_browser.gd")
 const DEFAULTS = "res://data/balance_defaults.json"
 const USER_CONFIG = "user://sol_lab_balance.json"
@@ -10,17 +11,15 @@ var world: Dictionary = {}
 var config: Dictionary = {}
 var native_time: float = 0.0
 var paused: bool = false
-var zoom: float = 1.0
-var pan: Vector2 = Vector2.ZERO
-var dragging: bool = false
 var selected: String = "earth"
-var positions: Dictionary = {}
 var details: Label
 var info_area: VBoxContainer
 var mode_button: Button
 var pause_button: Button
 var time_label: Label
 var browser: ColorRect
+var native_view: Control
+var view_elapsed: float = 0.0
 
 func _ready() -> void:
     var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/sol.json"))
@@ -34,6 +33,7 @@ func _ready() -> void:
     config = _load_config()
     _init_extra_settings()
     _build_ui()
+    _make_native_map()
     _make_browser()
     _show_selected()
     queue_redraw()
@@ -73,7 +73,7 @@ func _build_ui() -> void:
     details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     info_area.add_child(details)
     var hint := Label.new()
-    hint.text = "Клик — выбрать тело; колесо — масштаб; перетаскивание — карта.\nВремя пока только визуальное."
+    hint.text = "Оригинальная карта SystemBalance: двойной клик — приблизить.\nСимуляция пока не подключена."
     hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     info_area.add_child(hint)
 
@@ -139,89 +139,22 @@ func _pause() -> void:
 
 func _step() -> void:
     native_time += 1.0
-    queue_redraw()
+    _update_native_map()
 
 func _reset_camera() -> void:
-    zoom = 1.0
-    pan = Vector2.ZERO
-    queue_redraw()
+    if native_view != null:
+        native_view.reset_view()
 
 func _process(delta: float) -> void:
     if not paused:
+        # Visual clock only; no N158 tick and no economic side effects.
         native_time += delta * 20.0
-        queue_redraw()
+        view_elapsed += delta
+        if view_elapsed >= 0.10:
+            view_elapsed = 0.0
+            _update_native_map()
     if time_label != null:
         time_label.text = "Виз. тик %d  " % int(native_time)
-
-func _center() -> Vector2:
-    return Vector2((size.x - SIDE_WIDTH) * 0.5, size.y * 0.53) + pan
-
-func _radius(body: Dictionary) -> float:
-    var r: float = float(body.get("orbit_radius", 0.0))
-    return (30.0 + pow(clampf(r / 4.0, 0.0, 1.0), 0.62) * minf(size.y, size.x - SIDE_WIDTH) * 0.38) * zoom
-
-func _position(center: Vector2, radius: float, body: Dictionary, period_key: String) -> Vector2:
-    var period: float = maxf(float(body.get(period_key, 1.0)), 1.0)
-    var a: float = deg_to_rad(float(body.get("current_angle", 0.0)) + 360.0 * native_time / period)
-    return center + Vector2(cos(a), sin(a)) * radius
-
-func _rebuild_positions() -> void:
-    positions.clear()
-    for item in world.get("bodies", []):
-        var b: Dictionary = item
-        if not Model.VISIBLE.has(str(b.get("id", ""))):
-            continue
-        if str(b.get("parent_body_id", "")).is_empty():
-            positions[str(b.get("id", ""))] = _position(_center(), _radius(b), b, "orbit_period")
-    for item in world.get("bodies", []):
-        var b: Dictionary = item
-        if not Model.VISIBLE.has(str(b.get("id", ""))):
-            continue
-        var parent: String = str(b.get("parent_body_id", ""))
-        if not parent.is_empty() and positions.has(parent):
-            var moon_r: float = clampf(float(b.get("satellite_orbit_radius_native", 0.0)) * 1600.0, 18.0, 38.0) * zoom
-            positions[str(b.get("id", ""))] = _position(positions[parent], moon_r, b, "satellite_orbit_period_native")
-
-func _draw() -> void:
-    draw_rect(Rect2(Vector2.ZERO, Vector2(size.x - SIDE_WIDTH, size.y)), Color("#0b1421"), true)
-    if world.is_empty():
-        return
-    _rebuild_positions()
-    for item in world.get("bodies", []):
-        var b: Dictionary = item
-        if not Model.VISIBLE.has(str(b.get("id", ""))):
-            continue
-        var parent: String = str(b.get("parent_body_id", ""))
-        var radius: float = _radius(b)
-        var c: Vector2 = _center()
-        if not parent.is_empty() and positions.has(parent):
-            c = positions[parent]
-            radius = clampf(float(b.get("satellite_orbit_radius_native", 0.0)) * 1600.0, 18.0, 38.0) * zoom
-        draw_arc(c, radius, 0.0, TAU, 96, Color(0.35, 0.51, 0.6, 0.28), 1.0)
-    draw_circle(_center(), 12.0, Color("#e4bc75"))
-    var font: Font = get_theme_default_font()
-    draw_string(font, _center() + Vector2(16, 0), "Sol", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.WHITE)
-    for item in world.get("bodies", []):
-        var b: Dictionary = item
-        if not Model.VISIBLE.has(str(b.get("id", ""))):
-            continue
-        var id: String = str(b.get("id", ""))
-        if not positions.has(id):
-            continue
-        var pos: Vector2 = positions[id]
-        var color: Color = Color("#8fa5ba")
-        match str(b.get("biome", "")):
-            "terrestrial": color = Color("#69aaa3")
-            "gas_giant": color = Color("#bc9c7a")
-            "desert": color = Color("#ae8068")
-            "molten": color = Color("#a77a6d")
-            "ice": color = Color("#99c1cf")
-        var dot_radius: float = 9.0 if str(b.get("biome", "")) == "gas_giant" else 6.0
-        draw_circle(pos, dot_radius, color)
-        if selected == id:
-            draw_arc(pos, dot_radius + 5.0, 0.0, TAU, 32, Color("#ecd391"), 2.0)
-        if selected == id or id in ["earth", "luna", "mars"]:
-            draw_string(font, pos + Vector2(11, -6), str(b.get("name", id)), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#d4dfe5"))
 
 func _show_selected() -> void:
     if details == null:
@@ -242,38 +175,6 @@ func _show_selected() -> void:
                 float(coeff.get(key,0.0))])
         details.text = "\n".join(items)
         return
-
-func _gui_input(event: InputEvent) -> void:
-    if event is InputEventMouseButton and event.position.x < size.x - SIDE_WIDTH and event.position.y > 45.0:
-        if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
-            zoom = clampf(zoom * 1.22, 0.5, 3.0)
-            queue_redraw()
-        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-            zoom = clampf(zoom / 1.22, 0.5, 3.0)
-            queue_redraw()
-        elif event.button_index == MOUSE_BUTTON_LEFT:
-            if event.pressed:
-                _rebuild_positions()
-                var nearest: String = ""
-                var dist: float = 19.0
-                for id in positions.keys():
-                    var d: float = event.position.distance_to(positions[id])
-                    if d < dist:
-                        dist = d
-                        nearest = str(id)
-                if nearest.is_empty():
-                    dragging = true
-                else:
-                    selected = nearest
-                    _show_selected()
-                    queue_redraw()
-            else:
-                dragging = false
-    elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
-        dragging = false
-    elif event is InputEventMouseMotion and dragging:
-        pan += event.relative
-        queue_redraw()
 
 func _input(event: InputEvent) -> void:
     if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F9:
@@ -316,3 +217,60 @@ func _make_browser() -> void:
 
 func _open_build() -> void:
     browser.configure(world,config,selected,false)
+
+func _native_view_world() -> Dictionary:
+    # Filter PRESENTATION only. Frozen source Sol and colony data stay intact.
+    var result: Dictionary = world.duplicate(true)
+    var visible: Array = []
+    for item in world.get("bodies", []):
+        if not (item is Dictionary):
+            continue
+        var id: String = str(item.get("id", ""))
+        if not Model.VISIBLE.has(id):
+            continue
+        var body: Dictionary = item.duplicate(true)
+        var period: float = float(body.get("orbit_period", 0))
+        if str(body.get("parent_body_id", "")) != "":
+            period = float(body.get("satellite_orbit_period_native", period))
+        if period > 0.0:
+            body["current_angle"] = fposmod(
+                float(body.get("current_angle", 0.0)) +
+                native_time * 360.0 / period, 360.0)
+        visible.append(body)
+    result["bodies"] = visible
+    var facilities: Array = []
+    for f in world.get("facilities", []):
+        if Model.VISIBLE.has(str(f.get("body", ""))):
+            facilities.append(f.duplicate(true))
+    result["facilities"] = facilities
+    return result
+
+func _make_native_map() -> void:
+    native_view = NativeStarSystemView.new()
+    native_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    native_view.anchor_right = 1.0
+    native_view.offset_top = 43.0
+    native_view.offset_right = -SIDE_WIDTH
+    native_view.mouse_filter = Control.MOUSE_FILTER_STOP
+    native_view.body_selected.connect(_native_body_selected)
+    native_view.body_open_requested.connect(_native_body_selected)
+    add_child(native_view)
+    # Under sidebar and header, but above the empty root background.
+    move_child(native_view, 0)
+    native_view.set_world(_native_view_world())
+    native_view.select_body(selected)
+    native_view.set_native_station_time(native_time)
+
+func _update_native_map() -> void:
+    if native_view == null:
+        return
+    native_view.update_world(_native_view_world())
+    native_view.set_native_station_time(native_time)
+
+func _native_body_selected(body: Dictionary) -> void:
+    var id: String = str(body.get("id", ""))
+    if not Model.VISIBLE.has(id):
+        return
+    selected = id
+    native_view.select_body(id)
+    _show_selected()
