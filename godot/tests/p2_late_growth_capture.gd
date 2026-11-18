@@ -4,6 +4,7 @@ extends SceneTree
 const NativeData = preload("res://scripts/native_data.gd")
 const Timed = preload("res://scripts/sim/phase2/n158_timed_phase_probe.gd")
 const REPORT = preload("res://scripts/sim/phase2/n158_source_window_report.gd")
+const RESTART = preload("res://scripts/sim/phase2/n158_late_restart_oracle.gd")
 const MAX_RUNTIME_MS: int = 480000
 const HARD_TICK: int = 900
 const WINDOW: int = 100
@@ -80,6 +81,17 @@ func _initialize() -> void:
                 return
             output.store_var(snapshot)
             output.close()
+            # Optional N38 restart gate: fresh authoritative runtime, no extra
+            # source ticks, exact persisted file + restored snapshot oracle.
+            if OS.get_environment("LS_LATE_VERIFY_RESTART") == "1":
+                var restart: Dictionary = RESTART.verify_file(
+                    "res://logs/late-growth/ls-late-" + str(tick) + ".bin",
+                    seed, snapshot, tick)
+                if not restart.get("valid", false):
+                    _fail("N38 restart parity at " + str(tick) + ": " +
+                        JSON.stringify(restart))
+                    return
+                print("P2_PERF_E_LATE_RESTART_EXACT ", tick)
             print("P2_PERF_E_LATE_SOURCE_WINDOW ", JSON.stringify(report))
             if not previous.is_empty():
                 print("P2_PERF_E_LATE_SOURCE_DELTA ", JSON.stringify(
