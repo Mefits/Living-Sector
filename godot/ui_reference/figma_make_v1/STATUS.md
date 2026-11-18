@@ -142,3 +142,11 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 **All Stage 6 implementation changes are committed, not runtime tested.** No GitHub Actions or Godot validation has been run at the user's request. Stage 7 is the single final validation and correction gate.
 \n- Final cleanup: removed obsolete per-control _style/_box builders from StrategyUI and StrategyWorkspaces, centralized their styles in LSTheme. Long N39 notes no longer clip to ellipsis. **Requires Godot validation before claiming readiness.**\n\n- Pre-test preparation: native SystemFont for Figma font stack and keyboard focus outline; actual font face depends on platform availability. No font binaries were redistributed.\n
 - Final handoff: 2d62f35 (Theme cleanup), ca18a8e (native font/focus), 2477b67 + bb24167 (updated UI regression assertions), 942d43f (Windows smoke launcher). Source-level dependency scan confirms no local _style/_box and no per-control StyleBox overrides remain in the main StrategyUI/StrategyWorkspaces scripts. Native verification still pending.\n
+### Fix after first Windows test — 2026-11-18
+
+- [x] Fixed regular N158 worker/F5 boot: no automatic reading of `P2_WORKER_SAVE_PATH` from existing files. Normal game starts from seed at tick 0; files remain untouched. Only manual `Загрузить` or explicit `--p2-restore-startup-checkpoint` can restore N38.
+- [x] Bottom Figma footer again displays the previous UIFrameProfiler counters. Default mode: FPS, frame p95, sim+signals p95, UI p95 and ticks/frame. Worker: FPS, frame p95, CPU/UI p95, worker SIM and ticks/frame; full details in hover tooltip.
+- [x] In scaled/compact viewports the footer prioritizes profiler text over repeated sector/tick status.
+- [ ] User Windows test: verify starting tick is near 0 (may advance quickly if unpaused), no unintended save load, and metrics update every ~0.5s. Godot was not run in this environment.
+
+Commits: `e70d92c` (no worker auto-load), `329e0be` (profiler data), `cdf079f` (footer presentation).
