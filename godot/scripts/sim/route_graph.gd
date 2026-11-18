@@ -309,6 +309,19 @@ func _shortest_path_uncached(start: String, destination: String) -> Dictionary:
     _frontier_push(frontier, {"node": start, "distance": 0.0, "path": start})
     while not frontier.is_empty():
         var entry: Dictionary = _frontier_pop(frontier)
+        # A strict heap is valid for exact distances, but the source N4
+        # approximate tie-break is not transitive. Fall back to the source
+        # linear scan when a distinct near-equal candidate is pending.
+        if not frontier.is_empty():
+            var popped_distance: float = float(entry["distance"])
+            var next_distance: float = float(frontier[0]["distance"])
+            if next_distance != popped_distance and is_equal_approx(next_distance, popped_distance):
+                return _shortest_path_legacy(start, destination)
+            if next_distance == popped_distance:
+                for pending in frontier:
+                    var pending_distance: float = float(pending["distance"])
+                    if pending_distance != popped_distance and is_equal_approx(pending_distance, popped_distance):
+                        return _shortest_path_legacy(start, destination)
         var current: String = str(entry["node"])
         if visited.has(current):
             continue
