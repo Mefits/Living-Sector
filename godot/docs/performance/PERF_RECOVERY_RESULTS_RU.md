@@ -1,3 +1,36 @@
+## VERIFY — ночная сверка PR, 18.11.2026 02:31 CET
+
+Решение пользователя: экспериментальные патчи разрешены до утреннего Windows-теста, но без реального запуска нет performance PASS. Проверены открытые PR и diff через GitHub; Godot не запускался, новых GitHub Actions: 0.
+
+| Роль | PR / SHA | Статус |
+|---|---|---|
+| CORE | PR отсутствует; branch 025480c4598a53fe37f2ab585c4d5298414fb9ec | WAITING_PATCH |
+| FLOW | PR отсутствует; branch 025480c4598a53fe37f2ab585c4d5298414fb9ec | WAITING_PATCH |
+| GROWTH | [#272](https://github.com/Mefits/Living-Sector/pull/272), 294aaf41902d9f2fc341c1438494c65b0a5a7db2 | HYPOTHESIS / TEST_UNVERIFIED |
+| SCALE | [#273](https://github.com/Mefits/Living-Sector/pull/273), 79a6d661ca99143ef491e4cfc15392c7f97c58e9 | HYPOTHESIS / TEST_UNVERIFIED |
+
+Ownership: #272 changes only unified_n152_contract_lifecycle.gd + new test; #273 only unified_n144_new_colony_head.gd + new test. No file overlaps, no direct edits to N39, N84, N9 ledger, N38 serializer, SystemBalance, or CI. This is file-level evidence, NOT functional parity. CORE/FLOW branches currently point to the same baseline SHA and have no draft PR.
+
+GROWTH #272: prefilter paid/expired records with reserved > 0, sorting only candidates and fetching detached contract once. Historical rows remain. Risks: aged_board status/reserved vs restored ContractBoard; blocked payer, escrow, repeated refund, N9 receipt order, N38 snapshot. New test exercises pure filter, not full stage/refund. Full integration negatives mandatory.
+
+SCALE #273: station_systems precomputed once per propose() instead of repeated station body_by_id calls inside _score(). Risks: _score() now has optional empty index parameter, so direct callers without index may silently lose same-system bonus; inspect all callsites. Also invalid/empty system IDs, faction ownership, facility mutations between calls, tie-breaking, N38. Synthetic oracle alone does not prove real propose() parity.
+
+Morning Windows commands: use separate git worktrees for each PR; do NOT switch SystemBalance. In each worktree run the relevant test:
+
+```powershell
+$godot = 'D:\PROGRAMS\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64.exe'
+& $godot --headless --path godot --editor --quit
+# PR #272 worktree only:
+& $godot --headless --path godot --script res://tests/p2_perf_growth_n152_refund_history_prefilter.gd
+# PR #273 worktree only:
+& $godot --headless --path godot --script res://tests/p2_perf_scale_n144_station_system_index_oracle.gd
+```
+
+Then discover and run existing N152/N104/N144 negatives, worker/N38 tests, exact same-seed World/N9/BT/RNG/N38 replay, and Windows paid-tick early/late A/B against pinned dd1f859, same seed/hardware/config. Record actual reached 100/300/600/900/1200+ windows, calls, memory, wall ms/tick and SHA. perf_recovery_local_probe.ps1 currently pins dd1f859; its output alone is NOT a measurement of the PR heads.
+
+VERIFY decision: do not merge any PR into integration, stable, main or SystemBalance. Wait for CORE/FLOW PR and actual morning measurements. Historical BLOCKED wording below is superseded by the current process policy.
+
+---
 # PERF RECOVERY — независимый Gate 0, 17.11.2026
 
 ## Windows-профиль от пользователя — предварительные тики 100 и 300
