@@ -1780,8 +1780,11 @@ func _show_facility_details(world: Dictionary,
         "construction_dock"] and location != body_id + "-colony"
     var lines: Array[String] = [
         "ОРБИТАЛЬНАЯ СТАНЦИЯ" if orbital else (
+            "СТРОИТЕЛЬНЫЙ ДОК КОЛОНИИ" if (
+                kind == "construction_dock" and
+                location == body_id + "-colony") else
             "АДМИНИСТРАТИВНЫЙ ЦЕНТР" if (
-                kind in ["station", "construction_dock"] and
+                kind == "station" and
                 location == body_id + "-colony")
             else "ПРЕДПРИЯТИЕ ПЛАНЕТЫ"),
         str(source.get("name", id)),

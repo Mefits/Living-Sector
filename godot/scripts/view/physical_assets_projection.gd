@@ -25,7 +25,10 @@ static func _asset(id: String, item: Dictionary) -> Dictionary:
             item.get("faction", ""))),
         "kind": "surface" if colony or kind in SURFACE_TYPES
             else "orbital",
-        "render_type": "administrative_center" if colony else kind,
+        "render_type": (
+            "colony_construction_dock" if colony and
+            kind == "construction_dock" else
+            "administrative_center" if colony else kind),
         "docking_capacity": int(item.get("docking_capacity", 0)),
         "services": (item.get("services", []) as Array).duplicate(true)
             if item.get("services", []) is Array else [],

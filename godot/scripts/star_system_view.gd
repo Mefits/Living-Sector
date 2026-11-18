@@ -857,6 +857,15 @@ func _overview_body_radius(body: Dictionary) -> float:
         return 4.5
     var system: Dictionary = _world.get("system", {})
     var id: String = str(body.get("id", ""))
+    var physical_size: Variant = body.get("physical_radius_km",
+        body.get("radius_km", null))
+    if (physical_size is int or physical_size is float) and (
+            is_finite(float(physical_size)) and
+            float(physical_size) > 0.0):
+        var physical_symbol: float = 3.25 + 3.25 * pow(
+            float(physical_size) / 6371.0, 0.33)
+        return minf(4.0, physical_symbol) if kind == "moon" else (
+            physical_symbol)
     if str(system.get("id", "")) == "system-sol" and (
             SOL_BODY_RADII_KM.has(id)):
         # Readable, gently compressed physical size hierarchy.
@@ -1221,6 +1230,8 @@ func _draw_physical_assets(scale: float) -> void:
             tone = Color(0.70, 0.81, 0.88, alpha)
         elif kind == "administrative_center":
             tone = Color(0.89, 0.81, 0.57, alpha)
+        elif kind == "colony_construction_dock":
+            tone = Color(0.73, 0.69, 0.55, alpha)
         var icon_size: float = clampf(body_radius * 0.070, 4.5, 9.0)
         draw_rect(Rect2(pos - Vector2(icon_size, icon_size * 0.65),
             Vector2(icon_size * 2.0, icon_size * 1.3)),
@@ -1229,6 +1240,10 @@ func _draw_physical_assets(scale: float) -> void:
             draw_rect(Rect2(pos + Vector2(-icon_size * 0.25,
                 -icon_size * 1.3), Vector2(icon_size * 0.5,
                 icon_size * 0.65)), tone, true)
+        elif kind == "colony_construction_dock":
+            draw_line(pos + Vector2(-icon_size, -icon_size),
+                pos + Vector2(icon_size, icon_size),
+                tone, 1.4)
         draw_line(pos + Vector2(icon_size * 0.5, -icon_size * 0.65),
             pos + Vector2(icon_size * 0.5, -icon_size * 1.5),
             tone, 2.0)
