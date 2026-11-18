@@ -9,6 +9,7 @@ const Oracle = preload("res://scripts/sim/phase2/n158_checkpoint_parity_oracle.g
 const Metrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
 const Acceptance = preload("res://scripts/sim/phase2/n158_direct_threaded_acceptance.gd")
 const PhaseGrowth = preload("res://scripts/sim/phase2/n158_phase_growth_acceptance.gd")
+const CallsiteCosts = preload("res://scripts/sim/phase2/n158_callsite_cost_acceptance.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
 const EXTENDED_TARGET: int = 900
@@ -153,6 +154,15 @@ func _run() -> void:
                     _finish("paid phase attribution failed " + str(tick) +
                         " " + JSON.stringify(paid_phase_gate), false)
                     return
+                var callsite_gate: Dictionary = CallsiteCosts.verify(tick,
+                    parity, direct.paid_callsite_costs(tick),
+                    worker.get("paid_callsite_costs", {}), direct_phases,
+                    worker.get("paid_phase_window", {}))
+                if not callsite_gate.get("accepted", false):
+                    _finish("paid callsite attribution failed " + str(tick) +
+                        " " + JSON.stringify(callsite_gate), false)
+                    return
+                print("P2_PERF_E_CALLSITE_COSTS ", JSON.stringify(callsite_gate))
                 # Compare only exact checkpoint-gated, detached phase evidence.
                 # Normalize by real calls and active ticks: cadence changes are
                 # not misreported as an increase in per-call execution cost.
