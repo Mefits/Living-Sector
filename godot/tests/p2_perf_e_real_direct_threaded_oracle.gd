@@ -84,7 +84,7 @@ func _run() -> void:
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
-            if tick == 60:
+            if tick == 100:
                 # Exercise actual N38-style runtime restore at a committed boundary.
                 # Both owners restart from independent detached checkpoint trees.
                 if not direct.restore_checkpoint(detached_direct.duplicate(true), seed):
