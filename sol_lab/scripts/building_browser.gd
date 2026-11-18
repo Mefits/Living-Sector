@@ -4,9 +4,17 @@ signal apply_requested
 signal reset_requested
 signal values_changed
 signal close_requested
+signal build_requested(body_id: String, building_id: String)
+signal save_game_requested
+signal load_game_requested
+signal new_game_requested
 
 const Model = preload("res://scripts/sol_building_model.gd")
+const Calendar = preload("res://scripts/sol_calendar.gd")
 var world: Dictionary = {}
+var active_sites: Array = []
+var now_native: float = 0.0
+var queue_panel: VBoxContainer
 var config: Dictionary = {}
 var body_id: String = "earth"
 var page: String = "build"
@@ -45,6 +53,11 @@ func _ready() -> void:
  layout.add_child(navigation)
  _button(navigation, "Строительство", _navigate.bind("build"))
  _button(navigation, "Админ-панель", _navigate.bind("admin_buildings"))
+ var game_controls := HBoxContainer.new()
+ layout.add_child(game_controls)
+ _button(game_controls, "Новая", func(): new_game_requested.emit())
+ _button(game_controls, "Сохр.", func(): save_game_requested.emit())
+ _button(game_controls, "Загруз.", func(): load_game_requested.emit())
 
  tabs = HBoxContainer.new()
  tabs.add_theme_constant_override("separation", 4)
@@ -71,6 +84,22 @@ func configure(source_world: Dictionary, settings: Dictionary,
  body_id = selected_id
  _navigate("admin_buildings" if admin else "build")
  show()
+
+func set_construction_state(source_world: Dictionary,
+        pending_sites: Array, current_native: float) -> void:
+ world = source_world
+ active_sites = pending_sites.duplicate(true)
+ now_native = current_native
+ if visible and page == "build" and queue_panel != null:
+  _refresh_queue()
+
+func show_order_result(result: Dictionary) -> void:
+ var message: String = str(result.get("reason", ""))
+ if bool(result.get("ok", false)):
+  _navigate("build")
+  message = "Стройка начата: списано %d металла · %d дней." % [
+   int(result.get("spent", 0)), int(result.get("days", 0))]
+ feedback.text = message
 
 func select_planet(new_id: String) -> void:
  if new_id == body_id:
@@ -116,9 +145,10 @@ func _navigate(target: String) -> void:
  card_nodes.clear()
  output_labels.clear()
  time_labels.clear()
+ queue_panel = null
  grid = null
  scroll.scroll_vertical = 0
- feedback.text = "Sol Lab: N39/N154 ещё не подключены. Заказы не создаются."
+ feedback.text = "Тест строительства: расходы и сроки действуют, производство N39 пока нет."
  var planet_name: String = ("Земля" if body_id == "earth"
   else ("Луна" if body_id == "luna" else "Марс"))
  if page == "build":
@@ -144,9 +174,12 @@ func _navigate(target: String) -> void:
   _button(footer, "Сброс", func(): reset_requested.emit())
 
 func _cards(editable: bool) -> void:
- _label(cards_root, "Базовая выработка (с коэффициентом планеты) · " +
-  "время — не меньше нужного числа смен после доставки ресурсов.", 14,
-  Color("#a3b9c7"))
+ _label(cards_root, "Тестовый баланс: 1 металл на здание · время в игровых днях." +
+  " Производство пока не запускается.", 14, Color("#a3b9c7"))
+ if not editable:
+  queue_panel = VBoxContainer.new()
+  cards_root.add_child(queue_panel)
+  _refresh_queue()
  grid = GridContainer.new()
  grid.columns = 3
  grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -175,8 +208,8 @@ func _cards(editable: bool) -> void:
   if editable:
    _spin(stack, "Металлы", float(row.get("metals", 0)),
     _edit_building.bind(id, "metals"), 1, 100000)
-   _spin(stack, "Труд", float(row.get("labor", 0)),
-    _edit_building.bind(id, "labor"), 1, 100000)
+   _spin(stack, "Дней", float(row.get("days", 45)),
+    _edit_building.bind(id, "days"), 1, 100000)
    for resource in building.get("inputs", {}).keys():
     var key: String = "input_" + str(resource)
     _spin(stack, "Расход " + Model.resource_label(str(resource)),
@@ -185,9 +218,8 @@ func _cards(editable: bool) -> void:
     _spin(stack, "Базовый выпуск", float(row.get("base", 0)),
      _edit_building.bind(id, "base"), 1, 100000)
   else:
-   _label(stack, ("Стоимость: %d металла · %d труда" % [
-    int(row.get("metals", 0)), int(row.get("labor", 0))])
-    if bool(building["ported"]) else "Стоимость: не определена", 14)
+   _label(stack, "Стоимость: %d металл." % int(
+    row.get("metals", 1)), 14)
    var inputs: Array[String] = []
    for resource in building.get("inputs", {}).keys():
     inputs.append("%d %s" % [
@@ -204,11 +236,12 @@ func _cards(editable: bool) -> void:
   spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
   stack.add_child(spacer)
   if not bool(building["ported"]):
-   _label(stack, "Механика ещё не перенесена", 12,
+   _label(stack, "Производство ещё не подключено", 12,
     Color("#889eae"))
   if not editable:
    var action := _button(stack,
-    "Заказать" if available else "Недоступно", _not_connected)
+    "Заказать" if available else "Недоступно",
+    _request_build.bind(id))
    action.disabled = not available
    if not available:
     card.modulate = Color(0.71, 0.74, 0.79, 1.0)
@@ -225,7 +258,7 @@ func _fit_cards() -> void:
  for card in card_nodes:
   if is_instance_valid(card):
    card.custom_minimum_size = Vector2(maxf(145.0, cell_width),
-    420.0 if page == "admin_buildings" else 235.0)
+    385.0 if page == "admin_buildings" else 235.0)
 
 func _production(building: Dictionary) -> String:
  var resource: String = str(building["product"])
@@ -238,19 +271,49 @@ func _production(building: Dictionary) -> String:
   Model.resource_label(resource), _number(base), _number(derived)]
 
 func _construction_time(building: Dictionary) -> String:
- var minimum: int = Model.minimum_construction_shifts(
-  building, config["buildings"])
- if minimum < 0:
-  return "Строительство: не определено"
- return "Строительство: от %d смен" % minimum
+ var days: int = Model.construction_days(building, config["buildings"])
+ return "Строительство: %d дней" % days
 
 func _number(value: float) -> String:
  if is_equal_approx(value, roundf(value)):
   return str(int(roundf(value)))
  return "%.2f" % value
 
-func _not_connected() -> void:
- feedback.text = "Заказ не выполнен: N39/N154 не подключены. Ресурсы не списаны."
+func _request_build(building_id: String) -> void:
+ build_requested.emit(body_id, building_id)
+
+func _refresh_queue() -> void:
+ if queue_panel == null or not is_instance_valid(queue_panel):
+  return
+ _clear(queue_panel)
+ var has_any: bool = false
+ for entry in active_sites:
+  if str(entry.get("body", "")) != body_id:
+   continue
+  has_any = true
+  var panel := VBoxContainer.new()
+  panel.add_theme_constant_override("separation", 2)
+  queue_panel.add_child(panel)
+  var start: float = float(entry.get("start_native", now_native))
+  var finish: float = float(entry.get("finish_native", start))
+  var completion: float = 1.0
+  if finish > start:
+   completion = clampf((now_native - start) / (finish - start),
+    0.0, 1.0)
+  var left: int = Calendar.days_remaining(now_native, finish)
+  _label(panel, "%s · осталось %d дн." % [
+   str(entry.get("name", "Стройплощадка")), left],
+   14, Color("#eed6a1"))
+  var bar := ProgressBar.new()
+  bar.custom_minimum_size = Vector2(0, 15)
+  bar.show_percentage = true
+  bar.min_value = 0.0
+  bar.max_value = 100.0
+  bar.value = completion * 100.0
+  panel.add_child(bar)
+ if not has_any:
+  _label(queue_panel, "Очередь строительства пуста", 14,
+   Color("#a4bdcc"))
 
 func _spin(parent: Node, caption: String, value: float, changed: Callable,
         step_value: float, maximum: float) -> void:
@@ -260,7 +323,7 @@ func _spin(parent: Node, caption: String, value: float, changed: Callable,
  var name := _label(row, caption, 13)
  name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  var field := SpinBox.new()
- field.min_value = 0.0
+ field.min_value = 1.0 if caption in ["Металлы", "Дней"] else 0.0
  field.max_value = maximum
  field.step = step_value
  field.rounded = step_value >= 1.0
