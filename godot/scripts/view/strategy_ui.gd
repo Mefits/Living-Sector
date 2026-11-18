@@ -1100,7 +1100,7 @@ func present(world: Dictionary, economy: Dictionary, body: String,
         else:
             _window_mode = ""
             _window.hide()
-        _tab = "Обзор"
+        _tab = FullWorkspaces.canonical_tab(_window_mode, "Обзор")
     _fleet_diagnostics = fleet_diagnostics
     if not world.is_empty():
         _world = world
@@ -1515,15 +1515,17 @@ func _clear_outliner_entries() -> void:
 func _route_workspace(mode: String, tab: String, focus: String = "") -> void:
     if _alerts_popover != null:
         _alerts_popover.hide()
+    var canonical: String = FullWorkspaces.canonical_tab(mode, tab)
     if _window.visible and not _window_mode.is_empty() and (
-            _window_mode != mode or _tab != tab or _workspace_focus != focus):
+            _window_mode != mode or _tab != canonical or
+            _workspace_focus != focus):
         _workspace_history.append({
             "mode":_window_mode, "tab":_tab, "focus":_workspace_focus,
             "body":_body, "facility":_facility, "ship":_ship})
         if _workspace_history.size() > 20:
             _workspace_history.pop_front()
     _window_mode = mode
-    _tab = tab
+    _tab = canonical
     _workspace_focus = focus
     _window.show()
     _update_window()
@@ -1542,7 +1544,7 @@ func _select_from_workspace(kind: String, id: String) -> void:
         "facility":
             _select_facility(id)
             _window_mode = "facility"
-            _tab = "Процесс"
+            _tab = "Процесс и снабжение"
         "ship":
             _select_ship(id)
             _window_mode = "ship"
@@ -1550,7 +1552,7 @@ func _select_from_workspace(kind: String, id: String) -> void:
         "body":
             _select_body(id)
             _window_mode = "colony"
-            _tab = "Обзор"
+            _tab = "Сводка"
         _:
             return
     _workspace_focus = id
@@ -1564,7 +1566,8 @@ func _workspace_back() -> void:
         return
     var record: Dictionary = _workspace_history.pop_back()
     _window_mode = str(record.get("mode", ""))
-    _tab = str(record.get("tab", "Обзор"))
+    _tab = FullWorkspaces.canonical_tab(
+        _window_mode, str(record.get("tab", "")))
     _workspace_focus = str(record.get("focus", ""))
     _update_window()
 
