@@ -299,7 +299,12 @@ func _ready() -> void:
     var map_stage := Control.new()
     map_stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     map_stage.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    map_stage.custom_minimum_size = Vector2(420, 420)
+    # Legacy inspector needed 420 logical pixels. The Figma HUD uses a
+    # scaled viewport and must not let that old minimum force a map larger
+    # than the available screen (notably 1366x768 at 200% UI scaling).
+    map_stage.custom_minimum_size = (
+        Vector2(420, 420) if OS.get_cmdline_user_args().has("--p2-legacy-ui")
+        else Vector2.ZERO)
     map_panel.add_child(map_stage)
     _map = SystemMap.new()
     map_stage.add_child(_map)
