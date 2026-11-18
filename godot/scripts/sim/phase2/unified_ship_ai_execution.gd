@@ -16,11 +16,18 @@ const N104Resume = preload("res://scripts/sim/phase2/unified_n104_contract_resum
 static func _real_contract_dock(world: Dictionary,
         contract: Dictionary, location: String,
         scratch: Dictionary = {}) -> Dictionary:
-    var market: Dictionary = world.get("markets", {}).get(location, {})
-    if not market.is_empty():
-        var owner_id: String = str(market.get("owner", ""))
-        if world.get("facilities", {}).has(owner_id) and str(world["facilities"][owner_id].get("type", "")) == "station":
-            return {"id": owner_id, "type": "station"}
+    # Market ownership is stable during one synchronous N84 proposal.
+    # Cache only the market's station candidate; validate the live facility
+    # on each lookup so a changed/removed facility cannot be authorized.
+    var station_candidates: Dictionary = scratch.get("_n84_station_candidates", {})
+    if not station_candidates.has(location):
+        var market: Dictionary = world.get("markets", {}).get(location, {})
+        station_candidates[location] = str(market.get("owner", ""))
+        scratch["_n84_station_candidates"] = station_candidates
+    var owner_id: String = str(station_candidates[location])
+    if not owner_id.is_empty() and world.get("facilities", {}).has(owner_id) and (
+            str(world["facilities"][owner_id].get("type", "")) == "station"):
+        return {"id": owner_id, "type": "station"}
     # The Rust ContractType::Construction uses the SAME prepared site
     # dock as founding passengers, but deposits into N154 rather than a
     # non-existent Market warehouse.
@@ -76,6 +83,24 @@ static func _real_contract_dock(world: Dictionary,
                 not bool(fac.get("abandoned", false))):
             return {"id": fid, "type": "construction_dock"}
     return {}
+
+## N21 receipts are append-only within a synchronous N84 proposal. Build
+## one detached latest-dock-tick index; never store it in World/N38.
+## A separate namespace prevents a real ship ID from colliding with
+## scratch control keys such as "_ready" or "_n84_gate_roster".
+static func _latest_dock_ticks(world: Dictionary, scratch: Dictionary) -> Dictionary:
+    if scratch.has("_n84_latest_dock_ticks"):
+        return scratch["_n84_latest_dock_ticks"]
+    var latest: Dictionary = {}
+    for receipt_id in world.get("dock_receipts", {}):
+        var receipt: Dictionary = world["dock_receipts"][receipt_id]
+        if str(receipt.get("action", "")) != "dock":
+            continue
+        var receipt_ship: String = str(receipt.get("ship_id", ""))
+        latest[receipt_ship] = maxi(int(latest.get(receipt_ship, -1)),
+            int(receipt.get("tick", -1)))
+    scratch["_n84_latest_dock_ticks"] = latest
+    return latest
 
 ## Frozen Rust ShipAction::Dock / DockAtShipyard: ShipEconomy
 ## wait starts on the FIRST N84 attempt, not when N21 FIFO grants a slot.
@@ -363,16 +388,8 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
         # latest authoritative N21 dock receipt cursor only on first use,
         # then reuse it for this read-only proposal pass. Never persist it
         # across ticks: N21 may undock/redock between paid ticks.
-        if not dock_ticks.has("_ready"):
-            for receipt in world.get("dock_receipts", {}).values():
-                if str(receipt.get("action", "")) != "dock":
-                    continue
-                var receipt_ship: String = str(receipt.get("ship_id", ""))
-                dock_ticks[receipt_ship] = maxi(
-                    int(dock_ticks.get(receipt_ship, -1)),
-                    int(receipt.get("tick", -1)))
-            dock_ticks["_ready"] = true
-        var dock_tick: int = int(dock_ticks.get(ship_id, -1))
+        var latest_dock_ticks: Dictionary = _latest_dock_ticks(world, dock_ticks)
+        var dock_tick: int = int(latest_dock_ticks.get(ship_id, -1))
         if dock_tick < 0:
             return {"status": Bt.RUNNING, "reason": "no_verified_n21_dock_time"}
         var dwell_seconds: int = maxi(0, int(action.get("seconds", 0)))
