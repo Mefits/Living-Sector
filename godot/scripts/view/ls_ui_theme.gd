@@ -63,6 +63,19 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSMetricCaption", &"Label")
     ui_theme.set_type_variation(&"LSMetricValue", &"Label")
     ui_theme.set_type_variation(&"LSMetricNote", &"Label")
+    # Shared dense workspace primitives, used across all seven workspaces.
+    ui_theme.set_type_variation(&"LSKeyValuePanel", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSKeyName", &"Label")
+    ui_theme.set_type_variation(&"LSKeyAnswer", &"Label")
+    ui_theme.set_type_variation(&"LSBodyNote", &"Label")
+    ui_theme.set_type_variation(&"LSChainStage", &"Button")
+    ui_theme.set_type_variation(&"LSProcessMaterial", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSProcessMachine", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSProcessHeading", &"Label")
+    ui_theme.set_type_variation(&"LSProcessValue", &"Label")
+    ui_theme.set_type_variation(&"LSConditionGood", &"ProgressBar")
+    ui_theme.set_type_variation(&"LSConditionWorn", &"ProgressBar")
+    ui_theme.set_type_variation(&"LSConditionCritical", &"ProgressBar")
     ui_theme.set_type_variation(&"LSWorkspaceHeader", &"PanelContainer")
     ui_theme.set_type_variation(&"LSWorkspaceToolbar", &"PanelContainer")
     ui_theme.set_type_variation(&"LSSearchFrame", &"PanelContainer")
@@ -246,8 +259,9 @@ static func build() -> Theme:
     # Distinct panel variants reuse the same shared style across pages.
     ui_theme.set_stylebox(&"panel", &"LSSectionPanel",
         _flat(Color("#0B1921"), Color("#263E45"), 1, 0, 0, 1, 1, 1))
+    # Figma .metric-strip: transparent equal-width tiles with a right border.
     ui_theme.set_stylebox(&"panel", &"LSMetricPanel",
-        _flat(Color("#0D1F27"), Color("#20373F"), 0, 10, 6, 0, 0, 1))
+        _flat(Color.TRANSPARENT, Color("#1E333A"), 0, 10, 7, 0, 0, 1))
     ui_theme.set_color(&"font_color", &"LSMutedLabel", Color("#748B92"))
     ui_theme.set_font_size(&"font_size", &"LSMutedLabel", 9)
     ui_theme.set_color(&"font_color", &"LSMetricCaption", Color("#748B92"))
@@ -256,6 +270,44 @@ static func build() -> Theme:
     ui_theme.set_font_size(&"font_size", &"LSMetricValue", 13)
     ui_theme.set_color(&"font_color", &"LSMetricNote", Color("#53B5AC"))
     ui_theme.set_font_size(&"font_size", &"LSMetricNote", 7)
+
+    # .key-value rows: 29px, top rule, muted 8px labels, compact values.
+    ui_theme.set_stylebox(&"panel", &"LSKeyValuePanel",
+        _flat(Color.TRANSPARENT, Color("#1D3138"), 0, 9, 0, 0, 1, 0))
+    ui_theme.set_color(&"font_color", &"LSKeyName", Color("#74888D"))
+    ui_theme.set_font_size(&"font_size", &"LSKeyName", 8)
+    ui_theme.set_color(&"font_color", &"LSKeyAnswer", Color("#B7C6C7"))
+    ui_theme.set_font_size(&"font_size", &"LSKeyAnswer", 8)
+    ui_theme.set_color(&"font_color", &"LSBodyNote", Color("#748B92"))
+    ui_theme.set_font_size(&"font_size", &"LSBodyNote", 9)
+    # .chain-flow and .material/.machine, with no simulated throughput.
+    ui_theme.set_stylebox(&"normal", &"LSChainStage",
+        _flat(Color("#0B1D24"), Color("#2A484E"), 1, 10, 10, 1, 1, 1))
+    ui_theme.set_stylebox(&"hover", &"LSChainStage",
+        _flat(Color("#122A31"), Color("#56817E"), 1, 10, 10, 1, 1, 1))
+    ui_theme.set_stylebox(&"pressed", &"LSChainStage",
+        _flat(Color("#122A31"), Color("#53B5AC"), 1, 10, 10, 1, 1, 1))
+    ui_theme.set_stylebox(&"focus", &"LSChainStage",
+        _flat(Color.TRANSPARENT, Color.TRANSPARENT))
+    var process_box := _flat(Color("#0B1B22"), Color("#29434A"),
+        1, 10, 10, 1, 1, 1)
+    ui_theme.set_stylebox(&"panel", &"LSProcessMaterial", process_box)
+    ui_theme.set_stylebox(&"panel", &"LSProcessMachine", process_box)
+    ui_theme.set_color(&"font_color", &"LSProcessHeading", Color("#5C777C"))
+    ui_theme.set_font_size(&"font_size", &"LSProcessHeading", 7)
+    ui_theme.set_color(&"font_color", &"LSProcessValue", Color("#B9C7C8"))
+    ui_theme.set_font_size(&"font_size", &"LSProcessValue", 9)
+    # Progress state uses published 0..1 N39 condition; no fake percentages.
+    var meter_back := _flat(Color("#172D36"), Color.TRANSPARENT)
+    for variation in [&"LSConditionGood", &"LSConditionWorn",
+            &"LSConditionCritical"]:
+        ui_theme.set_stylebox(&"background", variation, meter_back)
+    ui_theme.set_stylebox(&"fill", &"LSConditionGood",
+        _flat(Color("#53B5AC"), Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"fill", &"LSConditionWorn",
+        _flat(Color("#C99B54"), Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"fill", &"LSConditionCritical",
+        _flat(Color("#CF856A"), Color.TRANSPARENT))
     # Shared workspace chrome: original Figma Make V1 geometry.
     var workspace_header := _flat(Color("#152C35"), Color("#35515A"), 1)
     var workspace_toolbar := _flat(Color("#0A161D"), Color("#1E343B"), 1, 8, 3)

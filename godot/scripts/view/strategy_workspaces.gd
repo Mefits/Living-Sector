@@ -427,50 +427,56 @@ func _section(title: String, detail: String = "", host: Node = null) -> VBoxCont
     return inside
 
 func _note(parent: Node, value: String, tone: Color = MUTED) -> void:
-    var control := _label(value, 13, tone)
+    var control: Label = LSComponents.metric_text(value, &"LSBodyNote")
     control.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    if tone != MUTED:
+        control.add_theme_color_override("font_color", tone)
     parent.add_child(control)
 
 func _pair(parent: Node, name: String, value: String,
         tone: Color = TEXT) -> void:
     if not _match(name + " " + value):
         return
-    var row_bg := PanelContainer.new()
-    var row_style := _box(Color("#0B1B24"), false)
-    row_style.border_width_top = 1
-    row_style.border_color = Color("#1D3138")
-    row_style.content_margin_left = 7
-    row_style.content_margin_right = 7
-    row_style.content_margin_top = 3
-    row_style.content_margin_bottom = 3
-    row_bg.add_theme_stylebox_override("panel", row_style)
+    var row_bg: PanelContainer = LSComponents.key_value_panel()
     parent.add_child(row_bg)
     var row := HBoxContainer.new()
-    row.custom_minimum_size.y = 23
+    row.custom_minimum_size.y = 29
     row.add_theme_constant_override("separation", 12)
     row_bg.add_child(row)
-    var key := _label(name, 11, MUTED)
+    var key: Label = LSComponents.metric_text(name, &"LSKeyName")
     key.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    key.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
     row.add_child(key)
-    var answer := _label(value, 12, tone)
-    answer.tooltip_text = value
+    var answer: Label = LSComponents.metric_text(value, &"LSKeyAnswer")
     answer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+    answer.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+    answer.size_flags_horizontal = Control.SIZE_SHRINK_END
+    if tone != TEXT:
+        answer.add_theme_color_override("font_color", tone)
     row.add_child(answer)
 
 func _metric_strip(parent: Node, pairs: Array) -> void:
-    # Figma four-up metric strip; native HFlow wraps on narrow windows.
-    # Theme owns all tile colors, padding and font sizes.
-    var flow := HFlowContainer.new()
-    flow.add_theme_constant_override("h_separation", 0)
-    flow.add_theme_constant_override("v_separation", 4)
-    parent.add_child(flow)
+    # Original Figma Make .metric-strip: four equal-width tiles per row.
+    # Reduce columns on cramped panels without using a global viewport scale.
+    var grid := GridContainer.new()
+    grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    grid.columns = 4 if size.x >= 660.0 else (2 if size.x >= 350.0 else 1)
+    grid.add_theme_constant_override("h_separation", 0)
+    grid.add_theme_constant_override("v_separation", 0)
+    parent.add_child(grid)
+    grid.resized.connect(func() -> void:
+        var columns_now: int = (
+            4 if grid.size.x >= 560.0 else (
+                2 if grid.size.x >= 280.0 else 1))
+        if grid.columns != columns_now:
+            grid.columns = columns_now)
     for item in pairs:
         if not (item is Dictionary):
             continue
         var tile: PanelContainer = LSComponents.metric_panel()
-        flow.add_child(tile)
+        grid.add_child(tile)
         var col := VBoxContainer.new()
-        col.add_theme_constant_override("separation", 3)
+        col.add_theme_constant_override("separation", 2)
         tile.add_child(col)
         col.add_child(LSComponents.metric_text(
             str(item.get("label", "—")).to_upper(), &"LSMetricCaption"))
@@ -904,22 +910,10 @@ func _chain(body_id: String = "") -> void:
             str(current["markets"]) if bool(current["known"]) else "—"]})
         # Figma .chain-flow: separate clickable process cards and arrow
         # gutters. Stock text is real, there are no mock production rates.
-        var button := Button.new()
-        button.text = ""
-        button.custom_minimum_size = Vector2(147, 103)
-        button.focus_mode = Control.FOCUS_NONE
+        var button: Button = LSComponents.chain_stage(
+            _select_chain_stock.bind(key))
         button.tooltip_text = "Показать подтверждённые запасы: " + str(
             stage["label"])
-        button.pressed.connect(_select_chain_stock.bind(key))
-        var style := _box(Color("#0B1D24"), true)
-        style.border_color = Color("#2A484E")
-        style.set_content_margin_all(0)
-        button.add_theme_stylebox_override("normal", style)
-        var hover := _box(Color("#122A31"), true)
-        hover.border_color = TEAL
-        hover.set_content_margin_all(0)
-        button.add_theme_stylebox_override("hover", hover)
-        button.add_theme_stylebox_override("pressed", hover)
         flow.add_child(button)
         var content := VBoxContainer.new()
         content.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -930,7 +924,7 @@ func _chain(body_id: String = "") -> void:
         content.offset_right = -8
         content.offset_top = 9
         content.offset_bottom = -7
-        content.add_child(_label(str(stage["stage"]), 9, MUTED))
+        content.add_child(_label(str(stage["stage"]), 7, MUTED))
         var icon := TextureRect.new()
         icon.custom_minimum_size = Vector2(20, 20)
         icon.texture = FigmaIcons.texture("facility", 18, TEAL)
@@ -938,8 +932,8 @@ func _chain(body_id: String = "") -> void:
         icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
         icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
         content.add_child(icon)
-        content.add_child(_label(str(stage["label"]), 11, TEXT))
-        content.add_child(_label("На рынках: " + stock_text, 10,
+        content.add_child(_label(str(stage["label"]), 9, TEXT))
+        content.add_child(_label("На рынках: " + stock_text, 8,
             TEAL if bool(current["known"]) else MUTED))
         if i < entries.size() - 1:
             var arrow := _label("→", 20, Color("#54777A"))
@@ -975,20 +969,7 @@ func _condition_bar(parent: Node, value: Variant) -> void:
     var level: float = float(value)
     if not is_finite(level) or level < 0.0 or level > 1.0:
         return
-    var tint: Color = TEAL if level >= 0.8 else (
-        AMBER if level >= 0.5 else BAD)
-    var meter := ProgressBar.new()
-    meter.min_value = 0.0
-    meter.max_value = 1.0
-    meter.value = level
-    meter.show_percentage = false
-    meter.custom_minimum_size.y = 9
-    var back := _box(Color("#172D36"), false)
-    back.set_content_margin_all(0)
-    meter.add_theme_stylebox_override("background", back)
-    var fill := _box(tint, false)
-    fill.set_content_margin_all(0)
-    meter.add_theme_stylebox_override("fill", fill)
+    var meter: ProgressBar = LSComponents.condition_bar(level)
     meter.tooltip_text = "N39: состояние %.1f%%" % (level * 100.0)
     parent.add_child(meter)
 

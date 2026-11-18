@@ -47,9 +47,18 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [ ] Remaining contextual details and nav utility controls; pixel-level correction waits for final acceptance.
 - [ ] Windows visual comparisons and game behavior checks deliberately deferred until final acceptance (user instruction).
 
-## Stages 5–7 [NOT STARTED]
+## Stage 5 — workspace bodies [IN PROGRESS]
 
-- [ ] Seven workspace bodies visually matched to Figma.
+- [x] Shared 29px key–value rows and compact source-grounded notes across the seven workspaces.
+- [x] Figma four-up metric strip layout, with responsive columns and no fabricated values.
+- [x] Theme-backed production chain cards and conditional N39 facility condition meter (good/worn/critical).
+- [ ] Facility input → machine → output process diagram using only confirmed N39 data.
+- [ ] Economy, construction and fleet KPI strips from actual N39 counters.
+- [ ] Colony two-column section layout, research and administration refinements.
+- [ ] Visual acceptance postponed until the end at user request.
+
+## Stages 6–7 [NOT STARTED]
+
 - [ ] 1920×1080 and 1366×768 scaling and keyboard/mouse testing.
 - [ ] Pixel-level screenshot verification + game behavior acceptance.
 
@@ -73,3 +82,5 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - Full visual parity and runtime safety **not yet verified**; user requested checks only at completion.
 
 - `2b02b75` / `f08b21e` / `da8caf1`: compact Theme-backed N39 outliner entries, icon frames, group headers, and live filter states.
+
+- Implementation block: shared workspace primitives (key–value, notes, metric grid, chain stage and condition bar) now reuse LSTheme/LSComponents; **no Godot/runtime tests run**.

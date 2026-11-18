@@ -145,6 +145,36 @@ static func metric_text(value: String, role: StringName) -> Label:
     label.tooltip_text = value
     return label
 
+static func key_value_panel() -> PanelContainer:
+    var panel: PanelContainer = chrome_panel(&"LSKeyValuePanel")
+    panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return panel
+
+static func process_card(machine: bool = false) -> PanelContainer:
+    var panel: PanelContainer = chrome_panel(
+        &"LSProcessMachine" if machine else &"LSProcessMaterial")
+    panel.custom_minimum_size = Vector2(135, 100)
+    panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return panel
+
+static func chain_stage(action: Callable) -> Button:
+    var button: Button = action_button("", action)
+    button.theme_type_variation = &"LSChainStage"
+    button.custom_minimum_size = Vector2(135, 108)
+    return button
+
+static func condition_bar(level: float) -> ProgressBar:
+    var meter := ProgressBar.new()
+    meter.theme_type_variation = (
+        &"LSConditionGood" if level >= 0.8 else (
+            &"LSConditionWorn" if level >= 0.5 else &"LSConditionCritical"))
+    meter.min_value = 0.0
+    meter.max_value = 1.0
+    meter.value = clampf(level, 0.0, 1.0)
+    meter.show_percentage = false
+    meter.custom_minimum_size.y = 5
+    return meter
+
 static func metric_panel() -> PanelContainer:
     var panel := PanelContainer.new()
     panel.theme_type_variation = &"LSMetricPanel"
