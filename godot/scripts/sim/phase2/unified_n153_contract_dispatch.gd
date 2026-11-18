@@ -212,6 +212,36 @@ static func _seller_bidder_gate(row: Dictionary, seller_faction: String,
     gate_cache[seller_faction] = seller_cache
     return result
 
+## Source-market knowledge is an immutable read-only view during one N153
+## proposal. Reuse the same shallow overlay for repeated posted offers; the
+## source quote and ship memory are still keyed independently. Never persist
+## this overlay in World, a contract, or a saved ship.
+static func _bid_price_observations(cache: Dictionary, ship_id: String,
+        ship: Dictionary, here: String, source: String, good: String,
+        price: float) -> Dictionary:
+    var memory: Dictionary = ship.get("price_knowledge", {}) if ship.get("price_knowledge") is Dictionary else {}
+    if here != source:
+        return memory
+    var key: Array = [ship_id, source, good, price]
+    if cache.has(key):
+        return cache[key]
+    var overlay: Dictionary = memory.duplicate()
+    overlay[source] = {good: {"price": price}}
+    cache[key] = overlay
+    return overlay
+
+## Resolve each ship/offer system tuple once; the native selector reads this
+## map without modifying it. Missing endpoints remain empty (never invented).
+static func _bid_system_context(cache: Dictionary, ship_location: String,
+        source: String, dest: String, resolved: Dictionary) -> Dictionary:
+    var key: Array = [ship_location, source, dest]
+    if cache.has(key):
+        return cache[key]
+    var result: Dictionary = {ship_location: resolved.get(ship_location, ""),
+        source: resolved.get(source, ""), dest: resolved.get(dest, "")}
+    cache[key] = result
+    return result
+
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
         tick_scale: float, factions: Dictionary = {}) -> Dictionary:
@@ -238,6 +268,8 @@ static func propose(world: Dictionary, graph: RefCounted,
     var readiness_cache: Dictionary = {} # ship -> stable rejection or ok
     var fitting_cache: Dictionary = {} # ship -> speed and fuel rate
     var observation_cache: Dictionary = {} # ship -> sensor and comms observations
+    var price_observation_cache: Dictionary = {} # ship/source/good/price -> overlay
+    var system_context_cache: Dictionary = {} # here/source/dest -> read-only map
     for contract_id in ids:
         var c: Dictionary = contracts[contract_id]
         if str(c.get("status", "")) != "posted" or str(c.get("contract_type", "")) != "delivery":
@@ -324,25 +356,17 @@ static func propose(world: Dictionary, graph: RefCounted,
             var here: String = str(ship["location"])
             # Source-market quote is genuinely available ONLY to ships at
             # that market. No fabricated omniscient price_knowledge in AI.
-            var observations: Dictionary = {}
-            # Original N153 only reads its passed memory; pass the real
-            # N80 knowledge without deep-copying every known market.
-            # At the source override ONLY a shallow top-level copy, so
-            # the native ship memory (including its nested rows) is safe.
-            if ship.get("price_knowledge") is Dictionary:
-                observations = ship["price_knowledge"]
-            if here == source:
-                observations = observations.duplicate()
-                observations[source] = {good: {"price": float(source_price)}}
-            var systems: Dictionary = {}
-            systems[here] = EligibilityIndex.system_for(system_cache, here, resolver)
-            # Resolve each offer endpoint once, but only after the first
-            # ready bidder, preserving the old lazy resolver call boundary.
+            var observations: Dictionary = _bid_price_observations(
+                price_observation_cache, ship_id, ship, here, source, good,
+                float(source_price))
+            # Resolve each offer endpoint lazily, after a ready bidder.
             if fixed_systems.is_empty():
                 fixed_systems[source] = EligibilityIndex.system_for(system_cache, source, resolver)
                 fixed_systems[dest] = EligibilityIndex.system_for(system_cache, dest, resolver)
-            systems[source] = fixed_systems[source]
-            systems[dest] = fixed_systems[dest]
+            var resolved: Dictionary = fixed_systems.duplicate()
+            resolved[here] = EligibilityIndex.system_for(system_cache, here, resolver)
+            var systems: Dictionary = _bid_system_context(system_context_cache,
+                here, source, dest, resolved)
             if str(systems[here]).is_empty() or str(systems[source]).is_empty() or str(systems[dest]).is_empty():
                 _blocked_ship(ship_blockers, "missing_system_for_market")
                 continue
