@@ -543,7 +543,8 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
     # an uncommitted pending save over a healthy primary or known-good backup.
     for candidate in [absolute_path, absolute_path + ".bak",
             absolute_path + ".bak.previous", absolute_path + ".pending",
-            absolute_path + ".recovery-displaced"]:
+            absolute_path + ".recovery-displaced",
+            absolute_path + ".recovery-rejected"]:
         var parsed: Dictionary = _read_checkpoint(candidate)
         if parsed.is_empty() or not NativeTimeline.validate(parsed).get("ok", false):
             continue
@@ -562,6 +563,11 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
                     absolute_path, candidate)
             elif candidate == absolute_path + ".recovery-displaced":
                 _promote_recovered_checkpoint(absolute_path, candidate)
+            elif candidate == absolute_path + ".recovery-rejected":
+                # A rejected original can still be the last valid save after
+                # an interrupted promotion. Restore it without overwriting
+                # any other candidate until the next verified save.
+                pass
             elif candidate == absolute_path:
                 # A successful live restore is stronger than envelope-only
                 # validation; an orphaned prior primary is no longer needed.
