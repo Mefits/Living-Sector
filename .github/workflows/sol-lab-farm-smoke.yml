@@ -73,7 +73,13 @@ jobs:
               exit 1
             fi
             cat "$log"
-            if ! grep -q "$(echo "${test}" | tr '[:lower:]' '[:upper:]' | sed 's/_CHECK$//')_PASS" "$log"; then
+            case "$test" in
+              sol_farm_cycle_check) marker="SOL_FARM_CYCLE_PASS" ;;
+              sol_construction_calendar_check) marker="SOL_CONSTRUCTION_CALENDAR_PASS" ;;
+              sol_ac_start_check) marker="SOL_AC_START_PASS" ;;
+              sol_building_model_check) marker="SOL_LAB_MODEL_PASS" ;;
+            esac
+            if ! grep -qF "$marker" "$log"; then
               # Each test should explicitly report PASS; a clean exit alone is not enough.
               echo "No PASS marker from ${test}"
               echo "::endgroup::"

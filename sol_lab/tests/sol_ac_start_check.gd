@@ -1,5 +1,5 @@
 extends SceneTree
-## Lightweight seed-integrity regression: one centre-ground AC, no legacy Earth
+## Lightweight seed-integrity regression: one stable ground AC, no legacy Earth
 ## enterprises or dangling location references. No N158 simulation required.
 const Start = preload("res://scripts/sol_start_scenario.gd")
 const Assets = preload("res://scripts/view/physical_assets_projection.gd")
@@ -31,7 +31,9 @@ func _initialize() -> void:
     if ground.size() == 1:
         okay = okay and str(ground[0].get("render_type", "")) == (
             "administrative_center")
-        okay = okay and ground[0].get("site", Vector2.INF) == Vector2.ZERO
+        var expected: Array = Model.surface_site("administrative_center")
+        okay = okay and ground[0].get("site", Vector2.INF) == Vector2(
+            float(expected[0]), float(expected[1]))
     okay = okay and Model.stock(start, "earth") == 1000
     okay = okay and Model.colony(start, "earth")
     for field in ["markets", "populations", "ships", "travel_routes"]:
