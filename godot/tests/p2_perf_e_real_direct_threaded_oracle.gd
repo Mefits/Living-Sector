@@ -145,7 +145,7 @@ func _run() -> void:
                 var paired_response: Dictionary = response.duplicate(true)
                 paired_response["paid_phase_window"] = worker.get("paid_phase_window", {})
                 var paid_phase_gate: Dictionary = Acceptance.verify_paid_phase_pair(
-                    tick, detached_direct, paired_response, direct_phases, window)
+                    tick, detached_direct, paired_response, direct_phases, last_window)
                 if not paid_phase_gate.get("accepted", false):
                     _finish("paid phase attribution failed " + str(tick) +
                         " " + JSON.stringify(paid_phase_gate), false)
