@@ -165,6 +165,7 @@ static func propose(world: Dictionary, graph: RefCounted,
     var route_indices: Dictionary = {} # source -> destination -> here -> legs
     var readiness_cache: Dictionary = {} # ship -> stable rejection or ok
     var fitting_cache: Dictionary = {} # ship -> speed and fuel rate
+    var observation_cache: Dictionary = {} # ship -> sensor and comms observations
     for contract_id in ids:
         var c: Dictionary = contracts[contract_id]
         if str(c.get("status", "")) != "posted" or str(c.get("contract_type", "")) != "delivery":
@@ -219,6 +220,9 @@ static func propose(world: Dictionary, graph: RefCounted,
         var reserved_amount: int = int(c["reserved"])
         var base_commerce: Dictionary = {buyer_faction: true, seller_faction: true}
         var fixed_systems: Dictionary = {}
+        # A posture multiplier and source quote are fixed for this offer.
+        # Keep this local: a later offer can change quantity, price or payer.
+        var purchase_quotes: Dictionary = {}
         for ship_id in ships:
             var ship: Dictionary = world["ships"][ship_id]
             var ship_faction: String = str(ship.get("faction_id", ""))
@@ -235,11 +239,17 @@ static func propose(world: Dictionary, graph: RefCounted,
             if not posture.get("ok", false):
                 _blocked_ship(ship_blockers, "source_reputation_posture_rejected")
                 continue
-            var quoted_cost: float = ceil(float(qty) * float(source_price) * float(posture["multiplier"]))
-            if not is_finite(quoted_cost) or quoted_cost <= 0.0 or quoted_cost > 9007199254740991.0:
+            var posture_multiplier: float = float(posture["multiplier"])
+            var quote_result: Dictionary = purchase_quotes.get(posture_multiplier, {})
+            if quote_result.is_empty():
+                var quoted_cost: float = ceil(float(qty) * float(source_price) * posture_multiplier)
+                quote_result = {"valid": is_finite(quoted_cost) and quoted_cost > 0.0 and quoted_cost <= 9007199254740991.0,
+                    "cost": int(quoted_cost) if is_finite(quoted_cost) and quoted_cost > 0.0 and quoted_cost <= 9007199254740991.0 else 0}
+                purchase_quotes[posture_multiplier] = quote_result
+            if not bool(quote_result["valid"]):
                 _blocked_ship(ship_blockers, "invalid_source_purchase_quote")
                 continue
-            var source_purchase: int = int(quoted_cost)
+            var source_purchase: int = int(quote_result["cost"])
             var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver,
                 tick_scale, route_index, readiness_cache, fitting_cache)
             if not readiness.get("ok", false):
@@ -271,12 +281,19 @@ static func propose(world: Dictionary, graph: RefCounted,
             if systems.values().has(""):
                 _blocked_ship(ship_blockers, "missing_system_for_market")
                 continue
-            var sensor: Variant = ship.get("sensor_range_au", null)
-            if not (sensor is int or sensor is float) or not is_finite(float(sensor)) or float(sensor) < 0.0:
-                # Frozen ShipFitting::new_for_size: Huge/Massive always T2
-                # (2.0 AU), Tiny/Small/Medium T1 (1.0 AU). Large has
-                # a source-hash 50% T2 roll not yet ported; use T1.
-                sensor = 2.0 if str(ship.get("size", "")) in ["huge", "massive"] else 1.0
+            # Per-ship sensor and comms fields cannot change inside propose().
+            # Compute lazily after route/system gates, preserving reject order.
+            var observation: Dictionary = observation_cache.get(str(ship_id), {})
+            if observation.is_empty():
+                var sensor_value: Variant = ship.get("sensor_range_au", null)
+                if not (sensor_value is int or sensor_value is float) or not is_finite(float(sensor_value)) or float(sensor_value) < 0.0:
+                    # Frozen ShipFitting::new_for_size: Huge/Massive T2,
+                    # all other sizes T1 (Large hash roll not yet ported).
+                    sensor_value = 2.0 if str(ship.get("size", "")) in ["huge", "massive"] else 1.0
+                observation = {"sensor": float(sensor_value),
+                    "bonus": float(ship.get("comms_bonus", 0.0))}
+                observation_cache[str(ship_id)] = observation
+            var sensor: float = float(observation["sensor"])
             # The selector does not mutate the offer or controller DTO.
             # Reuse them only within this contract, after a real ready ship.
             if fixed_offer.is_empty():
@@ -287,7 +304,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                     "commodity": good, "quantity": qty, "may_accept": true}
                 fixed_controllers[source] = seller_faction
                 fixed_controllers[dest] = buyer_faction
-            var bonus: float = float(ship.get("comms_bonus", 0.0))
+            var bonus: float = float(observation["bonus"])
             if not is_finite(bonus) or bonus < 0.0 or bonus > 0.10:
                 _blocked_ship(ship_blockers, "invalid_native_comms_bonus")
                 continue
