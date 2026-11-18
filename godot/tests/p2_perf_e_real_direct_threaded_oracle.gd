@@ -12,6 +12,7 @@ const PhaseGrowth = preload("res://scripts/sim/phase2/n158_phase_growth_acceptan
 const CallsiteCosts = preload("res://scripts/sim/phase2/n158_callsite_cost_acceptance.gd")
 const ObservationCosts = preload("res://scripts/sim/phase2/n158_observation_cost_acceptance.gd")
 const SizePhase = preload("res://scripts/sim/phase2/n158_size_phase_attribution.gd")
+const CheckpointBytes = preload("res://scripts/sim/phase2/n158_checkpoint_byte_probe.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
 const EXTENDED_TARGET: int = 900
@@ -72,6 +73,7 @@ func _run() -> void:
     var previous_window: Dictionary = {}
     var observation_samples: Array = []
     var observation_callsite_samples: Array = []
+    var checkpoint_byte_samples: Array = []
     var previous_observation_cost: Dictionary = {}
     var phase_reports: Array = []
     var first_phase_window: Dictionary = {}
@@ -144,6 +146,15 @@ func _run() -> void:
                 _finish("exact checkpoint divergence tick " + str(tick) +
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
+            # Encode only already-detached, exact-parity-approved boundaries.
+            # This diagnostic is outside both paid tick timing windows.
+            var encoded: Dictionary = CheckpointBytes.measure(
+                tick, detached_direct, detached_worker, parity)
+            if not encoded.get("accepted", false):
+                _finish("detached checkpoint byte probe failed " + str(tick) +
+                    " " + JSON.stringify(encoded), false)
+                return
+            checkpoint_byte_samples.append(encoded)
             var observation: Dictionary = Acceptance.checkpoint_observation_sample(
                 tick, direct_checkpoint_usec, worker_checkpoint_request_usec,
                 detached_direct, response)
@@ -308,6 +319,13 @@ func _run() -> void:
         _finish("checkpoint observation coverage invalid " + JSON.stringify(observation_report), false)
         return
     print("P2_PERF_E_CHECKPOINT_OBSERVATION_COST ", JSON.stringify(observation_report))
+    var checkpoint_bytes: Dictionary = CheckpointBytes.summarize(
+        checkpoint_byte_samples, expected_observations)
+    if not checkpoint_bytes.get("accepted", false):
+        _finish("detached checkpoint byte coverage failed " +
+            JSON.stringify(checkpoint_bytes), false)
+        return
+    print("P2_PERF_E_DETACHED_CHECKPOINT_BYTES ", JSON.stringify(checkpoint_bytes))
     var observation_calls: Dictionary = ObservationCosts.summarize(
         observation_callsite_samples, expected_observations)
     if not observation_calls.get("accepted", false):
