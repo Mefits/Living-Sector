@@ -402,6 +402,12 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     if mkdir_result != OK:
         return mkdir_result
 
+    # A previously interrupted load promotion must not indefinitely block
+    # later verified pending saves. Only a trusted primary can authorize
+    # discarding its displaced predecessor.
+    var displaced_result: Error = _reconcile_recovery_displaced(absolute_path)
+    if displaced_result != OK:
+        return displaced_result
     var tmp: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
     # Encode the actual on-disk UTF-8 payload once. The N38 size limit
@@ -467,30 +473,60 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
 ## recovered checkpoint is installed. A failed rename restores the original
 ## bytes, and a crash after parking remains recoverable on the next launch.
 ## This path is used only after the real Runner accepted the candidate.
+## Recover an interrupted recovery promotion without losing the only good
+## checkpoint. A displaced original is retained until the promoted primary
+## has been accepted by the actual runner, not merely by its SHA envelope.
+static func _reconcile_recovery_displaced(absolute_path: String) -> Error:
+    var displaced: String = absolute_path + ".recovery-displaced"
+    if not FileAccess.file_exists(displaced):
+        return OK
+    if not FileAccess.file_exists(absolute_path):
+        # Never destroy the only surviving checkpoint. load_runner will
+        # restore and promote this candidate after full Runner validation.
+        return OK
+    if not _trusted_for_backup_rotation(_read_checkpoint(absolute_path)):
+        # An invalid primary must not authorize deleting the displaced copy.
+        return OK
+    return DirAccess.remove_absolute(displaced)
+
+
+## Recovery promotion must not delete an existing primary before the
+## recovered checkpoint is installed. A failed rename restores the original
+## bytes, and a crash after parking remains recoverable on the next launch.
+## This path is used only after the real Runner accepted the candidate.
 static func _promote_recovered_checkpoint(absolute_path: String,
         candidate: String) -> bool:
     var displaced: String = absolute_path + ".recovery-displaced"
+    var rejected: String = absolute_path + ".recovery-rejected"
     if candidate == absolute_path or not FileAccess.file_exists(candidate):
         return false
-    # Never overwrite an orphaned checkpoint left by an interrupted recovery.
-    if FileAccess.file_exists(displaced):
+    var candidate_is_displaced: bool = candidate == displaced
+    # A normal pending/previous promotion cannot overwrite an interrupted
+    # prior recovery. Its orphan remains an independent load candidate.
+    if not candidate_is_displaced and FileAccess.file_exists(displaced):
+        return false
+    # When promoting the orphan itself, park the rejected primary elsewhere.
+    # Never overwrite an earlier rejected file without explicit recovery.
+    var parking: String = rejected if candidate_is_displaced else displaced
+    if FileAccess.file_exists(parking):
         return false
     var had_primary: bool = FileAccess.file_exists(absolute_path)
     if had_primary:
-        if DirAccess.rename_absolute(absolute_path, displaced) != OK:
+        if DirAccess.rename_absolute(absolute_path, parking) != OK:
             return false
     var promotion: Error = DirAccess.rename_absolute(candidate, absolute_path)
     if promotion != OK:
         if had_primary:
-            # If rollback fails, .recovery-displaced is still a load candidate.
-            DirAccess.rename_absolute(displaced, absolute_path)
+            # A failed rollback still leaves the original in a recoverable
+            # named file, never silently deletes its bytes.
+            DirAccess.rename_absolute(parking, absolute_path)
         return false
     if had_primary:
-        # The recovered primary has already passed actual Runner restore.
-        # A crash before this cleanup is handled by load_runner's fallback.
-        DirAccess.remove_absolute(displaced)
+        # Only discard a displaced primary after the candidate was restored.
+        # If it was invalid, preserve it for diagnostics until a later save.
+        if not candidate_is_displaced:
+            DirAccess.remove_absolute(parking)
     return true
-
 
 static func load_runner(runner: RefCounted, seed: Dictionary,
         save_path: String = DEFAULT_PATH) -> Dictionary:
@@ -525,9 +561,11 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
                 promoted_previous = _promote_recovered_checkpoint(
                     absolute_path, candidate)
             elif candidate == absolute_path + ".recovery-displaced":
-                # This checkpoint is already recovered in memory. Do not
-                # rename it over another candidate while restoring state.
-                pass
+                _promote_recovered_checkpoint(absolute_path, candidate)
+            elif candidate == absolute_path:
+                # A successful live restore is stronger than envelope-only
+                # validation; an orphaned prior primary is no longer needed.
+                _reconcile_recovery_displaced(absolute_path)
             return {
                 "ok": true,
                 "source": candidate,
