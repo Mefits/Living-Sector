@@ -94,6 +94,29 @@ static func compare_goal(goal: Dictionary, market: Dictionary, assessment: Dicti
 			best = value
 			best_delay = delay
 			selected = str(option["action"])
+	# A commissioned colony starter is a strategic infrastructure decision,
+	# not a claim that today's market demand will repay the construction.
+	# Keep the source N154 material/treasury checks and the N134 forecast
+	# provenance gate. No goods, money, or permission are created here.
+	if selected == "wait" and str(goal.get("goal_id", "")) == "develop_colony" and \
+			str(goal.get("destination", "")).ends_with("-colony") and \
+			str(offer.get("reason", "")) == "ready" and \
+			str(build.get("status", "")) == "ready" and \
+			str(build.get("material", "")) != "" and \
+			str(build.get("source", "")) != "" and \
+			int(build.get("shipment_count", 0)) > 0 and \
+			int(offer.get("remaining", 0)) > 0 and \
+			int(offer.get("first_purchase_cost", -1)) > 0 and \
+			int(offer.get("total_cost", 0)) > 0 and \
+			int(build.get("treasury_after", -1)) >= 5000 and \
+			is_finite(float(offer.get("source_stock", -1.0))) and \
+			float(offer.get("source_stock", -1.0)) >= \
+				float(mini(int(offer.get("remaining", 0)), delivery_quantity)):
+		selected = "build"
+		build["reason"] = "strategic_colony_infrastructure"
+		# The project has no demonstrated financial return from shortages;
+		# reporting a positive estimated net would be a fabricated valuation.
+		build["estimated_net_value"] = null
 	return {"goal":goal.duplicate(true),"alternatives":alternatives,"selected":selected}
 	# No contract, money, stock, facility, or ship is changed.
 
