@@ -7,15 +7,21 @@ const NativeStarSystemView = preload("res://scripts/star_system_view.gd")
 const BuildingBrowser = preload("res://scripts/building_browser.gd")
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const NativeClock = preload("res://scripts/sim/clock.gd")
+const Calendar = preload("res://scripts/sol_calendar.gd")
+const ConstructionRuntime = preload("res://scripts/sol_construction_runtime.gd")
 const SPEED_PRESETS: Array[int] = [1, 4, 8, 16]
 const DEFAULTS = "res://data/balance_defaults.json"
 const USER_CONFIG = "user://sol_lab_balance.json"
+const USER_SAVE = "user://sol_lab_construction_save_v1.json"
 const SIDE_WIDTH = 340.0
 var world: Dictionary = {}
 var config: Dictionary = {}
 var native_time: float = 0.0
 var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
+var construction = ConstructionRuntime.new()
+var construction_ui_elapsed: float = 0.0
+var message_line: Label
 var paused: bool = false
 var speed: int = 1
 var speed_buttons: Dictionary = {}
@@ -47,12 +53,14 @@ func _ready() -> void:
     visual_clock.set_speed(float(speed))
     config = _load_config()
     _init_extra_settings()
+    construction.setup(world, config["buildings"])
     _build_ui()
     _make_native_map()
     _make_browser()
     resized.connect(_layout_right_side)
     _layout_right_side()
     _show_selected()
+    _update_calendar_label()
     queue_redraw()
 
 func _build_ui() -> void:
@@ -67,6 +75,8 @@ func _build_ui() -> void:
     title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     bar.add_child(title)
     time_label = Label.new()
+    time_label.custom_minimum_size = Vector2(108, 0)
+    time_label.add_theme_font_size_override("font_size", 16)
     bar.add_child(time_label)
     pause_button = _button(bar, "Пауза", _pause)
     _button(bar, "+1", _step)
@@ -79,8 +89,9 @@ func _build_ui() -> void:
         speed_button.toggle_mode = true
         speed_button.button_pressed = preset == speed
         speed_button.custom_minimum_size = Vector2(43, 30)
-        speed_button.tooltip_text = ("Визуальная скорость ×%d. " +
-            "Симуляция N158 пока не подключена.") % preset
+        speed_button.tooltip_text = ("Скорость игрового календаря ×%d; " +
+            "строительство и орбиты используют одни часы. " +
+            "Экономика N39 пока не подключена.") % preset
         speed_buttons[preset] = speed_button
     _button(bar, "Камера", _reset_camera)
     var perf_bar := HBoxContainer.new()
@@ -118,14 +129,24 @@ func _build_ui() -> void:
     details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     info_area.add_child(details)
     var hint := Label.new()
-    hint.text = "Оригинальная карта SystemBalance: двойной клик — приблизить.\nСимуляция пока не подключена."
+    hint.text = "Тест строительства: 1 металл · 45 дней.\n" + (
+        "Никакого труда. Производство N39 пока не подключено.")
     hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     info_area.add_child(hint)
+    message_line = Label.new()
+    message_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    message_line.add_theme_color_override("font_color", Color("#e0c18b"))
+    info_area.add_child(message_line)
     var filler := Control.new()
     filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
     contents.add_child(filler)
     _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
     mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
+    var saves := HBoxContainer.new()
+    contents.add_child(saves)
+    _button(saves, "Новая", _new_game)
+    _button(saves, "Сохр.", _save_game)
+    _button(saves, "Загруз.", _load_game)
 
 
 func _button(parent: Node, label: String, action: Callable) -> Button:
@@ -160,22 +181,33 @@ func _save_config() -> bool:
     var file := FileAccess.open(USER_CONFIG, FileAccess.WRITE)
     if file == null:
         return false
+    config["construction_balance_version"] = 2
     file.store_string(JSON.stringify(config, "  ") + "\n")
     file.close()
     return true
 
 func _apply() -> void:
-    if _save_config():
-        get_tree().reload_current_scene()
-    else:
-        push_error("Не удалось сохранить баланс")
+    # Admin balance updates affect NEW construction orders. Do not reload
+    # and destroy the current construction timeline or warehouse state.
+    if not _save_config():
+        _notice("Не удалось сохранить параметры")
+        return
+    construction.settings = config["buildings"]
+    _notice("Баланс сохранён; новые стройки используют новые значения")
 
 func _restore() -> void:
     if FileAccess.file_exists(USER_CONFIG):
-        if DirAccess.remove_absolute(ProjectSettings.globalize_path(USER_CONFIG)) != OK:
-            push_error("Не удалось сбросить баланс")
+        if DirAccess.remove_absolute(ProjectSettings.globalize_path(
+                USER_CONFIG)) != OK:
+            _notice("Не удалось сбросить баланс")
             return
-    get_tree().call_deferred("reload_current_scene")
+    config = _load_config()
+    _init_extra_settings()
+    construction.settings = config["buildings"]
+    browser.configure(world, config, selected, true)
+    browser.set_construction_state(world, construction.sites, native_time)
+    _show_selected()
+    _notice("Баланс сброшен, текущие стройки сохранены")
 
 func _toggle_admin() -> void:
     if browser.visible and browser.page.begins_with("admin"):
@@ -189,14 +221,16 @@ func _pause() -> void:
     pause_button.text = "Продолжить" if paused else "Пауза"
 
 func _step() -> void:
-    # A single original N158 clock step, allowed while paused.
-    # At x1 this moves 1/8 of a native time unit, NOT a whole unit.
+    # Exactly one original 8 TPS clock step, even while paused.
     if not visual_clock.request_steps(1):
         return
     var completed: int = visual_clock.consume_frame(0.0)
     visual_tick_count += completed
     native_time += float(completed) * visual_clock.tick_scale()
+    _advance_construction()
     _update_native_map()
+    _update_calendar_label()
+    _refresh_construction_ui()
 
 func _reset_camera() -> void:
     if native_view != null:
@@ -216,8 +250,11 @@ func _process(delta: float) -> void:
         if view_elapsed >= 0.10:
             view_elapsed = fmod(view_elapsed, 0.10)
             _update_native_map()
-    if time_label != null:
-        time_label.text = "Виз. тик %d · ×%d  " % [visual_tick_count, speed]
+    _update_calendar_label()
+    construction_ui_elapsed += delta
+    if construction_ui_elapsed >= 0.5:
+        construction_ui_elapsed = fmod(construction_ui_elapsed, 0.5)
+        _refresh_construction_ui()
     var ui_usec: int = maxi(0, Time.get_ticks_usec() - ui_started_usec)
     var process_usec: int = maxi(0, Time.get_ticks_usec() - started_usec)
     # Zero N158 and zero real sim ticks: this project renders a visual clock
@@ -237,6 +274,7 @@ func _show_selected() -> void:
             "Тип: "+str(body.get("type", "—")),
             "Биом: "+str(body.get("biome", "—")),
             "Металл на складе: %d" % Model.stock(world,selected),
+            "Строек в очереди: %d" % _pending_on(selected),
             "Ресурсные коэффициенты:"
         ]
         var coeff: Dictionary = config.get("planets",{}).get(selected,{})
@@ -259,6 +297,7 @@ func _init_extra_settings() -> void:
     var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(USER_CONFIG))
     if not (parsed is Dictionary):
         return
+    var balance_version: int = int(parsed.get("construction_balance_version", 0))
     for group in ["buildings","planets"]:
         var saved: Variant = parsed.get(group,null)
         if not (saved is Dictionary):
@@ -269,6 +308,11 @@ func _init_extra_settings() -> void:
                 continue
             var defaults: Dictionary = target[id]
             for key in defaults.keys():
+                # Pre-calendar saves contain old 600 metal/150 labor values.
+                # Never let them silently override the new one-metal test.
+                if group == "buildings" and balance_version < 2 and (
+                        key in ["metals", "days"]):
+                    continue
                 var n: Variant = saved[id].get(key,null)
                 if (n is float or n is int) and is_finite(float(n)) and (
                         float(n) >= 0.0) and float(n) <= 100000.0:
@@ -284,6 +328,11 @@ func _make_browser() -> void:
     browser.reset_requested.connect(_restore)
     browser.values_changed.connect(_show_selected)
     browser.close_requested.connect(_close_browser)
+    browser.build_requested.connect(_order_build)
+    browser.save_game_requested.connect(_save_game)
+    browser.load_game_requested.connect(_load_game)
+    browser.new_game_requested.connect(_new_game)
+    browser.set_construction_state(world, construction.sites, native_time)
     browser.hide()
 
 func _open_build() -> void:
@@ -291,6 +340,7 @@ func _open_build() -> void:
 
 func _open_browser(admin: bool) -> void:
     browser.configure(world, config, selected, admin)
+    browser.set_construction_state(world, construction.sites, native_time)
     sidebar.hide()
     _layout_right_side()
 
@@ -392,19 +442,17 @@ func _set_speed(multiplier: int) -> void:
         var button: Button = speed_buttons[preset]
         if is_instance_valid(button):
             button.button_pressed = int(preset) == speed
-    if time_label != null:
-        time_label.text = "Виз. тик %d · ×%d  " % [visual_tick_count, speed]
+    _update_calendar_label()
 
 func _advance_visual_clock(delta: float) -> void:
     if paused:
         return
-    # Exact original clock: 8 ticks/s at any speed, with native time
-    # per tick = world_speed / 8. No extra 20x UI-side multiplier.
     var completed: int = visual_clock.consume_frame(delta)
     if completed <= 0:
         return
     visual_tick_count += completed
     native_time += float(completed) * visual_clock.tick_scale()
+    _advance_construction()
 
 func _update_performance_label() -> void:
     if perf_label == null:
@@ -443,3 +491,103 @@ func _update_performance_label() -> void:
         float(draw.get("max_usec", 0)) / 1000.0,
         int(draw.get("calls", 0)),
         int(perf.get("frame_over_16_7ms_window", 0))]
+func _pending_on(body_id: String) -> int:
+    var count: int = 0
+    for site in construction.sites:
+        if str(site.get("body", "")) == body_id:
+            count += 1
+    return count
+
+func _update_calendar_label() -> void:
+    if time_label == null:
+        return
+    var whole_days: int = int(floor(Calendar.native_to_days(native_time)))
+    time_label.text = "Г%d · Д%03d" % [
+        whole_days / Calendar.DAYS_PER_YEAR + 1,
+        whole_days % Calendar.DAYS_PER_YEAR + 1]
+    time_label.tooltip_text = (
+        Calendar.calendar_text(native_time) +
+        "\nЗемля: 700 игровых единиц = 365 дней = 1 оборот.\n" +
+        "×1/×4/×8/×16 ускоряют и строительство, и орбиты.")
+
+func _advance_construction() -> void:
+    var finished: Array = construction.advance_to(native_time)
+    if finished.is_empty():
+        return
+    _update_native_map()
+    _show_selected()
+    if browser.visible and browser.page == "build":
+        browser.configure(world, config, selected, false)
+    _refresh_construction_ui()
+    _notice("Завершено: " + ", ".join(finished))
+
+func _refresh_construction_ui() -> void:
+    if browser == null:
+        return
+    browser.set_construction_state(world, construction.sites, native_time)
+
+func _order_build(body: String, building_id: String) -> void:
+    var result: Dictionary = construction.order(body, building_id)
+    if bool(result.get("ok", false)):
+        _update_native_map()
+        _show_selected()
+        _refresh_construction_ui()
+    if browser != null:
+        browser.show_order_result(result)
+    _notice(("Заказ принят" if bool(result.get("ok", false))
+        else str(result.get("reason", "Заказ отклонён"))))
+
+func _notice(message: String) -> void:
+    if message_line != null:
+        message_line.text = message
+    if browser != null and browser.visible:
+        browser.feedback.text = message
+
+func _new_game() -> void:
+    # No implicit loading of old checkpoints on F5.
+    get_tree().call_deferred("reload_current_scene")
+
+func _save_game() -> void:
+    var snapshot: Dictionary = construction.snapshot()
+    snapshot["visual_tick_count"] = visual_tick_count
+    snapshot["speed"] = speed
+    var target: String = ProjectSettings.globalize_path(USER_SAVE)
+    var temp: String = target + ".tmp"
+    var file := FileAccess.open(temp, FileAccess.WRITE)
+    if file == null:
+        _notice("Ошибка сохранения игры")
+        return
+    file.store_string(JSON.stringify(snapshot, "  ") + "\n")
+    file.close()
+    var result: Error = DirAccess.rename_absolute(temp, target)
+    if result == OK:
+        _notice("Игра сохранена")
+    else:
+        _notice("Ошибка замены сохранения; прежний файл не изменён")
+
+func _load_game() -> void:
+    if not FileAccess.file_exists(USER_SAVE):
+        _notice("Сохранения пока нет")
+        return
+    var value: Variant = JSON.parse_string(FileAccess.get_file_as_string(
+        USER_SAVE))
+    if not (value is Dictionary):
+        _notice("Сохранение повреждено")
+        return
+    if not construction.restore(value):
+        _notice("Сохранение несовместимо или повреждено")
+        return
+    native_time = construction.now_native
+    visual_tick_count = int(value.get("visual_tick_count", 0))
+    visual_clock.reset()
+    paused = false
+    pause_button.text = "Пауза"
+    var loaded_speed: int = int(value.get("speed", 1))
+    _set_speed(loaded_speed if SPEED_PRESETS.has(loaded_speed) else 1)
+    _update_native_map()
+    if browser != null and browser.visible:
+        browser.configure(world, config, selected,
+            browser.page.begins_with("admin"))
+    _refresh_construction_ui()
+    _show_selected()
+    _notice("Игра загружена: " + Calendar.calendar_text(native_time))
