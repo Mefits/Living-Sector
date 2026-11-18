@@ -184,7 +184,16 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
                         gate_roster[gate_location] = []
                     gate_roster[gate_location].append(str(fid))
             dock_ticks["_n84_gate_roster"] = gate_roster
-        var gates: Array = dock_ticks["_n84_gate_roster"].get(location, [])
+        # A cached roster is only a candidate index. A previous BT leaf may
+        # have staged a command, but never treat stale candidates as authority.
+        # Revalidate type, location and link against the live proposal World.
+        var gates: Array = []
+        for candidate_id in dock_ticks["_n84_gate_roster"].get(location, []):
+            var candidate: Dictionary = world.get("facilities", {}).get(candidate_id, {})
+            if str(candidate.get("type", "")) == "gate" and (
+                    str(candidate.get("location", "")) == location and
+                    candidate.get("gate_link", null) is Dictionary):
+                gates.append(candidate_id)
         if gates.size() != 1:
             return {"status": Bt.RUNNING, "reason": "n108_unbuilt_or_ambiguous_source_gate"}
         var origin: Dictionary = world["facilities"][gates[0]]
@@ -490,13 +499,27 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.RUNNING, "reason": "n108_wait_native_arrival"}
         # Build the call-scoped roster only if an N108 leaf actually asks.
         # N84 proposals never mutate facilities; N39 applies commands later.
-        if not shipyard_locations.has("_ready"):
+        if not shipyard_locations.has("_n84_shipyard_roster"):
+            var yard_roster: Dictionary = {}
             for id in world.get("facilities", {}):
                 var fac: Dictionary = world["facilities"][id]
-                if str(fac.get("type", "")) == "shipyard" and not fac.get("abandoned", false):
-                    shipyard_locations[str(fac.get("location", ""))] = true
-            shipyard_locations["_ready"] = true
-        if not shipyard_locations.has(location):
+                if str(fac.get("type", "")) == "shipyard" and not bool(fac.get("abandoned", false)):
+                    var yard_location: String = str(fac.get("location", ""))
+                    if not yard_roster.has(yard_location):
+                        yard_roster[yard_location] = []
+                    yard_roster[yard_location].append(id)
+            shipyard_locations["_n84_shipyard_roster"] = yard_roster
+        # A location key can equal any scratch sentinel. Keep metadata
+        # separate and validate live facilities before issuing N21 commands.
+        var live_yard: bool = false
+        for yard_candidate_id in shipyard_locations["_n84_shipyard_roster"].get(location, []):
+            var candidate_yard: Dictionary = world.get("facilities", {}).get(yard_candidate_id, {})
+            if str(candidate_yard.get("type", "")) == "shipyard" and (
+                    str(candidate_yard.get("location", "")) == location and
+                    not bool(candidate_yard.get("abandoned", false))):
+                live_yard = true
+                break
+        if not live_yard:
             return {"status": Bt.RUNNING, "reason": "n108_no_built_shipyard_here"}
         var dock_cmd: Dictionary = Commands.make_command(
             "RequestDock" if old_dock.is_empty() else "ReleaseDock", {
