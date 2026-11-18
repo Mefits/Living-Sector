@@ -4,7 +4,7 @@ const Starter = preload("res://scripts/sol_start_scenario.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 const Runtime = preload("res://scripts/sol_construction_runtime.gd")
-const Projection = preload("res://scripts/view/physical_assets_projection.gd")
+const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd")
 
 func _runtime(settings: Dictionary) -> Variant:
  var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(
@@ -29,7 +29,7 @@ func _facility(runtime: Variant, kind: String) -> Dictionary:
 
 func _sites(world: Dictionary) -> Dictionary:
  var result: Dictionary = {}
- for asset in Projection.build(world).get("surface", []):
+ for asset in PhysicalAssets.build(world).get("surface", []):
   result[str(asset["id"])] = asset["site"]
  return result
 
