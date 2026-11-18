@@ -14,7 +14,7 @@ static func summarize(end_tick: int, steps: Array, phases: Array,
     for i in range(LIMIT):
         var row: Variant = steps[i]
         if not (row is Dictionary) or typeof(row.get("tick", null)) != TYPE_INT or (
-                int(row["tick"]) != end_tick - LIMIT + 1):
+                int(row["tick"]) != end_tick - LIMIT + 1 + i):
             return {"valid": false, "reason": "source_clock_gap"}
         if typeof(row.get("elapsed_usec", null)) != TYPE_INT or int(row["elapsed_usec"]) < 0:
             return {"valid": false, "reason": "invalid_step_duration"}
