@@ -242,7 +242,7 @@ func _process(delta: float) -> void:
     # the SAME radius that begins drawing surface details. Never a new map.
     if not _zoom_candidate_body_id.is_empty() and _focused_body_id.is_empty() and not _return_camera:
         var candidate: Dictionary = _body_by_id(_zoom_candidate_body_id)
-        if not candidate.is_empty() and _body_size(candidate) >= DETAIL_RADIUS:
+        if not candidate.is_empty() and _body_size(candidate) >= DETAIL_RADIUS / _ui_viewport_scale:
             _focused_body_id = _zoom_candidate_body_id
             _follow_orbit_valid = false
 
@@ -628,7 +628,7 @@ func focus_body(body_id: String) -> bool:
     var high: float = MAX_ZOOM
     for i in range(20):
         var mid: float = (low + high) * 0.5
-        if _body_size_at_zoom(body, mid) < FOCUS_GLOBE_RADIUS:
+        if _body_size_at_zoom(body, mid) < FOCUS_GLOBE_RADIUS / _ui_viewport_scale:
             low = mid
         else:
             high = mid
@@ -722,7 +722,7 @@ func _radius_transform(radius: float) -> float:
 
 
 func set_ui_viewport_scale(value: float) -> void:
-    var normalized: float = clampf(value, 1.0, 1.5)
+    var normalized: float = clampf(value, 1.0, 2.0)
     if is_equal_approx(_ui_viewport_scale, normalized):
         return
     _ui_viewport_scale = normalized
@@ -731,16 +731,14 @@ func set_ui_viewport_scale(value: float) -> void:
 
 
 func _orbit_scale() -> float:
-    var available: float = maxf(90.0, minf(size.x, size.y) * 0.40)
-    # In Godot, global Window.content_scale_factor=1.4 reduces this
-    # Control's logical viewport dimensions to ~1/1.4. The native
-    # SystemBalance orbit scale used that smaller value directly, while
-    # planet glyph radii only depend on _zoom. Near a planet, this makes
-    # moons appear artificially close. Restore 100%-UI map geometry at
-    # close zoom, without changing the original moon projection formula.
-    var viewport_compensation: float = lerpf(1.0, _ui_viewport_scale,
-        smoothstep(8.0, 32.0, _zoom))
-    return available * viewport_compensation / maxf(1.0,
+    # The Godot window already scales drawing coordinates by
+    # content_scale_factor. The Control's logical size is smaller by the
+    # same factor, so using it directly keeps physical orbit dimensions
+    # stable at every UI scale. Compensating here again enlarged lunar
+    # orbits relative to planets (and previously clamped at 150%).
+    var available: float = maxf(
+        90.0 / _ui_viewport_scale, minf(size.x, size.y) * 0.40)
+    return available / maxf(1.0,
         _radius_transform(_max_orbit_radius))
 
 func _center() -> Vector2:
@@ -826,7 +824,9 @@ func _satellite_visibility(body: Dictionary, parent: Dictionary,
     # overlapping map glyphs until the viewer zooms into the parent.
     var separation: float = _satellite_orbit_radius(body, parent, scale)
     var combined_radius: float = _body_size(body) + _body_size(parent)
-    return clampf((separation - combined_radius + 3.0) / 14.0, 0.0, 1.0)
+    # Fade thresholds remain fixed in physical pixels as UI scale changes.
+    return clampf((separation - combined_radius + 3.0 /
+        _ui_viewport_scale) / (14.0 / _ui_viewport_scale), 0.0, 1.0)
 
 
 func _overview_body_radius(body: Dictionary) -> float:
@@ -855,9 +855,11 @@ func _body_size_at_zoom(body: Dictionary, at_zoom: float) -> float:
     if at_zoom > 32.0:
         scale = sqrt(32.0) * pow(at_zoom / 32.0, 1.12)
     var base: float = _overview_body_radius(body)
+    # Body diameters belong to the world camera, NOT the UI font scale.
+    # Keep the approved Sol 0.65 map's physical screen sizes at 125–200%.
     if str(body.get("type", "")) in ["asteroid", "belt"]:
-        return base * minf(scale, 6.0)
-    return base * scale
+        return base * minf(scale, 6.0) / _ui_viewport_scale
+    return base * scale / _ui_viewport_scale
 
 
 func _body_size(body: Dictionary) -> float:
@@ -869,11 +871,13 @@ func _surface_detail_start_zoom(body: Dictionary) -> float:
     # threshold values: gas giants, rocky planets and moons all receive the
     # same two-wheel-step fade after they cross DETAIL_RADIUS.
     var size_at_one: float = _body_size_at_zoom(body, 1.0)
-    var threshold_at_low_zoom: float = pow(DETAIL_RADIUS / size_at_one, 2.0)
+    var threshold_at_low_zoom: float = pow(
+        (DETAIL_RADIUS / _ui_viewport_scale) / size_at_one, 2.0)
     if threshold_at_low_zoom <= 32.0:
         return threshold_at_low_zoom
     return 32.0 * pow(
-        DETAIL_RADIUS / (size_at_one * sqrt(32.0)), 1.0 / 1.12)
+        (DETAIL_RADIUS / _ui_viewport_scale) / (
+            size_at_one * sqrt(32.0)), 1.0 / 1.12)
 
 
 func _surface_detail_alpha(body: Dictionary) -> float:
@@ -950,7 +954,8 @@ func _draw_system() -> void:
             draw_arc(star, radius, 0.0, TAU, 96,
                 Color(0.18, 0.26, 0.35, _orbit_line_alpha(false)), 1.0, true)
     # A small, legible symbol: no giant Sun covering Mercury's orbit.
-    var star_size: float = 13.5 * clampf(sqrt(_zoom), 0.8, 4.0)
+    var star_size: float = (
+        13.5 * clampf(sqrt(_zoom), 0.8, 4.0) / _ui_viewport_scale)
     draw_circle(star, star_size, _star_color(str(system.get("star_type", ""))))
     draw_circle(star, star_size + 5.0, Color("#526575"), false, 1.0, true)
     draw_string(font, star + Vector2(star_size + 8.0, -15.0), str(system.get("name", "")),
@@ -981,7 +986,7 @@ func _draw_system() -> void:
             draw_colored_polygon(vertices, color)
         else:
             draw_circle(position, visual_radius, color)
-            if visual_radius >= DETAIL_RADIUS:
+            if visual_radius >= DETAIL_RADIUS / _ui_viewport_scale:
                 var detail_opacity: float = _surface_detail_alpha(body) * moon_fade
                 if detail_opacity > 0.001:
                     _draw_globe_detail(body, position, visual_radius,
@@ -1082,8 +1087,9 @@ func _draw_physical_sol_assets(scale: float) -> void:
         var near_surface_zoom: float = clampf(
             (_zoom - 10.0) / 38.0, 0.0, 1.0)
         var orbit_gap_px: float = lerpf(18.0, 40.0,
-            clampf((_zoom - 1.0) / 8.0, 0.0, 1.0)) + (
-            minf(body_radius * 0.10, 80.0) * near_surface_zoom)
+            clampf((_zoom - 1.0) / 8.0, 0.0, 1.0)) /
+            _ui_viewport_scale + (minf(body_radius * 0.10,
+            80.0 / _ui_viewport_scale) * near_surface_zoom)
         var display_radius: float = maxf(
             body_radius + orbit_gap_px, physical_compressed)
         var pos: Vector2 = body_pos + direction * display_radius
@@ -1164,7 +1170,7 @@ func _draw_physical_sol_assets(scale: float) -> void:
         if parent.is_empty():
             continue
         var body_radius: float = _body_size(parent)
-        if body_radius < DETAIL_RADIUS:
+        if body_radius < DETAIL_RADIUS / _ui_viewport_scale:
             continue
         var alpha: float = _surface_detail_alpha(parent)
         if alpha < 0.10:
@@ -1483,7 +1489,7 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
             _zoom_candidate_body_id = str(under_cursor.get("id", ""))
     elif not _focused_body_id.is_empty():
         var focused: Dictionary = _body_by_id(_focused_body_id)
-        if focused.is_empty() or _body_size_at_zoom(focused, _wheel_target_zoom) < DETAIL_RADIUS:
+        if focused.is_empty() or _body_size_at_zoom(focused, _wheel_target_zoom) < DETAIL_RADIUS / _ui_viewport_scale:
             # Reverse zoom restores free panning naturally, without a jump
             # to orbit/default view.
             _focused_body_id = ""
@@ -1491,7 +1497,7 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
             _follow_orbit_valid = false
     elif not _zoom_candidate_body_id.is_empty():
         var candidate: Dictionary = _body_by_id(_zoom_candidate_body_id)
-        if candidate.is_empty() or _body_size_at_zoom(candidate, _wheel_target_zoom) < DETAIL_RADIUS:
+        if candidate.is_empty() or _body_size_at_zoom(candidate, _wheel_target_zoom) < DETAIL_RADIUS / _ui_viewport_scale:
             _zoom_candidate_body_id = ""
     queue_redraw()
 
