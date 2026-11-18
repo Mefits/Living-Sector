@@ -413,7 +413,7 @@ func _build_footer() -> void:
     _perf_readout = LSComponents.metric_text(
         "FPS — · SIM — · UI —", &"LSFooterDiagnostic")
     _perf_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-    _perf_readout.size_flags_horizontal = Control.SIZE_SHRINK_END
+    _perf_readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     _perf_readout.tooltip_text = "Диагностика производительности профайлера UIFrame"
     status_row.add_child(_perf_readout)
 
@@ -914,6 +914,13 @@ func _layout_window() -> void:
         _alerts_popover.offset_bottom = maxf(
             _alerts_popover.offset_top + 45.0,
             float(layout["alert_bottom"]))
+    if _footer_status != null:
+        # Status duplicates the top HUD's tick and pause. Give the existing
+        # performance counters priority on scaled laptop viewports.
+        _footer_status.visible = vw >= 1400.0
+    if _perf_readout != null:
+        _perf_readout.add_theme_font_size_override(
+            "font_size", 8 if vw < 1100.0 else 9)
     if _footer_panel != null:
         _footer_panel.offset_left = RAIL_W
         _footer_panel.offset_right = (
@@ -925,12 +932,16 @@ func _layout_window() -> void:
 ## The already-existing UIFrameProfiler owns timing samples. Reuse its
 ## scalars; do not sample World, N158 or network from the HUD.
 func update_performance(fps: int, sim_ms: float, ui_ms: float,
-        worker: bool, details: String = "") -> void:
+        worker: bool, details: String = "", full_line: String = "") -> void:
     if _perf_readout == null:
         return
+    # Preserve the complete existing UIFrameProfiler readout, including
+    # frame p95, worker CPU, SIM, UI and ticks/frame. No extra World reads.
     var sim_label: String = "SIM" if worker else "SIM p95"
-    _perf_readout.text = "FPS %d  ·  %s %.1fмс  ·  UI p95 %.1fмс" % [
-        maxi(0, fps), sim_label, maxf(0.0, sim_ms), maxf(0.0, ui_ms)]
+    _perf_readout.text = full_line if not full_line.is_empty() else (
+        "FPS %d · %s %.1fмс · UI p95 %.1fмс" % [
+            maxi(0, fps), sim_label, maxf(0.0, sim_ms),
+            maxf(0.0, ui_ms)])
     _perf_readout.tooltip_text = (
         "PING —: игра исполняется локально, сетевого RTT нет.\n" +
         ("SIM: последний завершённый шаг фонового N158.\n"
