@@ -15,13 +15,20 @@ const SEARCH_BUDGET: Dictionary = {"max_nodes": 350, "max_depth": 12}
 const FACTION_SUBSIDY_FLOOR: int = 5000
 static var _sorted_recipe_projection: Array = []
 
-static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary:
+static func _capture_preflight(world: Dictionary, faction: String,
+        tick: int) -> Dictionary:
     if faction.is_empty() or tick < 1 or not world.get(
             "faction_treasuries", {}).has(faction):
         return {"ok": false, "reason": "n100_no_live_faction_treasury"}
     for field in ["facilities", "markets", "ships", "populations", "contract_board"]:
         if not (world.get(field) is Dictionary):
             return {"ok": false, "reason": "n100_missing_real_" + field}
+    return {"ok": true}
+
+static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary:
+    var preflight: Dictionary = _capture_preflight(world, faction, tick)
+    if not preflight.get("ok", false):
+        return preflight
     # Build the faction's ordered facility roster and owner-location lookup
     # in one pass. The lookup is local to this capture: no stale cache can
     # survive installation, removal, ownership transfer or relocation.
@@ -138,14 +145,21 @@ static func propose(world: Dictionary, faction: String, head: Dictionary,
     if str(head.get("selected_option", "wait")) not in ["deliver", "build", "wait"]:
         return {"ok": true, "status": "original_head_other_domain",
             "faction_id": faction, "tick": tick}
-    var input: Dictionary = capture(world, faction, tick)
-    if not input.get("ok", false):
-        return input
-    var snapshot: Dictionary = input["snapshot"]
+    # Most Head decisions have no source stock goal. Avoid projecting the
+    # entire growing World into a planning DTO for those decisions. Keep the
+    # original capture preflight (clock, treasury, required registries) before
+    # the goal gate so malformed core state is still rejected.
+    var preflight: Dictionary = _capture_preflight(world, faction, tick)
+    if not preflight.get("ok", false):
+        return preflight
     var head_goal: Dictionary = SourceGoal.goal_from_head(head)
     if head_goal.is_empty():
         return {"ok": true, "status": "no_original_head_stock_goal",
             "faction_id": faction, "tick": tick}
+    var input: Dictionary = capture(world, faction, tick)
+    if not input.get("ok", false):
+        return input
+    var snapshot: Dictionary = input["snapshot"]
     var promoted: Dictionary = NativeCatalogue.promote_industry_output_goal(
         snapshot, head_goal)
     if not promoted.is_empty():
