@@ -750,7 +750,7 @@ func _process(delta: float) -> void:
             _strategy_ui.update_performance(Engine.get_frames_per_second(),
                 float(report["advance_p95_ms"]),
                 float(report["ui_p95_ms"]), false,
-                _perf_label.tooltip_text)
+                _perf_label.tooltip_text, _perf_label.text)
     if _ui_profile_log:
         _ui_profile_log_elapsed += maxf(wall_frame_delta, 0.0)
         if _ui_profile_log_elapsed >= 5.0:
@@ -818,17 +818,28 @@ func _worker_gui_process(delta: float) -> void:
     _frame_profiler.capture(maxf(delta, 0.0), cpu_usec, 0, cpu_usec,
         maxi(0, _worker_tick - old_tick))
     if _frame_profiler.display_due() and _perf_label != null:
-        _perf_label.text = "WORKER · FPS %d · тик %d · sim %.1f мс (фон)" % [
-            Engine.get_frames_per_second(), _worker_tick, _worker_last_sim_ms]
+        var worker_ui: Dictionary = _frame_profiler.summary()
+        _perf_label.text = (
+            "FPS %d · кадр p95 %.1fмс · CPU/UI p95 %.1fмс · " +
+            "SIM %.1fмс · тик +%d") % [
+            Engine.get_frames_per_second(),
+            float(worker_ui.get("frame_p95_ms", 0.0)),
+            float(worker_ui.get("process_p95_ms", 0.0)),
+            _worker_last_sim_ms,
+            int(worker_ui.get("last_frame_ticks", 0))]
         _perf_label.tooltip_text = (
-            "Экспериментальный N158 worker: 1 authoritative World/N9/Clock; " +
-            "кадры SceneTree не вызывают advance_frame. Последний sim_ms " +
-            "из worker; это НЕ измерение GPU и не подтверждение TPS.")
+            "N158 worker: SIM — последнее время шага на отдельном потоке.\n" +
+            "CPU/UI p95 — основной поток за 120 кадров.\n" +
+            "Кадр p95 учитывает задержки вне _process.\n" +
+            "Максимум кадра %.1fмс · максимум CPU %.1fмс · тик %d" % [
+                float(worker_ui.get("frame_window_max_ms", 0.0)),
+                float(worker_ui.get("worst_process_ms", 0.0)),
+                _worker_tick])
         if _strategy_ui != null:
-            var worker_ui: Dictionary = _frame_profiler.summary()
             _strategy_ui.update_performance(Engine.get_frames_per_second(),
-                _worker_last_sim_ms, float(worker_ui.get("process_p95_ms", 0)),
-                true, _perf_label.tooltip_text)
+                _worker_last_sim_ms,
+                float(worker_ui.get("process_p95_ms", 0.0)),
+                true, _perf_label.tooltip_text, _perf_label.text)
     if _worker_live_check and _worker_booted:
         _worker_live_frames += 1
         _worker_live_cpu_us.append(cpu_usec)
