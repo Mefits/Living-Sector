@@ -1,10 +1,11 @@
 extends SceneTree
-## Deterministic audit fixture. It demonstrates the mismatch between
-## already-agreed AC development and the frozen N92/N111/N154 rules.
-## Do NOT enable speculative production or change N39 in this check.
+## Deterministic colony regression: genuine N154 infrastructure may
+## bypass shortage-profit evaluation, but never physical source, funding,
+## forecast provenance or N39 mutations.
 const N151 = preload("res://scripts/sim/phase2/unified_n151_colony_establish.gd")
 const N154 = preload("res://scripts/sim/phase1/n154_native_construction_strategy.gd")
 const N111 = preload("res://scripts/native_port/n111_options.gd")
+const N134Head = preload("res://scripts/sim/phase1/n134_coordination_head.gd")
 const N92 = preload("res://scripts/ported/n92_colony_development.gd")
 const Trace = preload("res://scripts/view/strategy_decision_projection.gd")
 
@@ -23,9 +24,8 @@ func _run() -> void:
             "location_name": "venus-colony", "facility_type": "station"}],
         "faction-1", "venus-colony", {"ice": 0.2, "gas": 0.8})
     assert(next == "ice")
-    # N111 is a shortage-relief comparison, not a T1 development policy.
-    # Even a funded, otherwise viable construction cannot become a Head
-    # build grant when the target commodity has no reported market demand.
+    # Market demand for ice is zero. Real N154-ready infrastructure should
+    # no longer fail solely because it cannot show immediate shortage relief.
     var forecast: Dictionary = {
         "reason": "ready", "remaining": 600, "shipments": 3,
         "material": "metals", "total_cost": 50150,
@@ -38,9 +38,62 @@ func _run() -> void:
         "destination": "venus-colony", "score": 100
     }, new_market, {}, forecast, 100000, 1,
         100, 120, 1600, 10000, 200)
-    assert(evaluated["selected"] == "wait")
+    assert(evaluated["selected"] == "build")
+    assert(evaluated["alternatives"][1]["status"] == "ready")
     assert(evaluated["alternatives"][1]["reason"] ==
-        "no_projected_shortage_relief")
+        "strategic_colony_infrastructure")
+    assert(evaluated["alternatives"][1]["estimated_net_value"] == null)
+    var head: Dictionary = N134Head.preview(
+        {"treasury": 100000}, evaluated, 600, 1, false)
+    assert(head["selected_option"] == "build")
+    assert(head["reason"] == "strategic_colony_infrastructure")
+    # Must not turn normal shortage projects into free strategic subsidies.
+    var normal: Dictionary = N111.compare_goal({
+        "goal_id": "expand_production", "commodity": "ice",
+        "destination": "venus-colony", "score": 100
+    }, new_market, {}, forecast, 100000, 1,
+        100, 120, 1600, 10000, 200)
+    assert(normal["selected"] == "wait")
+    var not_colony: Dictionary = N111.compare_goal({
+        "goal_id": "develop_colony", "commodity": "ice",
+        "destination": "venus-station", "score": 100
+    }, new_market, {}, forecast, 100000, 1,
+        100, 120, 1600, 10000, 200)
+    assert(not_colony["selected"] == "wait")
+    # No valid external source, money, approved offer or native forecast
+    # means NO authority. All four must leave the action at 'wait'.
+    var empty_source: Dictionary = forecast.duplicate(true)
+    empty_source["source"] = ""
+    var empty_result: Dictionary = N111.compare_goal({
+        "goal_id": "develop_colony", "commodity": "ice",
+        "destination": "venus-colony"
+    }, new_market, {}, empty_source, 100000, 1,
+        100, 120, 1600, 10000, 200)
+    assert(empty_result["selected"] == "wait")
+    var too_expensive: Dictionary = forecast.duplicate(true)
+    too_expensive["total_cost"] = 120000
+    var budget_result: Dictionary = N111.compare_goal({
+        "goal_id": "develop_colony", "commodity": "ice",
+        "destination": "venus-colony"
+    }, new_market, {}, too_expensive, 100000, 1,
+        100, 120, 1600, 10000, 200)
+    assert(budget_result["selected"] == "wait")
+    var missing_forecast: Dictionary = forecast.duplicate(true)
+    missing_forecast.erase("native_output_units")
+    var provenance_result: Dictionary = N111.compare_goal({
+        "goal_id": "develop_colony", "commodity": "ice",
+        "destination": "venus-colony"
+    }, new_market, {}, missing_forecast, 100000, 1,
+        100, 120, 1600, 10000, 200)
+    assert(provenance_result["selected"] == "wait")
+    var blocked: Dictionary = forecast.duplicate(true)
+    blocked["reason"] = "no_accessible_stock"
+    var blocked_result: Dictionary = N111.compare_goal({
+        "goal_id": "develop_colony", "commodity": "ice",
+        "destination": "venus-colony"
+    }, new_market, {}, blocked, 100000, 1,
+        100, 120, 1600, 10000, 200)
+    assert(blocked_result["selected"] == "wait")
     # N92 instead prioritizes life-support when an actual household has
     # an unambiguous empty market. This can preempt development at N134.
     var observations: Array = N92.observe([{
@@ -89,5 +142,5 @@ func _run() -> void:
     assert(trace["factions"][0]["offers"][0]["building"] == "mining_rig")
     assert(Trace.reason_text("no_accessible_stock") !=
         "no_accessible_stock")
-    print("COLONY_AI_WHY_STALLED_DIAGNOSTIC_PASS")
+    print("COLONY_AI_INFRASTRUCTURE_ADMISSION_GUARDS_PASS")
     quit(0)
