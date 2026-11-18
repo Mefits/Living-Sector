@@ -12,6 +12,9 @@ signal facility_selected(facility_id: String)
 const MIN_ZOOM: float = 0.45
 const MAX_ZOOM: float = 512.0
 const FOCUS_GLOBE_RADIUS: float = 165.0
+## Sol Lab camera acquisition: begin following the zoomed planet at x3.1.
+## Keep globe surface LOD independent of camera follow.
+const FOLLOW_START_ZOOM: float = 3.1
 const CAMERA_EASING: float = 12.0
 const DETAIL_RADIUS: float = 24.0
 const SURFACE_REVEAL_WHEEL_STEPS: float = 2.0
@@ -243,11 +246,11 @@ func _process(delta: float) -> void:
             _zoom = _wheel_target_zoom
             _wheel_target_zoom = -1.0
 
-    # Enter follow automatically when the body under the zoom cursor reaches
-    # the SAME radius that begins drawing surface details. Never a new map.
+    # Camera follows the actual body once zoom crosses x3.1, even before
+    # surface detail is visible. This is independent of body pixel radius.
     if not _zoom_candidate_body_id.is_empty() and _focused_body_id.is_empty() and not _return_camera:
         var candidate: Dictionary = _body_by_id(_zoom_candidate_body_id)
-        if not candidate.is_empty() and _body_size(candidate) >= DETAIL_RADIUS / _ui_viewport_scale:
+        if not candidate.is_empty() and _follow_threshold_reached(_zoom):
             _focused_body_id = _zoom_candidate_body_id
             _follow_orbit_valid = false
 
@@ -1534,6 +1537,10 @@ func _draw_real_native_transits(system: Dictionary,
             "ship_ids": [str(sid)], "hit_radius": 12.0})
 
 
+func _follow_threshold_reached(current_zoom: float) -> bool:
+    return current_zoom >= FOLLOW_START_ZOOM
+
+
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     _return_camera = false
     _focus_zoom_target = -1.0
@@ -1541,22 +1548,22 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     _wheel_target_zoom = clampf(prior_target * multiplier, MIN_ZOOM, MAX_ZOOM)
     _wheel_anchor = pointer
     if multiplier > 1.0:
-        # Identify by existing screen hit-test. Lock is activated only once
-        # the planet visually reaches detail scale, not before it.
+        # Identify by existing screen hit-test. Acquire focus at x3.1,
+        # independent of globe surface detail and camera UI scale.
         var under_cursor: Dictionary = _nearest_pin(pointer)
         if not under_cursor.is_empty():
             _zoom_candidate_body_id = str(under_cursor.get("id", ""))
     elif not _focused_body_id.is_empty():
         var focused: Dictionary = _body_by_id(_focused_body_id)
-        if focused.is_empty() or _body_size_at_zoom(focused, _wheel_target_zoom) < DETAIL_RADIUS / _ui_viewport_scale:
-            # Reverse zoom restores free panning naturally, without a jump
-            # to orbit/default view.
+        if focused.is_empty() or not _follow_threshold_reached(_wheel_target_zoom):
+            # Unlock as the zoom target crosses below x3.1; pointer-anchored
+            # free panning resumes without switching to a different map.
             _focused_body_id = ""
             _zoom_candidate_body_id = ""
             _follow_orbit_valid = false
     elif not _zoom_candidate_body_id.is_empty():
         var candidate: Dictionary = _body_by_id(_zoom_candidate_body_id)
-        if candidate.is_empty() or _body_size_at_zoom(candidate, _wheel_target_zoom) < DETAIL_RADIUS / _ui_viewport_scale:
+        if candidate.is_empty() or not _follow_threshold_reached(_wheel_target_zoom):
             _zoom_candidate_body_id = ""
     queue_redraw()
 
