@@ -113,6 +113,7 @@ var _tick: int = -1
 var _paused: bool = false
 var _speed: float = 1.0
 var _show_outliner: bool = true
+var _outliner_force_overlay: bool = false
 
 func _style(color: Color, border: Color = LINE, left: int = 1,
         top: int = 1, right: int = 1, bottom: int = 1) -> StyleBoxFlat:
@@ -892,7 +893,8 @@ func _layout_window() -> void:
     _effective_top_h = header_h
     var layout: Dictionary = LSLayout.calculate(
         Vector2(vw, vh), header_h,
-        _window != null and _window.visible, _show_outliner)
+        _window != null and _window.visible, _show_outliner,
+        _outliner_force_overlay)
     var left: float = float(layout["left"])
     var right: float = float(layout["right"])
     var out_w: float = float(layout["out_width"])
@@ -993,15 +995,20 @@ func _toggle_scope() -> void:
     _update_window()
 
 func _toggle_outliner() -> void:
-    # When a narrow viewport hides the list behind a management panel,
-    # clicking the reveal button closes that panel instead of toggling
-    # the logical preference into the wrong state.
-    if _show_outliner and _outliner != null and not _outliner.visible and (
-            _window != null and _window.visible):
-        _close_window()
+    # When auto-hidden by available width, reveal the list as a temporary
+    # right overlay. Do not flip the user's preference to "off".
+    if _show_outliner and _outliner != null and not _outliner.visible:
+        if _window != null and _window.visible:
+            _close_window()
+        _outliner_force_overlay = true
         _layout_window()
         return
-    _show_outliner = not _show_outliner
+    if _outliner != null and _outliner.visible:
+        _show_outliner = false
+        _outliner_force_overlay = false
+    else:
+        _show_outliner = true
+        _outliner_force_overlay = true
     _layout_window()
 
 func _close_window() -> void:

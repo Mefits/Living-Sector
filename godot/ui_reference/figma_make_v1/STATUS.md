@@ -66,7 +66,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 ## Stage 6 — adaptive geometry and integration [IN PROGRESS]
 
 - [x] Pure `ls_ui_layout.gd` geometry policy uses the actual post-scaling Control size, rather than artificial 640px minimum.
-- [x] Workspace receives priority over right outliner on narrow logical viewports; user can reopen it.
+- [x] Workspace receives priority over right outliner on narrow logical viewports; manual reveal uses a temporary map overlay, so the button still works when the viewport is too narrow for a docked sidebar.
 - [x] Window, breadcrumb, context card, alert popover and footer all derive offsets from the same layout.
 - [x] Resource chip counts adapt at five width bands; no game state or N39 snapshot is read by layout.
 - [x] Workspace metric grids and colony columns reflow by available logical workspace width, not their own resizes (no 4↔2 oscillation).
@@ -111,3 +111,4 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - Market credit aggregate is displayed only if every listed market publishes a numeric credit amount; partially reported totals remain "—".
 
 - Latest implementation: bad3df2 (warehouse/contracts/planner/research), ae6da36 (construction stages and published AI consequences). Per user request, no Godot tests or Actions triggered.
+\n- Stage 6: added explicit narrow-screen outliner overlay state and preserved user toggles. No runtime tests executed.\n
