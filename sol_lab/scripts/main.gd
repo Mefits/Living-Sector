@@ -19,6 +19,7 @@ var config: Dictionary = {}
 var native_time: float = 0.0
 var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
+var colony_button: Button
 var construction = ConstructionRuntime.new()
 var construction_ui_elapsed: float = 0.0
 var message_line: Label
@@ -146,6 +147,7 @@ func _build_ui() -> void:
     var filler := Control.new()
     filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
     contents.add_child(filler)
+    colony_button = _button(contents, "Колонизировать Луну", _colonize_luna)
     _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
     mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
     var saves := HBoxContainer.new()
@@ -275,6 +277,11 @@ func _process(delta: float) -> void:
     if frame_profiler.display_due():
         _update_performance_label()
 
+func _colonize_luna() -> void:
+    if selected == "luna" and construction.expedition.depart(native_time):
+        _show_selected()
+        _notice("Колонизатор отправился к Луне")
+
 func _show_selected() -> void:
     if details == null:
         return
@@ -289,6 +296,15 @@ func _show_selected() -> void:
             "Строек в очереди: %d" % _pending_on(selected),
             "Ресурсные коэффициенты:"
         ]
+        var expedition = construction.expedition
+        colony_button.visible = selected == "luna" and expedition.ship.get("location") == "earth-colony"
+        if selected in ["earth", "luna"] and not expedition.ship.is_empty():
+            if expedition.ship.location == "transit":
+                items.insert(1, "Колонизатор → Луна · прибытие " + Calendar.calendar_text(expedition.ship.arrival))
+            else:
+                items.insert(1, "Колонизатор у Земли · выберите Луну")
+        elif selected == "luna" and not expedition.settlers.is_empty():
+            items.insert(1, "Население: %d" % int(expedition.settlers.population_count))
         var coeff: Dictionary = config.get("planets",{}).get(selected,{})
         for key in body.get("resources",{}).keys():
             items.append("%s: %.2f" % [Model.resource_label(str(key)),
@@ -433,6 +449,7 @@ func _make_native_map() -> void:
     move_child(native_view, 0)
     native_view.set_world(_native_view_world())
     native_view.select_body(selected)
+    native_view.colonizer_progress = construction.expedition.progress(native_time)
     native_view.set_native_station_time(native_time)
 
 func _update_native_map() -> void:
@@ -440,6 +457,7 @@ func _update_native_map() -> void:
         return
     var begun: int = Time.get_ticks_usec()
     native_view.update_world(_native_view_world())
+    native_view.colonizer_progress = construction.expedition.progress(native_time)
     native_view.set_native_station_time(native_time)
     _map_view_last_usec = maxi(0, Time.get_ticks_usec() - begun)
     _map_view_peak_usec = maxi(_map_view_peak_usec, _map_view_last_usec)
@@ -640,4 +658,5 @@ func _load_game() -> void:
     _refresh_construction_ui()
     _show_selected()
     _notice("Игра загружена: " + Calendar.calendar_text(native_time))
+
 

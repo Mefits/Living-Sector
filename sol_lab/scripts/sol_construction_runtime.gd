@@ -11,6 +11,9 @@ var settings: Dictionary = {}
 var now_native: float = 0.0
 var next_id: int = 1
 var sites: Array = []
+var expedition := preload("res://scripts/sol_lunar_expedition.gd").new()
+var initial_markets := 0
+var initial_manifest: Dictionary
 const CYCLE_DAYS := 30
 var planets: Dictionary = {}
 var producers: Array = []
@@ -19,6 +22,9 @@ var batch_revision := 0
 
 func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  world = source_world
+ expedition.reset(world)
+ initial_markets = world.get("markets", []).size()
+ initial_manifest = expedition.snapshot()
  settings = building_settings
  now_native = 0.0
  next_id = 1
@@ -119,6 +125,9 @@ func advance_to(new_native: float) -> Array:
  if not is_finite(new_native) or new_native < now_native:
   return completed
  now_native = new_native
+ if expedition.ship.get("location", "") == "transit" and now_native >= float(expedition.ship.arrival):
+  if expedition.land_if_due(world, now_native, _colony_owner("earth")):
+   completed.append("Колония на Луне основана")
  var remaining: Array = []
  for site in sites:
   if now_native + 0.000001 < float(site["finish_native"]):
@@ -155,6 +164,7 @@ func _finish(site: Dictionary) -> bool:
 func snapshot() -> Dictionary:
  return {
   "version": VERSION,
+  "expedition": expedition.snapshot(),
   "system_id": str(world.get("system", {}).get("id", "")),
   "native_time": now_native,
   "next_id": next_id,
@@ -182,7 +192,14 @@ func restore(data: Dictionary) -> bool:
  if not (input_sites is Array) or not (input_facilities is Array) or (
      not (input_markets is Array)):
   return false
- if input_markets.size() != (world.get("markets", []) as Array).size():
+ var lunar := false
+ for item in input_markets:
+  if item is Dictionary and item.get("facility_id") == expedition.PORT:
+   lunar = true
+ var manifest: Variant = data.get("expedition", initial_manifest)
+ if not expedition.validate(manifest, lunar, float(t)):
+  return false
+ if input_markets.size() != initial_markets + int(lunar):
   return false
  var all_ids: Dictionary = {}
  var site_ids: Dictionary = {}
@@ -208,6 +225,8 @@ func restore(data: Dictionary) -> bool:
    if not (due is float or due is int) or not is_finite(float(due)) or float(due) <= float(t):
     return false
   all_ids[id] = f
+ if all_ids.has("facility-luna-ac") != lunar:
+  return false
  for site in input_sites:
   if not (site is Dictionary):
    return false
@@ -234,6 +253,7 @@ func restore(data: Dictionary) -> bool:
   if int(m["supply"].get("metals", -1)) < 0:
    return false
  # Commit all restored domains only after all checks pass.
+ expedition.restore(world, manifest)
  world["facilities"] = input_facilities.duplicate(true)
  world["markets"] = input_markets.duplicate(true)
  sites = input_sites.duplicate(true)
@@ -334,3 +354,4 @@ func inventory_summary(body: String) -> String:
    str(entry.recipe.name),
    str(entry.facility.get("production_status", "Ожидается первый выпуск"))])
  return "\n".join(lines)
+
