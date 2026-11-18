@@ -1683,6 +1683,67 @@ func last_native_ship_crew() -> Dictionary:
 func fleet_snapshot() -> Dictionary:
     return production.ships_snapshot() if _native_enabled else {}
 
+## Cached bounded strategic trace from ALREADY computed N134/N154 cycles.
+## No N39 snapshot, source replan, or mutating call in UI; each faction gets
+## at most five candidate summaries (not the full growing offer collection).
+func _strategy_ui_trace() -> Dictionary:
+    var rows: Dictionary = {}
+    var seen: Variant = _last_construction_observation.get("factions", {})
+    if seen is Dictionary:
+        for fid in seen:
+            var view: Variant = seen[fid]
+            if not (view is Dictionary):
+                continue
+            var offers: Array[Dictionary] = []
+            var raw_offers: Variant = view.get("offers", [])
+            if raw_offers is Array:
+                for raw in raw_offers:
+                    if not (raw is Dictionary):
+                        continue
+                    var goal: Variant = raw.get("goal", {})
+                    if not (goal is Dictionary):
+                        continue
+                    offers.append({
+                        "goal": {
+                            "goal_id": str(goal.get("goal_id", "")),
+                            "commodity": str(goal.get("commodity", "")),
+                            "destination": str(goal.get("destination", ""))
+                        },
+                        "facility_type": str(raw.get("facility_type", "")),
+                        "reason": str(raw.get("reason", "")),
+                        "ready": bool(raw.get("ready", false)),
+                        "delivery_commodity": str(raw.get("delivery_commodity", "")),
+                        "total_cost": int(raw.get("total_cost", 0))
+                    })
+                    if offers.size() >= 5:
+                        break
+            rows[str(fid)] = {
+                "construction": {
+                    "status": str(view.get("status", "")),
+                    "reason": str(view.get("reason", "")),
+                    "selected_goal": view.get("selected_goal", {}),
+                    "offers": offers
+                }
+            }
+    var heads: Variant = _last_n134_result.get("heads", {})
+    if heads is Dictionary:
+        for fid in heads:
+            var key: String = str(fid)
+            var head: Variant = heads[fid]
+            if not (head is Dictionary):
+                continue
+            if not rows.has(key):
+                rows[key] = {}
+            rows[key]["head"] = {
+                "selected_option": str(head.get("selected_option", "wait")),
+                "reason": str(head.get("reason", "")),
+                "problem": head.get("problem", {})
+            }
+    return {
+        "tick": int(_last_n134_result.get("tick", -1)),
+        "factions": rows
+    }
+
 ## UI/profiler-friendly read-only trace of *real* N153/N84 results.
 ## A zero accepted count means no source-valid assignment happened;
 ## never mistake presence of N104 offers for physical flight.
@@ -1690,6 +1751,7 @@ func native_autonomy_diagnostics() -> Dictionary:
     var bids: Array = _last_n153_result.get("blocked", [])
     var accepted: Array = _last_n153_result.get("accepted", [])
     return {"tick": tick_count,
+        "strategy_trace": _strategy_ui_trace(),
         "n153_blocked": bids.duplicate(true),
         "n153_accepted": accepted.size(),
         "n84_departures": _last_ship_result.get(
@@ -1984,6 +2046,7 @@ func economy_summary(checkpoint_world: Dictionary = {}) -> Dictionary:
         "construction_sites": current.get("construction_sites", {}).size(),
         "construction_live_paid_contracts": current.get("construction_contracts", {}).size(),
         "construction_last_observation": _last_construction_observation.duplicate(true),
+        "strategy_trace": _strategy_ui_trace(),
         "faction_treasuries": current.get("faction_treasuries", {}).duplicate(true),
         "faction_relations": current.get("faction_relations", {}).duplicate(true),
         "native_relations_last_tick": int(current.get("faction_relations_last_tick", 0)),
