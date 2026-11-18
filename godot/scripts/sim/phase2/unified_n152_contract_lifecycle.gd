@@ -57,18 +57,17 @@ static func _stage(world: Dictionary, ledger: RefCounted, tick: int) -> Dictiona
     for entry in aging.get("expired", []):
         expired.append(str(entry.get("id", "")))
     var aged: bool = aged_board["contracts"] != original["contracts"]
-    var ids: Array = original["contracts"].keys()
-    ids.sort()
+    # Filter the growing immutable audit history BEFORE sorting/copying.
+    # Paid/expired contracts with zero escrow remain in the canonical board
+    # and N38 snapshot; they simply cannot generate another refund.
+    var ids: Array = _refundable_ids(aged_board["contracts"])
     var refunds: Array = []
     var blocked: Array = []
     for id in ids:
-        var status: String = str(board.get_contract(str(id)).get("status", ""))
-        if status not in ["paid", "expired"]:
-            continue
+        # Exactly one detached contract copy per actionable refund, rather
+        # than two copies for every historical row on every paid tick.
         var current: Dictionary = board.get_contract(str(id))
         var amount: int = int(current.get("reserved", 0))
-        if amount <= 0:
-            continue
         var payer: String = str(current.get("requestor_id", ""))
         var escrow: String = str(current.get("escrow_account", ""))
         if not bank.get("balances", {}).has(payer):
@@ -99,6 +98,17 @@ static func _stage(world: Dictionary, ledger: RefCounted, tick: int) -> Dictiona
         "expired": expired, "renewed": renewed, "aged": aged,
         "refunded": refunds, "blocked": blocked,
         "changed": aged or not refunds.is_empty()}
+
+## Pure prefilter. Sorting the candidate subset preserves the old lexical
+## refund/blocked order and deterministic N9 receipt sequence.
+static func _refundable_ids(contracts: Dictionary) -> Array:
+    var ids: Array = []
+    for id in contracts:
+        var c: Dictionary = contracts[id]
+        if str(c.get("status", "")) in ["paid", "expired"] and int(c.get("reserved", 0)) > 0:
+            ids.append(id)
+    ids.sort()
+    return ids
 
 static func _bad(reason: String) -> Dictionary:
     return {"ok": false, "reason": reason}
