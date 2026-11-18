@@ -4595,14 +4595,15 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
         return false
     if proposed["populations"].size() != _world["populations"].size():
         return false
-    # N151 consumption writes only population rows, facility credits and market
-    # supply/consumption windows. Detach these complete domains before the first
-    # ledger transfer: rejected tickets must never mutate authoritative World.
-    # All other domains are read-only and still checked by the full Schema oracle.
+    # N151 writes only paid buyers/sellers/markets and changed sentiment rows.
+    # Detach registry maps first, then rows immediately before their first write.
+    # A failed ticket cannot mutate any nested authoritative World container.
     var staged: Dictionary = _copy_world("L4144_owned_root", false)
-    staged["populations"] = _world["populations"].duplicate(true)
-    staged["facilities"] = _world["facilities"].duplicate(true)
-    staged["markets"] = _world["markets"].duplicate(true)
+    for domain in ["populations", "facilities", "markets"]:
+        staged[domain] = _world[domain].duplicate()
+    var owned_populations: Dictionary = {}
+    var owned_facilities: Dictionary = {}
+    var owned_markets: Dictionary = {}
     var ledger_next: RefCounted = _ledger.fork()
     var purchases: Array = native_result["purchases"]
     for index in range(purchases.size()):
@@ -4641,6 +4642,19 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
         var new_stock: float = float(after.get("market_supply", -1.0))
         if new_stock < 0.0 or not is_finite(new_stock) or absf((current_stock - quantity) - new_stock) > maxf(0.0005, absf(current_stock) * 0.000001):
             return false
+        # All preflight checks above are read-only. Copy each row once, so
+        # repeated purchases observe earlier staged stock and ledger balances.
+        if not owned_populations.has(pid):
+            staged["populations"][pid] = pop.duplicate(true)
+            owned_populations[pid] = true
+        if not owned_facilities.has(fid):
+            staged["facilities"][fid] = staged["facilities"][fid].duplicate(true)
+            owned_facilities[fid] = true
+        if not owned_markets.has(location):
+            staged["markets"][location] = market.duplicate(true)
+            owned_markets[location] = true
+        pop = staged["populations"][pid]
+        market = staged["markets"][location]
         var receipt_id: String = "n151/consumption/%d/%d/%s/%s" % [tick, index, pid, commodity]
         var receipt: Dictionary = ledger_next.transfer(receipt_id,
             Schema.household_account(pid), Schema.facility_account(fid),
@@ -4661,7 +4675,13 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
         var real_market: Dictionary = staged["markets"][location]
         if pm.get("id") != real_market.get("id") or pm.get("supply") != real_market["supply"] or pm.get("prices") != real_market["prices"]:
             return false
-        real_market["consumption_window"] = pm.get("consumption_window", {}).duplicate(true)
+        var next_window: Variant = pm.get("consumption_window", {})
+        if real_market.get("consumption_window", {}) != next_window:
+            if not owned_markets.has(location):
+                staged["markets"][location] = real_market.duplicate(true)
+                owned_markets[location] = true
+                real_market = staged["markets"][location]
+            real_market["consumption_window"] = next_window.duplicate(true)
     var matched: Dictionary = {}
     for projected_pop in proposed["populations"]:
         if not (projected_pop is Dictionary):
@@ -4677,7 +4697,12 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
                 "overall_sentiment", "unrest", "migration_pressure"]:
             if not projected_pop.has(field):
                 return false
-            real_pop[field] = projected_pop[field]
+            if real_pop.get(field) != projected_pop[field]:
+                if not owned_populations.has(id):
+                    staged["populations"][id] = real_pop.duplicate(true)
+                    owned_populations[id] = true
+                    real_pop = staged["populations"][id]
+                real_pop[field] = projected_pop[field]
     for fid in staged["facilities"]:
         if not proposed["facilities"].has(fid) or int(proposed["facilities"][fid].get("credits", -1)) != int(staged["facilities"][fid]["credits"]):
             return false
