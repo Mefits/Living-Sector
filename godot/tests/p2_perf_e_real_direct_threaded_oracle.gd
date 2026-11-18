@@ -7,6 +7,7 @@ const Direct = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const ThreadOwner = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const Oracle = preload("res://scripts/sim/phase2/n158_checkpoint_parity_oracle.gd")
 const Metrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
+const Acceptance = preload("res://scripts/sim/phase2/n158_direct_threaded_acceptance.gd")
 const TARGET: int = 100
 const MILESTONES: Array[int] = [1, 20, 60, 100]
 const REQUEST_TIMEOUT_MS: int = 20000
@@ -78,8 +79,8 @@ func _run() -> void:
                 _finish("checkpoint request failed " + str(tick), false)
                 return
             var detached_worker: Dictionary = response.get("checkpoint", {})
-            var parity: Dictionary = Oracle.compare(detached_direct, detached_worker)
-            if not parity.get("equal", false):
+            var parity: Dictionary = Acceptance.verify_boundary(tick, detached_direct, response)
+            if not parity.get("accepted", false):
                 _finish("exact checkpoint divergence tick " + str(tick) +
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
@@ -101,19 +102,11 @@ func _run() -> void:
                     _finish("post-restart direct/thread divergence", false)
                     return
                 print("P2_PERF_E_DIRECT_THREAD_RESTART_EXACT tick=", tick)
-    var window: Dictionary = Metrics.bounded_paid_tick_window(timings, TARGET)
-    if not window.get("complete", false) or int(window.get("observed_paid_ticks", -1)) != TARGET:
-        _finish("missing 100 consecutive paid worker requests", false)
+    var window: Dictionary = Acceptance.summarize_window(TARGET, timings)
+    if not window.get("accepted", false):
+        _finish("invalid 100-paid-tick window: " + str(window.get("reason", "")), false)
         return
-    var direct_total: int = 0
-    for row in timings:
-        direct_total += int(row["direct_advance_wall_usec"])
-    print("P2_PERF_E_DIRECT_THREAD_WINDOW ", JSON.stringify({
-        "ticks": TARGET, "direct_advance_wall_avg_usec": float(direct_total) / TARGET,
-        "worker_advance_wall_avg_usec": window["advance_wall_avg_usec"],
-        "worker_request_wall_avg_usec": window["request_wall_avg_usec"],
-        "worker_projection_wall_avg_usec": window["projection_wall_avg_usec"],
-        "time_kind": "elapsed_wall_not_cpu", "performance_claim": false}))
+    print("P2_PERF_E_DIRECT_THREAD_WINDOW ", JSON.stringify(window))
     _finish("100 exact paid ticks; same-seed checkpoints", true)
 
 func _command(kind: String, payload: Dictionary = {}) -> Dictionary:
@@ -153,10 +146,10 @@ func _negative_oracles() -> bool:
     changed["tick"] = 2
     if Oracle.compare(expected, changed).get("equal", true):
         return false
-    if not Metrics.bounded_paid_tick_window([{
+    if Acceptance.summarize_window(100, [{
             "valid": true, "paid_ticks": 2, "after_tick": 100,
             "advance_wall_usec": 2, "projection_wall_usec": 1,
-            "request_wall_usec": 3}], 100).is_empty():
+            "request_wall_usec": 3}]).get("accepted", false):
         return false
     return true
 
