@@ -33,8 +33,9 @@ var _fork_changed_shards: Dictionary = {}
 # append without recopying, until a fork shares it. Disabled until parity CI.
 var _reuse_private_shards: bool = OS.get_environment("LS_N9_PRIVATE_SHARD_REUSE") == "1"
 var _private_shards: Dictionary = {}
-# The current last order chunk is private only after its first detach.
-# A fork invalidates ownership in both parent and child.
+# A newly created/detached order tail is private until the next fork.
+# Fork invalidates ownership in both parent and child, independently of
+# the experimental receipt-shard reuse flag. Restore always resets it.
 var _private_order_chunk: bool = false
 ## Exact per-kind counts, updated only on committed append or validated restore.
 ## A fork owns its counter dictionary: never mutate the parent's counters.
@@ -129,8 +130,11 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 		_receipt_order_chunks.append([id])
 		_private_order_chunk = true
 	else:
-		if _reuse_private_shards and _private_order_chunk:
-			# This array has not been shared by a fork since its last detach.
+		if _private_order_chunk:
+			# A newly allocated/detached tail belongs exclusively to this ledger.
+			# Unlike receipt shards, order-tail ownership is unconditional: fork()
+			# invalidates it on BOTH branches and restore() resets the lineage.
+			# Copying the same <=64 old IDs for every paid receipt was redundant.
 			(_receipt_order_chunks[last] as Array).append(id)
 		else:
 			var order: Array = (_receipt_order_chunks[last] as Array).duplicate()
