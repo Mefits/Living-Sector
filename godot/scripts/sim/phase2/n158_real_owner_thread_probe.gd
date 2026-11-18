@@ -242,6 +242,7 @@ func _owner_loop(seed: Dictionary) -> void:
             var phase_report: Dictionary = sim.paid_phase_distribution(sim.tick_count)
             if not phase_report.is_empty():
                 answer["paid_phase_window"] = phase_report.duplicate(true)
+                answer["paid_callsite_costs"] = sim.paid_callsite_costs(sim.tick_count)
         _publish(answer)
     # sim is released on this same owner thread. No live reference escapes.
 
