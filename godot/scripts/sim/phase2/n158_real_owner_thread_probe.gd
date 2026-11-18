@@ -34,7 +34,8 @@ func launch(source_seed: Dictionary) -> bool:
 ## Do not hand live SceneTree objects, Runner or World into this API.
 func submit(kind: String, payload: Dictionary = {}) -> int:
     if kind not in ["pause", "resume", "speed", "step", "checkpoint",
-            "save", "load", "restore", "frame"]:
+            "save", "load", "restore", "frame",
+            "manual_control", "manual_build"]:
         return -1
     if not _safe_payload(payload):
         return -1
@@ -45,6 +46,18 @@ func submit(kind: String, payload: Dictionary = {}) -> int:
             not is_finite(float(payload["value"])) or float(payload["value"]) <= 0.0 or
             float(payload["value"]) > 16.0):
         return -1
+    if kind == "manual_control":
+        if payload.size() != 2 or typeof(payload.get("faction_id")) != TYPE_STRING or (
+                typeof(payload.get("manual")) != TYPE_BOOL) or str(
+                payload.get("faction_id", "")).is_empty():
+            return -1
+    if kind == "manual_build":
+        if payload.size() != 3:
+            return -1
+        for key in ["faction_id", "destination", "commodity"]:
+            if typeof(payload.get(key)) != TYPE_STRING or str(payload[key]).is_empty() or (
+                    str(payload[key]).length() > 128):
+                return -1
     if kind == "frame":
         if typeof(payload.get("delta")) not in [TYPE_FLOAT, TYPE_INT] or (
                 not is_finite(float(payload["delta"])) or
@@ -144,6 +157,19 @@ func _owner_loop(seed: Dictionary) -> void:
                 answer["ok"] = sim.queue_control("step", int(payload["count"]))
                 if answer["ok"]:
                     sim.advance_frame(0.0)
+            "manual_control":
+                answer["result"] = sim.request_player_control(
+                    str(payload["faction_id"]), bool(payload["manual"]))
+                answer["ok"] = bool(answer["result"].get("ok", false))
+                if not answer["ok"]:
+                    answer["error"] = str(answer["result"].get("reason", "manual_control_rejected"))
+            "manual_build":
+                answer["result"] = sim.request_player_construction(
+                    str(payload["faction_id"]), str(payload["destination"]),
+                    str(payload["commodity"]))
+                answer["ok"] = bool(answer["result"].get("ok", false))
+                if not answer["ok"]:
+                    answer["error"] = str(answer["result"].get("reason", "manual_build_rejected"))
             "frame":
                 # The sole authoritative N158 advances off the SceneTree thread.
                 # GUI submits at most one frame command at a time; no catch-up
@@ -177,6 +203,7 @@ func _owner_loop(seed: Dictionary) -> void:
             answer["error"] = "native_phase_failure"
             answer["phase_failure"] = phase_failure.duplicate(true)
             frozen = true
+        answer["player_control"] = sim.player_control_snapshot()
         answer["tick"] = sim.tick_count
         answer["paused"] = sim.clock.paused
         answer["speed"] = sim.clock.world_speed
@@ -185,7 +212,8 @@ func _owner_loop(seed: Dictionary) -> void:
         # command handling; do not present it as thread CPU or per-tick cost.
         answer["sim_usec"] = maxi(0, advance_end_usec - began_usec)
         answer["advanced"] = sim.tick_count != before_tick
-        if answer["ok"] and kind in ["frame", "step", "load", "restore"] and (
+        if answer["ok"] and kind in ["frame", "step", "load", "restore",
+                "manual_build"] and (
                 kind != "frame" or answer["advanced"] or
                 bool(payload.get("view", false)) or
                 bool(payload.get("observer", false))):
@@ -197,7 +225,7 @@ func _owner_loop(seed: Dictionary) -> void:
             # No World copy, N39 mutation or UI-side simulated tick.
             answer["native_time_units"] = sim.calendar.native_time_units
             answer["angles"] = sim.world.orbital_snapshot()
-            if kind in ["load", "restore", "step"] or (kind == "frame" and (
+            if kind in ["load", "restore", "step", "manual_build"] or (kind == "frame" and (
                     bool(payload.get("view", false)) or
                     bool(payload.get("observer", false)))):
                 var economy: Dictionary = sim.economy_snapshot()
