@@ -519,7 +519,10 @@ func _advance_construction() -> void:
     if browser.visible and browser.page == "build":
         browser.configure(world, config, selected, false)
     _refresh_construction_ui()
-    _notice("Завершено: " + ", ".join(finished))
+    var names := PackedStringArray()
+    for item in finished:
+        names.append(str(item))
+    _notice("Завершено: " + ", ".join(names))
 
 func _refresh_construction_ui() -> void:
     if browser == null:
