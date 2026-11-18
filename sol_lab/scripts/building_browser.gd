@@ -2,6 +2,7 @@ extends ColorRect
 ## Sol Lab build/admin surface. Config is shared with the owning scene.
 signal apply_requested
 signal reset_requested
+signal values_changed
 const Model = preload("res://scripts/sol_building_model.gd")
 var world: Dictionary = {}
 var config: Dictionary = {}
@@ -102,7 +103,7 @@ func _navigate(target: String) -> void:
   _button(bar,"Сбросить",func(): reset_requested.emit())
 
 func _cards(editable: bool) -> void:
- _label(contents,"3 карточки в ряд. Выпуск: базовый (с коэффициентом выбранной планеты).",16)
+ _label(contents,"Каталог: стоимость, расход и выпуск — базовый (для планеты).",16)
  var grid := GridContainer.new()
  grid.columns = 3
  grid.add_theme_constant_override("h_separation",12)
@@ -133,7 +134,7 @@ func _cards(editable: bool) -> void:
    if str(building["product"])!="none":
     _spin(stack,"Базовый выпуск",float(row["base"]),_edit_building.bind(id,"base"),1,100000)
   else:
-   _label(stack,"Стоимость: %d металла · %d труда" % [int(row["metals"]),int(row["labor"])],15)
+   _label(stack,("Стоимость: %d металла · %d труда" % [int(row["metals"]),int(row["labor"])]) if bool(building["ported"]) else "Стоимость: не утверждена",15)
    var needs: Array[String] = []
    for resource in building["inputs"].keys():
     needs.append("%d %s" % [int(row["input_"+str(resource)]),Model.resource_label(str(resource))])
@@ -144,6 +145,8 @@ func _cards(editable: bool) -> void:
   var spacer := Control.new()
   spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
   stack.add_child(spacer)
+  if id=="mining_rig":
+   _label(stack,"Добыча 10 — пример для UI, не N39",13,Color("#9badb8"))
   if not bool(building["ported"]):
    _label(stack,"Механика пока не перенесена",14,Color("#8ea5b5"))
   if not editable:
@@ -213,6 +216,7 @@ func _edit_planet(value: float, key: String) -> void:
  var row: Dictionary = config["planets"][body_id]
  row[key] = snappedf(value,0.01)
  config["planets"][body_id] = row
+ values_changed.emit()
  feedback.text = "Коэффициент изменён; проверьте новое число в карточке здания."
 
 func _needs() -> void:

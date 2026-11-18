@@ -16,12 +16,10 @@ var dragging: bool = false
 var selected: String = "earth"
 var positions: Dictionary = {}
 var details: Label
-var admin_area: ScrollContainer
 var info_area: VBoxContainer
 var mode_button: Button
 var pause_button: Button
 var time_label: Label
-var admin_open: bool = false
 var browser: ColorRect
 
 func _ready() -> void:
@@ -86,23 +84,6 @@ func _button(parent: Node, label: String, action: Callable) -> Button:
     parent.add_child(b)
     b.pressed.connect(action)
     return b
-
-func _add_numeric(parent: Node, group: String, key: String, label: String) -> void:
-    var l := Label.new()
-    l.text = label
-    parent.add_child(l)
-    var spin := SpinBox.new()
-    spin.min_value = 0
-    spin.max_value = 100000
-    spin.step = 1
-    spin.value = float(config.get(group, {}).get(key, 0))
-    parent.add_child(spin)
-    spin.value_changed.connect(_changed.bind(group, key))
-
-func _changed(value: float, group: String, key: String) -> void:
-    var category: Dictionary = config.get(group, {})
-    category[key] = int(value)
-    config[group] = category
 
 func _load_config() -> Dictionary:
     var defaults: Variant = JSON.parse_string(FileAccess.get_file_as_string(DEFAULTS))
@@ -330,6 +311,7 @@ func _make_browser() -> void:
     browser.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     browser.apply_requested.connect(_apply)
     browser.reset_requested.connect(_restore)
+    browser.values_changed.connect(_show_selected)
     browser.hide()
 
 func _open_build() -> void:
