@@ -150,3 +150,14 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - [ ] User Windows test: verify starting tick is near 0 (may advance quickly if unpaused), no unintended save load, and metrics update every ~0.5s. Godot was not run in this environment.
 
 Commits: `e70d92c` (no worker auto-load), `329e0be` (profiler data), `cdf079f` (footer presentation).
+
+### Planet and Luna viewport scale correction — 2026-11-18
+
+- [x] Restored original approved Sol 0.65 world-camera proportions without changing `ORBIT_COMPRESSION=0.65`, `SATELLITE_COMPRESSION=0.50` or astronomical moon metadata.
+- [x] Removed close-up orbit compensation that multiplied lunar distance after the window had already applied UI scaling; previously the compensation also capped at 150% while UI supported up to 200%.
+- [x] Planet and moon globe radii, Sun size, close-up station ring clearance and auto-focus thresholds are now independent of native UI content scale in **physical screen pixels**.
+- [x] Legacy 420px map minimum retained only in `--p2-legacy-ui`; the modern UI map respects the scaled viewport.
+- [x] Regression fixture compares Earth/Luna physical radii and lunar orbit at 100%, 125%, 140%, 160%, 180%, 200% UI scale and checks focus radius.
+- [ ] Windows visual review of the system map (especially Earth, Luna and station at 160%/180%) remains pending; fixture added but not executed in this environment.
+
+Commits: `fa41c65`, `ddcc03b`, `6b08450`.
