@@ -19,9 +19,13 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
         return {"ok": false, "reason": "n18_invalid_persisted_administrator"}
     var due: bool = tick % (5 * multiplier) == 0
     if not due:
+        # N39 reads snapshots only for due staffing cycles. Previously this
+        # branch deep-copied every persisted administrator memory on each
+        # non-due paid tick, then N39 discarded the entire copy. Return an
+        # independent empty staging container instead: never expose a World
+        # alias and never mutate/persist administrator memory on idle ticks.
         return {"ok": true, "due": false, "assignments": {},
-            "snapshots": world.get("station_administration", {}).duplicate(true),
-            "views": []}
+            "snapshots": {}, "views": []}
     if tick <= int(world.get("station_administration_last_tick", 0)):
         return {"ok": false, "reason": "n18_duplicate_native_staffing_cycle"}
     var snapshots: Dictionary = world.get("station_administration", {}).duplicate(true)
