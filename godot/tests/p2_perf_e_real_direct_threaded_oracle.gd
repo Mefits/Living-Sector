@@ -8,6 +8,7 @@ const ThreadOwner = preload("res://scripts/sim/phase2/n158_real_owner_thread_pro
 const Oracle = preload("res://scripts/sim/phase2/n158_checkpoint_parity_oracle.gd")
 const Metrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
 const Acceptance = preload("res://scripts/sim/phase2/n158_direct_threaded_acceptance.gd")
+const PhaseGrowth = preload("res://scripts/sim/phase2/n158_phase_growth_acceptance.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
 const EXTENDED_TARGET: int = 900
@@ -68,6 +69,8 @@ func _run() -> void:
     var previous_window: Dictionary = {}
     var observation_samples: Array = []
     var phase_reports: Array = []
+    var first_phase_window: Dictionary = {}
+    var previous_phase_window: Dictionary = {}
     for tick in range(1, target + 1):
         if Time.get_ticks_msec() - _start_ms >= budget_ms:
             _finish("bounded wall budget exceeded before paid tick " + str(tick), false)
@@ -150,6 +153,26 @@ func _run() -> void:
                     _finish("paid phase attribution failed " + str(tick) +
                         " " + JSON.stringify(paid_phase_gate), false)
                     return
+                # Compare only exact checkpoint-gated, detached phase evidence.
+                # Normalize by real calls and active ticks: cadence changes are
+                # not misreported as an increase in per-call execution cost.
+                var phase_window: Dictionary = PhaseGrowth.accept_window(
+                    tick, paid_phase_gate)
+                if not phase_window.get("accepted", false):
+                    _finish("phase growth boundary rejected " + str(phase_window), false)
+                    return
+                if tick == 100:
+                    first_phase_window = phase_window.duplicate(true)
+                if not previous_phase_window.is_empty():
+                    var adjacent_phases: Dictionary = PhaseGrowth.compare(
+                        previous_phase_window, phase_window)
+                    if not adjacent_phases.get("accepted", false):
+                        _finish("phase growth attribution rejected " +
+                            JSON.stringify(adjacent_phases), false)
+                        return
+                    print("P2_PERF_E_PHASE_ADJACENT_GROWTH ",
+                        JSON.stringify(adjacent_phases))
+                previous_phase_window = phase_window.duplicate(true)
                 phase_reports.append({"tick": tick,
                     "phase_comparison": paid_phase_gate["phase_comparison"]})
                 print("P2_PERF_E_DIRECT_THREAD_PHASES ",
@@ -221,6 +244,13 @@ func _run() -> void:
         return
     print("P2_PERF_E_CHECKPOINT_OBSERVATION_COST ", JSON.stringify(observation_report))
     print("P2_PERF_E_PHASE_WINDOW_COVERAGE ", JSON.stringify(phase_reports))
+    if target >= LATE_TARGET:
+        var late_phase_growth: Dictionary = PhaseGrowth.compare(
+            first_phase_window, previous_phase_window)
+        if not late_phase_growth.get("accepted", false):
+            _finish("late phase growth rejected " + JSON.stringify(late_phase_growth), false)
+            return
+        print("P2_PERF_E_PHASE_LATE_GROWTH ", JSON.stringify(late_phase_growth))
     if last_window.is_empty():
         _finish("missing final complete paid window", false)
         return
