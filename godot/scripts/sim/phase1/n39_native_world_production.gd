@@ -3536,14 +3536,19 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
             "tick": tick, "paid": [], "blocked": []}
     if not (proposed.get("heads") is Dictionary) or not (proposed.get("shifts") is Array):
         return {"ok": false, "fatal": true, "reason": "invalid_n143_source_intents"}
-    # N143 only writes these domains. Detach them before the first paid
-    # shift so a rejected transaction cannot mutate authoritative World.
-    # Keep the full Schema/accounts oracle and N9 fork below unchanged.
+    # N143 replaces director/research/receipt/policy rows, and treasury
+    # values are scalar. Only paid market/facility/household rows are mutated
+    # in place. Own their roots and detach each actor once, before first write.
+    # No nested reference to the authoritative World may be modified on a
+    # rejected late shift. The full Schema/accounts and N9 oracle remain below.
     var staged: Dictionary = _copy_world("L3098_owned_root", false)
     for domain in ["research_directors", "research", "research_receipts",
             "research_mandates", "faction_charters", "faction_treasuries",
             "facilities", "populations", "markets"]:
-        staged[domain] = _world[domain].duplicate(true)
+        staged[domain] = _world[domain].duplicate(false)
+    var owned_research_markets: Dictionary = {}
+    var owned_research_facilities: Dictionary = {}
+    var owned_research_households: Dictionary = {}
     if proposed["heads"].size() != staged["research_directors"].size():
         return {"ok": false, "fatal": true, "reason": "missing_native_research_head"}
     for fid in proposed["heads"]:
@@ -3627,6 +3632,21 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
         if not validated.get("ok", false):
             return {"ok": false, "fatal": true,
                 "reason": "n143_receipt_" + str(validated.get("reason", "invalid"))}
+        # Commit has succeeded and receipt verification passed. Detach all
+        # mutable rows before the first write; repeated paid shifts reuse the
+        # same owned row and see the previous shift's updated balances/stock.
+        if not owned_research_markets.has(location):
+            market = market.duplicate(true)
+            staged["markets"][location] = market
+            owned_research_markets[location] = true
+        if not owned_research_facilities.has(facility_id):
+            facility = facility.duplicate(true)
+            staged["facilities"][facility_id] = facility
+            owned_research_facilities[facility_id] = true
+        if not owned_research_households.has(population_id):
+            person = person.duplicate(true)
+            staged["populations"][population_id] = person
+            owned_research_households[population_id] = true
         market["supply"]["electronics"] = float(market["supply"]["electronics"]) - 1.0
         staged["faction_treasuries"][fid] = staged_ledger.balance(faction_account)
         facility["credits"] = staged_ledger.balance(facility_account)
