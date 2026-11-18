@@ -66,10 +66,13 @@ static func stage(world: Dictionary, location_positions: Dictionary,
         var every_ship: Dictionary = {}
         for sid in ids:
             every_ship[str(sid)] = 1
+        var empty_stats: Dictionary = {}
+        if recomputed:
+            empty_stats = SourceLod.stats_for_agents({})
         return {"ok": true, "ships": world["ships"].duplicate(true),
             "changed": false, "fired": every_ship,
             "fired_count": every_ship.size(), "skipped_count": 0,
-            "recomputed": recomputed, "stats": {}, "tick": tick}
+            "recomputed": recomputed, "stats": empty_stats, "tick": tick}
     var stats: Dictionary = {}
     if recomputed:
         var updated: Dictionary = SourceLod.recompute(agents, observers, tick)
