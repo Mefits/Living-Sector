@@ -1068,6 +1068,34 @@ func _route_card(parent: Node, caption: String, value: String) -> void:
     content.add_child(LSComponents.metric_text(
         value, &"LSProcessValue"))
 
+func _project_state(parent: Node, id: String, raw: Dictionary) -> void:
+    var blocked: bool = not str(raw.get("blocked_reason", "")).is_empty()
+    var completed: bool = bool(raw.get("completed", false))
+    var state: String = (
+        "ЗАВЕРШЕНО" if completed else (
+        "БЛОКИРОВКА" if blocked else "В РАБОТЕ"))
+    var tone: Color = AMBER if blocked else TEAL
+    var panel: PanelContainer = LSComponents.reasoning_row()
+    parent.add_child(panel)
+    var row := HBoxContainer.new()
+    row.add_theme_constant_override("separation", 8)
+    panel.add_child(row)
+    var label := LSComponents.metric_text(id, &"LSReasonLabel")
+    label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    row.add_child(label)
+    var badge := LSComponents.metric_text(state, &"LSReasonValue")
+    badge.add_theme_color_override("font_color", tone)
+    row.add_child(badge)
+    var progress: Variant = raw.get("progress", null)
+    if (progress is int or progress is float) and is_finite(float(progress)):
+        var level: float = float(progress)
+        if level >= 0.0 and level <= 1.0:
+            var meter: ProgressBar = LSComponents.research_progress(level)
+            meter.tooltip_text = "Прогресс стройки N39: %.1f%%" % (level * 100.0)
+            parent.add_child(meter)
+    if blocked:
+        _note(parent, str(raw.get("blocked_reason", "")), AMBER)
+
 func _planner_priority(parent: Node, caption: String, value: Variant) -> void:
     # The bar is only meaningful for normalized priority data in N39.
     var panel: PanelContainer = LSComponents.reasoning_row()
@@ -1240,6 +1268,14 @@ func _projects(body_id: String = "") -> void:
         {"label":"Блокировки", "value":str(blocked)}])
     _table(section, ["Проект","Локация","Прогресс","Статус","Материалы"],
         visible_sites, "construction", "Материалы")
+    var milestones := _section("СОСТОЯНИЯ СТРОЙПЛОЩАДОК",
+        "Шкала только если N39 публикует прогресс от 0 до 1")
+    if all_sites is Dictionary:
+        for site in visible_sites:
+            var id: String = str(site.get("id", ""))
+            var raw: Variant = all_sites.get(id, {})
+            if raw is Dictionary:
+                _project_state(milestones, id, raw)
     _note(section, "Планы ИИ без созданной площадки здесь не считаются стройкой.")
 
 func _construction_workspace() -> void:
@@ -1385,7 +1421,13 @@ func _administration_workspace() -> void:
         else:
             _note(section, "Не опубликован список актуальных действий ИИ. Не выдумываем планы из макета.")
     else:
-        _note(section, "Последствия решений будут связаны с реальной историей N39/кошельков/логистики.")
+        var consequences: Variant = (
+            reasons.get("consequences", {}) if reasons is Dictionary else {})
+        if consequences is Dictionary and not consequences.is_empty():
+            for key in consequences:
+                _reason_row(section, str(key), str(consequences[key]))
+        else:
+            _note(section, "Подтверждённые последствия пока не опубликованы в N39.")
     _link(section, "ПРОВЕРИТЬ ЭКОНОМИЧЕСКИЕ УЗКИЕ МЕСТА ›", "economy", "Узкие места")
 
 func _research_workspace() -> void:
