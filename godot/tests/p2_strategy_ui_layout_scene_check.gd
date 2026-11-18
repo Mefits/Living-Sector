@@ -177,7 +177,7 @@ func _run() -> void:
     # selected-tab underline and N39-backed condition bar must be native.
     ui.call("_route_workspace", "colony", "Обзор")
     assert(_contains_type(workspace, "PanelContainer"))
-    assert(_contains_type(workspace, "HFlowContainer"))
+    assert(_contains_type(workspace, "GridContainer"))
     var colonized_title: String = str(workspace.get("_header_title").text)
     assert(colonized_title == "Earth")
     assert(str(workspace.get("_scope").text).contains("КОЛОНИЯ"))
@@ -188,9 +188,9 @@ func _run() -> void:
     ui.call("_workspace_back")
     assert(workspace.get("_mode") == "colony")
     assert(_contains_text(workspace, "ПРЕДПРИЯТИЯ"))
-    var col_sections: HFlowContainer = null
+    var col_sections: GridContainer = null
     for descendant in (workspace.get("_content") as VBoxContainer).get_children():
-        if descendant is HFlowContainer:
+        if descendant is GridContainer:
             col_sections = descendant
     assert(col_sections != null and col_sections.get_child_count() == 2)
     # Live N39 alert displays an actual clickable Figma issue-line, not
