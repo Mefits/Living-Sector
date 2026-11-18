@@ -306,6 +306,10 @@ static func verify_paid_phase_pair(tick: int, direct_checkpoint: Dictionary,
     if not comparison.get("accepted", false):
         return {"accepted": false, "reason": "phase_distribution_invalid",
             "detail": comparison}
+    var cadence: Dictionary = compare_phase_callsite_coverage(direct_phase, worker_phase)
+    if not cadence.get("accepted", false):
+        return {"accepted": false, "reason": "phase_cadence_divergence",
+            "detail": cadence}
     var total_direct: int = 0
     var total_worker: int = 0
     for phase in ["ships", "dock_queue", "markets", "factions"]:
@@ -321,6 +325,42 @@ static func verify_paid_phase_pair(tick: int, direct_checkpoint: Dictionary,
         return {"accepted": false, "reason": "phase_exceeds_paid_advance"}
     return {"accepted": true, "tick": tick,
         "phase_comparison": comparison.duplicate(true),
+        "callsite_coverage": cadence.duplicate(true),
         "direct_phase": direct_phase.duplicate(true),
         "worker_phase": worker_phase.duplicate(true),
         "time_kind": "elapsed_wall_not_cpu", "performance_claim": false}
+
+## Counts are source-phase invocations, not paid ticks. A cadence-skipped
+## phase contributes zero time and zero calls; direct/thread call counts must
+## match on the same seed even though elapsed durations may differ.
+static func compare_phase_callsite_coverage(direct: Dictionary,
+        worker: Dictionary) -> Dictionary:
+    var reports: Array = [direct, worker]
+    var keys: Array[String] = ["ships", "dock_queue", "markets", "factions"]
+    for report in reports:
+        if report.get("observed_paid_ticks", -1) != 100:
+            return {"accepted": false, "reason": "unverified_paid_coverage"}
+        var calls: Variant = report.get("phase_calls")
+        var active: Variant = report.get("phase_active_paid_ticks")
+        var totals: Variant = report.get("phase_total_usec")
+        if not (calls is Dictionary) or not (active is Dictionary) or not (totals is Dictionary):
+            return {"accepted": false, "reason": "missing_callsite_counts"}
+        if calls.size() != keys.size() or active.size() != keys.size() or totals.size() != keys.size():
+            return {"accepted": false, "reason": "unexpected_callsite_keys"}
+        for phase in keys:
+            if typeof(calls.get(phase)) != TYPE_INT or typeof(active.get(phase)) != TYPE_INT or (
+                    typeof(totals.get(phase)) != TYPE_INT):
+                return {"accepted": false, "reason": "invalid_callsite_type"}
+            var n: int = calls[phase]
+            var used: int = active[phase]
+            if n < 1 or n > 10000 or used < 1 or used > 100 or used > n or (
+                    int(totals[phase]) < 0):
+                return {"accepted": false, "reason": "invalid_callsite_coverage"}
+    for phase in keys:
+        if direct["phase_calls"][phase] != worker["phase_calls"][phase] or (
+                direct["phase_active_paid_ticks"][phase] != worker["phase_active_paid_ticks"][phase]):
+            return {"accepted": false, "reason": "cadence_mismatch_" + phase}
+    return {"accepted": true, "observed_paid_ticks": 100,
+        "phase_calls": direct["phase_calls"].duplicate(true),
+        "phase_active_paid_ticks": direct["phase_active_paid_ticks"].duplicate(true),
+        "time_kind": "elapsed_wall_not_cpu"}
