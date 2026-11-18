@@ -1,0 +1,95 @@
+name: Sol Lab farm and save smoke
+
+on:
+  push:
+    branches:
+      - feature/sol-lab-clean-20261118
+    paths:
+      - 'sol_lab/**'
+      - '.github/workflows/sol-lab-farm-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sol-lab-farm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sol-lab:
+    name: Farm cycle / stall / restore / surface sites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot"
+          curl --fail --location --retry 3 --connect-timeout 15 --max-time 150 --silent --show-error \
+            'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip' \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+      - name: Import standalone Sol Lab scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sol-lab-logs"
+          godot --version
+          if ! timeout --signal=TERM --kill-after=5s 90s \
+            godot --headless --path sol_lab --editor --import --quit \
+            > "$RUNNER_TEMP/sol-lab-logs/import.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/import.log"
+            exit 1
+          fi
+          if grep -E -i 'SCRIPT ERROR|Parse Error|Failed to load script' "$RUNNER_TEMP/sol-lab-logs/import.log"; then
+            cat "$RUNNER_TEMP/sol-lab-logs/import.log"
+            exit 1
+          fi
+      - name: Check farm production, shortage, save/load and layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          for test in \
+            sol_farm_cycle_check \
+            sol_construction_calendar_check \
+            sol_ac_start_check \
+            sol_building_model_check
+          do
+            log="$RUNNER_TEMP/sol-lab-logs/${test}.log"
+            echo "::group::${test}"
+            if ! timeout --signal=TERM --kill-after=5s 55s \
+              godot --headless --path sol_lab --script "res://tests/${test}.gd" \
+              > "$log" 2>&1; then
+              cat "$log"
+              echo "::endgroup::"
+              exit 1
+            fi
+            cat "$log"
+            if ! grep -q "$(echo "${test}" | tr '[:lower:]' '[:upper:]' | sed 's/_CHECK$//')_PASS" "$log"; then
+              # Each test should explicitly report PASS; a clean exit alone is not enough.
+              echo "No PASS marker from ${test}"
+              echo "::endgroup::"
+              exit 1
+            fi
+            if grep -E -i 'SCRIPT ERROR|Parse Error|Failed to load script' "$log"; then
+              echo "::endgroup::"
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+      - name: Attach Sol Lab Godot logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sol-lab-farm-logs
+          path: ${{ runner.temp }}/sol-lab-logs/
+          if-no-files-found: ignore
+          retention-days: 7
