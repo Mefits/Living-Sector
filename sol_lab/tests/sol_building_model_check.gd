@@ -1,5 +1,6 @@
 extends SceneTree
 const Model = preload("res://scripts/sol_building_model.gd")
+const Starter = preload("res://scripts/sol_start_scenario.gd")
 func _initialize() -> void:
  var seed: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/sol.json"))
  if not (seed is Dictionary):
@@ -18,8 +19,12 @@ func _initialize() -> void:
  planets["earth"] = earth
  valid = valid and absf(Model.calculated(mine,buildings,planets,"earth")-4.0)<0.001
  valid = valid and Model.stock(seed,"earth")==1000
- valid = valid and Model.available(Model.BUILDINGS[2],buildings,seed,"earth")
- valid = valid and not Model.available(Model.BUILDINGS[2],buildings,seed,"mars")
+ # Frozen source already contains a farm: no duplicate construction.
+ valid = valid and not Model.available(Model.BUILDINGS[2],buildings,seed,"earth")
+ # Sol Lab starter removes the legacy farm; a new one is buildable.
+ var start: Dictionary = Starter.apply(seed)
+ valid = valid and Model.available(Model.BUILDINGS[2],buildings,start,"earth")
+ valid = valid and not Model.available(Model.BUILDINGS[2],buildings,start,"mars")
  if valid:
   print("SOL_LAB_MODEL_PASS")
   quit(0)
