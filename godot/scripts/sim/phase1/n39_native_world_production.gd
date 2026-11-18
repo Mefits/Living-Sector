@@ -455,6 +455,12 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     var ids: Array = _world["facilities"].keys()
     ids.sort()
     var lod_fired: Dictionary = {}
+    # N18 may have published a row-owned facilities map: unchanged rows can
+    # still be shared with its pre-staffing World. LOD is the next writer.
+    # Decide all due firings from the unchanged read view first, then detach
+    # ONLY the rows whose cursor advances. This preserves source iteration
+    # and prevents an in-place LOD write from escaping across an owned stage.
+    var lod_cursor_updates: Dictionary = {}
     for id in ids:
         var f: Dictionary = _world["facilities"][id]
         # Rust AgentLod::try_fire advances every tick, not just work cadence.
@@ -462,7 +468,22 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             lod_fired[id] = true
         elif tick >= int(f.get("lod_next_tick", 0)):
             lod_fired[id] = true
-            f["lod_next_tick"] = tick + int(f["lod_divisor"])
+            lod_cursor_updates[id] = tick + int(f["lod_divisor"])
+    if not lod_cursor_updates.is_empty():
+        var lod_world: Dictionary = _copy_world("n39_lod_cursor_root", false)
+        var lod_facilities: Dictionary = _world["facilities"].duplicate()
+        for id in ids:
+            if not lod_cursor_updates.has(id):
+                continue
+            var detached: Dictionary = lod_facilities[id].duplicate(true)
+            detached["lod_next_tick"] = int(lod_cursor_updates[id])
+            lod_facilities[id] = detached
+        lod_world["facilities"] = lod_facilities
+        # This cursor transition is money-neutral; retain the complete
+        # production Schema oracle before publishing any owned row.
+        if _measured_schema_validate("n39_lod_cursor_owned", lod_world) != "":
+            return {"ok": false, "reason": "n39_lod_cursor_schema_rejected"}
+        _world = lod_world
     var receipts: Array = []
     var failures: Dictionary = {}
     var recipe_due: bool = tick % (RECIPE_INTERVAL_BASE * tick_multiplier) == 0
