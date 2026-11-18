@@ -93,6 +93,19 @@ jobs:
             fi
             echo "::endgroup::"
           done
+      - name: Compare real frame spikes across speed and pause (diagnostic)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout --signal=TERM --kill-after=5s 65s \
+            godot --headless --path sol_lab --script res://tests/sol_hitch_probe.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/hitch.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/hitch.log"
+            exit 1
+          fi
+          grep 'SOL_HITCH_' "$RUNNER_TEMP/sol-lab-logs/hitch.log"
+          grep -qF SOL_HITCH_PROBE_PASS "$RUNNER_TEMP/sol-lab-logs/hitch.log"
+
       - name: Attach Sol Lab Godot logs
         if: always()
         uses: actions/upload-artifact@v4
