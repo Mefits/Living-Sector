@@ -10,7 +10,7 @@ static func verify_boundary(tick: int, direct: Dictionary,
     if tick < 1 or worker_response.get("ok", false) != true or (
             int(worker_response.get("tick", -1)) != tick):
         return {"accepted": false, "reason": "worker_boundary_not_committed"}
-    if not worker_response.get("checkpoint") is Dictionary:
+    if typeof(worker_response.get("checkpoint", null)) != TYPE_DICTIONARY:
         return {"accepted": false, "reason": "missing_worker_checkpoint"}
     var candidate: Dictionary = worker_response["checkpoint"]
     if typeof(direct.get("tick", null)) != TYPE_INT or (
