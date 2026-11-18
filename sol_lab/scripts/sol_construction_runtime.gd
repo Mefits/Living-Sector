@@ -264,13 +264,17 @@ func _register_producer(facility: Dictionary, start: float) -> void:
 
 func _advance_production() -> void:
  var interval := Calendar.days_to_native(CYCLE_DAYS)
- while now_native >= next_batch:
+ # Native day fractions are non-exact binary floats; a deadline
+ # mathematically equal to today's timestamp may differ by ~1e-14.
+ # Use the same bounded native-time tolerance as construction completion.
+ const EPSILON_NATIVE := 0.000001
+ while now_native + EPSILON_NATIVE >= next_batch:
   var deadline := next_batch
   next_batch = INF
   for entry in producers:
    var facility: Dictionary = entry.facility
    var due := float(facility.next_batch_native)
-   if due <= deadline:
+   if due <= deadline + EPSILON_NATIVE:
     _run_batch(facility, entry.market.supply, entry.recipe)
     due += interval
     facility.next_batch_native = due
