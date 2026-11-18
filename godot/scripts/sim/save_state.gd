@@ -366,15 +366,29 @@ static func _promote_verified_pending(absolute_path: String,
                 DirAccess.rename_absolute(previous, backup)
             return rotate_error
     elif had_primary:
-        var remove_error: Error = DirAccess.remove_absolute(absolute_path)
-        if remove_error != OK:
-            return remove_error
+        # A corrupt primary may still contain the only diagnostic bytes for
+        # a failed N38 restore. Never unlink it before a verified .pending
+        # checkpoint has been installed. Reuse the recovery candidate already
+        # recognized by load_runner, and refuse to overwrite an older orphan.
+        var rejected: String = absolute_path + ".recovery-rejected"
+        if FileAccess.file_exists(rejected):
+            return ERR_ALREADY_EXISTS
+        var park_invalid: Error = DirAccess.rename_absolute(
+            absolute_path, rejected)
+        if park_invalid != OK:
+            return park_invalid
     var promote_error: Error = DirAccess.rename_absolute(pending, absolute_path)
     if promote_error != OK:
         if had_primary and primary_is_valid:
             DirAccess.rename_absolute(backup, absolute_path)
             if parked_backup:
                 DirAccess.rename_absolute(previous, backup)
+        elif had_primary:
+            # Restore the original invalid primary if promotion failed.
+            # If the rollback rename also fails, the original remains in
+            # .recovery-rejected and is never silently destroyed.
+            DirAccess.rename_absolute(
+                absolute_path + ".recovery-rejected", absolute_path)
         return promote_error
     # A crash before this cleanup is safe: primary and backup are valid.
     # A later save refuses to overwrite the orphan until recovery resolves it.
