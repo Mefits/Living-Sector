@@ -42,6 +42,20 @@ static func build(world: Dictionary, body_id: String,
             if item is Dictionary and str(item.get("id", "")) == facility_id:
                 source = item
                 break
+        if source.is_empty():
+            var candidate: Variant = economy.get(
+                "facilities", {}).get(facility_id, {})
+            if candidate is Dictionary:
+                var bid: String = str(candidate.get("body_id",
+                    candidate.get("body", "")))
+                for body in world.get("bodies", []):
+                    if body is Dictionary and str(body.get("id", "")) == bid:
+                        source = candidate.duplicate(false)
+                        source["id"] = facility_id
+                        source["body"] = bid
+                        source["faction_id"] = str(candidate.get(
+                            "faction_id", candidate.get("faction", "")))
+                        break
         if not source.is_empty():
             var live: Variant = economy.get("facilities", {}).get(facility_id, {})
             if not (live is Dictionary):
@@ -83,8 +97,18 @@ static func build(world: Dictionary, body_id: String,
                         shown += 1
                         if shown >= 3:
                             break
+            var facility_type: String = str(source.get("type", ""))
+            var colony_dock: bool = (
+                str(source.get("location", "")) ==
+                str(source.get("body", "")) + "-colony")
+            var subtitle: String = Names.type_name(facility_type)
+            if colony_dock:
+                subtitle = ("Строительный док колонии"
+                    if facility_type == "construction_dock"
+                    else "Административный центр" if (
+                    facility_type == "station") else subtitle)
             return {"title": Names.display_name(source),
-                "subtitle": Names.type_name(str(source.get("type", ""))),
+                "subtitle": subtitle,
                 "cards": [
                     _card("Состояние", condition),
                     _card("Рабочие", _value(live_row, "assigned_workers")),
