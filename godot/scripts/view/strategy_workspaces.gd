@@ -22,17 +22,80 @@ const MUTED = Color("#748B92")
 const AMBER = Color("#C99B54")
 const BAD = Color("#CF856A")
 const TABS: Dictionary = {
-    "colony": ["Обзор", "Население", "Производство", "Запасы",
-        "Строительство", "Логистика"],
-    "facility": ["Процесс", "Работники", "Склад", "Поставщики"],
-    "economy": ["Баланс", "Цепочки", "Дефициты", "Узкие места"],
-    "construction": ["Проекты", "Материалы", "Поставщики", "Блокировки"],
-    "fleet": ["Корабли", "Контракты", "Грузы", "Маршруты", "Стыковка", "Поставки"],
-    "administration": ["Приоритеты ИИ", "План действий", "Обоснование", "Последствия"],
-    "research": ["Прогресс", "Предпосылки", "Открытия"],
+    "colony": ["Сводка"],
+    "facility": ["Процесс и снабжение", "Труд и склад"],
+    "economy": ["Рынок и цепочки", "Дефициты и узкие места"],
+    "construction": ["Проекты и снабжение"],
+    "fleet": ["Рейсы и контракты", "Грузы и стыковка"],
+    "administration": ["Цели и задачи", "Объяснения"],
+    "research": ["Текущая программа"],
     "ship": ["Обзор", "Груз", "Маршрут"],
     "technical": ["Данные"]
 }
+
+## Old navigation links from other windows, persisted UI history and tests
+## resolve to the same compact Figma Make screens. This is UI-only routing;
+## no N39 state, contracts or simulation defaults are fabricated.
+static func canonical_tab(mode: String, requested: String) -> String:
+    var aliases: Dictionary = {
+        "colony": {
+            "Обзор": "Сводка", "Население": "Сводка",
+            "Производство": "Сводка", "Запасы": "Сводка",
+            "Строительство": "Сводка", "Логистика": "Сводка",
+            "overview": "Сводка"
+        },
+        "facility": {
+            "Процесс": "Процесс и снабжение",
+            "Поставщики": "Процесс и снабжение",
+            "Работники": "Труд и склад", "Склад": "Труд и склад",
+            "process": "Процесс и снабжение",
+            "workers": "Труд и склад"
+        },
+        "economy": {
+            "Баланс": "Рынок и цепочки",
+            "Цепочки": "Рынок и цепочки",
+            "Дефициты": "Дефициты и узкие места",
+            "Узкие места": "Дефициты и узкие места",
+            "chains": "Рынок и цепочки",
+            "deficits": "Дефициты и узкие места"
+        },
+        "construction": {
+            "Проекты": "Проекты и снабжение",
+            "Материалы": "Проекты и снабжение",
+            "Поставщики": "Проекты и снабжение",
+            "Блокировки": "Проекты и снабжение",
+            "projects": "Проекты и снабжение"
+        },
+        "fleet": {
+            "Корабли": "Рейсы и контракты",
+            "Контракты": "Рейсы и контракты",
+            "Маршруты": "Рейсы и контракты",
+            "Поставки": "Рейсы и контракты",
+            "Грузы": "Грузы и стыковка",
+            "Стыковка": "Грузы и стыковка",
+            "ships": "Рейсы и контракты",
+            "cargo": "Грузы и стыковка"
+        },
+        "administration": {
+            "Приоритеты ИИ": "Цели и задачи",
+            "План действий": "Цели и задачи",
+            "Обоснование": "Объяснения",
+            "Последствия": "Объяснения",
+            "priorities": "Цели и задачи",
+            "reasoning": "Объяснения"
+        },
+        "research": {
+            "Прогресс": "Текущая программа",
+            "Предпосылки": "Текущая программа",
+            "Открытия": "Текущая программа",
+            "progress": "Текущая программа"
+        }
+    }
+    var available: Array = TABS.get(mode, ["Данные"])
+    var options: Dictionary = aliases.get(mode, {})
+    var resolved: String = str(options.get(requested, requested))
+    return resolved if resolved in available else str(available[0])
+
 const TITLES: Dictionary = {
     "colony": "КОЛОНИЯ", "facility": "ПРЕДПРИЯТИЕ",
     "economy": "ЭКОНОМИКА СЕКТОРА", "construction": "СТРОИТЕЛЬСТВО",
@@ -271,7 +334,7 @@ func show_state(mode: String, tab: String, world: Dictionary,
     var prior_facility: String = _facility
     var prior_ship: String = _ship
     _mode = mode
-    _tab = tab if tab in tabs_for(mode) else str(tabs_for(mode)[0])
+    _tab = canonical_tab(mode, tab)
     _world = world
     _economy = economy
     _body = body
