@@ -8,8 +8,9 @@ const ThreadOwner = preload("res://scripts/sim/phase2/n158_real_owner_thread_pro
 const Oracle = preload("res://scripts/sim/phase2/n158_checkpoint_parity_oracle.gd")
 const Metrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
 const Acceptance = preload("res://scripts/sim/phase2/n158_direct_threaded_acceptance.gd")
-const TARGET: int = 100
-const MILESTONES: Array[int] = [1, 20, 60, 100]
+const DEFAULT_TARGET: int = 100
+const LATE_TARGET: int = 300
+const MILESTONES: Array[int] = [1, 20, 60, 100, 200, 300]
 const REQUEST_TIMEOUT_MS: int = 20000
 const TOTAL_BUDGET_MS: int = 180000
 var _owner = null
@@ -47,8 +48,13 @@ func _run() -> void:
     if not pause.get("ok", false):
         _finish("thread pause refused", false)
         return
+    # Explicit opt-in: longer parity probe never runs in default 100-tick mode.
+    var target: int = (LATE_TARGET if OS.get_environment("LS_E_LATE_DIRECT_THREAD") == "1"
+        else DEFAULT_TARGET)
     var timings: Array = []
-    for tick in range(1, TARGET + 1):
+    var early_window: Dictionary = {}
+    var last_window: Dictionary = {}
+    for tick in range(1, target + 1):
         if not direct.queue_control("step", 1):
             _finish("direct step refused at " + str(tick), false)
             return
@@ -72,6 +78,17 @@ func _run() -> void:
             "direct_advance_wall_usec": direct_usec}))
         if timings.size() > 100:
             timings.pop_front()
+        # Only exact complete 100-paid-tick windows; never divide a multi-tick
+        # request or compare overlapping windows as independent growth evidence.
+        if tick in [100, 300]:
+            var window: Dictionary = Acceptance.summarize_window(tick, timings)
+            if not window.get("accepted", false):
+                _finish("invalid paid window at " + str(tick) + ": " + str(window), false)
+                return
+            if tick == 100:
+                early_window = window.duplicate(true)
+            last_window = window.duplicate(true)
+            print("P2_PERF_E_DIRECT_THREAD_WINDOW ", JSON.stringify(window))
         if MILESTONES.has(tick):
             var detached_direct: Dictionary = direct.checkpoint()
             var response: Dictionary = await _command("checkpoint")
@@ -85,7 +102,7 @@ func _run() -> void:
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
-            if tick == 100:
+            if tick == target:
                 # Exercise actual N38-style runtime restore at a committed boundary.
                 # Both owners restart from independent detached checkpoint trees.
                 if not direct.restore_checkpoint(detached_direct.duplicate(true), seed):
@@ -102,12 +119,16 @@ func _run() -> void:
                     _finish("post-restart direct/thread divergence", false)
                     return
                 print("P2_PERF_E_DIRECT_THREAD_RESTART_EXACT tick=", tick)
-    var window: Dictionary = Acceptance.summarize_window(TARGET, timings)
-    if not window.get("accepted", false):
-        _finish("invalid 100-paid-tick window: " + str(window.get("reason", "")), false)
+    if last_window.is_empty():
+        _finish("missing final complete paid window", false)
         return
-    print("P2_PERF_E_DIRECT_THREAD_WINDOW ", JSON.stringify(window))
-    _finish("100 exact paid ticks; same-seed checkpoints", true)
+    if target == LATE_TARGET:
+        var growth: Dictionary = Acceptance.compare_late_windows(early_window, last_window)
+        if not growth.get("accepted", false):
+            _finish("late window attribution rejected: " + str(growth), false)
+            return
+        print("P2_PERF_E_DIRECT_THREAD_LATE_GROWTH ", JSON.stringify(growth))
+    _finish(str(target) + " exact paid ticks; same-seed checkpoints", true)
 
 func _command(kind: String, payload: Dictionary = {}) -> Dictionary:
     var ticket: int = _owner.submit(kind, payload)
