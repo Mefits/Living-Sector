@@ -89,10 +89,14 @@ func order(body: String, building_id: String) -> Dictionary:
   "construction_building_id": building_id,
   "construction_start_native": now_native,
   "construction_finished_native": finish,
-  "surface_site": Model.surface_site(building_id),
   "services": [],
   "docking_capacity": 0
  }
+ # Only the four defined Sol preview buildings own fixed slots.
+ # Other catalog entries stay procedural and must not save an empty site.
+ var fixed_site: Array = Model.surface_site(building_id)
+ if fixed_site.size() == 2:
+  facility["surface_site"] = fixed_site
  # Commit once, after every validation: stock and the unique site appear
  # together. There is no synthetic material refund or repeat debit.
  supply["metals"] = float(supply["metals"]) - cost

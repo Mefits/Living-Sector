@@ -112,6 +112,12 @@ func _initialize() -> void:
  var reloaded = _runtime(defaults)
  ok = ok and reloaded.restore(saved_visual)
  ok = ok and _sites(reloaded.world) == pending
+ # A building without a fixed slot must still survive a checkpoint.
+ var general = _runtime(defaults)
+ ok = ok and bool(general.order("earth", "spaceport").get("ok", false))
+ var general_save: Variant = JSON.parse_string(JSON.stringify(general.snapshot()))
+ var general_reload = _runtime(defaults)
+ ok = ok and general_reload.restore(general_save)
  if ok:
   print("SOL_FARM_CYCLE_PASS")
   quit(0)
