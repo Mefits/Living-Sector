@@ -415,13 +415,34 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             # Only facilities and the administration projection are written here.
             # Detach facilities before staffing; every other World domain is
             # read-only during this stage and the full Schema oracle remains.
-            var staffed: Dictionary = _copy_world("n18_staffing_root", false)
-            staffed["facilities"] = _world["facilities"].duplicate(true)
-            for facility_id in staffed["facilities"]:
-                if not station_admin["assignments"].has(facility_id):
+            # Validate the complete assignment read-set before allocating any
+            # mutable rows. N18 never writes facility money, inventory or crew
+            # state: only assigned_workers can differ from the previous World.
+            var assignments: Dictionary = station_admin["assignments"]
+            var previous_facilities: Dictionary = _world["facilities"]
+            if assignments.size() != previous_facilities.size():
+                return {"ok": false, "reason": "n18_incomplete_station_staffing"}
+            for facility_id in previous_facilities:
+                if not assignments.has(facility_id) or (
+                        typeof(assignments[facility_id]) != TYPE_INT):
                     return {"ok": false, "reason": "n18_incomplete_station_staffing"}
-                staffed["facilities"][facility_id]["assigned_workers"] = int(
-                    station_admin["assignments"][facility_id])
+            # The root and facilities map are new. Unchanged facility rows
+            # are read-only through this stage and may safely be shared with
+            # the old World; changed rows detach their complete nested graph.
+            # This avoids cloning every market-sized reserves/dock_queue graph
+            # on a staffing tick when only a few worker counts change.
+            var staffed: Dictionary = _copy_world("n18_staffing_root", false)
+            var staffed_facilities: Dictionary = previous_facilities.duplicate()
+            for facility_id in previous_facilities:
+                var assigned: int = int(assignments[facility_id])
+                var previous_row: Dictionary = previous_facilities[facility_id]
+                if assigned == int(previous_row.get("assigned_workers", 0)) and (
+                        previous_row.has("assigned_workers")):
+                    continue
+                var owned_row: Dictionary = previous_row.duplicate(true)
+                owned_row["assigned_workers"] = assigned
+                staffed_facilities[facility_id] = owned_row
+            staffed["facilities"] = staffed_facilities
             staffed["station_administration"] = station_admin["snapshots"].duplicate(true)
             staffed["station_administration_last_tick"] = tick
             var staffing_error: String = _measured_schema_validate("L285", staffed)
