@@ -146,6 +146,22 @@ func _negative_oracles() -> bool:
     changed["tick"] = 2
     if Oracle.compare(expected, changed).get("equal", true):
         return false
+    var good_boundary: Dictionary = {"ok": true, "tick": 1,
+        "checkpoint": expected.duplicate(true)}
+    if not Acceptance.verify_boundary(1, expected, good_boundary).get("accepted", false):
+        return false
+    var bad_boundary: Dictionary = good_boundary.duplicate(true)
+    bad_boundary["tick"] = 2
+    if Acceptance.verify_boundary(1, expected, bad_boundary).get("accepted", false):
+        return false
+    bad_boundary = good_boundary.duplicate(true)
+    bad_boundary["checkpoint"]["native_production"]["ledger"]["receipts"][0] = 2
+    if Acceptance.verify_boundary(1, expected, bad_boundary).get("accepted", false):
+        return false
+    bad_boundary = good_boundary.duplicate(true)
+    bad_boundary.erase("checkpoint")
+    if Acceptance.verify_boundary(1, expected, bad_boundary).get("accepted", false):
+        return false
     if Acceptance.summarize_window(100, [{
             "valid": true, "paid_ticks": 2, "after_tick": 100,
             "advance_wall_usec": 2, "projection_wall_usec": 1,
