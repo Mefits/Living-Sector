@@ -11,6 +11,7 @@ const Acceptance = preload("res://scripts/sim/phase2/n158_direct_threaded_accept
 const PhaseGrowth = preload("res://scripts/sim/phase2/n158_phase_growth_acceptance.gd")
 const CallsiteCosts = preload("res://scripts/sim/phase2/n158_callsite_cost_acceptance.gd")
 const ObservationCosts = preload("res://scripts/sim/phase2/n158_observation_cost_acceptance.gd")
+const SizePhase = preload("res://scripts/sim/phase2/n158_size_phase_attribution.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
 const EXTENDED_TARGET: int = 900
@@ -75,6 +76,9 @@ func _run() -> void:
     var phase_reports: Array = []
     var first_phase_window: Dictionary = {}
     var previous_phase_window: Dictionary = {}
+    var previous_joint_sizes: Dictionary = {}
+    var previous_joint_sources: Dictionary = {}
+    var previous_joint_phase: Dictionary = {}
     for tick in range(1, target + 1):
         if Time.get_ticks_msec() - _start_ms >= budget_ms:
             _finish("bounded wall budget exceeded before paid tick " + str(tick), false)
@@ -238,6 +242,23 @@ func _run() -> void:
                         return
                     print("P2_PERF_E_DIRECT_THREAD_SIZE_GROWTH ",
                         JSON.stringify(size_growth))
+                if not previous_joint_sizes.is_empty():
+                    var phase_delta: Dictionary = PhaseGrowth.compare(
+                        previous_joint_phase, phase_window)
+                    var world_delta: Dictionary = Acceptance.compare_size_growth(
+                        previous_joint_sizes, size_boundary)
+                    var source_delta: Dictionary = Acceptance.compare_source_growth(
+                        previous_joint_sources, source_boundary)
+                    var joint: Dictionary = SizePhase.compare(
+                        phase_delta, world_delta, source_delta)
+                    if not joint.get("accepted", false):
+                        _finish("joint size/phase attribution rejected " +
+                            JSON.stringify(joint), false)
+                        return
+                    print("P2_PERF_E_SIZE_PHASE_GROWTH ", JSON.stringify(joint))
+                previous_joint_sizes = size_boundary.duplicate(true)
+                previous_joint_sources = source_boundary.duplicate(true)
+                previous_joint_phase = phase_window.duplicate(true)
                 previous_sizes = size_boundary.duplicate(true)
             var cost_row: Dictionary = ObservationCosts.sample(tick, {
                 "direct_checkpoint": direct_checkpoint_usec,
