@@ -29,8 +29,9 @@ var _receipt_generation: int = 0
 var _fork_source: WeakRef = null
 var _fork_source_generation: int = -1
 var _fork_changed_shards: Dictionary = {}
-# Experimental: a shard detached by this generation may accept another
-# append without recopying, until a fork shares it. Disabled until parity CI.
+# Experimental: only a shard whose exact object identity belongs to this
+# ledger may accept another append without recopying. Fork and restore revoke
+# all ownership. Disabled until parity CI.
 var _reuse_private_shards: bool = OS.get_environment("LS_N9_PRIVATE_SHARD_REUSE") == "1"
 var _private_shards: Dictionary = {}
 # A newly created/detached order tail is private until the next fork.
@@ -108,13 +109,17 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	# populated shards still require COW to protect parent/child history.
 	var old_shard: Dictionary = _receipt_partitions[bucket]
 	var detached: Dictionary
-	if _reuse_private_shards and _private_shards.has(bucket):
-		# Only this ledger owns the dictionary since its last fork.
+	# Ownership is attached to the exact shard object, not merely its
+	# numeric bucket. An external index replacement, restore, or branch
+	# transition must never turn a shared shard into a writable one.
+	# The fast path is opt-in until same-seed replay acceptance.
+	if _reuse_private_shards and _private_shards.has(bucket) and (
+			is_same(_private_shards[bucket], old_shard)):
 		detached = old_shard
 	else:
 		detached = {} if old_shard.is_empty() else old_shard.duplicate()
 		if _reuse_private_shards:
-			_private_shards[bucket] = true
+			_private_shards[bucket] = detached
 	# All callers construct a private record and return only a detached copy.
 	# commit() already detached the untrusted legs before creating this row;
 	# duplicating the entire row here repeated the deep copy on every paid leg.
