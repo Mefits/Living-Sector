@@ -85,15 +85,15 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     # computed fuel requirement (including invalid geometry), keyed by
     # the actual ship speed and fuel rate; never cache ship eligibility.
     # The route index is proposal-local and rebuilt after every paid tick.
-    var fuel_key: Array = [here, speed, rate, tick_scale]
-    var fuel_cache: Dictionary = route_index.get(-1, {})
-    var flight_cost: float = 0.0
-    if fuel_cache.has(fuel_key):
-        var cached: Dictionary = fuel_cache[fuel_key]
-        if cached.has("error"):
-            return {"ok": false, "reason": str(cached["error"])}
-        flight_cost = float(cached["cost"])
-    else:
+    # Distinct fittings can share a route and velocity but have different
+    # consumption rates. Cache the integer edge tick counts once per
+    # origin/speed/tick-scale, then retain the original per-edge floating
+    # summation for each fuel rate (no reordered arithmetic).
+    var travel_key: Array = [here, speed, tick_scale]
+    var travel_cache: Dictionary = route_index.get(-2, {})
+    var travel: Dictionary = travel_cache.get(travel_key, {})
+    if travel.is_empty():
+        var counts: Array = []
         var geometry_error: String = ""
         for leg in route["steps"]:
             if not bool(leg["present"]):
@@ -104,12 +104,21 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
             if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
                 geometry_error = "invalid_flight_geometry"
                 break
-            flight_cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
-        if not geometry_error.is_empty():
-            fuel_cache[fuel_key] = {"error": geometry_error}
-            route_index[-1] = fuel_cache
-            return {"ok": false, "reason": geometry_error}
-        fuel_cache[fuel_key] = {"cost": flight_cost}
+            counts.append(maxi(1, ceili(distance / velocity)))
+        travel = {"error": geometry_error} if not geometry_error.is_empty() else {"counts": counts}
+        travel_cache[travel_key] = travel
+        route_index[-2] = travel_cache
+    if travel.has("error"):
+        return {"ok": false, "reason": str(travel["error"])}
+    var fuel_key: Array = [here, speed, rate, tick_scale]
+    var fuel_cache: Dictionary = route_index.get(-1, {})
+    var flight_cost: float = 0.0
+    if fuel_cache.has(fuel_key):
+        flight_cost = float(fuel_cache[fuel_key])
+    else:
+        for edge_ticks in travel["counts"]:
+            flight_cost += float(edge_ticks) * rate * tick_scale
+        fuel_cache[fuel_key] = flight_cost
         route_index[-1] = fuel_cache
     if float(ship["fuel"]) + 0.0001 < flight_cost:
         return {"ok": false, "reason": "insufficient_native_full_route_fuel"}
