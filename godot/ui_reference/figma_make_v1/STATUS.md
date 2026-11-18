@@ -196,3 +196,16 @@ Detailed data contract and boundaries: `godot/docs/UNIVERSAL_PLANETS_AND_COLONIE
 - [x] Source-to-Godot UX map: `godot/ui_reference/figma_make_v1/UX_V2_IMPORT_RU.md`.
 - [x] Regression fixture added: `godot/tests/p2_figma_ux_v2_route_check.gd`.
 - [ ] Godot parse and visual Windows acceptance not run; 1:1 geometry/scrolling not yet verified.
+
+### AI explainability and post-AC colony stall audit — 18.11.2026
+
+- [x] Confirmed N144 Venus resource score uses gas/ice and local-system multiplier, without a direct habitability/long-term economic sustainability term.
+- [x] Confirmed N151 colony market starts with empty `supply` and only Food/Water demand; frozen `station` has no AC 30% passive production.
+- [x] Confirmed N92 can prioritize colony life-support, while N154 develops colony via mining→refining→farm→factory.
+- [x] Found deterministic N154→N111 conflict: develop_colony is a capital-investment goal but the frozen N111 comparator values only closing current market shortages. On newborn Venus, no Ice demand means `no_projected_shortage_relief` (construction stays blocked even if N154 offers a ready project).
+- [x] Published **existing** N134 decision + N154 proposals + actual N111 valuation reasons via bounded `strategy_trace` in both worker summary and local UI diagnostics, without any new `world_snapshot()`.
+- [x] Management workspace: **Цели и задачи / Объяснения** now gives actual choices, candidate structures, materials/cost/readiness and different construction-vs-valuation reasons, with honest unavailable states.
+- [x] Regression fixture `godot/tests/p2_colony_ai_why_stalled_check.gd` documents the reproducible N92/N111 conflict (not executed).
+- [x] Full code-vs-tldraw economic mismatch analysis: `godot/docs/COLONY_AI_STALL_AUDIT_RU.md`.
+- [ ] New T1 catalog, AC passive 30% output, power station/spaceport recipes, legacy save migration and building costs **not yet modified** — require one coherent economic balance approval and source-controlled implementation.
+- [ ] Godot parse/runtime test and actual Windows save inspection not executed.
