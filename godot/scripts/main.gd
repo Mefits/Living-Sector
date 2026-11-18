@@ -871,10 +871,9 @@ func _worker_receive(result: Dictionary) -> void:
             return
         _worker_booted = true
         _worker_tick = int(result.get("tick", 0))
-        # Use SaveState on the SAME owner thread; no GUI-owned second N158.
-        if (FileAccess.file_exists(P2_WORKER_SAVE_PATH) or
-                FileAccess.file_exists(P2_WORKER_SAVE_PATH + ".bak") or
-                FileAccess.file_exists(P2_WORKER_SAVE_PATH + ".pending")):
+        # F5 always starts a fresh seed. Prior saves are loaded only by
+        # explicit user action or the diagnostic CLI startup-restore flag.
+        if OS.get_cmdline_user_args().has("--p2-restore-startup-checkpoint"):
             _worker_loading = true
             if _worker_send("load", {"path": P2_WORKER_SAVE_PATH}) <= 0:
                 _worker_loading = false
