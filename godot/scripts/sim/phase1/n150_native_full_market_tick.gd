@@ -203,6 +203,7 @@ static func _owned_flow_without_expired(flow: Dictionary, cutoff: int) -> Dictio
 			var value: Variant = flow[key]
 			owned[key] = value.duplicate(true) if value is Dictionary or value is Array else value
 	var windows: Dictionary = {}
+	var observed: Dictionary = {}
 	var source: Dictionary = flow["consumption_window"]
 	var slugs: Array = source.keys()
 	slugs.sort()
@@ -211,14 +212,18 @@ static func _owned_flow_without_expired(flow: Dictionary, cutoff: int) -> Dictio
 		if not (entries is Array):
 			return _fail("invalid_native_consumption_window")
 		var kept: Array = []
+		var amount: float = 0.0
 		for entry in entries:
 			if not (entry is Dictionary) or typeof(entry.get("tick")) != TYPE_INT or not _num(entry.get("qty")):
 				return _fail("invalid_consumption_sample")
 			if int(entry["tick"]) >= cutoff:
 				kept.append(entry.duplicate(true))
+				amount += float(entry["qty"])
 		windows[slug] = kept
+		if amount > 0.0:
+			observed[slug] = amount
 	owned["consumption_window"] = windows
-	return {"ok": true, "flow": owned}
+	return {"ok": true, "flow": owned, "observed": observed}
 
 static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		native_price_recalculate: Callable) -> Dictionary:
@@ -272,37 +277,10 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 	var demand_warmup: int = DEMAND_WARMUP_BASE * tick_multiplier
 	var cutoff: int = maxi(0, tick - demand_window)
 	var warming: bool = maxi(0,tick - int(history["spawned_at_tick"])) < demand_warmup
-	var observed := {}
-	var windows: Dictionary = flow["consumption_window"]
-	var window_slugs := windows.keys()
-	window_slugs.sort()
-	for slug in window_slugs:
-		var entries = windows[slug]
-		if not (entries is Array):
-			return _fail("invalid_native_consumption_window")
-		# The market was deep-copied at entry. Compact its owned window
-		# directly instead of allocating a new array on every paid tick.
-		# Preserve relative order and floating-point summation order.
-		var write_at: int = 0
-		var amount: float = 0.0
-		for read_at in range(entries.size()):
-			var entry: Variant = entries[read_at]
-			# Native source stores (tick, quantity) tuple. Adapter projects
-			# {tick:int,qty:float} without fabricating history entries.
-			if not (entry is Dictionary) or typeof(entry.get("tick")) != TYPE_INT or 					not _num(entry.get("qty")):
-				return _fail("invalid_consumption_sample")
-			if int(entry["tick"]) < cutoff:
-				continue
-			# result is already a deep-owned market snapshot; copying each
-			# retained sample again is redundant. The returned market remains
-			# detached from the caller, including nested sample payloads.
-			entries[write_at] = entry
-			write_at += 1
-			amount += float(entry["qty"])
-		entries.resize(write_at)
-		windows[slug] = entries
-		if amount > 0.0:
-			observed[slug] = amount
+	# The detached window builder already validated, filtered and summed each
+	# retained row in original order. Reusing its scalar totals avoids a second
+	# full traversal of the growing consumption history on every paid tick.
+	var observed: Dictionary = staged_flow["observed"]
 	var all_commodities := {}
 	for slug in flow["seed_demand"]:
 		all_commodities[slug] = true
