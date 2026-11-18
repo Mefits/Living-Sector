@@ -128,6 +128,21 @@ static func choose(world: Dictionary, factions: Dictionary,
             "delivery_reward": DELIVERY_REWARD,
             "construction_payment": CONSTRUCTION_PAYMENT,
             "delivery_quantity": MATERIAL_LOT})
+    # Preserve the actual N111 construction-vs-wait reason. The player
+    # interface must not re-run the economic comparison or invent a cause.
+    var comparison_trace: Dictionary = {
+        "selected": str(comparison.get("selected", "wait")),
+        "goal": comparison.get("goal", {}),
+        "build_reason": "", "build_net_value": null
+    }
+    for alternative in comparison.get("alternatives", []):
+        if alternative is Dictionary and str(
+                alternative.get("action", "")) == "build":
+            comparison_trace["build_reason"] = str(
+                alternative.get("reason", ""))
+            comparison_trace["build_net_value"] = alternative.get(
+                "estimated_net_value", null)
+            break
     var contract_view: Array = []
     for cid in world.get("construction_contracts", {}):
         var c: Dictionary = world.get("contract_board", {}).get("contracts", {}).get(cid, {})
@@ -151,6 +166,7 @@ static func choose(world: Dictionary, factions: Dictionary,
     var head: Dictionary = preview.get("heads", {}).get(faction, {})
     if str(head.get("selected_option", "wait")) != "build" or str(head.get("selected_administrator", "")) != "construction":
         return {"ok": true, "authorized": false, "head": head,
+            "comparison": comparison_trace,
             "reason": str(head.get("reason", "source_n134_wait"))}
     var permission: bool = N134Head.authorized(true, preview.get("grants", {}),
         faction, "construction", head.get("problem", {}))
@@ -161,7 +177,8 @@ static func choose(world: Dictionary, factions: Dictionary,
         head.get("problem", {}))
     if not staged.get("ok", false):
         return {"ok": true, "authorized": false,
-            "head": head, "reason": str(staged.get("reason", "n154_not_ready"))}
+            "head": head, "comparison": comparison_trace,
+            "reason": str(staged.get("reason", "n154_not_ready"))}
     var goal: Dictionary = staged.get("post", {})
     var intended: Dictionary = head.get("problem", {})
     # N154's chosen site may consume a different INPUT commodity
@@ -174,6 +191,8 @@ static func choose(world: Dictionary, factions: Dictionary,
             break
     if selected_offer.is_empty() or not N134Head.same_problem(staged.get("approved_goal", {}), intended) or str(selected_offer.get("source", "")) != str(goal.get("source_location", "")) or str(selected_offer.get("delivery_commodity", "")) != str(goal.get("commodity", "")):
         return {"ok": true, "authorized": false, "head": head,
+            "comparison": comparison_trace,
             "reason": "n134_grant_does_not_match_n154_material_contract"}
     return {"ok": true, "authorized": true, "head": head,
-        "staged": staged, "reason": "source_n134_N111_positive_build"}
+        "comparison": comparison_trace, "staged": staged,
+        "reason": "source_n134_N111_positive_build"}
