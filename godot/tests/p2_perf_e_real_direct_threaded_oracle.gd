@@ -3,7 +3,7 @@ extends SceneTree
 ## Run headless as -s res://tests/p2_perf_e_real_direct_threaded_oracle.gd.
 ## This is bounded correctness evidence, NOT a CPU/FPS benchmark.
 const NativeData = preload("res://scripts/native_data.gd")
-const Direct = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
+const Direct = preload("res://scripts/sim/phase2/n158_timed_phase_probe.gd")
 const ThreadOwner = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const Oracle = preload("res://scripts/sim/phase2/n158_checkpoint_parity_oracle.gd")
 const Metrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
@@ -67,6 +67,7 @@ func _run() -> void:
     var previous_source_counts: Dictionary = {}
     var previous_window: Dictionary = {}
     var observation_samples: Array = []
+    var phase_reports: Array = []
     for tick in range(1, target + 1):
         if Time.get_ticks_msec() - _start_ms >= budget_ms:
             _finish("bounded wall budget exceeded before paid tick " + str(tick), false)
@@ -140,6 +141,19 @@ func _run() -> void:
             observation_samples.append(observation)
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
             if LATE_WINDOWS.has(tick) and tick <= target:
+                var direct_phases: Dictionary = direct.paid_phase_distribution(tick)
+                var paired_response: Dictionary = response.duplicate(true)
+                paired_response["paid_phase_window"] = worker.get("paid_phase_window", {})
+                var paid_phase_gate: Dictionary = Acceptance.verify_paid_phase_pair(
+                    tick, detached_direct, paired_response, direct_phases, window)
+                if not paid_phase_gate.get("accepted", false):
+                    _finish("paid phase attribution failed " + str(tick) +
+                        " " + JSON.stringify(paid_phase_gate), false)
+                    return
+                phase_reports.append({"tick": tick,
+                    "phase_comparison": paid_phase_gate["phase_comparison"]})
+                print("P2_PERF_E_DIRECT_THREAD_PHASES ",
+                    JSON.stringify(paid_phase_gate))
                 var size_boundary: Dictionary = Acceptance.compare_size_boundary(
                     tick, detached_direct, detached_worker)
                 if not size_boundary.get("accepted", false):
@@ -206,6 +220,7 @@ func _run() -> void:
         _finish("checkpoint observation coverage invalid " + JSON.stringify(observation_report), false)
         return
     print("P2_PERF_E_CHECKPOINT_OBSERVATION_COST ", JSON.stringify(observation_report))
+    print("P2_PERF_E_PHASE_WINDOW_COVERAGE ", JSON.stringify(phase_reports))
     if last_window.is_empty():
         _finish("missing final complete paid window", false)
         return
