@@ -404,7 +404,7 @@ func _render() -> void:
     _scope.text = "СЕКТОР " + str(
         _world.get("system", {}).get("name", "—")).to_upper() + (
         "   /   " + section_name)
-    _updated.text = "ОБНОВЛЕНО: ТИК %d · N39" % _tick
+    _updated.text = "ОБНОВЛЕНО: ТИК %d" % _tick
     _focus_badge.text = "ФОКУС: " + _focus
     _focus_badge.tooltip_text = _focus
     _fit_toolbar()
@@ -434,7 +434,7 @@ func _render() -> void:
         "research": _research_workspace()
         "ship": _ship_workspace()
         "technical": _technical_workspace()
-        _: _empty("Этот раздел пока не подключён.")
+        _: _empty("Данные раздела пока недоступны.")
     _refresh_responsive_columns()
 
 func _reveal_active_tab(mode: String, tab: String) -> void:
@@ -999,7 +999,7 @@ func _select_chain_stock(key: String) -> void:
 
 func _chain(body_id: String = "") -> void:
     var group := _section("ПРОИЗВОДСТВЕННАЯ ЦЕПОЧКА",
-        "N39 · запасы, не производительность")
+        "Запасы на рынках, не выпуск за цикл")
     var flow := HFlowContainer.new()
     flow.add_theme_constant_override("h_separation", 8)
     flow.add_theme_constant_override("v_separation", 8)
@@ -1253,7 +1253,7 @@ func _facility_process_section(_source: Dictionary, live: Dictionary) -> void:
     flow.add_theme_constant_override("h_separation", 9)
     flow.add_theme_constant_override("v_separation", 9)
     section.add_child(flow)
-    _process_card(flow, "ВХОД · N39", input_value,
+    _process_card(flow, "ВХОД", input_value,
         "За последнюю смену")
     var arrow_in := _label("→", 16, TEAL)
     arrow_in.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -1263,7 +1263,7 @@ func _facility_process_section(_source: Dictionary, live: Dictionary) -> void:
     var arrow_out := _label("→", 16, TEAL)
     arrow_out.size_flags_vertical = Control.SIZE_SHRINK_CENTER
     flow.add_child(arrow_out)
-    _process_card(flow, "ВЫХОД · N39", output_value,
+    _process_card(flow, "ВЫХОД", output_value,
         "Последняя смена: тик " + last_tick)
     _pair(section, "Назначенные работники",
         str(live.get("assigned_workers", "—")))
@@ -1445,15 +1445,15 @@ func _fleet_ships_section() -> void:
             if cargo is Dictionary and not cargo.is_empty():
                 carrying += 1
     _metric_strip(section, [
-        {"label":"Корабли N39", "value":str(ship_rows.size())},
-        {"label":"В пути N14", "value":str(flying)},
+        {"label":"Корабли", "value":str(ship_rows.size())},
+        {"label":"В пути", "value":str(flying)},
         {"label":"У дока", "value":str(docked)},
         {"label":"С грузом", "value":str(carrying)}])
     _table(section, ["Корабль","Класс","Задача","Груз","Статус"],
         ship_rows, "", "", "ship")
 
 func _fleet_contracts_section() -> void:
-    var section := _section("ДЕЙСТВИТЕЛЬНЫЕ N153 КОНТРАКТЫ")
+    var section := _section("ДЕЙСТВИТЕЛЬНЫЕ КОНТРАКТЫ")
     var board: Variant = _economy.get("contract_board", {})
     var contracts: Variant = board.get("contracts", {}) if board is Dictionary else {}
     var rows: Array[Dictionary] = []
@@ -1470,7 +1470,7 @@ func _fleet_contracts_section() -> void:
         var name: String = str(cells[1])
         statuses[name] = int(statuses.get(name, 0)) + 1
     _metric_strip(section, [
-        {"label":"Контракты N153", "value":str(rows.size())},
+        {"label":"Контракты", "value":str(rows.size())},
         {"label":"Разных статусов", "value":str(statuses.size())},
         {"label":"Срок исполнения", "value":"—"},
         {"label":"История рейсов", "value":"—"}])
@@ -1491,7 +1491,7 @@ func _fleet_cargo_section() -> void:
     _table(section, ["Корабль","Груз","Контракт"], rows, "", "", "ship")
 
 func _fleet_routes_section() -> void:
-    var section := _section("ФИЗИЧЕСКИЕ N14 РЕЙСЫ")
+    var section := _section("АКТИВНЫЕ РЕЙСЫ")
     var rows: Array[Dictionary] = []
     var ships: Variant = _economy.get("ships", {})
     if ships is Dictionary:
@@ -1507,7 +1507,7 @@ func _fleet_routes_section() -> void:
         rows, "", "", "ship")
 
 func _fleet_docks_section() -> void:
-    var section := _section("СТЫКОВКА ПО N39")
+    var section := _section("СТЫКОВКА И ДОКИ")
     var rows: Array[Dictionary] = []
     var ships: Variant = _economy.get("ships", {})
     if ships is Dictionary:
