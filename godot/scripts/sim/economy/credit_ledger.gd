@@ -252,6 +252,11 @@ func commit(operation_id: String, legs: Array, tick: int, kind: String) -> Dicti
 		changes[account] = old_change + delta
 	if debits == 0 or debits != credits:
 		return {"ok": false, "reason": "unbalanced"}
+	# Stage final wallet values once, then publish only after EVERY account
+	# passes. The former two passes repeatedly looked up each old balance
+	# and recomputed its sum on the paid transaction path. This remains an
+	# atomic N9 commit: failed funding/overflow never touches live wallets.
+	var staged_balances: Dictionary = {}
 	for account in changes:
 		var before: int = int(_balances[account])
 		var change: int = int(changes[account])
@@ -259,8 +264,9 @@ func commit(operation_id: String, legs: Array, tick: int, kind: String) -> Dicti
 			return {"ok": false, "reason": "insufficient_funds"}
 		if change > 0 and before > MAX_CREDITS - change:
 			return {"ok": false, "reason": "integer_overflow"}
-	for account in changes:
-		_balances[account] = int(_balances[account]) + int(changes[account])
+		staged_balances[account] = before + change
+	for account in staged_balances:
+		_balances[account] = staged_balances[account]
 	var receipt = {"id": operation_id, "tick": tick, "kind": kind, "legs": legs.duplicate(true)}
 	_append_receipt(operation_id, receipt)
 	return {"ok": true, "receipt": receipt.duplicate(true)}
