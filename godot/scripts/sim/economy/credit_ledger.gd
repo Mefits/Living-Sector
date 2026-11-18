@@ -274,11 +274,19 @@ func commit(operation_id: String, legs: Array, tick: int, kind: String) -> Dicti
 		if change > 0 and before > MAX_CREDITS - change:
 			return {"ok": false, "reason": "integer_overflow"}
 		staged_balances[account] = before + change
+	# Detach caller-owned legs BEFORE publishing any balance. A caller may
+	# reuse/mutate its input array after commit; the authoritative receipt
+	# and the returned proof must never alias either the input or each other.
+	# This also makes all potentially allocating receipt construction happen
+	# before the first authoritative wallet write.
+	var immutable_legs: Array = legs.duplicate(true)
+	var receipt: Dictionary = {"id": operation_id, "tick": tick,
+		"kind": kind, "legs": immutable_legs}
+	var public_proof: Dictionary = receipt.duplicate(true)
 	for account in staged_balances:
 		_balances[account] = staged_balances[account]
-	var receipt = {"id": operation_id, "tick": tick, "kind": kind, "legs": legs.duplicate(true)}
 	_append_receipt(operation_id, receipt)
-	return {"ok": true, "receipt": receipt.duplicate(true)}
+	return {"ok": true, "receipt": public_proof}
 
 func transfer(operation_id: String, source: String, destination: String, amount: int, tick: int, kind: String) -> Dictionary:
 	if source == destination or amount <= 0:
@@ -305,12 +313,15 @@ func close_removed_entity_account(operation_id: String,
 	var lost: int = int(_balances[account])
 	if lost < 0:
 		return {"ok": false, "reason": "invalid_decommission_balance"}
-	_balances.erase(account)
+	# Build the immutable write-off and its detached public proof before
+	# removing the wallet. No intermediate state is observable by callers.
 	var record: Dictionary = {"id": operation_id, "tick": tick,
 		"kind": kind, "account_closed": account, "credits_lost": lost,
 		"legs": [{"account": account, "delta": -lost}]}
+	var public_proof: Dictionary = record.duplicate(true)
+	_balances.erase(account)
 	_append_receipt(operation_id, record)
-	return {"ok": true, "receipt": record.duplicate(true),
+	return {"ok": true, "receipt": public_proof,
 		"credits_lost": lost}
 
 ## Frozen Rust ShipEconomy.credits -> ShipCrew.wages_credits. Crew
@@ -328,13 +339,14 @@ func pay_native_ship_crew(operation_id: String, ship_account: String,
 		return {"ok": false, "reason": "native_crew_wage_replay"}
 	if int(_balances[ship_account]) < amount:
 		return {"ok": false, "reason": "unfunded_native_crew_wage"}
-	_balances[ship_account] = int(_balances[ship_account]) - amount
 	var receipt: Dictionary = {"id": operation_id, "tick": tick,
 		"kind": "native_ship_crew_wages", "ship_id": ship_id,
 		"wages_credits_accrued": amount,
 		"legs": [{"account": ship_account, "delta": -amount}]}
+	var public_proof: Dictionary = receipt.duplicate(true)
+	_balances[ship_account] = int(_balances[ship_account]) - amount
 	_append_receipt(operation_id, receipt)
-	return {"ok": true, "receipt": receipt.duplicate(true), "amount": amount}
+	return {"ok": true, "receipt": public_proof, "amount": amount}
 
 
 func snapshot() -> Dictionary:
