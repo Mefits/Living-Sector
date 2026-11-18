@@ -1637,7 +1637,8 @@ func _update_window() -> void:
         _workspace_ui.set_can_go_back(not _workspace_history.is_empty())
         _workspace_ui.show_state(_window_mode, _tab, _world, _economy,
             _effective_body(), _facility, _ship, _tick, _workspace_focus,
-            _diagnostic_text, _fleet_diagnostics, _paused)
+            _diagnostic_text, _fleet_diagnostics, _paused,
+            str(_game.get("_notice")) if _game != null else "")
         return
     var title: String = str({
         "colony":"КОЛОНИЯ", "economy":"ЭКОНОМИКА",
