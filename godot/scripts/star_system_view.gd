@@ -44,7 +44,8 @@ const SATELLITE_ORBIT_LINE_OPACITY: float = 0.25
 const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
 const StationShipProjection = preload("res://scripts/ui_station_ship_projection.gd")
-const SolAssets = preload("res://scripts/sim/phase2/sol_physical_assets_projection.gd")
+const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd")
+const PlanetSurface = preload("res://scripts/view/planet_surface_projection.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
 const ColonyRoads = preload("res://scripts/view/colony_roads_projection.gd")
 const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
@@ -91,7 +92,9 @@ var _ship_ids_by_location: Dictionary = {}
 var _ship_pins: Array = []
 var _selected_ship_id: String = ""
 var _selected_facility_id: String = ""
-var _physical_assets: Dictionary = {"orbital": [], "surface": []}
+var _physical_assets: Dictionary = {"orbital": [], "surface": [],
+    "profiles": {}}
+var _live_asset_definitions: Dictionary = {}
 var _live_facility_status: Dictionary = {}
 var _colony_roads: Dictionary = {"sites": {}, "links": []}
 var _colony_tick: int = -1
@@ -143,7 +146,8 @@ func _rebuild_body_index() -> void:
             float(body.get("orbit_radius", 0.0)))
 
 func _rebuild_facility_index() -> void:
-    _physical_assets = SolAssets.build(_world)
+    _physical_assets = PhysicalAssets.build(_world)
+    _live_asset_definitions.clear()
     _facilities_by_body.clear()
     _body_ids_by_location.clear()
     for value in _world.get("facilities", []):
@@ -541,10 +545,28 @@ func _visual_station_time(now: int) -> float:
 
 
 func set_live_facilities(facilities: Dictionary, tick: int = -1) -> void:
+    # N39 may construct a real station/dock/factory AFTER the frozen Rust
+    # seed was loaded. Metadata changes cause one reprojection; paid status
+    # updates never regenerate the planet surface or reorder old facilities.
+    var definitions: Dictionary = {}
+    for fid in facilities:
+        var row: Variant = facilities[fid]
+        if not (row is Dictionary):
+            continue
+        var bid: String = str(row.get("body_id", row.get("body", "")))
+        if not _body_index.has(bid):
+            continue
+        var kind: String = str(row.get("type", ""))
+        var location: String = str(row.get("location", ""))
+        definitions[str(fid)] = [kind, bid, location]
+    if definitions != _live_asset_definitions:
+        _live_asset_definitions = definitions
+        _physical_assets = PhysicalAssets.build(_world, facilities)
+        _rebuild_colony_roads()
     var projected: Dictionary = {}
     for group in ["orbital", "surface"]:
         for facility in _physical_assets.get(group, []):
-            projected[str(facility["id"])] = SolAssets.live_status(
+            projected[str(facility["id"])] = PhysicalAssets.live_status(
                 facility, facilities)
     if projected != _live_facility_status or tick != _colony_tick:
         _live_facility_status = projected
@@ -1037,7 +1059,7 @@ func _draw_system() -> void:
                 "hit_radius": maxf(22.0, visual_radius + 9.0)})
     # Real source-backed stations and surface enterprises are drawn
     # independently. No extra N39/N9 objects are generated in the UI.
-    _draw_physical_sol_assets(scale)
+    _draw_physical_assets(scale)
     # Draw ONLY ships with a real committed N14 transit.position. The
     # radial display is compressed by the same source orbit transform as
     # the planets; there is no fabricated travel or per-frame motion.
@@ -1054,9 +1076,9 @@ func _draw_system() -> void:
 ## The orbital station is the actual source N39 station facility at the
 ## same native location N43 uses for N14 arrivals. Only the radius glyph is
 ## expanded outside the schematic globe icon to keep it clickable.
-func _draw_physical_sol_assets(scale: float) -> void:
-    if str(_world.get("system", {}).get("id", "")) != "system-sol":
-        return
+func _draw_physical_assets(scale: float) -> void:
+    var is_sol: bool = str(
+        _world.get("system", {}).get("id", "")) == "system-sol"
     var font: Font = get_theme_default_font()
     for facility in _physical_assets.get("orbital", []):
         var parent: Dictionary = _body_by_id(str(facility["body"]))
@@ -1066,16 +1088,21 @@ func _draw_physical_sol_assets(scale: float) -> void:
         var body_radius: float = _body_size(parent)
         var source_angle: float = float(N43.initial_facility_angle(
             str(facility["location"])))
+        # Sol has verified native docking geometry; other systems render a
+        # stable schematic station marker until their own N43 orbital
+        # ephemeris is available. Never animate a fictional physical orbit.
         var native_angle: float = fposmod(
-            source_angle + _visual_station_time(_draw_now_usec), 360.0)
+            source_angle + (
+                _visual_station_time(_draw_now_usec) if is_sol else 0.0),
+            360.0)
         var direction: Vector2 = Vector2(
             cos(deg_to_rad(native_angle)), -sin(deg_to_rad(native_angle)))
-        var local_native: float = SolOrbits.compact_station_orbit_radius(
-            str(facility["body"]))
-        if local_native <= 0.0:
-            continue
-        var physical_compressed: float = pow(
-            local_native, SATELLITE_COMPRESSION) * scale * _zoom
+        var local_native: float = (
+            SolOrbits.compact_station_orbit_radius(
+                str(facility["body"])) if is_sol else 0.0)
+        var physical_compressed: float = (
+            pow(local_native, SATELLITE_COMPRESSION) * scale * _zoom
+            if local_native > 0.0 else 0.0)
         # Keep the station off the enlarged planet glyph without
         # confusing this presentation gap with physical N43 altitude.
         # At close zoom the old +20px gap is roughly doubled; distant
@@ -1095,8 +1122,9 @@ func _draw_physical_sol_assets(scale: float) -> void:
         var display_radius: float = maxf(
             body_radius + orbit_gap_px, physical_compressed)
         var pos: Vector2 = body_pos + direction * display_radius
-        var native_info: Dictionary = _station_native_location(
-            str(facility["location"]))
+        var native_info: Dictionary = (
+            _station_native_location(str(facility["location"]))
+            if is_sol else {"ok": false})
         if native_info.get("ok", false):
             var source_offset: Variant = _world.get(
                 "system", {}).get("universe_offset", [0.0, 0.0])
@@ -1122,7 +1150,7 @@ func _draw_physical_sol_assets(scale: float) -> void:
                             body_native["position"], native_offset, scale),
                         "screen_orbit_radius": display_radius
                     })
-        if _zoom >= 2.0:
+        if _zoom >= 2.0 and is_sol:
             draw_arc(body_pos, display_radius, 0, TAU, 60,
                 Color(0.35, 0.51, 0.59, 0.24), 1.0, true)
         var tone: Color = Color("#e6c48d")
@@ -1159,7 +1187,9 @@ func _draw_physical_sol_assets(scale: float) -> void:
                 "ship_ids": docked_ids.duplicate(), "hit_radius": 9.0})
         if _zoom >= 7.0 or _focused_body_id == str(facility["body"]):
             draw_string(font, pos + Vector2(17, -9) * icon_scale,
-                "Орбитальная станция", HORIZONTAL_ALIGNMENT_LEFT,
+                "Административный док" if str(facility.get(
+                    "type", "")) == "construction_dock"
+                else "Орбитальная станция", HORIZONTAL_ALIGNMENT_LEFT,
                 -1, 12, Color("#dfc8a4"))
     # Roads go behind the existing clickable source-backed facilities.
     # Only draw on the enlarged focused globe; roads are NOT physical cargo.
@@ -1180,7 +1210,8 @@ func _draw_physical_sol_assets(scale: float) -> void:
         var body_pos: Vector2 = _body_position(parent, scale)
         var site: Vector2 = facility["site"]
         var pos: Vector2 = body_pos + site * body_radius
-        var kind: String = str(facility["type"])
+        var kind: String = str(facility.get(
+            "render_type", facility["type"]))
         var tone: Color = Color("#d6c9a1", alpha)
         if kind == "farm":
             tone = Color(0.65, 0.85, 0.60, alpha)
@@ -1188,10 +1219,16 @@ func _draw_physical_sol_assets(scale: float) -> void:
             tone = Color(0.88, 0.72, 0.53, alpha)
         elif kind == "refinery":
             tone = Color(0.70, 0.81, 0.88, alpha)
+        elif kind == "administrative_center":
+            tone = Color(0.89, 0.81, 0.57, alpha)
         var icon_size: float = clampf(body_radius * 0.070, 4.5, 9.0)
         draw_rect(Rect2(pos - Vector2(icon_size, icon_size * 0.65),
             Vector2(icon_size * 2.0, icon_size * 1.3)),
             tone, true)
+        if kind == "administrative_center":
+            draw_rect(Rect2(pos + Vector2(-icon_size * 0.25,
+                -icon_size * 1.3), Vector2(icon_size * 0.5,
+                icon_size * 0.65)), tone, true)
         draw_line(pos + Vector2(icon_size * 0.5, -icon_size * 0.65),
             pos + Vector2(icon_size * 0.5, -icon_size * 1.5),
             tone, 2.0)
@@ -1249,61 +1286,58 @@ func _draw_colony_roads(scale: float) -> void:
     if not has_roads:
         return
     # Visual-only origin of the road network, not a minted N39 AC.
-    var hub: Vector2 = center + ColonyRoads.HUB_SITE * radius
-    draw_rect(Rect2(hub - Vector2(4.0, 4.0), Vector2(8.0, 8.0)),
-        Color(0.91, 0.86, 0.69, alpha), true)
+    # N151 AC is already a REAL surface pin; do not draw a phantom hub.
+    if not (_colony_roads.get("has_ac", {}) as Dictionary).has(
+            _focused_body_id):
+        var hub_site: Vector2 = (_colony_roads.get(
+            "hubs", {}) as Dictionary).get(
+            _focused_body_id, ColonyRoads.HUB_SITE)
+        var hub: Vector2 = center + hub_site * radius
+        draw_rect(Rect2(hub - Vector2(4.0, 4.0), Vector2(8.0, 8.0)),
+            Color(0.91, 0.86, 0.69, alpha), true)
 
 
 ## Surface placeholders grow in place on the very same orbital map.
 ## No imaginary T1 industries or second terrain simulation are shown.
 func _draw_globe_detail(body: Dictionary, center: Vector2, radius: float,
         opacity: float) -> void:
-    # Major terrain fades in first; small lakes, bands and craters follow.
-    # Both layers reach the original full-strength colors after two notches.
-    var subtle_opacity: float = clampf((opacity - 0.15) / 0.85, 0.0, 1.0)
-    var biome: String = str(body.get("biome", ""))
-    if biome == "terrestrial":
-        var land_a: PackedVector2Array = PackedVector2Array([
-            center + Vector2(-0.70, -0.35) * radius,
-            center + Vector2(-0.34, -0.72) * radius,
-            center + Vector2(0.09, -0.73) * radius,
-            center + Vector2(0.26, -0.44) * radius,
-            center + Vector2(0.08, -0.12) * radius,
-            center + Vector2(-0.26, -0.03) * radius,
-            center + Vector2(-0.43, 0.30) * radius,
-            center + Vector2(-0.67, 0.20) * radius
-        ])
-        var land_b: PackedVector2Array = PackedVector2Array([
-            center + Vector2(0.37, -0.05) * radius,
-            center + Vector2(0.66, 0.00) * radius,
-            center + Vector2(0.86, 0.35) * radius,
-            center + Vector2(0.56, 0.65) * radius,
-            center + Vector2(0.20, 0.75) * radius,
-            center + Vector2(0.10, 0.30) * radius
-        ])
-        draw_colored_polygon(land_a, _surface_tint("#789c7d", opacity))
-        draw_colored_polygon(land_b, _surface_tint("#9bb38a", opacity))
-        draw_circle(center + Vector2(-0.17, 0.41) * radius,
-            radius * 0.15, _surface_tint("#5689a3", subtle_opacity))
-    elif biome == "gas_giant":
-        for band in [-0.70, -0.39, -0.06, 0.22, 0.57]:
-            var y: float = float(band) * radius
-            var half: float = sqrt(maxf(0.0, radius * radius - y * y)) * 0.92
+    var bid: String = str(body.get("id", ""))
+    var profile: Dictionary = _physical_assets.get(
+        "profiles", {}).get(bid, {})
+    if profile.is_empty():
+        profile = PlanetSurface.build(body, str(
+            _world.get("system", {}).get("id", "")))
+    var subtle: float = clampf((opacity - 0.15) / 0.85, 0.0, 1.0)
+    for region in profile.get("regions", []):
+        var points: PackedVector2Array = PackedVector2Array()
+        for local in region["points"]:
+            points.append(center + (local as Vector2) * radius)
+        if points.size() >= 3:
+            draw_colored_polygon(points, _surface_tint(
+                str(region["color"]), opacity))
+    var biome: String = str(profile.get("biome", ""))
+    for detail in profile.get("details", []):
+        var kind: String = str(detail.get("kind", ""))
+        if kind == "lake":
+            draw_circle(center + (detail["pos"] as Vector2) * radius,
+                radius * float(detail["radius"]),
+                _surface_tint("#5689a3", subtle))
+        elif kind == "crater":
+            draw_arc(center + (detail["pos"] as Vector2) * radius,
+                radius * float(detail["radius"]), 0.0, TAU, 32,
+                _surface_tint("#677e92", subtle),
+                maxf(1.0, radius * 0.012))
+        elif kind == "band" and biome == "gas_giant":
+            var y: float = float(detail["y"]) * radius
+            var half: float = sqrt(maxf(
+                0.0, radius * radius - y * y)) * 0.92
             draw_line(center + Vector2(-half, y),
-                center + Vector2(half, y), _surface_tint("#917d70", opacity),
+                center + Vector2(half, y),
+                _surface_tint("#917d70", opacity),
                 maxf(2.0, radius * 0.065))
-    elif biome in ["lifeless", "ice"]:
-        draw_circle(center + Vector2(-0.32, -0.20) * radius,
-            radius * 0.16, _surface_tint("#809aad", subtle_opacity))
-        draw_circle(center + Vector2(0.36, 0.31) * radius,
-            radius * 0.10, _surface_tint("#90a9bd", subtle_opacity))
-    elif biome in ["molten", "desert"]:
-        draw_arc(center + Vector2(0.10, -0.15) * radius,
-            radius * 0.51, 0.50, 2.75, 44, _surface_tint("#e4b08c", opacity),
-            maxf(2.0, radius * 0.02))
     draw_arc(center, radius, 0.18 * PI, 1.15 * PI, 70,
-        _surface_tint("#192a39", opacity), maxf(1.0, radius * 0.025))
-
+        _surface_tint("#192a39", opacity),
+        maxf(1.0, radius * 0.025))
 
 ## Visual-only projection of N14's physical absolute world position.
 ## NativePositionResolver uses system.universe_offset + polar body orbit;
