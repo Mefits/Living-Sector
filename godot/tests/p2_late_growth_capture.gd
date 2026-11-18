@@ -64,8 +64,8 @@ func _initialize() -> void:
                 receipts = int(ledger.receipt_count())
             var events_snapshot: Variant = sim.events.snapshot()
             var event_count: int = -1
-            if events_snapshot is Array or events_snapshot is Dictionary:
-                event_count = events_snapshot.size()
+            if events_snapshot is Dictionary and events_snapshot.get("pending") is Array:
+                event_count = events_snapshot["pending"].size()
             var report: Dictionary = REPORT.summarize(tick, steps, phases,
                 snapshot["native_production"]["world"], receipts, event_count)
             if report.get("valid", false) != true:
