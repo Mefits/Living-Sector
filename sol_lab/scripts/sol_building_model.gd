@@ -1,5 +1,6 @@
 extends RefCounted
 ## UI-only catalog; original Rust-port seed is unchanged.
+const ConstructionCycle = preload("res://scripts/sim/construction/construction_cycle.gd")
 const VISIBLE: Array = ["earth", "luna", "mars"]
 const BUILDINGS: Array = [
  {"id":"administrative_center","name":"Административный центр","product":"food","base":0,"inputs":{},"ported":false},
@@ -59,3 +60,17 @@ static func colony(world: Dictionary, body: String) -> bool:
  return false
 static func available(b: Dictionary, settings: Dictionary, world: Dictionary, body: String) -> bool:
  return bool(b["ported"]) and colony(world,body) and stock(world,body) >= int(settings.get(str(b["id"]),{}).get("metals",0))
+
+
+## Original N17 construction is paid by shift, not a fixed build timer.
+## This value is a LOWER BOUND after all materials arrive, an executor is
+## available, and enough workers are paid. It is not an ETA in game ticks.
+static func minimum_construction_shifts(building: Dictionary,
+        settings: Dictionary) -> int:
+ if not bool(building.get("ported", false)):
+  return -1
+ var row: Dictionary = settings.get(str(building.get("id", "")), {})
+ var labor: int = int(row.get("labor", 0))
+ if labor <= 0:
+  return -1
+ return ceili(float(labor) / float(ConstructionCycle.MAX_SHIFT_WORKERS))

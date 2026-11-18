@@ -27,6 +27,9 @@ var pause_button: Button
 var time_label: Label
 var browser
 var native_view
+var sidebar: PanelContainer
+var top_bar: HBoxContainer
+var performance_bar: HBoxContainer
 var view_elapsed: float = 0.0
 
 func _ready() -> void:
@@ -43,11 +46,14 @@ func _ready() -> void:
     _build_ui()
     _make_native_map()
     _make_browser()
+    resized.connect(_layout_right_side)
+    _layout_right_side()
     _show_selected()
     queue_redraw()
 
 func _build_ui() -> void:
     var bar := HBoxContainer.new()
+    top_bar = bar
     add_child(bar)
     bar.anchor_right = 1.0
     bar.offset_right = -SIDE_WIDTH
@@ -74,6 +80,7 @@ func _build_ui() -> void:
         speed_buttons[preset] = speed_button
     _button(bar, "Камера", _reset_camera)
     var perf_bar := HBoxContainer.new()
+    performance_bar = perf_bar
     add_child(perf_bar)
     perf_bar.anchor_right = 1.0
     perf_bar.offset_top = 46
@@ -89,7 +96,7 @@ func _build_ui() -> void:
     perf_label.tooltip_text = "Оригинальный UIFrameProfiler из SystemBalance. " + (
         "Симуляция N158 пока не подключена.")
     perf_bar.add_child(perf_label)
-    var sidebar := PanelContainer.new()
+    sidebar = PanelContainer.new()
     add_child(sidebar)
     sidebar.anchor_left = 1.0
     sidebar.anchor_right = 1.0
@@ -98,8 +105,6 @@ func _build_ui() -> void:
     sidebar.offset_right = 0.0
     var contents := VBoxContainer.new()
     sidebar.add_child(contents)
-    _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
-    mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
     info_area = VBoxContainer.new()
     contents.add_child(info_area)
     var heading := Label.new()
@@ -112,6 +117,11 @@ func _build_ui() -> void:
     hint.text = "Оригинальная карта SystemBalance: двойной клик — приблизить.\nСимуляция пока не подключена."
     hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     info_area.add_child(hint)
+    var filler := Control.new()
+    filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    contents.add_child(filler)
+    _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
+    mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
 
 
 func _button(parent: Node, label: String, action: Callable) -> Button:
@@ -164,10 +174,10 @@ func _restore() -> void:
     get_tree().call_deferred("reload_current_scene")
 
 func _toggle_admin() -> void:
-    if browser.visible:
-        browser.hide()
+    if browser.visible and browser.page.begins_with("admin"):
+        _close_browser()
     else:
-        browser.configure(world, config, selected, true)
+        _open_browser(true)
 
 func _pause() -> void:
     paused = not paused
@@ -262,10 +272,45 @@ func _make_browser() -> void:
     browser.apply_requested.connect(_apply)
     browser.reset_requested.connect(_restore)
     browser.values_changed.connect(_show_selected)
+    browser.close_requested.connect(_close_browser)
     browser.hide()
 
 func _open_build() -> void:
-    browser.configure(world,config,selected,false)
+    _open_browser(false)
+
+func _open_browser(admin: bool) -> void:
+    browser.configure(world, config, selected, admin)
+    sidebar.hide()
+    _layout_right_side()
+
+func _close_browser() -> void:
+    browser.hide()
+    sidebar.show()
+    _layout_right_side()
+
+func _layout_right_side() -> void:
+    if sidebar == null or native_view == null or browser == null:
+        return
+    var active_width: float = SIDE_WIDTH
+    if browser.visible:
+        # Reserve actual viewport space for the original map.
+        # The catalog never overlays the planet/camera canvas.
+        active_width = minf(clampf(size.x * 0.57, 620.0, 870.0),
+            maxf(300.0, size.x - 430.0))
+    for bar in [top_bar, performance_bar]:
+        if bar != null:
+            bar.offset_right = -active_width
+    sidebar.offset_left = -SIDE_WIDTH
+    sidebar.offset_right = 0.0
+    native_view.offset_right = -active_width
+    browser.anchor_left = 1.0
+    browser.anchor_right = 1.0
+    browser.anchor_bottom = 1.0
+    browser.offset_left = -active_width
+    browser.offset_right = 0.0
+    browser.offset_top = 78.0
+    browser.offset_bottom = 0.0
+    browser.set_dock_width(active_width)
 
 func _native_view_world() -> Dictionary:
     # Filter PRESENTATION only. Frozen source Sol and colony data stay intact.
