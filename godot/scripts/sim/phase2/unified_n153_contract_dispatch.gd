@@ -143,6 +143,30 @@ static func _offer_payer_balance(world: Dictionary, contract: Dictionary,
             return int(buyer["credits"])
     return -1
 
+## Offer-local price result, keyed by posture multiplier. No cross-offer state.
+static func _purchase_quote(cache: Dictionary, multiplier: float,
+        quantity: int, source_price: float) -> Dictionary:
+    if cache.has(multiplier):
+        return cache[multiplier]
+    var amount: float = ceil(float(quantity) * source_price * multiplier)
+    var valid: bool = is_finite(amount) and amount > 0.0 and amount <= 9007199254740991.0
+    var result: Dictionary = {"valid": valid, "cost": int(amount) if valid else 0}
+    cache[multiplier] = result
+    return result
+
+## Ship observations are proposal-local. No mutable ship row escapes.
+static func _bid_observation(cache: Dictionary, ship_id: String,
+        ship: Dictionary) -> Dictionary:
+    if cache.has(ship_id):
+        return cache[ship_id]
+    var sensor: Variant = ship.get("sensor_range_au", null)
+    if not (sensor is int or sensor is float) or not is_finite(float(sensor)) or float(sensor) < 0.0:
+        sensor = 2.0 if str(ship.get("size", "")) in ["huge", "massive"] else 1.0
+    var result: Dictionary = {"sensor": float(sensor),
+        "bonus": float(ship.get("comms_bonus", 0.0))}
+    cache[ship_id] = result
+    return result
+
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
         tick_scale: float, factions: Dictionary = {}) -> Dictionary:
@@ -240,12 +264,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 _blocked_ship(ship_blockers, "source_reputation_posture_rejected")
                 continue
             var posture_multiplier: float = float(posture["multiplier"])
-            var quote_result: Dictionary = purchase_quotes.get(posture_multiplier, {})
-            if quote_result.is_empty():
-                var quoted_cost: float = ceil(float(qty) * float(source_price) * posture_multiplier)
-                quote_result = {"valid": is_finite(quoted_cost) and quoted_cost > 0.0 and quoted_cost <= 9007199254740991.0,
-                    "cost": int(quoted_cost) if is_finite(quoted_cost) and quoted_cost > 0.0 and quoted_cost <= 9007199254740991.0 else 0}
-                purchase_quotes[posture_multiplier] = quote_result
+            var quote_result: Dictionary = _purchase_quote(purchase_quotes, posture_multiplier, qty, float(source_price))
             if not bool(quote_result["valid"]):
                 _blocked_ship(ship_blockers, "invalid_source_purchase_quote")
                 continue
@@ -283,16 +302,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 continue
             # Per-ship sensor and comms fields cannot change inside propose().
             # Compute lazily after route/system gates, preserving reject order.
-            var observation: Dictionary = observation_cache.get(str(ship_id), {})
-            if observation.is_empty():
-                var sensor_value: Variant = ship.get("sensor_range_au", null)
-                if not (sensor_value is int or sensor_value is float) or not is_finite(float(sensor_value)) or float(sensor_value) < 0.0:
-                    # Frozen ShipFitting::new_for_size: Huge/Massive T2,
-                    # all other sizes T1 (Large hash roll not yet ported).
-                    sensor_value = 2.0 if str(ship.get("size", "")) in ["huge", "massive"] else 1.0
-                observation = {"sensor": float(sensor_value),
-                    "bonus": float(ship.get("comms_bonus", 0.0))}
-                observation_cache[str(ship_id)] = observation
+            var observation: Dictionary = _bid_observation(observation_cache, str(ship_id), ship)
             var sensor: float = float(observation["sensor"])
             # The selector does not mutate the offer or controller DTO.
             # Reuse them only within this contract, after a real ready ship.
