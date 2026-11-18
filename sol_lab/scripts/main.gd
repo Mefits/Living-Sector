@@ -17,8 +17,8 @@ var info_area: VBoxContainer
 var mode_button: Button
 var pause_button: Button
 var time_label: Label
-var browser: ColorRect
-var native_view: Control
+var browser
+var native_view
 var view_elapsed: float = 0.0
 
 func _ready() -> void:
