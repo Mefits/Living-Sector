@@ -9,6 +9,10 @@ const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const NativeClock = preload("res://scripts/sim/clock.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 const ConstructionRuntime = preload("res://scripts/sol_construction_runtime.gd")
+const ColonyStockPanel = preload("res://scripts/view/colony_stock_panel.gd")
+const PLANET_NAMES: Dictionary = {
+    "earth": "Земля", "luna": "Луна", "mars": "Марс"
+}
 const SPEED_PRESETS: Array[int] = [1, 4, 8, 16]
 const DEFAULTS = "res://data/balance_defaults.json"
 const USER_CONFIG = "user://sol_lab_balance.json"
@@ -36,6 +40,8 @@ var perf_label: Label
 var previous_process_started_usec: int = -1
 var selected: String = "earth"
 var details: Label
+var planet_name_label: Label
+var colony_stock_panel: PanelContainer
 var info_area: VBoxContainer
 var mode_button: Button
 var pause_button: Button
@@ -132,6 +138,12 @@ func _build_ui() -> void:
     var heading := Label.new()
     heading.text = "ВЫБРАННЫЙ ОБЪЕКТ"
     info_area.add_child(heading)
+    planet_name_label = Label.new()
+    planet_name_label.add_theme_font_size_override("font_size", 20)
+    planet_name_label.add_theme_color_override("font_color", Color("#e8edf1"))
+    info_area.add_child(planet_name_label)
+    colony_stock_panel = ColonyStockPanel.new()
+    info_area.add_child(colony_stock_panel)
     details = Label.new()
     details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     info_area.add_child(details)
@@ -288,11 +300,15 @@ func _show_selected() -> void:
     for body in world.get("bodies", []):
         if str(body.get("id", "")) != selected:
             continue
+        var name_ru: String = str(PLANET_NAMES.get(
+            selected, body.get("name", selected)))
+        planet_name_label.text = name_ru
+        colony_stock_panel.show_inventory(
+            name_ru, construction.colony_inventory(selected))
         var items: Array[String] = [
-            str(body.get("name", selected)),
             "Тип: "+str(body.get("type", "—")),
             "Биом: "+str(body.get("biome", "—")),
-            construction.inventory_summary(selected),
+            construction.production_summary(selected),
             "Строек в очереди: %d" % _pending_on(selected),
             "Ресурсные коэффициенты:"
         ]

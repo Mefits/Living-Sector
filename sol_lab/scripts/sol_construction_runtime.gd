@@ -329,6 +329,25 @@ func _run_batch(facility: Dictionary, supply: Dictionary, recipe: Dictionary) ->
   Model.batch_amount(output), Model.batch_unit(str(recipe.product))])
  facility["production_status"] = ", ".join(changes)
 
+## Read-only snapshot from this planet's actual colony market. An
+## uncolonized body has no stock panel, never an invented zero-warehouse.
+func colony_inventory(body: String) -> Dictionary:
+ var market: Dictionary = _market_for(body)
+ if market.is_empty() or not (market.get("supply", null) is Dictionary):
+  return {"present": false, "supply": {}}
+ return {"present": true, "supply": (market["supply"] as Dictionary).duplicate()}
+
+func production_summary(body: String) -> String:
+ var lines := PackedStringArray()
+ for entry in producers:
+  if str(entry.facility.body) == body:
+   lines.append("%s: %s" % [
+    str(entry.recipe.name),
+    str(entry.facility.get("production_status", "Ожидается первый выпуск"))])
+ if lines.is_empty():
+  return "Предприятия: нет"
+ return "Предприятия · последняя партия (30 дней):\n" + "\n".join(lines)
+
 func inventory_summary(body: String) -> String:
  var market: Dictionary = _market_for(body)
  if market.is_empty():

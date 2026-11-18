@@ -59,6 +59,7 @@ jobs:
           set -euo pipefail
           for test in \
             sol_farm_cycle_check \
+            sol_colony_stock_panel_check \
             sol_construction_calendar_check \
             sol_ac_start_check \
             sol_building_model_check
@@ -75,6 +76,7 @@ jobs:
             cat "$log"
             case "$test" in
               sol_farm_cycle_check) marker="SOL_FARM_CYCLE_PASS" ;;
+              sol_colony_stock_panel_check) marker="SOL_COLONY_STOCK_PANEL_PASS" ;;
               sol_construction_calendar_check) marker="SOL_CONSTRUCTION_CALENDAR_PASS" ;;
               sol_ac_start_check) marker="SOL_AC_START_PASS" ;;
               sol_building_model_check) marker="SOL_LAB_MODEL_PASS" ;;
