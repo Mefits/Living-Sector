@@ -47,7 +47,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [ ] Remaining contextual details and nav utility controls; pixel-level correction waits for final acceptance.
 - [ ] Windows visual comparisons and game behavior checks deliberately deferred until final acceptance (user instruction).
 
-## Stage 5 — workspace bodies [IN PROGRESS]
+## Stage 5 — workspace bodies [CODE COMPLETE / NOT TESTED]
 
 - [x] Shared 29px key–value rows and compact source-grounded notes across the seven workspaces.
 - [x] Figma four-up metric strip layout, with responsive columns and no fabricated values.
@@ -58,7 +58,9 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] N39-backed administration reasoning rows; no invented priorities or planner scores.
 - [x] Research track styling with bars only when published points/required_points exist.
 - [x] Ship cargo manifest and physical route stage cards from N14 transit; no estimated arrival percentages.
-- [ ] Remaining specialized tab layouts and final visual acceptance.
+- [x] Specialized tabs: facility warehouse summary, N153 contract status summary, N39 construction stages / blockage reasons, confirmed planner priorities/consequences and research prerequisites/unlocks.
+- [x] All seven workspace bodies now use the common Figma-native component vocabulary.
+- [ ] Pixel-perfect visual acceptance remains in the final verification stage.
 - [ ] Visual acceptance postponed until the end at user request.
 
 ## Stages 6–7 [NOT STARTED]
@@ -94,3 +96,5 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - Implementation block: research, administration and ship detail views now use Theme-backed Figma rows/cards; missing telemetry is clearly marked; **no tests run**.
 
 - Market credit aggregate is displayed only if every listed market publishes a numeric credit amount; partially reported totals remain "—".
+
+- Latest implementation: bad3df2 (warehouse/contracts/planner/research), ae6da36 (construction stages and published AI consequences). Per user request, no Godot tests or Actions triggered.
