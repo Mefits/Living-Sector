@@ -49,7 +49,7 @@ func _initialize() -> void:
         for tick in range(end_tick - 99, end_tick + 1):
             samples.append({"valid": true, "paid_ticks": 1, "after_tick": tick,
                 "advance_wall_usec": 40, "projection_wall_usec": 10,
-                "request_wall_usec": 60, "direct_advance_wall_usec": 45})
+                "request_wall_usec": 50, "direct_advance_wall_usec": 45})
         var window: Dictionary = ACCEPT.summarize_window(end_tick, samples)
         if not window.get("accepted", false):
             _fail("100 paid ticks rejected at " + str(end_tick) + " " + str(window))
