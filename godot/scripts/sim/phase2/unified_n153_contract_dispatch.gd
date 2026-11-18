@@ -89,6 +89,22 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     return {"ok": true, "path_to_source": route["inbound"],
         "source_to_destination": route["outbound"]}
 
+## Read-only N154 funding proof. This value is invariant across bidders
+## for one posted offer, even when comms bonuses change the required top-up.
+## Preserve -1 for unproven payer ownership and missing treasuries.
+static func _offer_payer_balance(world: Dictionary, contract: Dictionary,
+        contract_id: String, buyer_faction: String, buyer_market: Dictionary,
+        buyer: Dictionary) -> int:
+    var real_payer: String = str(contract.get("requestor_id", ""))
+    if str(contract.get("funding_source", "")) == "faction":
+        if (world.get("construction_contracts", {}).has(contract_id) or
+                world.get("native_htn_contracts", {}).has(contract_id)) and real_payer == Schema.faction_account(buyer_faction):
+            return int(world.get("faction_treasuries", {}).get(buyer_faction, -1))
+    elif str(contract.get("funding_source", "")) == "facility":
+        if real_payer == Schema.facility_account(str(buyer_market["owner"])):
+            return int(buyer["credits"])
+    return -1
+
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
         tick_scale: float, factions: Dictionary = {}) -> Dictionary:
@@ -155,6 +171,14 @@ static func propose(world: Dictionary, graph: RefCounted,
         var route_index: Dictionary = EligibilityIndex.offer_route_index(route_indices, source, dest)
         var fixed_offer: Dictionary = {}
         var fixed_controllers: Dictionary = {}
+        # The payer, original reserved amount and owning treasury belong to
+        # the posted offer, not to each bidding ship. Resolve their proof once
+        # per offer; the ship's boosted payment and top-up remain per-bid.
+        var payer_balance: int = _offer_payer_balance(world, c, str(contract_id),
+            buyer_faction, buyer_market, buyer)
+        var reserved_amount: int = int(c["reserved"])
+        var base_commerce: Dictionary = {buyer_faction: true, seller_faction: true}
+        var fixed_systems: Dictionary = {}
         for ship_id in ships:
             var ship: Dictionary = world["ships"][ship_id]
             var ship_faction: String = str(ship.get("faction_id", ""))
@@ -197,8 +221,13 @@ static func propose(world: Dictionary, graph: RefCounted,
                 observations[source] = {good: {"price": float(source_price)}}
             var systems: Dictionary = {}
             systems[here] = EligibilityIndex.system_for(system_cache, here, resolver)
-            systems[source] = EligibilityIndex.system_for(system_cache, source, resolver)
-            systems[dest] = EligibilityIndex.system_for(system_cache, dest, resolver)
+            # Resolve each offer endpoint once, but only after the first
+            # ready bidder, preserving the old lazy resolver call boundary.
+            if fixed_systems.is_empty():
+                fixed_systems[source] = EligibilityIndex.system_for(system_cache, source, resolver)
+                fixed_systems[dest] = EligibilityIndex.system_for(system_cache, dest, resolver)
+            systems[source] = fixed_systems[source]
+            systems[dest] = fixed_systems[dest]
             if systems.values().has(""):
                 _blocked_ship(ship_blockers, "missing_system_for_market")
                 continue
@@ -227,26 +256,15 @@ static func propose(world: Dictionary, graph: RefCounted,
                 _blocked_ship(ship_blockers, "invalid_native_payment_quote")
                 continue
             var quoted_payment: int = int(boosted)
-            var top_up: int = maxi(0, quoted_payment - int(c["reserved"]))
-            # N154 is paid by the original faction treasury. N104
-            # delivery type is preserved for physical cargo proof.
-            var real_payer: String = str(c.get("requestor_id", ""))
-            var real_balance: int = -1
-            if str(c.get("funding_source", "")) == "faction":
-                if (world.get("construction_contracts", {}).has(str(contract_id)) or
-                        world.get("native_htn_contracts", {}).has(str(contract_id))) and real_payer == Schema.faction_account(buyer_faction):
-                    real_balance = int(world.get("faction_treasuries", {}).get(buyer_faction, -1))
-            elif str(c.get("funding_source", "")) == "facility":
-                if real_payer == Schema.facility_account(str(buyer_market["owner"])):
-                    real_balance = int(buyer["credits"])
+            var top_up: int = maxi(0, quoted_payment - reserved_amount)
             var quotes: Dictionary = {}
-            quotes[str(contract_id)] = {"valid": real_balance >= top_up and real_balance >= 0,
+            quotes[str(contract_id)] = {"valid": payer_balance >= top_up and payer_balance >= 0,
                 "quoted_payment": quoted_payment, "top_up": top_up,
-                "payer_balance": real_balance,
-                "reserved": int(c["reserved"]), "source_purchase_cost": source_purchase}
-            var commerce: Dictionary = {}
-            commerce[buyer_faction] = true
-            commerce[seller_faction] = true
+                "payer_balance": payer_balance,
+                "reserved": reserved_amount, "source_purchase_cost": source_purchase}
+            # Per-bid detached outer dictionary: never let a selector's
+            # temporary context mutate the next bidder's commerce roster.
+            var commerce: Dictionary = base_commerce.duplicate()
             commerce[ship_faction] = true
             var context: Dictionary = {
                 "offers": [fixed_offer], "ship_id": str(ship_id),
