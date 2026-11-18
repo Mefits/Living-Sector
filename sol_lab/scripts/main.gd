@@ -6,6 +6,7 @@ const Model = preload("res://scripts/sol_building_model.gd")
 const NativeStarSystemView = preload("res://scripts/star_system_view.gd")
 const BuildingBrowser = preload("res://scripts/building_browser.gd")
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
+const NativeClock = preload("res://scripts/sim/clock.gd")
 const SPEED_PRESETS: Array[int] = [1, 4, 8, 16]
 const DEFAULTS = "res://data/balance_defaults.json"
 const USER_CONFIG = "user://sol_lab_balance.json"
@@ -13,6 +14,8 @@ const SIDE_WIDTH = 340.0
 var world: Dictionary = {}
 var config: Dictionary = {}
 var native_time: float = 0.0
+var visual_tick_count: int = 0
+var visual_clock = NativeClock.new()
 var paused: bool = false
 var speed: int = 1
 var speed_buttons: Dictionary = {}
@@ -41,6 +44,7 @@ func _ready() -> void:
     if not SolProfile.apply_world(world):
         push_error("Отклонены исходные параметры спутников")
         return
+    visual_clock.set_speed(float(speed))
     config = _load_config()
     _init_extra_settings()
     _build_ui()
@@ -181,10 +185,17 @@ func _toggle_admin() -> void:
 
 func _pause() -> void:
     paused = not paused
+    visual_clock.set_paused(paused)
     pause_button.text = "Продолжить" if paused else "Пауза"
 
 func _step() -> void:
-    native_time += 1.0
+    # A single original N158 clock step, allowed while paused.
+    # At x1 this moves 1/8 of a native time unit, NOT a whole unit.
+    if not visual_clock.request_steps(1):
+        return
+    var completed: int = visual_clock.consume_frame(0.0)
+    visual_tick_count += completed
+    native_time += float(completed) * visual_clock.tick_scale()
     _update_native_map()
 
 func _reset_camera() -> void:
@@ -206,7 +217,7 @@ func _process(delta: float) -> void:
             view_elapsed = fmod(view_elapsed, 0.10)
             _update_native_map()
     if time_label != null:
-        time_label.text = "Виз. тик %d · ×%d  " % [int(native_time), speed]
+        time_label.text = "Виз. тик %d · ×%d  " % [visual_tick_count, speed]
     var ui_usec: int = maxi(0, Time.get_ticks_usec() - ui_started_usec)
     var process_usec: int = maxi(0, Time.get_ticks_usec() - started_usec)
     # Zero N158 and zero real sim ticks: this project renders a visual clock
@@ -374,18 +385,26 @@ func _native_body_selected(body: Dictionary) -> void:
 func _set_speed(multiplier: int) -> void:
     if not SPEED_PRESETS.has(multiplier):
         return
+    if not visual_clock.set_speed(float(multiplier)):
+        return
     speed = multiplier
     for preset in speed_buttons:
         var button: Button = speed_buttons[preset]
         if is_instance_valid(button):
             button.button_pressed = int(preset) == speed
     if time_label != null:
-        time_label.text = "Виз. тик %d · ×%d  " % [int(native_time), speed]
+        time_label.text = "Виз. тик %d · ×%d  " % [visual_tick_count, speed]
 
 func _advance_visual_clock(delta: float) -> void:
     if paused:
         return
-    native_time += maxf(delta, 0.0) * 20.0 * float(speed)
+    # Exact original clock: 8 ticks/s at any speed, with native time
+    # per tick = world_speed / 8. No extra 20x UI-side multiplier.
+    var completed: int = visual_clock.consume_frame(delta)
+    if completed <= 0:
+        return
+    visual_tick_count += completed
+    native_time += float(completed) * visual_clock.tick_scale()
 
 func _update_performance_label() -> void:
     if perf_label == null:
