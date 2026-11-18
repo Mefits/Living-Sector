@@ -18,6 +18,7 @@ var queue_panel: VBoxContainer
 ## Reuse live nodes; only create/destroy them when queue membership changes.
 var queue_rows: Dictionary = {}
 var queue_membership: Array[String] = []
+var queue_mounted: bool = false
 var config: Dictionary = {}
 var body_id: String = "earth"
 var page: String = "build"
@@ -153,6 +154,7 @@ func _navigate(target: String) -> void:
  queue_panel = null
  queue_rows.clear()
  queue_membership.clear()
+ queue_mounted = false
  grid = null
  scroll.scroll_vertical = 0
  feedback.text = "Тест строительства: расходы и сроки действуют, производство N39 пока нет."
@@ -302,7 +304,8 @@ func _refresh_queue() -> void:
  # Original SystemBalance keeps long-lived controls and changes only their
  # values. Creating/queue_free'ing a VBox, Label and ProgressBar every 0.5s
  # caused a speed-independent recurring CPU/allocator spike in Sol Lab.
- if current_ids != queue_membership:
+ if not queue_mounted or current_ids != queue_membership:
+  queue_mounted = true
   queue_membership = current_ids
   queue_rows.clear()
   _clear(queue_panel)
