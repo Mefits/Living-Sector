@@ -946,7 +946,7 @@ func _colony() -> void:
                 compact_facilities, "", "", "facility")
             var next := _section("АВТОНОМНОЕ УПРАВЛЕНИЕ", "", pair)
             _note(next, "Приоритеты и решения — только при публикации данных ИИ.")
-            _link(next, "ВСЕ РЕШЕНИЯ ›", "administration", "План действий")
+            _link(next, "ДОСТУПНЫЕ РЕШЕНИЯ ›", "administration", "Цели и задачи")
             var resources := _section("КЛЮЧЕВЫЕ ЗАПАСЫ НА РЫНКАХ", "", pair)
             var stocks: Array[Dictionary] = []
             for commodity in ["food", "energy_cells", "metals", "ore"]:
@@ -967,35 +967,6 @@ func _colony() -> void:
             _local_ships(body)
             _link(local_fleet, "РЕЙСЫ И КОНТРАКТЫ ›",
                 "fleet", "Рейсы и контракты")
-        "Население":
-            var panel := _section("НАСЕЛЕНИЕ И ТРУД")
-            var lines: Array[Dictionary] = []
-            var pops: Variant = _economy.get("populations", {})
-            if pops is Dictionary:
-                var local: Dictionary = _locations(body)
-                for value in pops.values():
-                    if value is Dictionary and local.has(str(value.get("location", ""))):
-                        lines.append({"cells":[str(value.get("location", "—")),
-                            str(value.get("count", "—")),
-                            str(value.get("happiness", "—")),
-                            str(value.get("growth", "—"))]})
-            _table(panel, ["Локация","Жители","Довольство","Рост"], lines)
-            var labor := _section("РАСПРЕДЕЛЕНИЕ РАБОТНИКОВ")
-            _table(labor, ["Предприятие","Тип","Занято","Состояние","Локация"],
-                _facility_rows(body), "", "", "facility")
-        "Производство":
-            _chain(body)
-            var panel := _section("ПРЕДПРИЯТИЯ И СМЕНЫ")
-            _table(panel, ["Объект","Тип","Работники","Состояние","Локация"],
-                _facility_rows(body), "", "", "facility")
-        "Запасы":
-            var panel := _section("РЫНОЧНЫЕ ЗАПАСЫ", "Без выдуманных скоростей изменения")
-            _table(panel, ["Товар","Количество","Рынок","Резерв","Тренд"],
-                _stock_rows(body))
-        "Строительство":
-            _projects(body)
-        "Логистика":
-            _local_ships(body)
 
 func _market_stock_total(key: String, body_id: String = "") -> Dictionary:
     # Snapshot-only aggregation. Missing commodity != zero or shortage;
@@ -1269,7 +1240,7 @@ func _facility_workspace() -> void:
             _facility_workers_section(source, live)
             _facility_stock_section(source, live)
 
-func _facility_process_section(source: Dictionary, live: Dictionary) -> void:
+func _facility_process_section(_source: Dictionary, live: Dictionary) -> void:
     var section := _section("ПРОИЗВОДСТВЕННЫЙ ЦИКЛ", _facility_name())
     var shift: Variant = live.get("work_shift", {})
     var input_value: String = (
@@ -1302,7 +1273,7 @@ func _facility_process_section(source: Dictionary, live: Dictionary) -> void:
     _note(section, "Точные входы, выпуск и причина простоя — только при наличии записи N39.")
     _link(section, "СКЛАД ОБЪЕКТА ›", "facility", "Склад", _facility)
 
-func _facility_workers_section(source: Dictionary, live: Dictionary) -> void:
+func _facility_workers_section(_source: Dictionary, live: Dictionary) -> void:
     var section := _section("РАБОТНИКИ И ОПЛАТА")
     _pair(section, "Назначено", str(live.get("assigned_workers", "—")))
     var shift: Variant = live.get("work_shift", {})
@@ -1328,7 +1299,7 @@ func _facility_stock_section(source: Dictionary, live: Dictionary) -> void:
             rows.append({"cells":[str(key), str(stock[key]), "—", "—"]})
     _table(section, ["Товар","В наличии","Вход","Выход"], rows)
 
-func _facility_suppliers_section(source: Dictionary, live: Dictionary) -> void:
+func _facility_suppliers_section(source: Dictionary, _live: Dictionary) -> void:
     var section := _section("ПОСТАВЩИКИ И КОНТРАКТЫ")
     _pair(section, "Локация", str(source.get("location", "—")))
     _pair(section, "Фракция", str(source.get("faction_id", "—")))
