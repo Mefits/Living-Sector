@@ -2127,8 +2127,15 @@ func _sync_strategy_ui(shared_economy: Dictionary = {}) -> void:
     # Shallow detached presentation layer only: one scalar authority field,
     # no N39 World clone or UI-side command effects.
     var display_economy: Dictionary = shared_economy.duplicate(false)
-    if display_economy.is_empty() and _worker_mode:
-        display_economy = _worker_economy.duplicate(false)
+    if display_economy.is_empty():
+        if _worker_mode:
+            display_economy = _worker_economy.duplicate(false)
+        else:
+            # Reuse the last detached UI frame. A mode toggle must not
+            # replace all visible stocks with a player_control-only object.
+            var previous: Variant = _strategy_ui.get("_economy")
+            if previous is Dictionary:
+                display_economy = previous.duplicate(false)
     display_economy["player_control"] = (_player_control_view
         if _worker_mode else (_runner.player_control_snapshot()
             if _runner != null else {}))
