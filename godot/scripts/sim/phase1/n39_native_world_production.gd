@@ -5510,20 +5510,31 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
         if not proposed_treasuries.has(id):
             return {"ok": false, "fatal": true, "reason": "n129_unknown_source_faction"}
         staged["faction_treasuries"][id] = int(proposed_treasuries[id])
+    # Detach each changed wallet row before any mutation. The shallow domain
+    # dictionaries retain untouched rows as read-only references; rejected
+    # transfers and failed Schema/N9 checks cannot leak writes into _world.
+    # An unchanged wallet retains its existing dirty/sentiment flags.
     for id in staged["facilities"]:
         if not proposed_facilities.has(id):
             return {"ok": false, "fatal": true, "reason": "n129_missing_native_facility"}
-        if int(proposed_facilities[id]) != int(_world["facilities"][id]["credits"]):
-            staged["facilities"][id]["dirty"] = true
-        staged["facilities"][id]["credits"] = int(proposed_facilities[id])
+        var next_credits: int = int(proposed_facilities[id])
+        var original_facility: Dictionary = _world["facilities"][id]
+        if next_credits != int(original_facility["credits"]):
+            var owned_facility: Dictionary = original_facility.duplicate(true)
+            owned_facility["dirty"] = true
+            owned_facility["credits"] = next_credits
+            staged["facilities"][id] = owned_facility
     for id in staged["populations"]:
         if not proposed_households.has(id):
             return {"ok": false, "fatal": true, "reason": "n129_missing_native_household"}
-        if int(proposed_households[id]) != int(_world["populations"][id]["wealth"]):
-            # Rust relief.rs marks PopSentiment dirty when giving an
-            # actual household wallet support transfer.
-            staged["populations"][id]["sentiment_dirty"] = true
-        staged["populations"][id]["wealth"] = int(proposed_households[id])
+        var next_wealth: int = int(proposed_households[id])
+        var original_household: Dictionary = _world["populations"][id]
+        if next_wealth != int(original_household["wealth"]):
+            var owned_household: Dictionary = original_household.duplicate(true)
+            # Rust relief.rs marks PopSentiment dirty on actual support.
+            owned_household["sentiment_dirty"] = true
+            owned_household["wealth"] = next_wealth
+            staged["populations"][id] = owned_household
     staged["faction_finance_last_tick"] = tick
     var invalid: String = _measured_schema_validate("L4994", staged)
     if not invalid.is_empty():
