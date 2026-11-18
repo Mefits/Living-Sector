@@ -760,6 +760,8 @@ func _build_window() -> void:
     _workspace_ui.select_requested.connect(_select_from_workspace)
     _workspace_ui.back_requested.connect(_workspace_back)
     _workspace_ui.close_requested.connect(_close_window)
+    _workspace_ui.manual_control_requested.connect(_player_manual_mode)
+    _workspace_ui.manual_build_requested.connect(_player_manual_build)
     _window.add_child(_workspace_ui)
 
 func _build_selection_card() -> void:
@@ -1619,6 +1621,15 @@ func _render_cards(cards: Array) -> void:
         if not note.is_empty():
             content.add_child(_label(note, 12, AMBER))
 
+func _player_manual_mode(faction_id: String, manual: bool) -> void:
+    if _game != null:
+        _game.call("_player_set_control", faction_id, manual)
+
+func _player_manual_build(faction_id: String,
+        location: String, commodity: String) -> void:
+    if _game != null:
+        _game.call("_player_build", faction_id, location, commodity)
+
 func _update_window() -> void:
     if _window == null or not _window.visible:
         return
@@ -1626,7 +1637,7 @@ func _update_window() -> void:
         _workspace_ui.set_can_go_back(not _workspace_history.is_empty())
         _workspace_ui.show_state(_window_mode, _tab, _world, _economy,
             _effective_body(), _facility, _ship, _tick, _workspace_focus,
-            _diagnostic_text, _fleet_diagnostics)
+            _diagnostic_text, _fleet_diagnostics, _paused)
         return
     var title: String = str({
         "colony":"КОЛОНИЯ", "economy":"ЭКОНОМИКА",
