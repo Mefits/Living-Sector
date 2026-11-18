@@ -2485,6 +2485,24 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         "tick": tick, "assigned": updated}
 
 
+## N144/N151 approvals append only a site and its receipt. The two
+## registries are owned at the root, while all existing nested rows remain
+## read-only. N144 additionally updates exactly one director's strategic
+## memory, so only that director is detached. This must not be reused for
+## edits to an existing construction site or receipt.
+static func _colony_approval_owned_stage(world: Dictionary,
+        director_id: String = "") -> Dictionary:
+    var staged: Dictionary = world.duplicate(false)
+    staged["construction_sites"] = world["construction_sites"].duplicate(false)
+    staged["construction_receipts"] = world["construction_receipts"].duplicate(false)
+    if not director_id.is_empty():
+        staged["research_directors"] = world["research_directors"].duplicate(false)
+        if staged["research_directors"].has(director_id):
+            staged["research_directors"][director_id] = (
+                world["research_directors"][director_id].duplicate(true))
+    return staged
+
+
 ## Miro B1 — the REAL frozen N134/N144 "found_colony" HeadDecision
 ## over a source-scored original planet. Approval and subsequent N151
 ## zero-cost site materialization happen in ONE canonical N39 commit.
@@ -2521,10 +2539,9 @@ func apply_native_n144_found_colony(tick: int, faction: String,
         return grant
     # N144 writes only these three domains. Detach them before any mutation;
     # unrelated growing World history remains read-only and unmodified.
-    var staged: Dictionary = _copy_world("L2128_owned_root", false)
-    staged["construction_sites"] = _world["construction_sites"].duplicate(true)
-    staged["construction_receipts"] = _world["construction_receipts"].duplicate(true)
-    staged["research_directors"] = _world["research_directors"].duplicate(true)
+    var memory: Dictionary = grant.get("memory", {})
+    var staged: Dictionary = _colony_approval_owned_stage(
+        _world, faction if not memory.is_empty() else "")
     var authorized: bool = bool(grant.get("authorized", false))
     var candidate: Dictionary = source.get("candidate", {})
     var site: Dictionary = candidate.get("site", {})
@@ -2553,7 +2570,6 @@ func apply_native_n144_found_colony(tick: int, faction: String,
             "destination_location": str(source["plan"]["destination"]),
             "body_id": str(source["plan"]["body_id"]),
             "capital": 0, "n9_receipt_id": ""}
-    var memory: Dictionary = grant.get("memory", {})
     if not memory.is_empty():
         if not staged.get("research_directors", {}).has(faction):
             return {"ok": false, "fatal": true,
@@ -2630,9 +2646,7 @@ func apply_native_colony_foundation(tick: int, faction: String,
     var original_money: Dictionary = _ledger.snapshot()
     # N151 approval writes only the site registry and its receipt registry.
     # Detach both nested domains before mutation; other World domains stay read-only.
-    var staged: Dictionary = _copy_world("L2232_owned_root", false)
-    staged["construction_sites"] = _world["construction_sites"].duplicate(true)
-    staged["construction_receipts"] = _world["construction_receipts"].duplicate(true)
+    var staged: Dictionary = _colony_approval_owned_stage(_world)
     staged["construction_sites"][site_id] = site.duplicate(true)
     staged["construction_receipts"][receipt_id] = {
         "id": receipt_id, "kind": "colony_approved",
