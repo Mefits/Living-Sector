@@ -240,13 +240,15 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 	if not staged_flow.get("ok", false):
 		return staged_flow
 	var copy_start_us: int = Time.get_ticks_usec() if _copy_probe_enabled else 0
-	# Borrow the original flow only while copying unrelated market fields.
-	# Never mutate the input or expose it in the returned proposal.
-	var market_without_flow: Dictionary = {}
+	# The order books can grow for hundreds of paid ticks. Do not clone
+	# orders that the same tick will expire. Borrow them only until the
+	# original late order-validation phase, after price calculations.
+	# This also preserves error precedence against invalid price results.
+	var market_without_flow_or_orders: Dictionary = {}
 	for field in market:
-		if field != "flow":
-			market_without_flow[field] = market[field]
-	var result: Dictionary = _owned_market_for_tick(market_without_flow, tick)
+		if field != "flow" and field != "orders":
+			market_without_flow_or_orders[field] = market[field]
+	var result: Dictionary = _owned_market_for_tick(market_without_flow_or_orders, tick)
 	result["flow"] = staged_flow["flow"]
 	if _copy_probe_enabled:
 		_copy_probe_us += Time.get_ticks_usec() - copy_start_us
@@ -254,7 +256,6 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		_copy_probe_trend_rows += market["history"]["trend_samples"].size()
 	var pricing: Dictionary = result["pricing"]
 	var flow: Dictionary = result["flow"]
-	var orders: Dictionary = result["orders"]
 	var history: Dictionary = result["history"]
 	# Rust spawned_at_tick, seed_demand initialised ONLY on first tick.
 	if history["spawned_at_tick"] == null:
@@ -347,12 +348,23 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		# markets may contain more than MARKET_TREND_KEEP older samples.
 		if trends.size() > MARKET_TREND_KEEP:
 			history["trend_samples"] = trends.slice(trends.size() - MARKET_TREND_KEEP)
-	var expiry: int = maxi(ORDER_EXPIRY_MIN, int(orders["order_expiry_ticks"]))
+	# Preserve the source order and validation sequence (buys then sells).
+	# _retain_orders validates EVERY source row, even one being discarded,
+	# and duplicates only retained records when already_owned=false.
+	# No source order book is modified; rejected ticks remain atomic.
+	var source_orders: Dictionary = market["orders"]
+	var expiry: int = maxi(ORDER_EXPIRY_MIN, int(source_orders["order_expiry_ticks"]))
+	var orders: Dictionary = {}
+	for key in source_orders:
+		if key != "pending_buys" and key != "pending_sells":
+			var value: Variant = source_orders[key]
+			orders[key] = value.duplicate(true) if value is Dictionary or value is Array else value
 	for side in ["pending_buys", "pending_sells"]:
-		var filtered := _retain_orders(orders[side], tick, expiry, true)
+		var filtered := _retain_orders(source_orders[side], tick, expiry, false)
 		if not bool(filtered.get("ok", false)):
 			return filtered
 		orders[side] = filtered["orders"]
+	result["orders"] = orders
 	# Original does NOT release reservations: reserve TTL is explicitly
 	# a frozen Rust placeholder. Keep exact existing reserved map.
 	history["dirty"] = true
