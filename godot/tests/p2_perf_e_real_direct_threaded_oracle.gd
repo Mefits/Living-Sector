@@ -66,6 +66,8 @@ func _run() -> void:
     var previous_sizes: Dictionary = {}
     var previous_source_counts: Dictionary = {}
     var previous_window: Dictionary = {}
+    var observation_samples: Array = []
+    var expected_observations: Array[int] = []
     for tick in range(1, target + 1):
         if Time.get_ticks_msec() - _start_ms >= budget_ms:
             _finish("bounded wall budget exceeded before paid tick " + str(tick), false)
@@ -114,8 +116,12 @@ func _run() -> void:
             print("P2_PERF_E_DIRECT_THREAD_WINDOW ", JSON.stringify(window))
         if MILESTONES.has(tick) or (target == EXTENDED_TARGET and
                 EXTENDED_MILESTONES.has(tick)):
+            var direct_checkpoint_started: int = Time.get_ticks_usec()
             var detached_direct: Dictionary = direct.checkpoint()
+            var direct_checkpoint_usec: int = Time.get_ticks_usec() - direct_checkpoint_started
+            var worker_checkpoint_started: int = Time.get_ticks_usec()
             var response: Dictionary = await _command("checkpoint")
+            var worker_checkpoint_request_usec: int = Time.get_ticks_usec() - worker_checkpoint_started
             if not response.get("ok", false) or int(response.get("tick", -1)) != tick:
                 _finish("checkpoint request failed " + str(tick), false)
                 return
@@ -125,6 +131,15 @@ func _run() -> void:
                 _finish("exact checkpoint divergence tick " + str(tick) +
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
+            var observation: Dictionary = Acceptance.checkpoint_observation_sample(
+                tick, direct_checkpoint_usec, worker_checkpoint_request_usec,
+                detached_direct, response)
+            if not observation.get("accepted", false):
+                _finish("checkpoint observation invalid " + str(tick) +
+                    " " + JSON.stringify(observation), false)
+                return
+            observation_samples.append(observation)
+            expected_observations.append(tick)
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
             if LATE_WINDOWS.has(tick) and tick <= target:
                 var size_boundary: Dictionary = Acceptance.compare_size_boundary(
@@ -181,6 +196,12 @@ func _run() -> void:
                     _finish("post-restart direct/thread divergence", false)
                     return
                 print("P2_PERF_E_DIRECT_THREAD_RESTART_EXACT tick=", tick)
+    var observation_report: Dictionary = Acceptance.summarize_checkpoint_observations(
+        observation_samples, expected_observations)
+    if not observation_report.get("accepted", false):
+        _finish("checkpoint observation coverage invalid " + JSON.stringify(observation_report), false)
+        return
+    print("P2_PERF_E_CHECKPOINT_OBSERVATION_COST ", JSON.stringify(observation_report))
     if last_window.is_empty():
         _finish("missing final complete paid window", false)
         return
