@@ -61,6 +61,8 @@ var _last_faction_relations: Dictionary = {}
 var _last_body_territory: Dictionary = {}
 var _last_native_faction_finance: Dictionary = {}
 var _faction_sources: Dictionary = {}
+## Human strategic authority is runner-owned, never kept in SceneTree UI.
+var _manual_factions: Dictionary = {}
 var _last_population_result: Dictionary = {}
 var _last_ship_result: Dictionary = {}
 var _last_n21_queue_result: Dictionary = {}
@@ -99,6 +101,7 @@ func start_from_seed(seed: Dictionary) -> bool:
     _last_body_territory = {}
     _last_native_faction_finance = {}
     _faction_sources = {}
+    _manual_factions = {}
     _last_population_result = {}
     _last_ship_result = {}
     _last_native_crew_result = {}
@@ -498,6 +501,11 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 var head_factions: Array = head_world.get("faction_treasuries", {}).keys()
                 head_factions.sort()
                 for faction in head_factions:
+                    if bool(_manual_factions.get(str(faction), false)):
+                        _last_n134_result["heads"][faction] = {
+                            "selected_option": "wait", "reason": "player_manual_control",
+                            "problem": {}}
+                        continue
                     var planned_build: Dictionary = N134Construction.choose(
                         head_world, _faction_sources, world,
                         _fleet_roster.registry.graph(),
@@ -1806,6 +1814,49 @@ func _native_admin_remove(kind: String, actor_id: String,
 ## are user-owned and never appear as free AI-generated defaults.
 ## N39 alone validates source charter/station ownership and persists
 ## the policy in its real N38 World without any direct money mutation.
+## A manual faction never receives autonomous N134/N144/N154 strategic
+## commissions. Other factions keep their normal autonomy. The engine keeps
+## servicing previously posted N104 orders and paid production shifts.
+func request_player_control(faction_id: String, manual: bool) -> Dictionary:
+    if not is_started() or not _native_enabled or not last_phase_failure().is_empty():
+        return {"ok": false, "reason": "manual_control_unavailable"}
+    if not _faction_sources.has(faction_id):
+        return {"ok": false, "reason": "unknown_player_faction"}
+    if manual:
+        _manual_factions[faction_id] = true
+    else:
+        _manual_factions.erase(faction_id)
+    return {"ok": true, "faction_id": faction_id,
+        "manual": manual, "tick": tick_count}
+
+func player_control_snapshot() -> Dictionary:
+    return {"manual_factions": _manual_factions.duplicate(true)}
+
+## Explicit human player order, never an AI Head grant or a second N9.
+## Restrict to a paused committed tick so the UI cannot race N154/N104.
+func request_player_construction(faction_id: String,
+        destination: String, commodity: String) -> Dictionary:
+    if not _native_enabled or not is_started() or (
+            not clock.paused or tick_count < 1 or
+            not last_phase_failure().is_empty() or
+            _fleet_roster == null):
+        return {"ok": false, "reason": "player_build_requires_paused_paid_tick"}
+    if not bool(_manual_factions.get(faction_id, false)):
+        return {"ok": false, "reason": "player_faction_not_in_manual_mode"}
+    var current: Dictionary = production.world_snapshot()
+    if not current.get("faction_treasuries", {}).has(faction_id):
+        return {"ok": false, "reason": "player_faction_not_in_live_world"}
+    var staged: Dictionary = NativeConstruction.player_stage(
+        current, _faction_sources, world,
+        _fleet_roster.registry.graph(), faction_id, destination,
+        commodity, tick_count, maxi(1, clock.tick_multiplier()))
+    if not staged.get("ok", false):
+        return staged
+    # N39 atomically creates an authentic site and a prepaid delivery order.
+    # The actual material still has to be picked up and delivered by a ship.
+    return production.post_authorized_native_construction(tick_count, staged)
+
+
 func request_faction_policy(faction_id: String, operation: String,
         policy: Dictionary = {}) -> Dictionary:
     if not _native_enabled or not last_phase_failure().is_empty():
@@ -2090,9 +2141,23 @@ func economy_summary(checkpoint_world: Dictionary = {}) -> Dictionary:
 ## Godot JSON may parse integer-shaped fields as float. Normalize only
 ## explicitly known bounded integral native data before existing schema
 ## preflight; never convert fractional resource stock/market prices.
+func checkpoint() -> Dictionary:
+    var saved: Dictionary = super.checkpoint()
+    if not saved.is_empty():
+        saved["player_manual_factions"] = _manual_factions.duplicate(true)
+    return saved
+
+
 func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
     if not (saved.get("native_production") is Dictionary):
         return false
+    var manual: Variant = saved.get("player_manual_factions", {})
+    if not (manual is Dictionary):
+        return false
+    for faction in manual:
+        if not (faction is String) or not _faction_sources.has(faction) or (
+                typeof(manual[faction]) != TYPE_BOOL or not manual[faction]):
+            return false
     var staged: Dictionary = saved.duplicate(true)
     if not _normalize_number_at(staged, "native_production_multiplier"):
         return false
@@ -2100,6 +2165,7 @@ func restore_checkpoint(saved: Dictionary, seed: Dictionary) -> bool:
         return false
     if not super.restore_checkpoint(staged, seed):
         return false
+    _manual_factions = manual.duplicate(true)
     # Never replay a pre-save crisis; the ONE N39 World already holds its
     # original Rust notification flags and next tick rechecks hysteresis.
     _pending_crisis_plan = {}
