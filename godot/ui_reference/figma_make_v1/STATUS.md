@@ -71,6 +71,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Resource chip counts adapt at five width bands; no game state or N39 snapshot is read by layout.
 - [x] Workspace metric grids and colony columns reflow by available logical workspace width, not their own resizes (no 4↔2 oscillation).
 - [x] Tabs retain native horizontal scrolling and live search remains available in narrow windows.
+- [x] Right-anchored alert popover now uses viewport-relative offsets, avoiding off-screen placement at 1366px and high DPI.
 - [ ] Finish small-screen card height, scroll overflow and remaining HUD controls.
 - [ ] 1920×1080 and 1366×768 visual / input testing deferred until final stage 7.
 

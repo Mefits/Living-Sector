@@ -929,10 +929,15 @@ func _layout_window() -> void:
         _selection_card.offset_top = -(FOOT_H + 10.0 + selection_h)
         _selection_card.offset_bottom = -(FOOT_H + 10.0)
     if _alerts_popover != null:
-        _alerts_popover.offset_left = float(layout["alert_left"])
-        _alerts_popover.offset_right = right - 5.0
-        _alerts_popover.offset_top = header_h + 64.0
-        _alerts_popover.offset_bottom = float(layout["alert_bottom"])
+        # Popover is right-anchored (anchor_left/right = 1), so offsets
+        # must be relative to viewport width rather than absolute x.
+        _alerts_popover.offset_left = float(layout["alert_left"]) - vw
+        _alerts_popover.offset_right = right - 5.0 - vw
+        _alerts_popover.offset_top = minf(
+            header_h + 64.0, vh - FOOT_H - 55.0)
+        _alerts_popover.offset_bottom = maxf(
+            _alerts_popover.offset_top + 45.0,
+            float(layout["alert_bottom"]))
     if _footer_panel != null:
         _footer_panel.offset_left = RAIL_W
         _footer_panel.offset_right = (
