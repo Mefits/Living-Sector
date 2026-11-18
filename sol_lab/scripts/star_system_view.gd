@@ -1236,6 +1236,10 @@ func _draw_physical_assets(scale: float) -> void:
             tone = Color(0.89, 0.81, 0.57, alpha)
         elif kind == "colony_construction_dock":
             tone = Color(0.73, 0.69, 0.55, alpha)
+        elif kind == "construction_site":
+            tone = Color(0.99, 0.76, 0.35, alpha)
+        elif kind == "spaceport":
+            tone = Color(0.54, 0.82, 0.94, alpha)
         var icon_size: float = SurfaceBuildingLOD.icon_half_size(
             body_radius, _ui_viewport_scale)
         draw_rect(Rect2(pos - Vector2(icon_size, icon_size * 0.65),
@@ -1252,6 +1256,22 @@ func _draw_physical_assets(scale: float) -> void:
         draw_line(pos + Vector2(icon_size * 0.5, -icon_size * 0.65),
             pos + Vector2(icon_size * 0.5, -icon_size * 1.5),
             tone, 2.0)
+        if kind == "construction_site":
+            # Existing unique site progress, backed by calendar timestamps.
+            var begin: float = float(facility.get("construction_start_native", 0.0))
+            var finish: float = float(facility.get("construction_finished_native", begin))
+            var done: float = 0.0
+            if finish > begin:
+                done = clampf((_native_station_time - begin) / (finish - begin), 0.0, 1.0)
+            var width: float = icon_size * 2.4
+            var bottom: float = pos.y + icon_size * 1.8
+            draw_rect(Rect2(pos.x - width * 0.5, bottom,
+                width, maxf(2.0, icon_size * 0.26)),
+                Color(0.12, 0.19, 0.24, alpha), true)
+            if done > 0.0:
+                draw_rect(Rect2(pos.x - width * 0.5, bottom,
+                    width * done, maxf(2.0, icon_size * 0.26)),
+                    Color(0.43, 0.87, 0.58, alpha), true)
         if str(facility["id"]) == _selected_facility_id:
             draw_arc(pos, icon_size + 5.0, 0, TAU, 22,
                 Color("#fff4c5"), 1.5, true)

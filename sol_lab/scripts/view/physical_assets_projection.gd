@@ -4,9 +4,10 @@ extends RefCounted
 ## a construction_dock; no imaginary AC, market, or construction is minted.
 const Surface = preload("res://scripts/view/planet_surface_projection.gd")
 const ORBITAL_TYPES: Array[String] = ["station", "shipyard",
-    "construction_dock"]
+    "construction_dock", "orbital_platform"]
 const SURFACE_TYPES: Array[String] = ["mining_rig", "refinery", "farm",
-    "factory", "laboratory", "research", "power_plant"]
+    "factory", "laboratory", "research", "power_plant",
+    "spaceport", "construction_site"]
 
 static func _asset(id: String, item: Dictionary) -> Dictionary:
     var bid: String = str(item.get("body_id",
@@ -38,7 +39,9 @@ static func _asset(id: String, item: Dictionary) -> Dictionary:
         "kind": asset_kind, "render_type": render_kind,
         "docking_capacity": int(item.get("docking_capacity", 0)),
         "services": services,
-        "shared_legacy_location": location == "earth-station"
+        "shared_legacy_location": location == "earth-station",
+        "construction_start_native": float(item.get("construction_start_native", 0.0)),
+        "construction_finished_native": float(item.get("construction_finished_native", 0.0))
     }
 
 static func build(world: Dictionary,

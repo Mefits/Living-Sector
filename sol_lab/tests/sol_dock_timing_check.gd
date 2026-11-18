@@ -6,12 +6,12 @@ const Lab = preload("res://scripts/main.gd")
 func _initialize() -> void:
  var settings: Dictionary = Model.building_defaults()
  var original: Dictionary = Model.BUILDINGS[2] # farm, original 150 paid labor
- var okay: bool = Model.minimum_construction_shifts(original, settings) == 15
- settings["farm"]["labor"] = 151
- okay = okay and Model.minimum_construction_shifts(original, settings) == 16
- settings["farm"]["labor"] = 10
- okay = okay and Model.minimum_construction_shifts(original, settings) == 1
- okay = okay and Model.minimum_construction_shifts(Model.BUILDINGS[3], settings) == -1
+ var okay: bool = Model.construction_days(original, settings) == 45
+ settings["farm"]["days"] = 60
+ okay = okay and Model.construction_days(original, settings) == 60
+ settings["farm"]["days"] = 30
+ okay = okay and Model.construction_days(original, settings) == 30
+ okay = okay and Model.construction_days(Model.BUILDINGS[3], settings) == 45
  # Create actual UI nodes so parser and UI methods are exercised.
  var ui := Lab.new()
  ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
