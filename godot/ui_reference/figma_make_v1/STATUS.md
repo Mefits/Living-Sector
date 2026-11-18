@@ -63,7 +63,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [ ] Pixel-perfect visual acceptance remains in the final verification stage.
 - [ ] Visual acceptance postponed until the end at user request.
 
-## Stage 6 — adaptive geometry and integration [IN PROGRESS]
+## Stage 6 — adaptive geometry and integration [CODE COMPLETE / UNVERIFIED]
 
 - [x] Pure `ls_ui_layout.gd` geometry policy uses the actual post-scaling Control size, rather than artificial 640px minimum.
 - [x] Workspace receives priority over right outliner on narrow logical viewports; manual reveal uses a temporary map overlay, so the button still works when the viewport is too narrow for a docked sidebar.
@@ -76,7 +76,9 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Selection-to-workspace and workspace row navigation now recompute layout immediately.
 - [x] Floating workspace geometry now follows Figma's 82px left inset, 22px content inset and 920px cap; map breadcrumb is hidden behind the active workspace.
 - [x] Footer correctly spans the map beneath temporary outliner overlays.
-- [ ] Remaining tiny-viewport edge cases and final visual measurement deferred to acceptance.
+- [x] Inner horizontal table/tab scrollers now pass vertical wheel events through to the workspace scroll area.
+- [x] UI scale change defers layout until Godot updates logical window size.
+- [ ] Tiny viewport edge cases and measured layout behavior are part of final acceptance.
 - [ ] 1920×1080 and 1366×768 visual / input testing deferred until final stage 7.
 
 ## Stage 7 — final acceptance [NOT STARTED]
@@ -114,3 +116,15 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 
 - Latest implementation: bad3df2 (warehouse/contracts/planner/research), ae6da36 (construction stages and published AI consequences). Per user request, no Godot tests or Actions triggered.
 \n- Stage 6: added explicit narrow-screen outliner overlay state and preserved user toggles. No runtime tests executed.\n
+### Adaptive implementation checkpoint — 2026-11-18
+
+- `aec688b`: stateless layout for native HUD and management windows, no World snapshots.
+- `c4fac15`: responsive metric/colony grids without recursive size feedback.
+- `447e10e`: right-anchored alert popover placement.
+- `f347685`: map-space reservation and layout after navigation.
+- `e338068`: defer after changing global UI scale.
+- `f7a62c7`: manual outliner overlay on narrow displays.
+- `d062e46`: Figma management window geometry and map breadcrumbs.
+- `e591d8a`: nested table/tab scroll event integration.
+
+**All Stage 6 implementation changes are committed, not runtime tested.** No GitHub Actions or Godot validation has been run at the user's request. Stage 7 is the single final validation and correction gate.
