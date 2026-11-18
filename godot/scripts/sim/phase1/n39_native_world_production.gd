@@ -4881,10 +4881,20 @@ func apply_native_n121_execution(tick: int, faction: String,
         return {"ok": false, "fatal": true, "reason": "n121_pending_without_n98_ledger"}
     if str(pending["ledger"].get("faction_id", "")) != faction:
         return {"ok": false, "fatal": true, "reason": "n121_mismatched_planner_faction"}
+    # N98 prepare/acknowledge mutate the pending ledger. Detach it from
+    # authoritative native_execution before ANY potentially rejected step.
+    pending = pending.duplicate(true)
     var gate: Dictionary = NativeN98.next_gate(pending["ledger"])
     var kind: String = str(gate.get("kind", ""))
     var ledger_next: RefCounted = _ledger.fork()
-    var staged: Dictionary = _copy_world("L4542", true)
+    # N121 may publish only its execution/planner state and, on paid
+    # delivery, the N104 contract/escrow/treasury registries. No other
+    # World domain is writable. Keep full Schema and N9 oracles below.
+    var staged: Dictionary = _copy_world("L4542_owned_root", false)
+    for domain in ["native_execution", "native_planner_records",
+            "contract_board", "escrow_balances", "faction_treasuries",
+            "native_htn_contracts"]:
+        staged[domain] = _world[domain].duplicate(true)
     var next_state: Dictionary = state.duplicate(true)
     var event: Dictionary = {"ok": true, "due": true, "tick": tick,
         "faction_id": faction, "kind": kind, "status": "awaiting_source_step",
