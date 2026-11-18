@@ -55,6 +55,7 @@ func _run() -> void:
     var early_window: Dictionary = {}
     var last_window: Dictionary = {}
     var early_sizes: Dictionary = {}
+    var early_source_counts: Dictionary = {}
     for tick in range(1, target + 1):
         if not direct.queue_control("step", 1):
             _finish("direct step refused at " + str(tick), false)
@@ -110,6 +111,23 @@ func _run() -> void:
                     _finish("authoritative size divergence tick " + str(tick) +
                         " " + JSON.stringify(size_boundary), false)
                     return
+                var source_boundary: Dictionary = Acceptance.compare_source_growth_boundary(
+                    tick, detached_direct, detached_worker)
+                if not source_boundary.get("accepted", false):
+                    _finish("N9/events source size divergence tick " + str(tick) +
+                        " " + JSON.stringify(source_boundary), false)
+                    return
+                print("P2_PERF_E_DIRECT_THREAD_N9_EVENTS ", JSON.stringify(source_boundary))
+                if tick == 100:
+                    early_source_counts = source_boundary.duplicate(true)
+                elif tick == 300:
+                    var source_growth: Dictionary = Acceptance.compare_source_growth(
+                        early_source_counts, source_boundary)
+                    if not source_growth.get("accepted", false):
+                        _finish("invalid N9/events growth " + JSON.stringify(source_growth), false)
+                        return
+                    print("P2_PERF_E_DIRECT_THREAD_N9_EVENTS_GROWTH ",
+                        JSON.stringify(source_growth))
                 print("P2_PERF_E_DIRECT_THREAD_SIZE ", JSON.stringify(size_boundary))
                 if tick == 100:
                     early_sizes = size_boundary.duplicate(true)
