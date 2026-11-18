@@ -1,6 +1,8 @@
 extends Control
 ## Sol-only read-only visual slice. This does NOT advance authoritative N158/N39.
 const SolProfile = preload("res://scripts/sol_profile.gd")
+const Model = preload("res://scripts/sol_building_model.gd")
+const BuildingBrowser = preload("res://scripts/building_browser.gd")
 const DEFAULTS = "res://data/balance_defaults.json"
 const USER_CONFIG = "user://sol_lab_balance.json"
 const SIDE_WIDTH = 340.0
@@ -20,6 +22,7 @@ var mode_button: Button
 var pause_button: Button
 var time_label: Label
 var admin_open: bool = false
+var browser: ColorRect
 
 func _ready() -> void:
     var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/sol.json"))
@@ -31,7 +34,9 @@ func _ready() -> void:
         push_error("Отклонены исходные параметры спутников")
         return
     config = _load_config()
+    _init_extra_settings()
     _build_ui()
+    _make_browser()
     _show_selected()
     queue_redraw()
 
@@ -59,7 +64,8 @@ func _build_ui() -> void:
     sidebar.offset_right = 0.0
     var contents := VBoxContainer.new()
     sidebar.add_child(contents)
-    mode_button = _button(contents, "Админ-панель · F9", _toggle_admin)
+    _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
+    mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
     info_area = VBoxContainer.new()
     contents.add_child(info_area)
     var heading := Label.new()
@@ -72,28 +78,7 @@ func _build_ui() -> void:
     hint.text = "Клик — выбрать тело; колесо — масштаб; перетаскивание — карта.\nВремя пока только визуальное."
     hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     info_area.add_child(hint)
-    admin_area = ScrollContainer.new()
-    admin_area.visible = false
-    admin_area.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    contents.add_child(admin_area)
-    var items := VBoxContainer.new()
-    items.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    admin_area.add_child(items)
-    var warning := Label.new()
-    warning.text = "НАСТРОЙКИ БАЛАНСА\nСохраняются между запусками.\nПока НЕ подключены к экономике N39."
-    warning.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-    items.add_child(warning)
-    _add_numeric(items, "construction", "materials", "Стройка: материалы")
-    _add_numeric(items, "construction", "labor", "Стройка: труд")
-    _add_numeric(items, "recipes", "farm_water_in", "Ферма: вода (вход)")
-    _add_numeric(items, "recipes", "farm_food_out", "Ферма: еда (выход)")
-    _add_numeric(items, "recipes", "smelt_ore_in", "Плавка: руда (вход)")
-    _add_numeric(items, "recipes", "smelt_fuel_in", "Плавка: топливо (вход)")
-    _add_numeric(items, "recipes", "smelt_metals_out", "Плавка: металлы (выход)")
-    _add_numeric(items, "needs", "earth_food", "Жители Земли: еда")
-    _add_numeric(items, "needs", "earth_water", "Жители Земли: вода")
-    _button(items, "Сохранить и перезапустить", _apply)
-    _button(items, "Восстановить исходные", _restore)
+
 
 func _button(parent: Node, label: String, action: Callable) -> Button:
     var b := Button.new()
@@ -155,16 +140,17 @@ func _apply() -> void:
         push_error("Не удалось сохранить баланс")
 
 func _restore() -> void:
-    var defaults: Variant = JSON.parse_string(FileAccess.get_file_as_string(DEFAULTS))
-    if defaults is Dictionary:
-        config = defaults
-        _apply()
+    if FileAccess.file_exists(USER_CONFIG):
+        if DirAccess.remove_absolute(ProjectSettings.globalize_path(USER_CONFIG)) != OK:
+            push_error("Не удалось сбросить баланс")
+            return
+    get_tree().call_deferred("reload_current_scene")
 
 func _toggle_admin() -> void:
-    admin_open = not admin_open
-    info_area.visible = not admin_open
-    admin_area.visible = admin_open
-    mode_button.text = "Вернуться к объекту · F9" if admin_open else "Админ-панель · F9"
+    if browser.visible:
+        browser.hide()
+    else:
+        browser.configure(world, config, selected, true)
 
 func _pause() -> void:
     paused = not paused
@@ -191,7 +177,7 @@ func _center() -> Vector2:
 
 func _radius(body: Dictionary) -> float:
     var r: float = float(body.get("orbit_radius", 0.0))
-    return (30.0 + pow(clampf(r / 24.0, 0.0, 1.0), 0.62) * minf(size.y, size.x - SIDE_WIDTH) * 0.38) * zoom
+    return (30.0 + pow(clampf(r / 4.0, 0.0, 1.0), 0.62) * minf(size.y, size.x - SIDE_WIDTH) * 0.38) * zoom
 
 func _position(center: Vector2, radius: float, body: Dictionary, period_key: String) -> Vector2:
     var period: float = maxf(float(body.get(period_key, 1.0)), 1.0)
@@ -202,10 +188,14 @@ func _rebuild_positions() -> void:
     positions.clear()
     for item in world.get("bodies", []):
         var b: Dictionary = item
+        if not Model.VISIBLE.has(str(b.get("id", ""))):
+            continue
         if str(b.get("parent_body_id", "")).is_empty():
             positions[str(b.get("id", ""))] = _position(_center(), _radius(b), b, "orbit_period")
     for item in world.get("bodies", []):
         var b: Dictionary = item
+        if not Model.VISIBLE.has(str(b.get("id", ""))):
+            continue
         var parent: String = str(b.get("parent_body_id", ""))
         if not parent.is_empty() and positions.has(parent):
             var moon_r: float = clampf(float(b.get("satellite_orbit_radius_native", 0.0)) * 1600.0, 18.0, 38.0) * zoom
@@ -218,6 +208,8 @@ func _draw() -> void:
     _rebuild_positions()
     for item in world.get("bodies", []):
         var b: Dictionary = item
+        if not Model.VISIBLE.has(str(b.get("id", ""))):
+            continue
         var parent: String = str(b.get("parent_body_id", ""))
         var radius: float = _radius(b)
         var c: Vector2 = _center()
@@ -230,6 +222,8 @@ func _draw() -> void:
     draw_string(font, _center() + Vector2(16, 0), "Sol", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Color.WHITE)
     for item in world.get("bodies", []):
         var b: Dictionary = item
+        if not Model.VISIBLE.has(str(b.get("id", ""))):
+            continue
         var id: String = str(b.get("id", ""))
         if not positions.has(id):
             continue
@@ -245,24 +239,27 @@ func _draw() -> void:
         draw_circle(pos, dot_radius, color)
         if selected == id:
             draw_arc(pos, dot_radius + 5.0, 0.0, TAU, 32, Color("#ecd391"), 2.0)
-        if selected == id or id in ["earth", "venus", "mars", "jupiter", "saturn"]:
+        if selected == id or id in ["earth", "luna", "mars"]:
             draw_string(font, pos + Vector2(11, -6), str(b.get("name", id)), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color("#d4dfe5"))
 
 func _show_selected() -> void:
     if details == null:
         return
-    for item in world.get("bodies", []):
-        if str(item.get("id", "")) != selected:
+    for body in world.get("bodies", []):
+        if str(body.get("id", "")) != selected:
             continue
-        var resources: Dictionary = item.get("resources", {})
-        var parts: Array[String] = []
-        for resource in resources.keys():
-            parts.append("%s — %s" % [str(resource), str(resources[resource])])
-        var facilities: int = 0
-        for f in world.get("facilities", []):
-            if str(f.get("body", "")) == selected:
-                facilities += 1
-        details.text = "%s\nТип: %s\nБиом: %s\nРадиус орбиты: %s\nПредприятий в Sol: %d\nРесурсы:\n%s" % [str(item.get("name", selected)), str(item.get("type", "")), str(item.get("biome", "")), str(item.get("orbit_radius", "")), facilities, "\n".join(parts)]
+        var items: Array[String] = [
+            str(body.get("name", selected)),
+            "Тип: "+str(body.get("type", "—")),
+            "Биом: "+str(body.get("biome", "—")),
+            "Металл на складе: %d" % Model.stock(world,selected),
+            "Ресурсные коэффициенты:"
+        ]
+        var coeff: Dictionary = config.get("planets",{}).get(selected,{})
+        for key in body.get("resources",{}).keys():
+            items.append("%s: %.2f" % [Model.resource_label(str(key)),
+                float(coeff.get(key,0.0))])
+        details.text = "\n".join(items)
         return
 
 func _gui_input(event: InputEvent) -> void:
@@ -301,3 +298,39 @@ func _input(event: InputEvent) -> void:
     if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F9:
         _toggle_admin()
         get_viewport().set_input_as_handled()
+
+func _init_extra_settings() -> void:
+    config["buildings"] = Model.building_defaults()
+    config["planets"] = Model.planet_defaults(world)
+    if not FileAccess.file_exists(USER_CONFIG):
+        return
+    var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(USER_CONFIG))
+    if not (parsed is Dictionary):
+        return
+    for group in ["buildings","planets"]:
+        var saved: Variant = parsed.get(group,null)
+        if not (saved is Dictionary):
+            continue
+        var target: Dictionary = config[group]
+        for id in target.keys():
+            if not (saved.get(id,null) is Dictionary):
+                continue
+            var defaults: Dictionary = target[id]
+            for key in defaults.keys():
+                var n: Variant = saved[id].get(key,null)
+                if (n is float or n is int) and is_finite(float(n)) and (
+                        float(n) >= 0.0) and float(n) <= 100000.0:
+                    defaults[key] = float(n) if group=="planets" else int(n)
+            target[id] = defaults
+        config[group] = target
+
+func _make_browser() -> void:
+    browser = BuildingBrowser.new()
+    add_child(browser)
+    browser.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    browser.apply_requested.connect(_apply)
+    browser.reset_requested.connect(_restore)
+    browser.hide()
+
+func _open_build() -> void:
+    browser.configure(world,config,selected,false)
