@@ -16,22 +16,53 @@ const Transit = preload("res://scripts/sim/ship_transit.gd")
 static func _blocked_ship(reasons: Dictionary, name: String) -> void:
     reasons[name] = int(reasons.get(name, 0)) + 1
 
+## Only immutable-for-this-proposal ship fields are cached. A fresh root is
+## allocated by propose() on every paid tick and after every N38 restore.
+## Keep the source rejection order: busy -> location -> dock -> cargo -> capacity.
+static func _ship_static_readiness(world: Dictionary, ship_id: String,
+        cache: Dictionary) -> Dictionary:
+    if cache.has(ship_id):
+        return cache[ship_id]
+    var ship: Dictionary = world["ships"][ship_id]
+    var result: Dictionary = {"ok": true}
+    if str(ship.get("active_contract_id", "")) != "" or not (ship.get("transit", {}) as Dictionary).is_empty():
+        result = {"ok": false, "reason": "ship_busy"}
+    elif str(ship.get("location", "")).is_empty():
+        result = {"ok": false, "reason": "ship_not_at_real_location"}
+    else:
+        var dock_id: String = str(ship.get("docked_at", ""))
+        if not dock_id.is_empty() and (not world["facilities"].has(dock_id) or
+                str(world["facilities"][dock_id].get("location", "")) != str(ship["location"])):
+            result = {"ok": false, "reason": "invalid_idle_dock"}
+        elif not (ship.get("cargo") is Dictionary) or not ship["cargo"].is_empty():
+            result = {"ok": false, "reason": "ship_cargo_not_empty"}
+    cache[ship_id] = result
+    return result
+
+## Resolve immutable ship fitting once per proposal, but only after route
+## success, preserving the source order of route versus class/fuel errors.
+static func _ship_flight_fitting(ship: Dictionary, ship_id: String,
+        cache: Dictionary) -> Dictionary:
+    if cache.has(ship_id):
+        return cache[ship_id]
+    var ship_class: String = str(ship.get("class", ""))
+    var spec: Dictionary = Catalog.spec(ship_class)
+    var fitting: Dictionary = {
+        "speed": float(ship.get("speed_modifier",
+            Catalog.effective_speed(ship_class, str(ship.get("size", ""))))),
+        "rate": float(spec.get("fuel_consumption_base", 0.0))
+    }
+    cache[ship_id] = fitting
+    return fitting
+
 static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary,
         graph: RefCounted, positions: Dictionary, resolver: RefCounted,
-        tick_scale: float, route_index: Dictionary = {}) -> Dictionary:
+        tick_scale: float, route_index: Dictionary = {},
+        readiness_cache: Dictionary = {}, fitting_cache: Dictionary = {}) -> Dictionary:
     var ship: Dictionary = world["ships"][ship_id]
-    if str(ship.get("active_contract_id", "")) != "" or not (ship.get("transit", {}) as Dictionary).is_empty():
-        return {"ok": false, "reason": "ship_busy"}
-    if str(ship.get("location", "")).is_empty():
-        return {"ok": false, "reason": "ship_not_at_real_location"}
-    var dock_id: String = str(ship.get("docked_at", ""))
-    if not dock_id.is_empty():
-        if not world["facilities"].has(dock_id) or str(world["facilities"][dock_id].get("location", "")) != str(ship["location"]):
-            return {"ok": false, "reason": "invalid_idle_dock"}
-        # Starting already docked is legal: original GOAP plans the real
-        # N21 Undock before travelling on the next assignment.
-    if not (ship.get("cargo") is Dictionary) or not ship["cargo"].is_empty():
-        return {"ok": false, "reason": "ship_cargo_not_empty"}
+    var static_gate: Dictionary = _ship_static_readiness(world, ship_id, readiness_cache)
+    if not static_gate.get("ok", false):
+        return static_gate
     var quantity: int = int(contract.get("quantity", 0))
     if quantity < 1 or int(ship.get("cargo_capacity", 0)) < quantity:
         return {"ok": false, "reason": "cargo_capacity"}
@@ -41,11 +72,9 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     var route: Dictionary = EligibilityIndex.legs(route_index, here, source, dest, graph, positions, false)
     if route.has("error"):
         return {"ok": false, "reason": str(route["error"])}
-    var spec: Dictionary = Catalog.spec(str(ship.get("class", "")))
-    var speed: float = float(ship.get("speed_modifier",
-            Catalog.effective_speed(str(ship.get("class", "")),
-                str(ship.get("size", "")))))
-    var rate: float = float(spec.get("fuel_consumption_base", 0.0))
+    var fitting: Dictionary = _ship_flight_fitting(ship, ship_id, fitting_cache)
+    var speed: float = float(fitting["speed"])
+    var rate: float = float(fitting["rate"])
     if speed <= 0.0 or rate <= 0.0 or float(ship.get("fuel", 0.0)) <= 0.0:
         return {"ok": false, "reason": "invalid_fuel_or_class"}
     # N14 advances one physical directed edge per tick. Check the COMPLETE
@@ -125,6 +154,8 @@ static func propose(world: Dictionary, graph: RefCounted,
     # Per-proposal geometry: contracts sharing source/destination can reuse
     # the same here->legs index. Never persists across World/tick/N38 load.
     var route_indices: Dictionary = {} # source -> destination -> here -> legs
+    var readiness_cache: Dictionary = {} # ship -> stable rejection or ok
+    var fitting_cache: Dictionary = {} # ship -> speed and fuel rate
     for contract_id in ids:
         var c: Dictionary = contracts[contract_id]
         if str(c.get("status", "")) != "posted" or str(c.get("contract_type", "")) != "delivery":
@@ -201,7 +232,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 continue
             var source_purchase: int = int(quoted_cost)
             var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver,
-                tick_scale, route_index)
+                tick_scale, route_index, readiness_cache, fitting_cache)
             if not readiness.get("ok", false):
                 _blocked_ship(ship_blockers, "n14_" + str(
                     readiness.get("reason", "unavailable")))
