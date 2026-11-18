@@ -161,3 +161,12 @@ Commits: `e70d92c` (no worker auto-load), `329e0be` (profiler data), `cdf079f` (
 - [ ] Windows visual review of the system map (especially Earth, Luna and station at 160%/180%) remains pending; fixture added but not executed in this environment.
 
 Commits: `fa41c65`, `ddcc03b`, `6b08450`.
+
+### Five-worker performance integration — 2026-11-18
+
+- [x] Merged `integration/perf-astra-5-workers-20261116` at commit `7b395981` into `feature/SystemBalance` as **two-parent merge commit** `a3a2a68`.
+- [x] Incorporated 123 changed paths: production/economy/ledger/N38 save/AI/contracts/ship phases, performance instrumentation, probes, tests and handoffs.
+- [x] Resolved only two overlapping paths by merging disjoint source hunks: `n158_production_runtime.gd` (retains SystemBalance N14 ephemeris arguments) and `unified_ship_phase.gd` (retains orbital intercept while adding worker N84 stale-envelope validation).
+- [x] Preserved current Figma UI, 125–200% Sol planet/Luna render scale, fresh N158 worker start, detailed performance footer and star_system_view.gd parse repair `5066644`.
+- [ ] **Godot 4.7.2 runtime and 500-ship performance acceptance pending.** No heavy Actions or local Godot runs performed during this merge.
+- Source branch is still live, so follow-on five-worker commits after `7b395981` require a subsequent merge.
