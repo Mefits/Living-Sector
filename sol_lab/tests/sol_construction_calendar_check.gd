@@ -23,6 +23,13 @@ func _initialize() -> void:
  good = good and Model.stock(first.world, "earth") == 999
  good = good and not first.order("luna", "farm")["ok"]
  good = good and Projection.build(first.world)["surface"].size() == 2
+ var raw_site: Dictionary = first.world["facilities"][1]
+ good = good and str(raw_site.get("type", "")) == "construction_site"
+ good = good and is_equal_approx(float(raw_site.get(
+  "construction_start_native", -1)), 0.0)
+ good = good and is_equal_approx(float(raw_site.get(
+  "construction_finished_native", -1)),
+  Calendar.days_to_native(45.0))
  var saved: Dictionary = first.snapshot()
  var second = Building.new()
  second.setup(new_world(), settings)

@@ -534,8 +534,10 @@ func _order_build(body: String, building_id: String) -> void:
         _refresh_construction_ui()
     if browser != null:
         browser.show_order_result(result)
-    _notice(("Заказ принят" if bool(result.get("ok", false))
-        else str(result.get("reason", "Заказ отклонён"))))
+    if message_line != null:
+        message_line.text = ("Строительство начато" if bool(
+            result.get("ok", false)) else str(
+            result.get("reason", "Заказ отклонён")))
 
 func _notice(message: String) -> void:
     if message_line != null:

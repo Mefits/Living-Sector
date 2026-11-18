@@ -34,6 +34,14 @@ func _market_for(body: String) -> Dictionary:
    return market
  return {}
 
+func _colony_owner(body: String) -> String:
+ for f in world.get("facilities", []):
+  if str(f.get("body", "")) == body and (
+      str(f.get("location", "")) == body + "-colony") and (
+      str(f.get("type", "")) == "station"):
+   return str(f.get("faction_id", ""))
+ return ""
+
 func order(body: String, building_id: String) -> Dictionary:
  var building: Dictionary = Model.find_building(building_id)
  if building.is_empty():
@@ -71,8 +79,9 @@ func order(body: String, building_id: String) -> Dictionary:
   "type": "construction_site",
   "body": body,
   "location": body + "-colony",
-  "faction_id": "terran-authority",
+  "faction_id": str(_colony_owner(body)),
   "construction_building_id": building_id,
+  "construction_start_native": now_native,
   "construction_finished_native": finish,
   "services": [],
   "docking_capacity": 0
@@ -125,6 +134,7 @@ func _finish(site: Dictionary) -> bool:
   # orbit only after completion, not as a second free building.
   if building_id in ["orbital_platform", "shipyard"]:
    facility["location"] = str(site["body"]) + "-orbit-" + id
+  facility.erase("construction_start_native")
   facility.erase("construction_finished_native")
   return true
  return false

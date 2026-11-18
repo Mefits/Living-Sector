@@ -1,8 +1,4 @@
 {
-  "construction": {
-    "materials": 600,
-    "labor": 150
-  },
   "recipes": {
     "farm_water_in": 3,
     "farm_food_out": 10,

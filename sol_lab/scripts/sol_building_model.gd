@@ -1,6 +1,5 @@
 extends RefCounted
 ## UI-only catalog; original Rust-port seed is unchanged.
-const ConstructionCycle = preload("res://scripts/sim/construction/construction_cycle.gd")
 const VISIBLE: Array = ["earth", "luna", "mars"]
 const BUILDINGS: Array = [
  {"id":"administrative_center","name":"Административный центр","product":"food","base":0,"inputs":{},"ported":false},
