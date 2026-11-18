@@ -1068,6 +1068,30 @@ func _route_card(parent: Node, caption: String, value: String) -> void:
     content.add_child(LSComponents.metric_text(
         value, &"LSProcessValue"))
 
+func _planner_priority(parent: Node, caption: String, value: Variant) -> void:
+    # The bar is only meaningful for normalized priority data in N39.
+    var panel: PanelContainer = LSComponents.reasoning_row()
+    parent.add_child(panel)
+    var line := HBoxContainer.new()
+    line.add_theme_constant_override("separation", 10)
+    panel.add_child(line)
+    var label: Label = LSComponents.metric_text(caption, &"LSReasonLabel")
+    label.custom_minimum_size.x = 190
+    line.add_child(label)
+    if (value is int or value is float) and is_finite(float(value)) and (
+            float(value) >= 0.0 and float(value) <= 1.0):
+        var bar: ProgressBar = LSComponents.research_progress(float(value))
+        bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+        line.add_child(bar)
+        line.add_child(LSComponents.metric_text(
+            "%.0f%%" % (float(value) * 100.0), &"LSReasonValue"))
+    else:
+        var raw_label: Label = LSComponents.metric_text(
+            str(value), &"LSReasonValue")
+        raw_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+        line.add_child(raw_label)
+
 func _facility_workspace() -> void:
     var source: Dictionary = _facility_source()
     if source.is_empty():
@@ -1122,6 +1146,12 @@ func _facility_workspace() -> void:
             var section := _section("СКЛАД ПРЕДПРИЯТИЯ")
             var mod: Variant = live.get("module_stock", {})
             var stock: Variant = mod.get("stock", {}) if mod is Dictionary else {}
+            _metric_strip(section, [
+                {"label":"Позиции склада", "value":(
+                    str(stock.size()) if stock is Dictionary else "—")},
+                {"label":"Предприятие", "value":_facility_name()},
+                {"label":"Локация", "value":str(source.get("location", "—"))},
+                {"label":"Работники", "value":str(live.get("assigned_workers", "—"))}])
             var rows: Array[Dictionary] = []
             if stock is Dictionary:
                 for key in stock:
@@ -1279,6 +1309,16 @@ func _fleet_workspace() -> void:
                         rows.append({"cells":[str(id), str(item.get("status", "—")),
                             str(item.get("commodity", "—")), str(item.get("quantity", "—")),
                             str(item.get("destination", "—"))]})
+            var statuses: Dictionary = {}
+            for entry in rows:
+                var cells: Array = entry["cells"]
+                var name: String = str(cells[1])
+                statuses[name] = int(statuses.get(name, 0)) + 1
+            _metric_strip(section, [
+                {"label":"Контракты N153", "value":str(rows.size())},
+                {"label":"Разных статусов", "value":str(statuses.size())},
+                {"label":"Срок исполнения", "value":"—"},
+                {"label":"История рейсов", "value":"—"}])
             _table(section, ["ID","Состояние","Товар","Количество","Назначение"], rows)
         "Грузы":
             var section := _section("ГРУЗОВЫЕ МАНИФЕСТЫ")
@@ -1332,7 +1372,10 @@ func _administration_workspace() -> void:
     if _tab in ["Приоритеты ИИ", "Обоснование"]:
         if reasons is Dictionary and not reasons.is_empty():
             for key in reasons:
-                _reason_row(section, str(key), str(reasons[key]))
+                if _tab == "Приоритеты ИИ":
+                    _planner_priority(section, str(key), reasons[key])
+                else:
+                    _reason_row(section, str(key), str(reasons[key]))
         else:
             _note(section, "ИИ выполняется, но человекочитаемые приоритеты/объяснения в N39 ещё не опубликованы.")
     elif _tab == "План действий":
@@ -1349,8 +1392,14 @@ func _research_workspace() -> void:
     var section := _section(_tab.to_upper(), "Научная программа")
     var state: Variant = _economy.get("research", null)
     if state is Dictionary and not state.is_empty():
-        for id in state:
-            _research_entry(section, str(id), state[id])
+        var subset: Variant = state
+        if _tab == "Предпосылки" and state.get("prerequisites", null) is Dictionary:
+            subset = state["prerequisites"]
+        elif _tab == "Открытия" and state.get("unlocks", null) is Dictionary:
+            subset = state["unlocks"]
+        if subset is Dictionary:
+            for id in subset:
+                _research_entry(section, str(id), subset[id])
     else:
         var placeholder: PanelContainer = LSComponents.research_card()
         section.add_child(placeholder)
