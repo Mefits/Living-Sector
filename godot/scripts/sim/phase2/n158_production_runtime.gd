@@ -433,7 +433,7 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
         # after real N150 market data and N39 facility staffing. There is
         # no separate head clock, market, treasury or N9 ledger.
         _last_research_result = production.apply_native_research_phase(
-            tick, _faction_sources, _tick_multiplier)
+            tick, _faction_sources, _tick_multiplier, _manual_factions)
         if not _last_research_result.get("ok", false):
             return false
         # Source N91 chooses a paid site in the same native system.
@@ -741,6 +741,8 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
                 return false
             for ready in _last_n147_result.get("ready", []):
                 var source_faction: String = str(ready.get("faction_id", ""))
+                if bool(_manual_factions.get(source_faction, false)):
+                    continue
                 # Frozen Rust coordination.rs::run_cycle commissions N147
                 # ONLY if the original same-cycle Head selected migration.
                 # Tick 1 can OBSERVE established colonies; a funded order
