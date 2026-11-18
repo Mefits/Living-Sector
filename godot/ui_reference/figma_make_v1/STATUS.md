@@ -63,9 +63,17 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [ ] Pixel-perfect visual acceptance remains in the final verification stage.
 - [ ] Visual acceptance postponed until the end at user request.
 
-## Stages 6–7 [NOT STARTED]
+## Stage 6 — adaptive geometry and integration [IN PROGRESS]
 
-- [ ] 1920×1080 and 1366×768 scaling and keyboard/mouse testing.
+- [x] Pure `ls_ui_layout.gd` geometry policy uses the actual post-scaling Control size, rather than artificial 640px minimum.
+- [x] Workspace receives priority over right outliner on narrow logical viewports; user can reopen it.
+- [x] Window, breadcrumb, context card, alert popover and footer all derive offsets from the same layout.
+- [x] Resource chip counts adapt at five width bands; no game state or N39 snapshot is read by layout.
+- [ ] Finish responsive inner workspace layout, overflow and minimum sizes.
+- [ ] 1920×1080 and 1366×768 visual / input testing deferred until final stage 7.
+
+## Stage 7 — final acceptance [NOT STARTED]
+
 - [ ] Pixel-level screenshot verification + game behavior acceptance.
 
 ## Verification and safety

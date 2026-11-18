@@ -247,12 +247,15 @@ func _ready() -> void:
 func _fit_toolbar() -> void:
     if _updated == null:
         return
-    # The tick remains visible in the global HUD on compact windows.
-    # Removing this secondary label preserves space for the live filter.
+    # Desktop keeps cycle metadata and focus; laptop leaves more room
+    # for search and avoids titlebar collisions under Windows UI scaling.
     _updated.visible = size.x >= 500.0
     if _focus_badge != null:
         # Long source IDs belong in the tooltip, not across the close button.
         _focus_badge.visible = not _focus.is_empty() and size.x >= 670.0
+    if _filter != null:
+        _filter.placeholder_text = (
+            "Поиск" if size.x < 350.0 else "Фильтр по объектам и статусам")
 
 
 func set_can_go_back(can_go_back: bool) -> void:

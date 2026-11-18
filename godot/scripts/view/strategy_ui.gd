@@ -6,6 +6,7 @@ const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 const FullWorkspaces = preload("res://scripts/view/strategy_workspaces.gd")
 const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
 const LSTheme = preload("res://scripts/view/ls_ui_theme.gd")
+const LSLayout = preload("res://scripts/view/ls_ui_layout.gd")
 const LSComponents = preload("res://scripts/view/ls_ui_components.gd")
 ## Living Sector strategy HUD — Figma-inspired, read-only presentation.
 ## The game owns the map, authoritative economy, orders and clock.
@@ -859,79 +860,79 @@ func _update_selection_card() -> void:
             _selection_summary.text += " · " + str(visiting[0]["name"])
 
 func _layout_window() -> void:
-    var vw: float = maxf(640.0, size.x)
-    var vh: float = maxf(350.0, size.y)
+    # Layout is derived from the post-scale logical viewport. No artificial
+    # 640px minimum that can move Controls outside a small game window.
+    var vw: float = maxf(1.0, size.x)
+    var vh: float = maxf(1.0, size.y)
     if _brand_box != null:
-        # At 180/200% on a smaller monitor, keep FPS/time controls visible.
-        # Hidden resource chips are still available in Economy / Stocks.
-        var count: int = (6 if vw >= 1220.0 else (
-            5 if vw >= 1020.0 else (4 if vw >= 855.0 else 3)))
+        # Keep the clock/buttons visible first. Resource chips can be read
+        # from Economy when the viewport is too narrow for all six.
+        var count: int = (
+            6 if vw >= 1220.0 else (
+            5 if vw >= 1020.0 else (
+            4 if vw >= 855.0 else (
+            3 if vw >= 680.0 else (2 if vw >= 510.0 else 1)))))
         _brand_box.custom_minimum_size.x = (
-            140.0 if vw < 845.0 else (168.0 if vw < 1160.0 else 192.0))
+            140.0 if vw < 845.0 else (
+            168.0 if vw < 1160.0 else 192.0))
         for i in range(_metric_boxes.size()):
             var resource_tile: Control = _metric_boxes[i].get_parent().get_parent()
             resource_tile.visible = i < count
             resource_tile.custom_minimum_size.x = (
-                82.0 if vw < 845.0 else (96.0 if vw < 1160.0 else 104.0))
+                82.0 if vw < 845.0 else (
+                96.0 if vw < 1160.0 else 104.0))
         if _time_area != null:
             _time_area.custom_minimum_size.x = (
                 104.0 if vw < 1160.0 else 118.0)
-    # Header follows its real minimum height under user UI scaling;
-    # diagnostics now live in the footer so the baseline can be 58px.
     var header_h: float = TOP_H
     if _top != null:
         header_h = maxf(TOP_H, _top.get_combined_minimum_size().y)
         _top.offset_bottom = header_h
     _effective_top_h = header_h
+    var layout: Dictionary = LSLayout.calculate(
+        Vector2(vw, vh), header_h,
+        _window != null and _window.visible, _show_outliner)
+    var left: float = float(layout["left"])
+    var right: float = float(layout["right"])
+    var out_w: float = float(layout["out_width"])
+    var show_outliner: bool = bool(layout["show_outliner"])
     if _rail != null:
         _rail.offset_top = header_h
         _rail.offset_right = RAIL_W
         _rail.offset_bottom = -FOOT_H
-    var left: float = RAIL_W + GUTTER
-    var out_w: float = (OUT_W if vw >= 1450.0 else COMPACT_OUT_W)
-    # Management panels take priority at extreme UI scale. On narrow
-    # logical viewports, the outliner can be restored after closing window.
-    var show_outliner: bool = (_show_outliner and (
-        vw >= 810.0 or _window == null or not _window.visible))
     if _outliner != null:
         _outliner.visible = show_outliner
-    if _outliner_reopen != null:
-        _outliner_reopen.visible = not show_outliner
-    var reserved_right: float = (
-        out_w + GUTTER if show_outliner else GUTTER)
-    var right: float = minf(vw - GUTTER, maxf(
-        left + 260.0, vw - reserved_right))
-    if _outliner != null:
         _outliner.offset_left = -(out_w + 8.0)
         _outliner.offset_right = -8.0
         _outliner.offset_top = header_h + 9.0
         _outliner.offset_bottom = -(FOOT_H + 5.0)
     if _outliner_reopen != null:
+        _outliner_reopen.visible = not show_outliner
         _outliner_reopen.offset_top = header_h + 10.0
         _outliner_reopen.offset_bottom = header_h + 48.0
     if _nav_panel != null:
         _nav_panel.offset_left = left
-        _nav_panel.offset_right = minf(right, left + 376.0)
+        _nav_panel.offset_right = float(layout["breadcrumb_right"])
         _nav_panel.offset_top = header_h + 10.0
         _nav_panel.offset_bottom = header_h + 53.0
     if _window != null:
         _window.offset_left = left
-        _window.offset_right = minf(right, left + 930.0)
-        _window.offset_top = header_h + 64.0
-        _window.offset_bottom = -(FOOT_H + 12.0)
+        _window.offset_right = float(layout["window_right"])
+        _window.offset_top = float(layout["window_top"])
+        _window.offset_bottom = float(layout["window_bottom"]) - vh
     if _selection_card != null:
-        var cr: float = right - 4.0
-        _selection_card.offset_left = maxf(left, cr - 360.0)
-        _selection_card.offset_right = cr
-        _selection_card.offset_top = -205.0
+        _selection_card.offset_left = float(layout["selection_left"])
+        _selection_card.offset_right = float(layout["selection_right"])
+        # Do not let the context card exceed the content height on high DPI.
+        var selection_h: float = minf(
+            185.0, maxf(70.0, vh - header_h - FOOT_H - 12.0))
+        _selection_card.offset_top = -(FOOT_H + 10.0 + selection_h)
         _selection_card.offset_bottom = -(FOOT_H + 10.0)
     if _alerts_popover != null:
-        var ar: float = right - 5.0
-        _alerts_popover.offset_left = maxf(left, ar - 335.0)
-        _alerts_popover.offset_right = ar
+        _alerts_popover.offset_left = float(layout["alert_left"])
+        _alerts_popover.offset_right = right - 5.0
         _alerts_popover.offset_top = header_h + 64.0
-        _alerts_popover.offset_bottom = minf(
-            vh - FOOT_H - 9.0, header_h + 380.0)
+        _alerts_popover.offset_bottom = float(layout["alert_bottom"])
     if _footer_panel != null:
         _footer_panel.offset_left = RAIL_W
         _footer_panel.offset_right = (
