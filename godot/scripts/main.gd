@@ -1561,6 +1561,12 @@ func _open_world(world: Dictionary) -> void:
         else _runner.calendar.native_time_units)
     _system_view.call("set_live_fleet", _worker_fleet if _worker_mode
         else _runner.fleet_snapshot())
+    var live_open: Dictionary = (_worker_economy if _worker_mode
+        else _runner.economy_snapshot())
+    if live_open.get("facilities") is Dictionary:
+        _system_view.set_live_facilities(
+            live_open["facilities"],
+            _worker_tick if _worker_mode else _runner.tick_count)
     _map.call("select_system", sid)
     _back_button.visible = true
     _back_button.text = "← К сектору"
@@ -1742,14 +1748,6 @@ func _show_facility_details(world: Dictionary,
         if str(row.get("id", "")) == _selected_facility_id:
             source = row
             break
-    if source.is_empty():
-        _selected_facility_id = ""
-        return false
-    var id: String = _selected_facility_id
-    var kind: String = str(source.get("type", ""))
-    var orbital: bool = kind in ["station", "shipyard"]
-    var location: String = str(source.get("location", ""))
-    var body_id: String = str(source.get("body", ""))
     var economy: Dictionary = shared_economy
     if economy.is_empty():
         if _worker_mode:
@@ -1757,8 +1755,35 @@ func _show_facility_details(world: Dictionary,
         elif _runner != null:
             economy = _runner.economy_snapshot()
     var live_facilities: Dictionary = economy.get("facilities", {})
+    # N151 constructs/upgrades facilities in N39, not in the frozen
+    # world seed. Resolve the real row against this system's known bodies.
+    if source.is_empty() and live_facilities.get(
+            _selected_facility_id) is Dictionary:
+        var candidate: Dictionary = live_facilities[_selected_facility_id]
+        var candidate_body: String = str(candidate.get(
+            "body_id", candidate.get("body", "")))
+        for body in world.get("bodies", []):
+            if body is Dictionary and str(body.get("id", "")) == candidate_body:
+                source = candidate.duplicate(false)
+                source["body"] = candidate_body
+                source["faction_id"] = str(candidate.get(
+                    "faction_id", candidate.get("faction", "")))
+                break
+    if source.is_empty():
+        _selected_facility_id = ""
+        return false
+    var id: String = _selected_facility_id
+    var kind: String = str(source.get("type", ""))
+    var location: String = str(source.get("location", ""))
+    var body_id: String = str(source.get("body", ""))
+    var orbital: bool = kind in ["station", "shipyard",
+        "construction_dock"] and location != body_id + "-colony"
     var lines: Array[String] = [
-        "ОРБИТАЛЬНАЯ СТАНЦИЯ" if orbital else "ПРЕДПРИЯТИЕ ПЛАНЕТЫ",
+        "ОРБИТАЛЬНАЯ СТАНЦИЯ" if orbital else (
+            "АДМИНИСТРАТИВНЫЙ ЦЕНТР" if (
+                kind in ["station", "construction_dock"] and
+                location == body_id + "-colony")
+            else "ПРЕДПРИЯТИЕ ПЛАНЕТЫ"),
         str(source.get("name", id)),
         "ID: " + id, "Тип: " + kind,
         "Небесное тело: " + body_id,
@@ -1812,9 +1837,10 @@ func _show_facility_details(world: Dictionary,
         lines.append("Кораблей в общей локации: %d" % docked_count)
     lines.append("")
     lines.append("Логистический адрес: " + location)
-    lines.append("Сейчас объекты Земли используют общий адрес")
-    lines.append("в эталонной экономике. Отдельные перевозки")
-    lines.append("поверхность ↔ орбита ещё не введены.")
+    lines.append("Это настоящий адрес N39; координата")
+    lines.append("значка на поверхности является схематичной.")
+    lines.append("Отдельные перевозки поверхность ↔ орбита")
+    lines.append("не создаются визуализацией.")
     _details.text = "\n".join(lines)
     return true
 
@@ -1919,6 +1945,29 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
                     int(shift.get("tick", 0)), int(shift.get("wages", 0))])
         else:
             lines.append("   Исходный объект, живой счёт пока не подключён")
+    # Native N39 facilities may appear after a colony is founded, with
+    # body_id and no corresponding frozen Rust seed facility.
+    var source_ids: Dictionary = {}
+    for row in world.get("facilities", []):
+        if row is Dictionary:
+            source_ids[str(row.get("id", ""))] = true
+    for fid in live_facilities:
+        var live: Variant = live_facilities[fid]
+        if not (live is Dictionary) or source_ids.has(str(fid)):
+            continue
+        if str(live.get("body_id", live.get("body", ""))) != _selected_body_id:
+            continue
+        var kind: String = str(live.get("type", ""))
+        if kind not in ["station", "shipyard", "construction_dock",
+                "mining_rig", "refinery", "farm", "factory",
+                "laboratory", "research", "power_plant"]:
+            continue
+        count += 1
+        var location: String = str(live.get("location", ""))
+        locations[location] = true
+        lines.append(" • %s [%s] · %d CR" % [
+            str(live.get("name", fid)), kind,
+            int(live.get("credits", 0))])
     if count == 0:
         lines.append(" • Нет привязанных объектов")
 
