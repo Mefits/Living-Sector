@@ -1317,9 +1317,28 @@ func _update_outliner() -> void:
     for body in _world.get("bodies", []):
         if body is Dictionary:
             signature += ":" + str(body.get("id", ""))
+    var seed_facility_ids: Dictionary = {}
     for facility in _world.get("facilities", []):
         if facility is Dictionary:
-            signature += ":" + str(facility.get("id", ""))
+            var id: String = str(facility.get("id", ""))
+            seed_facility_ids[id] = true
+            signature += ":" + id
+    var live_facilities: Variant = _economy.get("facilities", {})
+    var system_bodies: Dictionary = {}
+    for body in _world.get("bodies", []):
+        if body is Dictionary:
+            system_bodies[str(body.get("id", ""))] = true
+    if live_facilities is Dictionary:
+        for fid in live_facilities:
+            if seed_facility_ids.has(str(fid)) or not (
+                    live_facilities[fid] is Dictionary):
+                continue
+            var row: Dictionary = live_facilities[fid]
+            var bid: String = str(row.get("body_id",
+                row.get("body", "")))
+            if system_bodies.has(bid):
+                signature += ":N39:" + str(fid) + ":" + str(
+                    row.get("type", "")) + ":" + bid
     var ships: Variant = _economy.get("ships", {})
     if ships is Dictionary:
         for id in ships:
@@ -1363,6 +1382,34 @@ func _update_outliner() -> void:
             stations.append(facility)
         else:
             production.append(facility)
+    # Outliner reflects founded N151 colonies and newly created N39
+    # facilities without ever editing the frozen SystemBalance seed.
+    if live_facilities is Dictionary:
+        for fid in live_facilities:
+            if seed_facility_ids.has(str(fid)) or not (
+                    live_facilities[fid] is Dictionary):
+                continue
+            var live: Dictionary = live_facilities[fid]
+            var bid: String = str(live.get("body_id",
+                live.get("body", "")))
+            var kind: String = str(live.get("type", ""))
+            if not system_bodies.has(bid) or kind not in [
+                    "station", "shipyard", "construction_dock",
+                    "mining_rig", "refinery", "farm", "factory",
+                    "laboratory", "research", "power_plant"]:
+                continue
+            var item: Dictionary = live.duplicate(false)
+            item["id"] = str(fid)
+            item["body"] = bid
+            item["faction_id"] = str(live.get("faction_id",
+                live.get("faction", "")))
+            areas[bid] = true
+            local_locations[str(live.get("location", ""))] = true
+            if kind in ["station", "shipyard", "construction_dock"] and (
+                    str(live.get("location", "")) != bid + "-colony"):
+                stations.append(item)
+            else:
+                production.append(item)
     var inhabited: Array[Dictionary] = []
     var other_bodies: Array[Dictionary] = []
     for raw in _world.get("bodies", []):
