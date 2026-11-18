@@ -21,11 +21,40 @@ static func project(world: Dictionary, requested_body: String,
             if row is Dictionary and str(row.get("body", "")) != "":
                 body = str(row["body"])
                 break
+    var active: Variant = economy.get("facilities", {})
+    if body.is_empty() and active is Dictionary:
+        var known: Dictionary = {}
+        for item in world.get("bodies", []):
+            if item is Dictionary:
+                known[str(item.get("id", ""))] = true
+        for fid in active:
+            var candidate: Variant = active[fid]
+            if not (candidate is Dictionary):
+                continue
+            var bid: String = str(candidate.get(
+                "body_id", candidate.get("body", "")))
+            if known.has(bid):
+                body = bid
+                break
     for row in facilities:
         if not (row is Dictionary) or str(row.get("body", "")) != body:
             continue
         locations[str(row.get("location", ""))] = true
         source_ids[str(row.get("id", ""))] = true
+    # The real N39 colony is not in the frozen Rust seed.
+    if active is Dictionary:
+        for fid in active:
+            var row: Variant = active[fid]
+            if not (row is Dictionary) or str(row.get(
+                    "body_id", row.get("body", ""))) != body:
+                continue
+            var kind: String = str(row.get("type", ""))
+            if kind not in ["station", "shipyard", "construction_dock",
+                    "mining_rig", "refinery", "farm", "factory",
+                    "laboratory", "research", "power_plant"]:
+                continue
+            source_ids[str(fid)] = true
+            locations[str(row.get("location", ""))] = true
     if locations.is_empty():
         return {"visible": false}
     var name: String = body
