@@ -18,6 +18,7 @@ const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
 const StrategyUI = preload("res://scripts/view/strategy_ui.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
+const StrategyReasons = preload("res://scripts/view/strategy_decision_projection.gd")
 # 140% was too small on 2860px-class displays. Scale is selectable and
 # persisted separately from N38 saves. 160% desktop / 180% high-DPI default.
 const UI_SCALES = [1.25, 1.4, 1.6, 1.8, 2.0]
@@ -797,7 +798,8 @@ func _player_set_control(faction_id: String, manual: bool) -> void:
         return
     var outcome: Dictionary = _runner.request_player_control(faction_id, manual)
     _notice = "Управление изменено" if outcome.get("ok", false) else (
-        "Управление: " + str(outcome.get("reason", "команда отклонена")))
+        "Управление: " + StrategyReasons.reason_text(str(
+            outcome.get("reason", "команда отклонена"))))
     _player_control_view = _runner.player_control_snapshot()
     _update_status()
     _sync_strategy_ui()
@@ -815,8 +817,9 @@ func _player_build(faction_id: String, destination: String,
     var outcome: Dictionary = _runner.request_player_construction(
         faction_id, destination, commodity)
     _notice = ("Стройка принята: " + str(outcome.get("site_id", "—"))
-        if outcome.get("ok", false) else "Приказ отклонён: " + str(
-            outcome.get("reason", "неизвестная причина")))
+        if outcome.get("ok", false) else "Приказ отклонён: " +
+            StrategyReasons.reason_text(str(outcome.get("reason",
+                "неизвестная причина"))))
     _update_status()
     _refresh_selection()
     _sync_strategy_ui(_runner.economy_snapshot())
@@ -946,8 +949,8 @@ func _worker_receive(result: Dictionary) -> void:
             _notice = ("Ручное управление изменено" if kind == "manual_control"
                 else "Стройка принята: " + str(manual_outcome.get("site_id", "—")))
         else:
-            _notice = "Приказ отклонён: " + str(result.get("error",
-                manual_outcome.get("reason", "unknown")))
+            _notice = "Приказ отклонён: " + StrategyReasons.reason_text(str(
+                result.get("error", manual_outcome.get("reason", "unknown"))))
             _worker_update_status()
             _sync_strategy_ui(_worker_economy)
             return
