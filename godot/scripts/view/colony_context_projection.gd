@@ -125,7 +125,8 @@ static func build(world: Dictionary, body_id: String,
     var construction: Variant = colony.get("construction", null)
     var signals: Variant = colony.get("alerts", null)
     return {"title": str(colony.get("name", "Колония")),
-        "subtitle": "Обзор существующего поселения",
+        "subtitle": str(colony.get(
+            "stage", "Обзор существующего поселения")),
         "cards": [
             _card("Жители", _value(colony, "population")
                 if colony.get("population") != null else "—"),

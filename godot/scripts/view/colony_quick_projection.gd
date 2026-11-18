@@ -57,6 +57,20 @@ static func project(world: Dictionary, requested_body: String,
             locations[str(row.get("location", ""))] = true
     if locations.is_empty():
         return {"visible": false}
+    var under_construction: bool = false
+    var colony_established: bool = false
+    if active is Dictionary:
+        for fid in active:
+            var row: Variant = active[fid]
+            if not (row is Dictionary) or str(row.get(
+                    "body_id", row.get("body", ""))) != body:
+                continue
+            if str(row.get("location", "")) != body + "-colony":
+                continue
+            if str(row.get("type", "")) == "construction_dock":
+                under_construction = true
+            elif str(row.get("type", "")) == "station":
+                colony_established = true
     var name: String = body
     for value in world.get("bodies", []):
         if value is Dictionary and str(value.get("id", "")) == body:
@@ -68,6 +82,9 @@ static func project(world: Dictionary, requested_body: String,
         economy.get("facilities") is Dictionary)
     var result: Dictionary = {
         "visible": true, "body": body, "name": name, "live": live,
+        "stage": ("Подготовка колонии" if (
+            under_construction and not colony_established)
+            else "Обзор существующего поселения"),
         "population": null, "food": null, "energy": null,
         "construction": null, "alerts": null,
         "details": {"colony": ["Колония: " + name,
