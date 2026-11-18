@@ -208,6 +208,51 @@ func shortest_path(start: String, destination: String) -> Dictionary:
     _path_cache_size += 1
     return result
 
+## Heap entries are immutable snapshots of a tentative best path. A changed
+## distance/path pushes a new entry; stale entries are discarded on pop.
+## The comparator mirrors the original N4 approximate-distance tie rule.
+static func _frontier_less(a: Dictionary, b: Dictionary) -> bool:
+    var da: float = float(a["distance"])
+    var db: float = float(b["distance"])
+    if is_equal_approx(da, db):
+        return str(a["path"]) < str(b["path"])
+    return da < db
+
+static func _frontier_push(heap: Array, item: Dictionary) -> void:
+    heap.append(item)
+    var child: int = heap.size() - 1
+    while child > 0:
+        var parent: int = (child - 1) / 2
+        if not _frontier_less(heap[child], heap[parent]):
+            break
+        var swap: Dictionary = heap[parent]
+        heap[parent] = heap[child]
+        heap[child] = swap
+        child = parent
+
+static func _frontier_pop(heap: Array) -> Dictionary:
+    var first: Dictionary = heap[0]
+    var last: Dictionary = heap.pop_back()
+    if heap.is_empty():
+        return first
+    heap[0] = last
+    var parent: int = 0
+    while true:
+        var left: int = parent * 2 + 1
+        if left >= heap.size():
+            break
+        var right: int = left + 1
+        var child: int = left
+        if right < heap.size() and _frontier_less(heap[right], heap[left]):
+            child = right
+        if not _frontier_less(heap[child], heap[parent]):
+            break
+        var swap: Dictionary = heap[parent]
+        heap[parent] = heap[child]
+        heap[child] = swap
+        parent = child
+    return first
+
 ## Source N4 directed Dijkstra and exact lexicographic tie-break retained.
 func _shortest_path_uncached(start: String, destination: String) -> Dictionary:
     if not _nodes.has(start) or not _nodes.has(destination):
@@ -220,21 +265,18 @@ func _shortest_path_uncached(start: String, destination: String) -> Dictionary:
     var paths: Dictionary = {start: start}
     var previous: Dictionary = {}
     var visited: Dictionary = {}
-    while true:
-        var current: String = ""
-        var smallest: float = INF
-        var path_key: String = ""
-        for node in best:
-            if visited.has(node):
-                continue
-            var candidate: float = float(best[node])
-            var candidate_path: String = str(paths[node])
-            if current.is_empty() or candidate < smallest or (is_equal_approx(candidate, smallest) and candidate_path < path_key):
-                current = str(node)
-                smallest = candidate
-                path_key = candidate_path
-        if current.is_empty():
-            break
+    var frontier: Array = []
+    _frontier_push(frontier, {"node": start, "distance": 0.0, "path": start})
+    while not frontier.is_empty():
+        var entry: Dictionary = _frontier_pop(frontier)
+        var current: String = str(entry["node"])
+        if visited.has(current):
+            continue
+        # The heap can contain earlier tentative routes for the same node.
+        if float(entry["distance"]) != float(best[current]) or str(entry["path"]) != str(paths[current]):
+            continue
+        var smallest: float = float(entry["distance"])
+        var path_key: String = str(entry["path"])
         if current == destination:
             var route: Array[String] = [destination]
             var cursor: String = destination
@@ -260,6 +302,8 @@ func _shortest_path_uncached(start: String, destination: String) -> Dictionary:
                 best[target] = candidate
                 paths[target] = candidate_path
                 previous[target] = current
+                _frontier_push(frontier, {"node": target,
+                    "distance": candidate, "path": candidate_path})
     return {"reachable": false, "reason": "no_directed_path"}
 
 func snapshot() -> Dictionary:
