@@ -323,7 +323,20 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     # updates market supply; all three must be detached BEFORE any writes.
     # Other World domains are read-only here and remain authoritative.
     var lifecycle_world: Dictionary = _copy_world("L196_owned_root", false)
-    lifecycle_world["facilities"] = _world["facilities"].duplicate(true)
+    # N130 can write arbitrary buyer/seller rows in stable ID order, so its
+    # paid cadence retains a fully detached facilities domain. On ordinary
+    # N156 ticks only repair candidates and lifecycle deltas may be written.
+    # Copy the registry, then detach each row BEFORE Payroll._blocked,
+    # Payroll.pay_shift or lifecycle condition/reserves writes touch it.
+    var restock_due: bool = bool(initial["due"]["restock"])
+    var lifecycle_owned_rows: Dictionary = {}
+    lifecycle_world["facilities"] = _world["facilities"].duplicate(true) if restock_due else _world["facilities"].duplicate(false)
+    if not restock_due:
+        for candidate in initial["repair_candidates"]:
+            var repair_id: String = str(candidate.get("facility_id", ""))
+            if lifecycle_world["facilities"].has(repair_id) and not lifecycle_owned_rows.has(repair_id):
+                lifecycle_world["facilities"][repair_id] = _world["facilities"][repair_id].duplicate(true)
+                lifecycle_owned_rows[repair_id] = true
     # N130 only writes markets on its 20x cadence; N156 Payroll only
     # writes populations when a paid repair candidate exists. The
     # off-cadence stages are read-only for these authoritative domains.
@@ -377,6 +390,12 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     for facility_id in lifecycle["changes"]:
         if not lifecycle_world["facilities"].has(facility_id):
             return {"ok": false, "reason": "lifecycle_unknown_facility"}
+        # The second proposal can differ after a paid repair. Detach any
+        # newly affected row before writing; do not mutate the canonical
+        # World if a later Schema/ledger/restock guard rejects this stage.
+        if not restock_due and not lifecycle_owned_rows.has(facility_id):
+            lifecycle_world["facilities"][facility_id] = _world["facilities"][facility_id].duplicate(true)
+            lifecycle_owned_rows[facility_id] = true
         var updated: Dictionary = lifecycle_world["facilities"][facility_id]
         var delta: Dictionary = lifecycle["changes"][facility_id]
         updated["condition"] = float(delta["condition"])
