@@ -570,7 +570,36 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     var recipe_due: bool = tick % (RECIPE_INTERVAL_BASE * tick_multiplier) == 0
     var mining_due: bool = tick % (MINING_INTERVAL_BASE * tick_multiplier) == 0
     if recipe_due:
-        Payroll.refresh_employment(_world, tick, external_workers)
+        # Payroll.refresh_employment writes every household in place. The
+        # authoritative World must not be mutated before validation: a later
+        # failed recipe/Schema guard must not leak employment changes through
+        # shared population rows. Compute the exact source occupied() view
+        # once, then detach only households whose employed_fraction changes.
+        # Do not change the recipe cadence, occupancy order or wage rules.
+        var occupied_workers: Dictionary = Payroll.occupied(_world, tick, external_workers)
+        var employment_world: Dictionary = _copy_world("n39_employment_root", false)
+        var employment_populations: Dictionary = _world["populations"].duplicate()
+        var employment_changed: bool = false
+        for population_id in _world["populations"]:
+            var previous_household: Dictionary = _world["populations"][population_id]
+            var capacity: float = maxf(1.0, float(previous_household["count"]) * 0.6)
+            var fraction: float = clampf(
+                float(occupied_workers.get(population_id, 0)) / capacity, 0.0, 1.0)
+            if previous_household.has("employed_fraction") and (
+                    float(previous_household["employed_fraction"]) == fraction):
+                continue
+            var detached_household: Dictionary = previous_household.duplicate(true)
+            detached_household["employed_fraction"] = fraction
+            employment_populations[population_id] = detached_household
+            employment_changed = true
+        if employment_changed:
+            employment_world["populations"] = employment_populations
+            var employment_error: String = _measured_schema_validate(
+                "n39_employment_owned", employment_world)
+            if not employment_error.is_empty():
+                return {"ok": false, "reason":
+                    "n39_employment_invalid_world:" + employment_error}
+            _world = employment_world
         for id in ids:
             if lod_fired.has(id):
                 var result: Dictionary = _run_recipes(str(id), tick, external_workers)
