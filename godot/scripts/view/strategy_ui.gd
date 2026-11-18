@@ -832,6 +832,7 @@ func _open_selection_details() -> void:
     _window.visible = true
     _update_selection_card()
     _update_window()
+    _layout_window()
 
 func _update_selection_card() -> void:
     if _selection_card == null:
@@ -1516,6 +1517,7 @@ func _select_from_workspace(kind: String, id: String) -> void:
     _workspace_focus = id
     _window.show()
     _update_window()
+    _layout_window()
 
 func _workspace_back() -> void:
     if _workspace_history.is_empty():

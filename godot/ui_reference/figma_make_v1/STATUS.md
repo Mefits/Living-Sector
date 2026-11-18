@@ -72,7 +72,9 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Workspace metric grids and colony columns reflow by available logical workspace width, not their own resizes (no 4↔2 oscillation).
 - [x] Tabs retain native horizontal scrolling and live search remains available in narrow windows.
 - [x] Right-anchored alert popover now uses viewport-relative offsets, avoiding off-screen placement at 1366px and high DPI.
-- [ ] Finish small-screen card height, scroll overflow and remaining HUD controls.
+- [x] Even when windows are closed, narrow logical viewports retain map space; the outliner can be reopened on demand.
+- [x] Selection-to-workspace and workspace row navigation now recompute layout immediately.
+- [ ] Final polish of narrow window focus/status controls and scalable scroll behavior.
 - [ ] 1920×1080 and 1366×768 visual / input testing deferred until final stage 7.
 
 ## Stage 7 — final acceptance [NOT STARTED]

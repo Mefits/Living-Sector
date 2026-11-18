@@ -19,8 +19,11 @@ static func calculate(viewport: Vector2, header_height: float,
     # Preserve a usable central map. A temporary management window receives
     # priority over the outliner on laptops/high Windows DPI.
     var available: float = vw - RAIL_W - GUTTER * 3.0
-    var show_outliner: bool = wants_outliner and (
-        not window_open or available - out_width >= 485.0)
+    # Reserve a map area even when no management window is open.
+    # Without this, the right sidebar consumes a scaled laptop viewport.
+    var minimum_center: float = 485.0 if window_open else 420.0
+    var show_outliner: bool = (
+        wants_outliner and available - out_width >= minimum_center)
     var reserved_right: float = (
         out_width + GUTTER + 8.0 if show_outliner else GUTTER)
     var left: float = minf(vw - GUTTER, RAIL_W + GUTTER)
