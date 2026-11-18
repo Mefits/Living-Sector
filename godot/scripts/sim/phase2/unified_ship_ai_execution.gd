@@ -756,7 +756,12 @@ static func propose(world: Dictionary, graph: RefCounted,
             # An N90 poll may clear a paid acknowledgment without a new
             # command; that single-owner cursor must still be committed.
             changed = true
-        ship["current_bt"] = next["tree"].duplicate(true)
+        # Bt.tick->_tick_node deep-detaches the complete BT before any
+        # cursor mutation. N84 already owns its deep-detached staged fleet.
+        # Keep that exclusively owned result: another recursive clone per
+        # active ship/tick duplicates the same nested Sequence/Selector tree.
+        # Do not alias the original World BT or reuse this result for another ship.
+        ship["current_bt"] = next["tree"]
         if next["status"] == Bt.SUCCESS and contract_id.is_empty() and (
                 str(ship.get("current_goal", "")) in [
                     "trade_route", "mine", "mine_ice",
