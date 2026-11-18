@@ -23,6 +23,13 @@ static func _flat(bg: Color, edge: Color, bottom: int = 0,
 
 static func build() -> Theme:
     var ui_theme: Theme = THEME_SOURCE.duplicate(true) as Theme
+    # Browser design lists IBM Plex Sans > Segoe UI > Arial.
+    # SystemFont resolves installed fonts on each Windows/Linux platform,
+    # avoiding embedded font binaries and their distribution licensing.
+    var ui_font := SystemFont.new()
+    ui_font.font_names = PackedStringArray([
+        "IBM Plex Sans", "Segoe UI", "Arial", "Noto Sans"])
+    ui_theme.default_font = ui_font
     # Figma Make 58px HUD vocabulary.
     ui_theme.set_type_variation(&"LSHeaderPanel", &"PanelContainer")
     ui_theme.set_type_variation(&"LSHeaderResource", &"PanelContainer")
@@ -455,4 +462,19 @@ static func build() -> Theme:
         ui_theme.set_stylebox(&"pressed", variation, row_pressed)
         ui_theme.set_stylebox(&"focus", variation,
             _flat(Color.TRANSPARENT, Color.TRANSPARENT))
+    # Figma button:focus-visible has a 1px teal outline. Keyboard tab
+    # focus must remain visible after migrating controls to native Buttons.
+    var focus_outline := _flat(Color.TRANSPARENT, Color("#53B5AC"),
+        0, 0, 0, 1, 1, 1)
+    ui_theme.set_stylebox(&"focus", &"Button", focus_outline)
+    for role in [
+            &"LSPrimaryButton", &"LSSecondaryButton",
+            &"LSHUDActionButton", &"LSTabButton", &"LSActiveTabButton",
+            &"LSNavButton", &"LSNavButtonSelected", &"LSNavUtilityButton",
+            &"LSOutlinerItem", &"LSOutlinerSelectedItem", &"LSOutlinerGroup",
+            &"LSOutlinerFilter", &"LSOutlinerFilterActive", &"LSLinkButton",
+            &"LSIssueButton", &"LSCriticalIssueButton", &"LSChainStage",
+            &"LSHeaderSpeed", &"LSHeaderAlert", &"LSHeaderScope",
+            &"LSRowActionEven", &"LSRowActionOdd"]:
+        ui_theme.set_stylebox(&"focus", role, focus_outline)
     return ui_theme

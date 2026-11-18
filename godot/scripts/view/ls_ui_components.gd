@@ -40,7 +40,7 @@ static func action_button(text: String, action: Callable = Callable(),
     button.text = text
     button.theme_type_variation = (
         &"LSPrimaryButton" if prominent else &"LSSecondaryButton")
-    button.focus_mode = Control.FOCUS_NONE
+    button.focus_mode = Control.FOCUS_ALL
     if action.is_valid():
         button.pressed.connect(action)
     else:
@@ -85,7 +85,7 @@ static func tab(text: String, active: bool, action: Callable) -> Button:
     var button := Button.new()
     button.text = text
     button.theme_type_variation = &"LSActiveTabButton" if active else &"LSTabButton"
-    button.focus_mode = Control.FOCUS_NONE
+    button.focus_mode = Control.FOCUS_ALL
     button.custom_minimum_size.y = 36
     button.tooltip_text = text
     button.pressed.connect(action)
@@ -121,7 +121,7 @@ static func table_row(heading: bool, odd: bool, action: Callable) -> Control:
         var button := Button.new()
         # Figma dense-row has visible hover/pressed decoration.
         button.flat = false
-        button.focus_mode = Control.FOCUS_NONE
+        button.focus_mode = Control.FOCUS_ALL
         button.theme_type_variation = (
             &"LSRowActionOdd" if odd else &"LSRowActionEven")
         button.pressed.connect(action)

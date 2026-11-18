@@ -11,7 +11,7 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Original `App.tsx` and `index.css` saved in `godot/ui_reference/figma_make_v1/`.
 - [x] Initial CSS dimensions and component map saved.
 - [ ] Capture and commit authoritative full-resolution screenshot(s) and required image assets.
-- [ ] Confirm exact fonts and available font licensing/assets.
+- [x] Native SystemFont fallback established: IBM Plex Sans → Segoe UI → Arial → Noto Sans, per CSS font stack; no font files embedded. Exact parity still depends on installed fonts.
 
 ## Stage 2 — native Theme [IN PROGRESS]
 
@@ -130,4 +130,4 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - `e591d8a`: nested table/tab scroll event integration.
 
 **All Stage 6 implementation changes are committed, not runtime tested.** No GitHub Actions or Godot validation has been run at the user's request. Stage 7 is the single final validation and correction gate.
-\n- Final cleanup: removed obsolete per-control _style/_box builders from StrategyUI and StrategyWorkspaces, centralized their styles in LSTheme. Long N39 notes no longer clip to ellipsis. **Requires Godot validation before claiming readiness.**\n
+\n- Final cleanup: removed obsolete per-control _style/_box builders from StrategyUI and StrategyWorkspaces, centralized their styles in LSTheme. Long N39 notes no longer clip to ellipsis. **Requires Godot validation before claiming readiness.**\n\n- Pre-test preparation: native SystemFont for Figma font stack and keyboard focus outline; actual font face depends on platform availability. No font binaries were redistributed.\n
