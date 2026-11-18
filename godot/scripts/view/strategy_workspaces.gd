@@ -172,6 +172,7 @@ func _ready() -> void:
     _tabs_scroll.custom_minimum_size.y = 37
     _tabs_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
     _tabs_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    _tabs_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
     _tabs_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     _tabs_scroll.add_theme_stylebox_override("panel", _box(Color("#09151D"), false))
     add_child(_tabs_scroll)
@@ -517,6 +518,9 @@ func _table(parent: Node, headings: Array, rows: Array,
     var scroller := ScrollContainer.new()
     scroller.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
     scroller.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    # Vertical wheel events can continue to the outer workspace scroller.
+    # The table itself owns only horizontal overflow.
+    scroller.mouse_filter = Control.MOUSE_FILTER_PASS
     scroller.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     parent.add_child(scroller)
     var grid_body := VBoxContainer.new()
