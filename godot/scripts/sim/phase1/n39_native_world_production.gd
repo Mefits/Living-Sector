@@ -5226,7 +5226,10 @@ func apply_native_b4_colony_aftercare(tick: int, faction: String,
         return {"ok": true, "due": true, "promoted": false,
             "accepted": false, "faction_id": faction, "tick": tick,
             "status": str(proposed.get("reason", "b4_no_actual_colony_goal"))}
-    var prior: Dictionary = _copy_world("L4880", true)
+    # N100 owns only native_planner_records + its scalar tick. It publishes a
+    # detached registry via an owned root, never mutating previous World rows.
+    # Keep the prior root for rollback without copying growing histories.
+    var prior: Dictionary = _copy_world("b4_n100_prior_owned_root", false)
     var money: Dictionary = _ledger.snapshot()
     var planned: Dictionary = apply_native_hybrid_planning(
         tick, faction, proposed["head"], multiplier)
