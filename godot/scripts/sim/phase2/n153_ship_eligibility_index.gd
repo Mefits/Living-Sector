@@ -37,19 +37,20 @@ static func offer_route_index(roots: Dictionary, source: String, destination: St
     return destinations[destination]
 
 static func legs(cache: Dictionary, here: String, source: String, dest: String,
-        graph: RefCounted, positions: Dictionary, detach: bool = true) -> Dictionary:
+        graph: RefCounted, positions: Dictionary, detach: bool = true,
+        shared: Dictionary = {}) -> Dictionary:
     # Cache only per-contract origin geometry, not inter-call paths.
     if cache.has(here):
         return _detached_legs(cache[here]) if detach else cache[here]
     var result: Dictionary = {}
-    if not graph.has_location(source) or not graph.has_location(dest) or not graph.has_location(here):
+    if not _graph_has_location(shared, graph, source) or not _graph_has_location(shared, graph, dest) or not _graph_has_location(shared, graph, here):
         result = {"error": "native_route_endpoint_unmapped"}
     else:
         # Integer cache key cannot collide with a ship location (String).
         # Source->destination is invariant for every ship in this one
         # proposal; preserve the original inbound-then-outbound ordering
         # for the first lookup and never persist this across ticks/N38.
-        var inbound: Dictionary = graph.shortest_path(here, source)
+        var inbound: Dictionary = _inbound_path(shared, graph, here, source)
         var outbound: Dictionary = {}
         if cache.has(0):
             outbound = cache[0]
@@ -58,14 +59,15 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
             cache[0] = outbound
         if not inbound.get("reachable", false) or not outbound.get("reachable", false):
             result = {"error": "unreachable_directed_route"}
-        elif not positions.has(here) or not positions.has(source) or not positions.has(dest):
+        elif not _has_position(shared, positions, here) or not _has_position(shared, positions, source) or not _has_position(shared, positions, dest):
             result = {"error": "missing_real_world_position"}
         else:
             # The source->destination geometry is identical for all ships
             # bidding on this offer. Cache detached scalar leg rows, not
             # World positions, and append them in the original inbound-first
             # order. Each here-location receives its own steps Array.
-            var steps: Array = _geometry_steps(inbound["locations"], positions)
+            var steps: Array = _inbound_steps(shared, here, source,
+                inbound["locations"], positions).duplicate()
             if not cache.has(1):
                 cache[1] = _geometry_steps(outbound["locations"], positions)
             # The assembled steps stay private to this proposal's cache.
@@ -77,6 +79,45 @@ static func legs(cache: Dictionary, here: String, source: String, dest: String,
                 "outbound": outbound["locations"], "steps": steps}
     cache[here] = result
     return _detached_legs(result) if detach else result
+
+## Shared only within one synchronous N153 propose(). Cache endpoint presence,
+## inbound directed routes and their scalar geometry across offers with
+## different destinations. No graph/position version survives this call.
+static func _graph_has_location(shared: Dictionary, graph: RefCounted,
+        location: String) -> bool:
+    var present: Dictionary = shared.get("graph_presence", {})
+    if not present.has(location):
+        present[location] = graph.has_location(location)
+        shared["graph_presence"] = present
+    return bool(present[location])
+
+static func _has_position(shared: Dictionary, positions: Dictionary,
+        location: String) -> bool:
+    var present: Dictionary = shared.get("position_presence", {})
+    if not present.has(location):
+        present[location] = positions.has(location)
+        shared["position_presence"] = present
+    return bool(present[location])
+
+static func _inbound_path(shared: Dictionary, graph: RefCounted,
+        here: String, source: String) -> Dictionary:
+    var routes: Dictionary = shared.get("inbound_routes", {})
+    var by_source: Dictionary = routes.get(source, {})
+    if not by_source.has(here):
+        by_source[here] = graph.shortest_path(here, source)
+        routes[source] = by_source
+        shared["inbound_routes"] = routes
+    return by_source[here]
+
+static func _inbound_steps(shared: Dictionary, here: String, source: String,
+        path: Array, positions: Dictionary) -> Array:
+    var geometry: Dictionary = shared.get("inbound_geometry", {})
+    var by_source: Dictionary = geometry.get(source, {})
+    if not by_source.has(here):
+        by_source[here] = _geometry_steps(path, positions)
+        geometry[source] = by_source
+        shared["inbound_geometry"] = geometry
+    return by_source[here]
 
 ## A ship's fuel/cargo decision may inspect or modify its returned leg rows.
 ## The proposal cache owns its arrays; never expose them to another bidder.
