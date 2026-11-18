@@ -170,7 +170,7 @@ func _navigate(target: String) -> void:
   _button(tabs, "Планета", _navigate.bind("admin_planet"))
   _needs()
  if page.begins_with("admin"):
-  _button(footer, "Сохранить + рестарт", func(): apply_requested.emit())
+  _button(footer, "Сохранить баланс", func(): apply_requested.emit())
   _button(footer, "Сброс", func(): reset_requested.emit())
 
 func _cards(editable: bool) -> void:

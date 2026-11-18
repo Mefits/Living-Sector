@@ -31,9 +31,12 @@ func _initialize() -> void:
   "construction_finished_native", -1)),
   Calendar.days_to_native(45.0))
  var saved: Dictionary = first.snapshot()
+ # REAL Godot JSON reload, where numeric int values may decode as floats.
+ var json_state: Variant = JSON.parse_string(JSON.stringify(saved))
+ good = good and json_state is Dictionary
  var second = Building.new()
  second.setup(new_world(), settings)
- good = good and second.restore(saved)
+ good = good and second.restore(json_state)
  good = good and Model.stock(second.world, "earth") == 999
  var duration: float = Calendar.days_to_native(45.0)
  good = good and is_equal_approx(duration, 700.0 * 45.0 / 365.0)

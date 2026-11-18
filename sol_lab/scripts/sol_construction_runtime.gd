@@ -160,10 +160,14 @@ func restore(data: Dictionary) -> bool:
  var input_sites: Variant = data.get("sites", null)
  var input_facilities: Variant = data.get("facilities", null)
  var input_markets: Variant = data.get("markets", null)
- if not (t is float or t is int) or not is_finite(float(t)) or (
-    float(t) < 0.0 or not (seq is int) or int(seq) < 1 or (
-    not (input_sites is Array)) or not (input_facilities is Array) or (
-    not (input_markets is Array))):
+ if not (t is float or t is int) or not is_finite(float(t)):
+  return false
+ if not (seq is float or seq is int) or not is_finite(float(seq)):
+  return false
+ if float(t) < 0.0 or float(seq) != float(int(seq)) or int(seq) < 1:
+  return false
+ if not (input_sites is Array) or not (input_facilities is Array) or (
+     not (input_markets is Array)):
   return false
  if input_markets.size() != (world.get("markets", []) as Array).size():
   return false
