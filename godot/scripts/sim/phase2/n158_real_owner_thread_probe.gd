@@ -3,7 +3,7 @@ extends RefCounted
 ## The runner and SaveState live ONLY on the worker. This is a parity harness
 ## boundary; main.gd may opt in, but the default stays synchronous until
 ## verified. Only detached scalars, checkpoints and bounded view data cross.
-const Runner = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
+const Runner = preload("res://scripts/sim/phase2/n158_timed_phase_probe.gd")
 const Saves = preload("res://scripts/sim/save_state.gd")
 const RequestMetrics = preload("res://scripts/sim/phase2/n158_worker_request_metrics.gd")
 const SizeProbe = preload("res://scripts/sim/phase2/n158_authoritative_size_probe.gd")
@@ -216,6 +216,9 @@ func _owner_loop(seed: Dictionary) -> void:
             # Existing opt-in native profiler; detached bounded scalars only.
             answer["ship_subphase_profile"] = RequestMetrics.checkpoint_ship_subphases(
                 sim.tick_count, sim.profile_native_ship_subphases())
+        # This opt-in parity owner measures the same paid phases as direct. The
+        # detached 100-row report is produced only at committed milestones.
+        # Reporting cost is outside advance/projection elapsed measurement.
         var projection_end_usec: int = Time.get_ticks_usec()
         answer["timing"] = RequestMetrics.summarize(before_tick, sim.tick_count,
             began_usec, advance_end_usec, projection_end_usec)
@@ -235,6 +238,10 @@ func _owner_loop(seed: Dictionary) -> void:
         elif sim.tick_count > before_tick or kind in ["restore", "load"]:
             # Gaps and state rewinds cannot be stitched into a valid 100-tick run.
             paid_tick_timings.clear()
+        if answer["ok"] and kind == "step" and RequestMetrics.CHECKPOINTS.has(sim.tick_count):
+            var phase_report: Dictionary = sim.paid_phase_distribution(sim.tick_count)
+            if not phase_report.is_empty():
+                answer["paid_phase_window"] = phase_report.duplicate(true)
         _publish(answer)
     # sim is released on this same owner thread. No live reference escapes.
 
