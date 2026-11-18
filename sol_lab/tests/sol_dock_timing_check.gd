@@ -14,7 +14,11 @@ func _initialize() -> void:
  okay = okay and Model.minimum_construction_shifts(Model.BUILDINGS[3], settings) == -1
  # Create actual UI nodes so parser and UI methods are exercised.
  var ui := Lab.new()
+ ui.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+ ui.size = Vector2(1366, 768)
  get_root().add_child(ui)
+ ui.size = Vector2(1366, 768)
+ ui._layout_right_side()
  okay = okay and ui.sidebar != null and ui.browser != null
  okay = okay and not ui.browser.visible
  if okay:

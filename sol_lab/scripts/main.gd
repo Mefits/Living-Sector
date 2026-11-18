@@ -367,6 +367,8 @@ func _native_body_selected(body: Dictionary) -> void:
         return
     selected = id
     native_view.select_body(id)
+    if browser.visible:
+        browser.select_planet(id)
     _show_selected()
 
 func _set_speed(multiplier: int) -> void:

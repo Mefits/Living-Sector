@@ -72,6 +72,14 @@ func configure(source_world: Dictionary, settings: Dictionary,
  _navigate("admin_buildings" if admin else "build")
  show()
 
+func select_planet(new_id: String) -> void:
+ if new_id == body_id:
+  return
+ if not Model.VISIBLE.has(new_id):
+  return
+ body_id = new_id
+ _navigate(page)
+
 func set_dock_width(value: float) -> void:
  dock_width = maxf(260.0, value)
  _fit_cards()
