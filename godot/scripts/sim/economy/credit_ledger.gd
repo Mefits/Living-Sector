@@ -47,6 +47,12 @@ var _receipt_kind_counts: Dictionary = {}
 ## otherwise reused across repeated N39 proofs/saves (many per tick).
 var _flat_receipt_cache: Dictionary = {}
 var _flat_cache_count: int = -1
+# Retain the last immutable flattened generation only until its next export.
+# New IDs form a small delta; no old receipt order walk is needed at export.
+# Never mutate the base: forks may still reference its original generation.
+var _flat_delta_base: Dictionary = {}
+var _flat_delta_base_count: int = -1
+var _flat_pending_ids: Array = []
 
 ## Opt-in paid-path instrumentation; off by default and never serialized.
 ## LS_PROFILE_N9_APPEND=1: time real committed receipt detach and full
@@ -157,8 +163,13 @@ func _append_receipt(id: String, record: Dictionary) -> void:
 	# Release a previously materialized full-history cache on the FIRST
 	# invalidation; later paid appends do not allocate redundant empty maps.
 	if _flat_cache_count >= 0:
+		_flat_delta_base = _flat_receipt_cache
+		_flat_delta_base_count = _flat_cache_count
+		_flat_pending_ids = []
 		_flat_receipt_cache = {}
 		_flat_cache_count = -1
+	if _flat_delta_base_count >= 0:
+		_flat_pending_ids.append(id)
 	if _profile_append:
 		var elapsed: int = maxi(0, Time.get_ticks_usec() - started_usec)
 		_profile_append_calls += 1
@@ -171,13 +182,21 @@ func _snapshot_receipts() -> Dictionary:
 	if _flat_cache_count != _receipt_count:
 		var rebuild_started: int = Time.get_ticks_usec() if _profile_append else 0
 		var ordered: Dictionary = {}
-		for chunk in _receipt_order_chunks:
-			for id in chunk:
-				# Order chunks contain only String IDs from committed receipts or
-				# validated restore. Avoid converting every ID on every rebuild.
-				# The final native deep copy still detaches every external row.
+		if _flat_delta_base_count >= 0 and (
+				_flat_delta_base_count + _flat_pending_ids.size() == _receipt_count):
+			# A shallow map copy preserves the private immutable receipt records.
+			# Only appended IDs need lookup; external snapshot below deep-copies.
+			ordered = _flat_delta_base.duplicate()
+			for id in _flat_pending_ids:
 				ordered[id] = _receipt_at(id)
+		else:
+			for chunk in _receipt_order_chunks:
+				for id in chunk:
+					ordered[id] = _receipt_at(id)
 		_flat_receipt_cache = ordered
+		_flat_delta_base = {}
+		_flat_delta_base_count = -1
+		_flat_pending_ids = []
 		_flat_cache_count = _receipt_count
 		if _profile_append:
 			_profile_snapshot_rebuild_calls += 1
@@ -407,6 +426,9 @@ func _profile_inner_fork() -> RefCounted:
 	child.set("_receipt_kind_counts", _receipt_kind_counts.duplicate())
 	child.set("_flat_receipt_cache", _flat_receipt_cache)
 	child.set("_flat_cache_count", _flat_cache_count)
+	child.set("_flat_delta_base", _flat_delta_base)
+	child.set("_flat_delta_base_count", _flat_delta_base_count)
+	child.set("_flat_pending_ids", _flat_pending_ids.duplicate())
 	# Preserve opt-in paid-path counters across authoritative COW generations.
 	# Otherwise each committed fork resets the totals and late-tick append/
 	# snapshot costs appear to vanish. Counters remain diagnostic-only and
@@ -750,6 +772,9 @@ func _profile_inner_restore(data: Dictionary) -> bool:
 	_receipt_kind_counts = next_kind_counts
 	_flat_receipt_cache = {}
 	_flat_cache_count = -1
+	_flat_delta_base = {}
+	_flat_delta_base_count = -1
+	_flat_pending_ids = []
 	return true
 
 func _valid_account(value: Variant) -> bool:
