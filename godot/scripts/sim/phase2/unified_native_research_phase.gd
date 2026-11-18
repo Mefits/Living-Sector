@@ -39,7 +39,8 @@ static func _market_rows(world: Dictionary) -> Array:
     return rows
 
 static func propose(world: Dictionary, seed_factions: Dictionary,
-        tick: int, multiplier: int) -> Dictionary:
+        tick: int, multiplier: int,
+        manual_factions: Dictionary = {}) -> Dictionary:
     if tick < 1 or multiplier < 1:
         return {"ok": false, "reason": "invalid_native_science_tick"}
     for field in ["faction_treasuries", "research_directors", "research_receipts"]:
@@ -80,6 +81,11 @@ static func propose(world: Dictionary, seed_factions: Dictionary,
         if not seed_factions.has(faction) or not world["research_directors"].has(faction):
             return {"ok": false, "reason": "unverified_original_faction"}
         var old_head: Dictionary = world["research_directors"][faction]
+        # Human authority may stop NEW science decisions without altering
+        # the original saved director, N9 ledger or other factions.
+        if bool(manual_factions.get(faction, false)):
+            heads[faction] = old_head.duplicate(true)
+            continue
         var native_snapshot: Dictionary = {
             "population": people, "markets_by_location": market_map,
             "facilities": native_facilities, "contracts": []}
