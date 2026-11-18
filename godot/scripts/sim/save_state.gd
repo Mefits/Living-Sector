@@ -304,6 +304,49 @@ static func last_save_encoded_bytes() -> int:
 static func last_save_encode_usec() -> int:
     return _last_save_encode_usec
 
+## Preserve the previous known-good backup until the new primary is safely
+## promoted. The old path deleted .bak BEFORE renaming primary to .bak; a
+## failed rename could therefore destroy the only usable recovery checkpoint.
+## .bak.previous is an interrupted-rotation recovery candidate, not a new
+## checkpoint format. Never overwrite an orphaned previous backup blindly.
+static func _promote_verified_pending(absolute_path: String,
+        primary_is_valid: bool) -> Error:
+    var pending: String = absolute_path + ".pending"
+    var backup: String = absolute_path + ".bak"
+    var previous: String = absolute_path + ".bak.previous"
+    var had_primary: bool = FileAccess.file_exists(absolute_path)
+    var parked_backup: bool = false
+    if had_primary and primary_is_valid:
+        if FileAccess.file_exists(previous):
+            return ERR_ALREADY_EXISTS
+        if FileAccess.file_exists(backup):
+            var park_error: Error = DirAccess.rename_absolute(backup, previous)
+            if park_error != OK:
+                return park_error
+            parked_backup = true
+        var rotate_error: Error = DirAccess.rename_absolute(absolute_path, backup)
+        if rotate_error != OK:
+            if parked_backup:
+                DirAccess.rename_absolute(previous, backup)
+            return rotate_error
+    elif had_primary:
+        var remove_error: Error = DirAccess.remove_absolute(absolute_path)
+        if remove_error != OK:
+            return remove_error
+    var promote_error: Error = DirAccess.rename_absolute(pending, absolute_path)
+    if promote_error != OK:
+        if had_primary and primary_is_valid:
+            DirAccess.rename_absolute(backup, absolute_path)
+            if parked_backup:
+                DirAccess.rename_absolute(previous, backup)
+        return promote_error
+    # A crash before this cleanup is safe: primary and backup are valid.
+    # A later save refuses to overwrite the orphan until recovery resolves it.
+    if parked_backup:
+        DirAccess.remove_absolute(previous)
+    return OK
+
+
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
         return ERR_INVALID_DATA
@@ -358,35 +401,18 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
         DirAccess.remove_absolute(tmp)
         return ERR_FILE_CORRUPT
 
-    var had_primary: bool = FileAccess.file_exists(absolute_path)
     var primary_is_valid: bool = false
-    if had_primary:
+    if FileAccess.file_exists(absolute_path):
         primary_is_valid = _trusted_for_backup_rotation(
             _read_checkpoint(absolute_path))
-    # Never overwrite a known-good backup with a damaged primary.
-    if had_primary and primary_is_valid:
-        if FileAccess.file_exists(backup):
-            var remove_result: Error = DirAccess.remove_absolute(backup)
-            if remove_result != OK:
-                DirAccess.remove_absolute(tmp)
-                return remove_result
-        var backup_result: Error = DirAccess.rename_absolute(absolute_path, backup)
-        if backup_result != OK:
-            DirAccess.remove_absolute(tmp)
-            return backup_result
-    elif had_primary:
-        # Invalid primary is not a usable recovery point.
-        var remove_primary: Error = DirAccess.remove_absolute(absolute_path)
-        if remove_primary != OK:
-            DirAccess.remove_absolute(tmp)
-            return remove_primary
-
-    var promote_result: Error = DirAccess.rename_absolute(tmp, absolute_path)
+    var promote_result: Error = _promote_verified_pending(
+        absolute_path, primary_is_valid)
     if promote_result != OK:
-        if had_primary and primary_is_valid:
-            DirAccess.rename_absolute(backup, absolute_path)
+        # The verified pending checkpoint remains available for recovery.
+        # Never discard it after a failed filesystem rotation.
         return promote_result
     return OK
+
 
 static func load_runner(runner: RefCounted, seed: Dictionary,
         save_path: String = DEFAULT_PATH) -> Dictionary:
@@ -401,7 +427,8 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
     # The .pending file may be the only intact checkpoint if a process died
     # between writing it and promoting it to the primary path. Never prefer
     # an uncommitted pending save over a healthy primary or known-good backup.
-    for candidate in [absolute_path, absolute_path + ".bak", absolute_path + ".pending"]:
+    for candidate in [absolute_path, absolute_path + ".bak",
+            absolute_path + ".bak.previous", absolute_path + ".pending"]:
         var parsed: Dictionary = _read_checkpoint(candidate)
         if parsed.is_empty() or not NativeTimeline.validate(parsed).get("ok", false):
             continue
@@ -421,12 +448,24 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
                     can_promote = DirAccess.remove_absolute(absolute_path) == OK
                 if can_promote:
                     promoted_pending = DirAccess.rename_absolute(candidate, absolute_path) == OK
+            # An interrupted rotation can leave the former backup parked.
+            # Promote it only after the actual runner accepts its checkpoint.
+            # Do not erase a usable pending checkpoint or a healthy backup.
+            var promoted_previous: bool = false
+            if candidate == absolute_path + ".bak.previous":
+                var can_promote_previous: bool = true
+                if FileAccess.file_exists(absolute_path):
+                    can_promote_previous = DirAccess.remove_absolute(absolute_path) == OK
+                if can_promote_previous:
+                    promoted_previous = DirAccess.rename_absolute(
+                        candidate, absolute_path) == OK
             return {
                 "ok": true,
                 "source": candidate,
                 "tick": runner.tick_count,
                 "recovered_pending": candidate == absolute_path + ".pending",
-                "promoted_pending": promoted_pending
+                "promoted_pending": promoted_pending,
+                "promoted_previous": promoted_previous
             }
         if not runner.restore_checkpoint(baseline, seed):
             return {
