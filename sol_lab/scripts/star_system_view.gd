@@ -48,6 +48,7 @@ const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd
 const PlanetSurface = preload("res://scripts/view/planet_surface_projection.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
 const ColonyRoads = preload("res://scripts/view/colony_roads_projection.gd")
+const SurfaceBuildingLOD = preload("res://scripts/view/surface_building_lod.gd")
 const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const SolOrbits = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
@@ -1211,10 +1212,10 @@ func _draw_physical_assets(scale: float) -> void:
         if parent.is_empty():
             continue
         var body_radius: float = _body_size(parent)
-        if body_radius < DETAIL_RADIUS / _ui_viewport_scale:
-            continue
-        var alpha: float = _surface_detail_alpha(parent)
-        if alpha < 0.10:
+        # Continuous reveal, independent of the terrain-detail cutoff.
+        var alpha: float = SurfaceBuildingLOD.visibility(
+            body_radius, _ui_viewport_scale)
+        if alpha <= 0.001:
             continue
         var body_pos: Vector2 = _body_position(parent, scale)
         var site: Vector2 = facility["site"]
@@ -1232,7 +1233,8 @@ func _draw_physical_assets(scale: float) -> void:
             tone = Color(0.89, 0.81, 0.57, alpha)
         elif kind == "colony_construction_dock":
             tone = Color(0.73, 0.69, 0.55, alpha)
-        var icon_size: float = clampf(body_radius * 0.070, 4.5, 9.0)
+        var icon_size: float = SurfaceBuildingLOD.icon_half_size(
+            body_radius, _ui_viewport_scale)
         draw_rect(Rect2(pos - Vector2(icon_size, icon_size * 0.65),
             Vector2(icon_size * 2.0, icon_size * 1.3)),
             tone, true)
@@ -1252,11 +1254,14 @@ func _draw_physical_assets(scale: float) -> void:
                 Color("#fff4c5"), 1.5, true)
         _facility_pins.append({"id": str(facility["id"]),
             "position": pos, "hit_radius": maxf(10.0, icon_size + 5.0)})
-        if body_radius > 112.0:
+        # Gradually bring in the name; never switch it on at radius 112.
+        var label_alpha: float = alpha * SurfaceBuildingLOD.label_visibility(
+            body_radius, _ui_viewport_scale)
+        if label_alpha > 0.001:
             draw_string(font, pos + Vector2(icon_size + 5, -6),
                 FacilityLabels.display_name(facility),
                 HORIZONTAL_ALIGNMENT_LEFT,
-                -1, 11, Color(0.88, 0.90, 0.85, alpha))
+                -1, 11, Color(0.88, 0.90, 0.85, label_alpha))
 
 
 ## Lightweight roads from real source-backed ground sites, attached to the
@@ -1265,12 +1270,15 @@ func _draw_colony_roads(scale: float) -> void:
     if _focused_body_id.is_empty():
         return
     var body: Dictionary = _body_by_id(_focused_body_id)
-    if body.is_empty() or _body_size(body) < 90.0:
+    if body.is_empty():
         return
     var radius: float = _body_size(body)
-    var alpha: float = _surface_detail_alpha(body)
-    if alpha < 0.1:
+    var road_fade: float = SurfaceBuildingLOD.road_visibility(
+        radius, _ui_viewport_scale)
+    if road_fade <= 0.001:
         return
+    var alpha: float = SurfaceBuildingLOD.visibility(
+        radius, _ui_viewport_scale) * road_fade
     var center: Vector2 = _body_position(body, scale)
     var sites: Dictionary = _colony_roads.get("sites", {})
     var has_roads: bool = false
