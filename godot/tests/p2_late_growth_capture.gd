@@ -1,12 +1,12 @@
 extends SceneTree
-## PERF E: bounded genuine late-tick phase + ledger/world size diagnosis.
-## No fake movement, no production writes, no 35-minute CI.
+## PERF E: bounded true paid-source-tick windows, not worker/FPS/CPU claims.
+## Default cap 900 paid ticks / 480s; no long 2600 CI.
 const NativeData = preload("res://scripts/native_data.gd")
 const Timed = preload("res://scripts/sim/phase2/n158_timed_phase_probe.gd")
+const REPORT = preload("res://scripts/sim/phase2/n158_source_window_report.gd")
 const MAX_RUNTIME_MS: int = 480000
-const HARD_TICK: int = 2600
-const Ledger = preload("res://scripts/sim/economy/credit_ledger.gd")
-const REPORT_WINDOW: int = 100
+const HARD_TICK: int = 900
+const WINDOW: int = 100
 
 func _initialize() -> void:
     DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://logs/late-growth"))
@@ -28,111 +28,67 @@ func _initialize() -> void:
         if input == null or not sim.restore_checkpoint(input.get_var(), seed):
             _fail("resume rejected")
             return
-    var begun_ms: int = Time.get_ticks_msec()
-    var last_timing: Dictionary = sim.phase_metrics()
-    var last_copy: Dictionary = sim.production.native_schema_profile()
-    var window: Array[int] = []
-    var last_report_tick: int = sim.tick_count
-    for step in range(sim.tick_count + 1, HARD_TICK + 1):
-        if Time.get_ticks_msec() - begun_ms > MAX_RUNTIME_MS:
-            _report(sim, window, last_report_tick, last_timing,
-                last_copy, begun_ms, "WALL_BUDGET", step - 1)
-            print("P2_PERF_E_LATE_TICK_BOUNDED_PASS stop=wall_budget tick=",
-                sim.tick_count)
+    var started: int = Time.get_ticks_msec()
+    var steps: Array = []
+    var previous: Dictionary = {}
+    for tick in range(sim.tick_count + 1, HARD_TICK + 1):
+        if Time.get_ticks_msec() - started >= MAX_RUNTIME_MS:
+            print("P2_PERF_E_LATE_GROWTH_BOUNDED_STOP ", JSON.stringify({
+                "reason": "wall_budget", "last_paid_tick": sim.tick_count,
+                "wall_budget_ms": MAX_RUNTIME_MS}))
             quit(0)
             return
         if not sim.queue_control("step", 1):
-            _fail("step rejected at " + str(step))
+            _fail("step rejected " + str(tick))
             return
-        var before: int = Time.get_ticks_usec()
+        var began: int = Time.get_ticks_usec()
         sim.advance_frame(0.0)
-        var elapsed: int = maxi(0, Time.get_ticks_usec() - before)
-        if sim.tick_count != step or not sim.last_phase_failure().is_empty():
-            _fail("paid step or native phase rejected at " + str(step)
-                + ": " + JSON.stringify(sim.last_phase_failure()))
+        var elapsed: int = Time.get_ticks_usec() - began
+        if sim.tick_count != tick or not sim.last_phase_failure().is_empty():
+            _fail("source paid tick failed " + str(tick) + ": " +
+                JSON.stringify(sim.last_phase_failure()))
             return
-        window.append(elapsed)
-        if window.size() > REPORT_WINDOW:
-            window.pop_front()
-        if step in [100, 300, 600, 900, 1200, 1500, 1800, 2100, 2300, 2500, 2600]:
-            _report(sim, window, last_report_tick, last_timing,
-                last_copy, begun_ms, "MILESTONE", step)
-            last_report_tick = step
-            last_timing = sim.phase_metrics()
-            last_copy = sim.production.native_schema_profile()
-    print("P2_PERF_E_LATE_TICK_BOUNDED_PASS stop=target tick=", sim.tick_count)
+        steps.append({"tick": tick, "elapsed_usec": elapsed})
+        if steps.size() > WINDOW:
+            steps.pop_front()
+        if tick in [100, 300, 600, 900]:
+            var phases: Array = sim.paid_phase_window(tick)
+            var snapshot: Dictionary = sim.checkpoint()
+            if typeof(snapshot.get("native_production", null)) != TYPE_DICTIONARY or (
+                    typeof(snapshot["native_production"].get("world", null)) != TYPE_DICTIONARY):
+                _fail("missing detached N39 checkpoint at " + str(tick))
+                return
+            var ledger: Variant = sim.production.get("_ledger")
+            var receipts: int = -1
+            if ledger != null and ledger.has_method("receipt_count"):
+                receipts = int(ledger.receipt_count())
+            var events_snapshot: Variant = sim.events.snapshot()
+            var event_count: int = -1
+            if events_snapshot is Array or events_snapshot is Dictionary:
+                event_count = events_snapshot.size()
+            var report: Dictionary = REPORT.summarize(tick, steps, phases,
+                snapshot["native_production"]["world"], receipts, event_count)
+            if report.get("valid", false) != true:
+                _fail("invalid paid window at " + str(tick) + ": " +
+                    str(report.get("reason", "unknown")))
+                return
+            # Preserve a genuine full N38/replay checkpoint only at milestones.
+            var output = FileAccess.open("res://logs/late-growth/ls-late-" +
+                str(tick) + ".bin", FileAccess.WRITE)
+            if output == null:
+                _fail("cannot write checkpoint " + str(tick))
+                return
+            output.store_var(snapshot)
+            output.close()
+            print("P2_PERF_E_LATE_SOURCE_WINDOW ", JSON.stringify(report))
+            if not previous.is_empty():
+                print("P2_PERF_E_LATE_SOURCE_DELTA ", JSON.stringify(
+                    REPORT.validate_pair(previous, report)))
+            previous = report.duplicate(true)
+    print("P2_PERF_E_LATE_GROWTH_BOUNDED_PASS tick=", sim.tick_count,
+        " time_kind=elapsed_wall_not_cpu")
     quit(0)
 
-func _report(sim, window: Array[int], previous_tick: int,
-        before_phases: Dictionary, before_copies: Dictionary,
-        began_ms: int, why: String, tick: int) -> void:
-    var sorted: Array[int] = window.duplicate()
-    sorted.sort()
-    var sum_usec: int = 0
-    for value in window:
-        sum_usec += value
-    var pct95: int = 0
-    if not sorted.is_empty():
-        pct95 = sorted[clampi(ceili(float(sorted.size()) * 0.95) - 1,
-            0, sorted.size() - 1)]
-    var phases: Array = _diff(sim.phase_metrics(), before_phases)
-    var copies: Array = _diff(sim.production.native_schema_profile().get(
-        "copies", {}), before_copies.get("copies", {}))
-    var schema: Array = _diff(sim.production.native_schema_profile().get(
-        "schema", {}), before_copies.get("schema", {}))
-    var receipt_count: int = -1
-    var ledger_size: int = -1
-    # Query strictly read-only counters from actual single authoritative N9.
-    var ledger: Variant = sim.production.get("_ledger")
-    if ledger != null and ledger.has_method("receipt_count"):
-        receipt_count = int(ledger.receipt_count())
-    if ledger != null and ledger.has_method("snapshot"):
-        # No full Ledger.snapshot at milestones: that is a measured hotpath.
-        ledger_size = -1
-    var snapshot: Dictionary = sim.checkpoint()
-    var physical: Dictionary = snapshot["native_production"]["world"]
-    var sizes: Dictionary = {}
-    for domain in physical:
-        var value: Variant = physical[domain]
-        if value is Dictionary or value is Array:
-            sizes[domain] = {"count": value.size(), "bytes": var_to_bytes(value).size()}
-    var output = FileAccess.open("res://logs/late-growth/ls-late-" + str(tick) + ".bin", FileAccess.WRITE)
-    output.store_var(snapshot)
-    output.close()
-    print("LATE_GROWTH_EXTRA ", JSON.stringify({"tick": tick, "domains": sizes,
-        "ledger": Ledger.profile_cost, "events": sim.events.snapshot()}))
-    Ledger.profile_cost = {}
-    print("P2_PERF_E_LATE_TICK_WINDOW ", JSON.stringify({
-        "tick": tick, "reason": why,
-        "window_begin_tick": previous_tick,
-        "window_end_tick": tick,
-        "runtime_s": snappedf(float(Time.get_ticks_msec() - began_ms) / 1000.0, 0.01),
-        "window_average_ms": snappedf(float(sum_usec) / 1000.0 /
-            float(maxi(1, window.size())), 0.01),
-        "window_p95_ms": snappedf(float(pct95) / 1000.0, 0.01),
-        "window_size": window.size(), "receipt_count": receipt_count,
-        "phases": phases.slice(0, mini(12, phases.size())),
-        "copies": copies.slice(0, mini(10, copies.size())),
-        "schema": schema.slice(0, mini(10, schema.size()))
-    }))
-
-func _diff(now: Dictionary, previous: Dictionary) -> Array:
-    var result: Array = []
-    for key in now:
-        var current: Dictionary = now[key]
-        var past: Dictionary = previous.get(key, {})
-        var change_usec: int = int(current.get("total_usec", 0)) - int(
-            past.get("total_usec", 0))
-        if change_usec <= 0:
-            continue
-        result.append({"name": str(key), "total_ms": snappedf(
-            float(change_usec) / 1000.0, 0.01), "calls": int(
-            current.get("calls", 0)) - int(past.get("calls", 0)),
-            "max_ms": snappedf(float(current.get("max_usec", 0)) / 1000.0, 0.01)})
-    result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-        return float(a["total_ms"]) > float(b["total_ms"]))
-    return result
-
 func _fail(reason: String) -> void:
-    push_error("P2_PERF_E_LATE_TICK_BOUNDED_FAIL " + reason)
+    push_error("P2_PERF_E_LATE_GROWTH_BOUNDED_FAIL " + reason)
     quit(1)
