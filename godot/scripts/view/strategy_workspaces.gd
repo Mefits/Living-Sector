@@ -7,6 +7,8 @@ signal navigate_requested(mode: String, tab: String, focus: String)
 signal select_requested(kind: String, id: String)
 signal back_requested()
 signal close_requested()
+signal manual_control_requested(faction_id: String, manual: bool)
+signal manual_build_requested(faction_id: String, location: String, commodity: String)
 
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
 const StrategyInsights = preload("res://scripts/view/strategy_decision_projection.gd")
@@ -115,6 +117,10 @@ var _focus: String = ""
 var _tick: int = 0
 var _debug_text: String = ""
 var _strategy_trace: Dictionary = {}
+var _player_paused: bool = false
+var _manual_selected_faction: String = ""
+var _manual_selected_location: String = ""
+var _manual_selected_commodity: String = "ore"
 var _header_title: Label
 var _close_button: Button
 var _back_button: Button
@@ -330,7 +336,8 @@ func show_state(mode: String, tab: String, world: Dictionary,
         economy: Dictionary, body: String, facility: String,
         ship: String, tick: int, focus: String = "",
         debug_text: String = "",
-        strategy_trace: Dictionary = {}) -> void:
+        strategy_trace: Dictionary = {},
+        player_paused: bool = false) -> void:
     var prior_mode: String = _mode
     var prior_tab: String = _tab
     var prior_body: String = _body
@@ -347,6 +354,7 @@ func show_state(mode: String, tab: String, world: Dictionary,
     _focus = focus
     _debug_text = debug_text
     _strategy_trace = strategy_trace
+    _player_paused = player_paused
     var changed: bool = (prior_mode != mode or prior_tab != _tab or
         prior_body != body or prior_facility != facility or prior_ship != ship)
     if changed:
@@ -357,8 +365,9 @@ func show_state(mode: String, tab: String, world: Dictionary,
             _scroll_by_page[old_page] = _scroll.scroll_vertical
         if _filter != null and not _filter.text.is_empty():
             _filter.clear()
-    var signature: String = "%s|%s|%s|%s|%s|%s|%d" % [
-        _mode, _tab, _body, _facility, _ship, _focus, tick]
+    var signature: String = "%s|%s|%s|%s|%s|%s|%d|%s|%s" % [
+        _mode, _tab, _body, _facility, _ship, _focus, tick,
+        str(_player_paused), JSON.stringify(_economy.get("player_control", {}))]
     if signature == _last_signature:
         return
     # Rendering a window is not a paid game phase. At a stable selection
@@ -1395,9 +1404,121 @@ func _projects(body_id: String = "") -> void:
                 _project_state(milestones, id, raw)
     _note(section, "Планы ИИ без созданной площадки здесь не считаются стройкой.")
 
+## Human command controls use N39 snapshots only for available locations.
+## All selections are UI-only until the authoritative N158 runner confirms.
+func _manual_construction_section() -> void:
+    var panel := _section("ПРИКАЗЫ ИГРОКА", "Строительство T1 · настоящие контракты")
+    var treasuries: Variant = _economy.get("faction_treasuries", {})
+    var facilities: Variant = _economy.get("facilities", {})
+    if not (treasuries is Dictionary) or not (facilities is Dictionary) or (
+            treasuries.is_empty()):
+        _note(panel, "Сведения о фракциях и принадлежащих им станциях ещё не получены.")
+        return
+    var factions: Array = treasuries.keys()
+    factions.sort()
+    # Prefer the faction that actually owns the selected planet's centre.
+    if not factions.has(_manual_selected_faction):
+        for raw in facilities.values():
+            if raw is Dictionary and str(raw.get("body_id", "")) == _body and (
+                    str(raw.get("type", "")) == "station") and factions.has(
+                    str(raw.get("faction", ""))):
+                _manual_selected_faction = str(raw["faction"])
+                break
+        if not factions.has(_manual_selected_faction):
+            _manual_selected_faction = str(factions[0])
+    _note(panel, "Управляемая фракция", TEXT)
+    var faction_menu := OptionButton.new()
+    faction_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    for fid in factions:
+        faction_menu.add_item(str(fid))
+    faction_menu.select(factions.find(_manual_selected_faction))
+    panel.add_child(faction_menu)
+    faction_menu.item_selected.connect(func(index: int) -> void:
+        _manual_selected_faction = str(factions[index])
+        _manual_selected_location = ""
+        _last_signature = ""
+        call_deferred("_render"))
+    var manual_factions: Dictionary = _economy.get(
+        "player_control", {}).get("manual_factions", {})
+    var manual: bool = bool(manual_factions.get(_manual_selected_faction, false))
+    _pair(panel, "Стратегические решения", "ИГРОК" if manual else "ИИ",
+        TEAL if manual else AMBER)
+    var toggle := _button("Вернуть ИИ" if manual else "Взять управление",
+        func() -> void:
+            manual_control_requested.emit(_manual_selected_faction, not manual))
+    panel.add_child(toggle)
+    _note(panel, "Только выбранная фракция: новые решения её главы блокируются. " +
+        "Действующие оплаченные контракты и производственные смены продолжаются.")
+    var places: Array[String] = []
+    for fid in facilities:
+        var record: Variant = facilities[fid]
+        if not (record is Dictionary):
+            continue
+        if str(record.get("faction", "")) != _manual_selected_faction or (
+                str(record.get("type", "")) != "station"):
+            continue
+        var loc: String = str(record.get("location", ""))
+        if not loc.is_empty() and not places.has(loc):
+            places.append(loc)
+    places.sort()
+    _note(panel, "Где строить (существующая станция или АЦ)", TEXT)
+    if places.is_empty():
+        _note(panel, "У этой фракции пока нет доступной площадки.")
+        return
+    if not places.has(_manual_selected_location):
+        _manual_selected_location = (
+            _body + "-colony" if places.has(_body + "-colony") else places[0])
+    var location_menu := OptionButton.new()
+    location_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    for loc in places:
+        location_menu.add_item(loc)
+    location_menu.select(places.find(_manual_selected_location))
+    panel.add_child(location_menu)
+    location_menu.item_selected.connect(func(index: int) -> void:
+        _manual_selected_location = places[index])
+    _note(panel, "Что строить (действующие рецепты Rust-port)", TEXT)
+    var choices: Array[Dictionary] = [
+        {"commodity": "ore", "name": "Шахта · руда"},
+        {"commodity": "ice", "name": "Шахта · лёд"},
+        {"commodity": "gas", "name": "Шахта · газ"},
+        {"commodity": "food", "name": "Ферма · еда"},
+        {"commodity": "metals", "name": "Переработчик · металлы"},
+        {"commodity": "water", "name": "Переработчик · вода"},
+        {"commodity": "fuel", "name": "Переработчик · топливо"},
+        {"commodity": "components", "name": "Фабрика · компоненты"},
+        {"commodity": "electronics", "name": "Фабрика · электроника"}]
+    var commodity_menu := OptionButton.new()
+    commodity_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    var selected_index: int = 0
+    for index in range(choices.size()):
+        var item: Dictionary = choices[index]
+        commodity_menu.add_item(str(item["name"]))
+        if str(item["commodity"]) == _manual_selected_commodity:
+            selected_index = index
+    commodity_menu.select(selected_index)
+    _manual_selected_commodity = str(choices[selected_index]["commodity"])
+    panel.add_child(commodity_menu)
+    commodity_menu.item_selected.connect(func(index: int) -> void:
+        _manual_selected_commodity = str(choices[index]["commodity"]))
+    _note(panel, "Энергостанция и космопорт пока отсутствуют в симуляции. " +
+        "Никакой бесплатной выдачи металлов или мгновенной стройки.")
+    var order := _button("ЗАКАЗАТЬ СТРОИТЕЛЬСТВО",
+        func() -> void:
+            manual_build_requested.emit(_manual_selected_faction,
+                _manual_selected_location, _manual_selected_commodity), true)
+    order.disabled = not manual or not _player_paused or _tick < 1
+    order.tooltip_text = ("Сначала включите ручное управление, поставьте игру " +
+        "на паузу и выполните хотя бы один тик." if order.disabled else
+        "N154 проверит ресурсы, место и бюджет; N39 оплатит N104 контракт.")
+    panel.add_child(order)
+    _note(panel, "Результат появится в нижней строке состояния. " +
+        "При отказе игра сообщит причину; приказ не списывает ресурсы в обход N9.")
+
+
 func _construction_workspace() -> void:
     if _tab != "Проекты и снабжение":
         return
+    _manual_construction_section()
     _projects()
     var markets := _section("ДОСТУПНЫЕ МАТЕРИАЛЫ НА РЫНКАХ",
         "Запас на рынке не равен подтверждённой поставке")
