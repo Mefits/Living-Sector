@@ -34,20 +34,24 @@ static func calculate(viewport: Vector2, header_height: float,
         out_width + GUTTER + 8.0 if show_outliner and not overlay else GUTTER)
     var left: float = minf(vw - GUTTER, RAIL_W + GUTTER)
     var right: float = maxf(left, vw - reserved_right)
+    # Figma Make .management-window has left:82px and top:22px within
+    # the content viewport (below the persistent 58px HUD).
+    var window_left: float = minf(right, RAIL_W + 18.0)
     var available_height: float = maxf(0.0, vh - top - FOOT_H)
     var window_top: float = top + (
-        64.0 if available_height >= 480.0 else 10.0)
+        22.0 if available_height >= 480.0 else 10.0)
     var window_bottom: float = maxf(window_top + 1.0, vh - FOOT_H - 12.0)
-    var window_width: float = minf(930.0, maxf(0.0, right - left))
+    var window_width: float = minf(920.0, maxf(0.0, right - window_left))
     var selection_width: float = minf(360.0, maxf(0.0, right - left))
     return {
         "viewport_width": vw, "viewport_height": vh, "top": top,
         "left": left, "right": right,
         "show_outliner": show_outliner, "out_width": out_width,
         "outliner_overlay": overlay,
+        "window_left": window_left,
         "window_top": window_top,
         "window_bottom": window_bottom,
-        "window_right": minf(right, left + window_width),
+        "window_right": minf(right, window_left + window_width),
         "selection_left": right - selection_width,
         "selection_right": right,
         "breadcrumb_right": minf(right, left + 376.0),

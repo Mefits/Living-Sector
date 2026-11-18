@@ -914,12 +914,15 @@ func _layout_window() -> void:
         _outliner_reopen.offset_top = header_h + 10.0
         _outliner_reopen.offset_bottom = header_h + 48.0
     if _nav_panel != null:
+        # Workspace contains its own breadcrumbs; when open the persistent
+        # map breadcrumb would otherwise peek out under the floating window.
+        _nav_panel.visible = (_window == null or not _window.visible)
         _nav_panel.offset_left = left
         _nav_panel.offset_right = float(layout["breadcrumb_right"])
         _nav_panel.offset_top = header_h + 10.0
         _nav_panel.offset_bottom = header_h + 53.0
     if _window != null:
-        _window.offset_left = left
+        _window.offset_left = float(layout["window_left"])
         _window.offset_right = float(layout["window_right"])
         _window.offset_top = float(layout["window_top"])
         _window.offset_bottom = float(layout["window_bottom"]) - vh
@@ -944,7 +947,8 @@ func _layout_window() -> void:
     if _footer_panel != null:
         _footer_panel.offset_left = RAIL_W
         _footer_panel.offset_right = (
-            -(out_w + 8.0) if show_outliner else -8.0)
+            -(out_w + 8.0) if show_outliner and
+            not bool(layout["outliner_overlay"]) else -8.0)
         _footer_panel.offset_top = -FOOT_H
         _footer_panel.offset_bottom = 0.0
 

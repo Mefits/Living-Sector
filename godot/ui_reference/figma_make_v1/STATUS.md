@@ -74,7 +74,9 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Right-anchored alert popover now uses viewport-relative offsets, avoiding off-screen placement at 1366px and high DPI.
 - [x] Even when windows are closed, narrow logical viewports retain map space; the outliner can be reopened on demand.
 - [x] Selection-to-workspace and workspace row navigation now recompute layout immediately.
-- [ ] Final polish of narrow window focus/status controls and scalable scroll behavior.
+- [x] Floating workspace geometry now follows Figma's 82px left inset, 22px content inset and 920px cap; map breadcrumb is hidden behind the active workspace.
+- [x] Footer correctly spans the map beneath temporary outliner overlays.
+- [ ] Remaining tiny-viewport edge cases and final visual measurement deferred to acceptance.
 - [ ] 1920×1080 and 1366×768 visual / input testing deferred until final stage 7.
 
 ## Stage 7 — final acceptance [NOT STARTED]
