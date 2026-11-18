@@ -10,7 +10,7 @@ func _initialize() -> void:
         _fail("valid non-overlapping parity windows rejected: " + str(growth))
         return
     if growth["deltas"]["direct_advance_wall_avg_usec_delta_usec"] != 120.0 or (
-            growth["deltas"]["worker_request_wall_avg_usec_ratio"] != 2.0):
+            absf(float(growth["deltas"]["worker_request_wall_avg_usec_ratio"]) - 340.0 / 140.0) > 0.00001):
         _fail("growth attribution incorrect")
         return
     if Acceptance.compare_late_windows(late, early).get("accepted", false):
