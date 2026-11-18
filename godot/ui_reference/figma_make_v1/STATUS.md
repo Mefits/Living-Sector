@@ -52,9 +52,10 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Shared 29px key–value rows and compact source-grounded notes across the seven workspaces.
 - [x] Figma four-up metric strip layout, with responsive columns and no fabricated values.
 - [x] Theme-backed production chain cards and conditional N39 facility condition meter (good/worn/critical).
-- [ ] Facility input → machine → output process diagram using only confirmed N39 data.
-- [ ] Economy, construction and fleet KPI strips from actual N39 counters.
-- [ ] Colony two-column section layout, research and administration refinements.
+- [x] Facility input → machine → output stage cards; only published N39 work_shift fields displayed, otherwise "—".
+- [x] Economy, construction and fleet four-up KPI strips derived from existing N39 dictionaries.
+- [x] Responsive two-column colony overview sections (Figma .workspace-grid).
+- [ ] Research and administration layout refinements, remaining facility/fleet detail views.
 - [ ] Visual acceptance postponed until the end at user request.
 
 ## Stages 6–7 [NOT STARTED]
@@ -84,3 +85,5 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - `2b02b75` / `f08b21e` / `da8caf1`: compact Theme-backed N39 outliner entries, icon frames, group headers, and live filter states.
 
 - Implementation block: shared workspace primitives (key–value, notes, metric grid, chain stage and condition bar) now reuse LSTheme/LSComponents; **no Godot/runtime tests run**.
+
+- Implementation block: source-backed facility process, colony 2-column layout, market/project/fleet status strips; no new world snapshots and **no tests run**.

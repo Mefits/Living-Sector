@@ -392,6 +392,8 @@ func _section(title: String, detail: String = "", host: Node = null) -> VBoxCont
     var card: PanelContainer = LSComponents.section_panel()
     if host is HFlowContainer:
         card.custom_minimum_size.x = 300
+    elif host is GridContainer:
+        card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     if host == null:
         _content.add_child(card)
     else:
@@ -808,12 +810,18 @@ func _colony() -> void:
             if problems == 0:
                 _note(problem,
                     "Подтверждённых сигналов износа нет. Остальные причины — в N39.")
-            # Figma overview: two neighboring compact sections after the
-            # full-width summary and alerts. HFlow stacks on small screens.
-            var pair := HFlowContainer.new()
+            # Figma .workspace-grid: two equal columns; collapse to one
+            # below desktop space, without truncating real N39 table rows.
+            var pair := GridContainer.new()
+            pair.columns = 2 if size.x >= 680.0 else 1
+            pair.size_flags_horizontal = Control.SIZE_EXPAND_FILL
             pair.add_theme_constant_override("h_separation", 8)
             pair.add_theme_constant_override("v_separation", 8)
             _content.add_child(pair)
+            pair.resized.connect(func() -> void:
+                var wanted := 2 if pair.size.x >= 620.0 else 1
+                if pair.columns != wanted:
+                    pair.columns = wanted)
             var companies := _section("ПРЕДПРИЯТИЯ",
                 "%d объектов" % facilities.size(), pair)
             var compact_facilities: Array[Dictionary] = []
@@ -973,6 +981,26 @@ func _condition_bar(parent: Node, value: Variant) -> void:
     meter.tooltip_text = "N39: состояние %.1f%%" % (level * 100.0)
     parent.add_child(meter)
 
+func _process_card(parent: Node, heading: String, value: String,
+        note: String, machine: bool = false) -> void:
+    # Figma .facility-process stage, grounded in published N39 work_shift.
+    # An absent quantity stays "—"; it never becomes prototype's 4/12.
+    var card: PanelContainer = LSComponents.process_card(machine)
+    parent.add_child(card)
+    var content := VBoxContainer.new()
+    content.add_theme_constant_override("separation", 6)
+    card.add_child(content)
+    var title: Label = LSComponents.metric_text(
+        heading, &"LSProcessHeading")
+    content.add_child(title)
+    var amount: Label = LSComponents.metric_text(
+        value, &"LSProcessValue")
+    amount.custom_minimum_size.y = 25
+    content.add_child(amount)
+    var caption: Label = LSComponents.metric_text(
+        note, &"LSBodyNote")
+    content.add_child(caption)
+
 func _facility_workspace() -> void:
     var source: Dictionary = _facility_source()
     if source.is_empty():
@@ -984,17 +1012,34 @@ func _facility_workspace() -> void:
     match _tab:
         "Процесс":
             var section := _section("ПРОИЗВОДСТВЕННЫЙ ЦИКЛ", _facility_name())
+            var shift: Variant = live.get("work_shift", {})
+            var input_value: String = (
+                str(shift.get("inputs", "—")) if shift is Dictionary else "—")
+            var output_value: String = (
+                str(shift.get("outputs", "—")) if shift is Dictionary else "—")
+            var last_tick: String = (
+                str(shift.get("tick", "—")) if shift is Dictionary else "—")
             var flow := HFlowContainer.new()
+            flow.add_theme_constant_override("h_separation", 9)
+            flow.add_theme_constant_override("v_separation", 9)
             section.add_child(flow)
-            for stage in ["ВХОДНЫЕ РЕСУРСЫ", "  →  ", "ПРЕДПРИЯТИЕ", "  →  ", "ПРОДУКЦИЯ"]:
-                var tone: Color = TEAL if stage.contains("→") else TEXT
-                flow.add_child(_label(stage, 14, tone))
+            _process_card(flow, "ВХОД · N39", input_value,
+                "За последнюю смену")
+            var arrow_in := _label("→", 16, TEAL)
+            arrow_in.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+            flow.add_child(arrow_in)
+            _process_card(flow, "ПРЕДПРИЯТИЕ", _facility_name(),
+                "Работники: " + str(live.get("assigned_workers", "—")), true)
+            var arrow_out := _label("→", 16, TEAL)
+            arrow_out.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+            flow.add_child(arrow_out)
+            _process_card(flow, "ВЫХОД · N39", output_value,
+                "Последняя смена: тик " + last_tick)
             _pair(section, "Назначенные работники",
                 str(live.get("assigned_workers", "—")))
             _pair(section, "Состояние объекта", str(live.get("condition", "—")))
             _condition_bar(section, live.get("condition", null))
-            _pair(section, "Последняя оплаченная смена",
-                str(live.get("work_shift", {}).get("tick", "—")))
+            _pair(section, "Последняя оплаченная смена", last_tick)
             _note(section, "Точные входы, выпуск и причина простоя — только при наличии записи N39.")
             _link(section, "СКЛАД ОБЪЕКТА ›", "facility", "Склад", _facility)
         "Работники":
@@ -1027,11 +1072,29 @@ func _economy_workspace() -> void:
         "Баланс":
             var section := _section("БАЛАНС РЫНКОВ", "Все фракции, не кошелёк игрока")
             var rows: Array[Dictionary] = []
-            for market in _markets():
-                var stock: Variant = market["data"].get("supply", {})
+            var known_commodities: Dictionary = {}
+            var total_credits: float = 0.0
+            var credit_samples: int = 0
+            var markets: Array[Dictionary] = _markets()
+            for market in markets:
+                var data: Dictionary = market["data"]
+                var stock: Variant = data.get("supply", {})
+                if stock is Dictionary:
+                    for kind in stock:
+                        known_commodities[str(kind)] = true
+                var credits: Variant = data.get("credits", null)
+                if credits is int or credits is float:
+                    total_credits += float(credits)
+                    credit_samples += 1
                 rows.append({"cells":[str(market["location"]),
                     str(stock.size()) if stock is Dictionary else "—",
-                    str(market["data"].get("credits", "—")), "—"]})
+                    str(data.get("credits", "—")), "—"]})
+            _metric_strip(section, [
+                {"label":"Рынки N39", "value":str(markets.size())},
+                {"label":"Виды товаров", "value":str(known_commodities.size())},
+                {"label":"Кредиты рынков", "value":(
+                    str(roundi(total_credits)) if credit_samples > 0 else "—")},
+                {"label":"Предприятия", "value":str(_facility_rows().size())}])
             _table(section, ["Рынок","Товаров","Кредиты","Тренд"], rows)
             var links := _section("ПРОИЗВОДСТВЕННЫЕ ОБЪЕКТЫ")
             _table(links, ["Предприятие","Тип","Работники","Состояние","Локация"],
@@ -1061,8 +1124,25 @@ func _economy_workspace() -> void:
 func _projects(body_id: String = "") -> void:
     var section := _section("ФИЗИЧЕСКИЕ СТРОЙПЛОЩАДКИ",
         "Реальные записи construction_sites")
+    var visible_sites: Array[Dictionary] = _construction_rows(body_id)
+    var all_sites: Variant = _economy.get("construction_sites", {})
+    var completed: int = 0
+    var blocked: int = 0
+    for site in visible_sites:
+        var id: String = str(site.get("id", ""))
+        var raw: Variant = all_sites.get(id, {}) if all_sites is Dictionary else {}
+        if raw is Dictionary:
+            if bool(raw.get("completed", false)):
+                completed += 1
+            if not str(raw.get("blocked_reason", "")).is_empty():
+                blocked += 1
+    _metric_strip(section, [
+        {"label":"Стройплощадки", "value":str(visible_sites.size())},
+        {"label":"В работе", "value":str(maxi(0, visible_sites.size() - completed))},
+        {"label":"Завершены", "value":str(completed)},
+        {"label":"Блокировки", "value":str(blocked)}])
     _table(section, ["Проект","Локация","Прогресс","Статус","Материалы"],
-        _construction_rows(body_id), "construction", "Материалы")
+        visible_sites, "construction", "Материалы")
     _note(section, "Планы ИИ без созданной площадки здесь не считаются стройкой.")
 
 func _construction_workspace() -> void:
@@ -1096,8 +1176,30 @@ func _fleet_workspace() -> void:
     match _tab:
         "Корабли":
             var section := _section("КОРАБЛИ СЕКТОРА", "Выберите строку для карты")
+            var ship_rows: Array[Dictionary] = _ship_rows()
+            var flying: int = 0
+            var docked: int = 0
+            var carrying: int = 0
+            var live_ships: Variant = _economy.get("ships", {})
+            if live_ships is Dictionary:
+                for raw in live_ships.values():
+                    if not (raw is Dictionary):
+                        continue
+                    var transit: Variant = raw.get("transit", {})
+                    if transit is Dictionary and not transit.is_empty():
+                        flying += 1
+                    if not str(raw.get("docked_at", "")).is_empty():
+                        docked += 1
+                    var cargo: Variant = raw.get("cargo", {})
+                    if cargo is Dictionary and not cargo.is_empty():
+                        carrying += 1
+            _metric_strip(section, [
+                {"label":"Корабли N39", "value":str(ship_rows.size())},
+                {"label":"В пути N14", "value":str(flying)},
+                {"label":"У дока", "value":str(docked)},
+                {"label":"С грузом", "value":str(carrying)}])
             _table(section, ["Корабль","Класс","Задача","Груз","Статус"],
-                _ship_rows(), "", "", "ship")
+                ship_rows, "", "", "ship")
         "Контракты":
             var section := _section("ДЕЙСТВИТЕЛЬНЫЕ N153 КОНТРАКТЫ")
             var board: Variant = _economy.get("contract_board", {})
