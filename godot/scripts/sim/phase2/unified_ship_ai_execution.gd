@@ -14,7 +14,8 @@ const N104Resume = preload("res://scripts/sim/phase2/unified_n104_contract_resum
 ## Original colony contract targets a temporary physical dock, not a
 ## market warehouse. All IDs come from the one N39 source receipt.
 static func _real_contract_dock(world: Dictionary,
-        contract: Dictionary, location: String) -> Dictionary:
+        contract: Dictionary, location: String,
+        scratch: Dictionary = {}) -> Dictionary:
     var market: Dictionary = world.get("markets", {}).get(location, {})
     if not market.is_empty():
         var owner_id: String = str(market.get("owner", ""))
@@ -37,9 +38,25 @@ static func _real_contract_dock(world: Dictionary,
             return {}
         site_ids = [required_site]
     else:
-        # Only passenger contracts need the original ordered site scan.
-        # Avoid allocating every historical site ID for a direct construction lookup.
-        site_ids = world.get("construction_sites", {}).keys()
+        # Build a proposal-local ordered roster once, rather than scanning
+        # every historical colony site for each passenger Dock/Deliver leaf.
+        # Only stable site location/faction fields are indexed. Receipts,
+        # facility type, abandonment and labor are checked LIVE below.
+        if not scratch.has("_n84_passenger_site_roster"):
+            var roster: Dictionary = {}
+            for candidate_id in world.get("construction_sites", {}):
+                var candidate: Dictionary = world["construction_sites"][candidate_id]
+                var candidate_location: String = str(candidate.get("location_name", ""))
+                var candidate_faction: String = str(candidate.get("faction_id", ""))
+                if not roster.has(candidate_location):
+                    roster[candidate_location] = {}
+                var by_faction: Dictionary = roster[candidate_location]
+                if not by_faction.has(candidate_faction):
+                    by_faction[candidate_faction] = []
+                by_faction[candidate_faction].append(candidate_id)
+            scratch["_n84_passenger_site_roster"] = roster
+        var location_roster: Dictionary = scratch["_n84_passenger_site_roster"].get(location, {})
+        site_ids = location_roster.get(str(contract.get("faction_id", "")), [])
     for site_id in site_ids:
         var site: Dictionary = world["construction_sites"][site_id]
         if str(site.get("location_name", "")) != location or (
@@ -315,7 +332,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     if kind == "Dock":
         if stage not in ["accepted", "picked_up"] or location != at:
             return {"status": Bt.RUNNING, "reason": "n21_contract_location_not_ready"}
-        var assigned_dock: Dictionary = _real_contract_dock(world, c, at)
+        var assigned_dock: Dictionary = _real_contract_dock(world, c, at, dock_ticks)
         var facility: String = str(assigned_dock.get("id", ""))
         if facility.is_empty():
             return {"status": Bt.RUNNING, "reason": "n151_original_contract_dock_not_prepared"}
@@ -422,7 +439,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.FAILURE, "reason": "n104_passenger_leaf_wrong_kind"}
         if stage != "picked_up" or location != str(c.get("destination_location", "")):
             return {"status": Bt.RUNNING, "reason": "n104_delivery_location_unavailable"}
-        var destination: Dictionary = _real_contract_dock(world, c, location)
+        var destination: Dictionary = _real_contract_dock(world, c, location, dock_ticks)
         var destination_owner: String = str(destination.get("id", ""))
         if destination_owner.is_empty():
             return {"status": Bt.RUNNING, "reason": "n104_real_destination_dock_not_ready"}
