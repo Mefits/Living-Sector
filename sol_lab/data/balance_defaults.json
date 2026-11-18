@@ -1,0 +1,17 @@
+{
+  "construction": {
+    "materials": 600,
+    "labor": 150
+  },
+  "recipes": {
+    "farm_water_in": 3,
+    "farm_food_out": 10,
+    "smelt_ore_in": 10,
+    "smelt_fuel_in": 1,
+    "smelt_metals_out": 8
+  },
+  "needs": {
+    "earth_food": 5,
+    "earth_water": 3
+  }
+}
