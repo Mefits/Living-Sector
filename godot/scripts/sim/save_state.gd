@@ -309,6 +309,42 @@ static func last_save_encode_usec() -> int:
 ## failed rename could therefore destroy the only usable recovery checkpoint.
 ## .bak.previous is an interrupted-rotation recovery candidate, not a new
 ## checkpoint format. Never overwrite an orphaned previous backup blindly.
+## Repair a crash between parking the old backup and completing rotation.
+## Only the already-verified N38 checkpoints can authorize deletion. A valid
+## .bak takes precedence over the older .bak.previous; if .bak is corrupt,
+## restore the older verified copy before attempting another save.
+## Called only after the new .pending has passed full roundtrip validation.
+static func _reconcile_parked_backup(absolute_path: String,
+        primary_valid: bool, backup_valid: bool,
+        previous_valid: bool) -> Error:
+    var backup: String = absolute_path + ".bak"
+    var previous: String = absolute_path + ".bak.previous"
+    if not FileAccess.file_exists(previous):
+        return OK
+    if backup_valid:
+        # The current backup is already a verified recoverable checkpoint.
+        return DirAccess.remove_absolute(previous)
+    if previous_valid:
+        # Never remove the last valid recovery copy before promotion.
+        # A failed rename leaves the verified .previous intact.
+        if FileAccess.file_exists(backup):
+            var remove_bad: Error = DirAccess.remove_absolute(backup)
+            if remove_bad != OK:
+                return remove_bad
+        return DirAccess.rename_absolute(previous, backup)
+    if not primary_valid:
+        # All three candidates are invalid: keep every byte for diagnosis.
+        return ERR_FILE_CORRUPT
+    # Primary is verified; both recovery copies are invalid. Discard them
+    # before rotating the healthy primary, never park corrupt .bak again.
+    var remove_previous: Error = DirAccess.remove_absolute(previous)
+    if remove_previous != OK:
+        return remove_previous
+    if FileAccess.file_exists(backup):
+        return DirAccess.remove_absolute(backup)
+    return OK
+
+
 static func _promote_verified_pending(absolute_path: String,
         primary_is_valid: bool) -> Error:
     var pending: String = absolute_path + ".pending"
@@ -405,6 +441,19 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     if FileAccess.file_exists(absolute_path):
         primary_is_valid = _trusted_for_backup_rotation(
             _read_checkpoint(absolute_path))
+    # A previous interrupted rotation must not permanently block saves.
+    # Validate both recovery candidates using the same N38 restore preflight
+    # as primary rotation. No unchecked file is promoted or deleted.
+    var previous_path: String = absolute_path + ".bak.previous"
+    if FileAccess.file_exists(previous_path):
+        var backup_valid: bool = FileAccess.file_exists(backup) and (
+            _trusted_for_backup_rotation(_read_checkpoint(backup)))
+        var previous_valid: bool = _trusted_for_backup_rotation(
+            _read_checkpoint(previous_path))
+        var recovery_result: Error = _reconcile_parked_backup(
+            absolute_path, primary_is_valid, backup_valid, previous_valid)
+        if recovery_result != OK:
+            return recovery_result
     var promote_result: Error = _promote_verified_pending(
         absolute_path, primary_is_valid)
     if promote_result != OK:
