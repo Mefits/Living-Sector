@@ -5,6 +5,8 @@ const SolStarter = preload("res://scripts/sol_start_scenario.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const NativeStarSystemView = preload("res://scripts/star_system_view.gd")
 const BuildingBrowser = preload("res://scripts/building_browser.gd")
+const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
+const SPEED_PRESETS: Array[int] = [1, 4, 8, 16]
 const DEFAULTS = "res://data/balance_defaults.json"
 const USER_CONFIG = "user://sol_lab_balance.json"
 const SIDE_WIDTH = 340.0
@@ -12,6 +14,11 @@ var world: Dictionary = {}
 var config: Dictionary = {}
 var native_time: float = 0.0
 var paused: bool = false
+var speed: int = 1
+var speed_buttons: Dictionary = {}
+var frame_profiler = UIFrameProfiler.new()
+var perf_label: Label
+var previous_process_started_usec: int = -1
 var selected: String = "earth"
 var details: Label
 var info_area: VBoxContainer
@@ -44,7 +51,7 @@ func _build_ui() -> void:
     add_child(bar)
     bar.anchor_right = 1.0
     bar.offset_right = -SIDE_WIDTH
-    bar.offset_bottom = 43
+    bar.offset_bottom = 46
     var title := Label.new()
     title.text = "  LIVING SECTOR  /  SOL LAB  "
     title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -53,7 +60,35 @@ func _build_ui() -> void:
     bar.add_child(time_label)
     pause_button = _button(bar, "Пауза", _pause)
     _button(bar, "+1", _step)
+    var speeds := HBoxContainer.new()
+    speeds.add_theme_constant_override("separation", 3)
+    bar.add_child(speeds)
+    for preset in SPEED_PRESETS:
+        var speed_button := _button(speeds, "×%d" % preset,
+            _set_speed.bind(preset))
+        speed_button.toggle_mode = true
+        speed_button.button_pressed = preset == speed
+        speed_button.custom_minimum_size = Vector2(43, 30)
+        speed_button.tooltip_text = ("Визуальная скорость ×%d. " +
+            "Симуляция N158 пока не подключена.") % preset
+        speed_buttons[preset] = speed_button
     _button(bar, "Камера", _reset_camera)
+    var perf_bar := HBoxContainer.new()
+    add_child(perf_bar)
+    perf_bar.anchor_right = 1.0
+    perf_bar.offset_top = 46
+    perf_bar.offset_bottom = 78
+    perf_bar.offset_right = -SIDE_WIDTH
+    perf_label = Label.new()
+    perf_label.text = "FPS — · кадр p95 — · CPU p95 — · UI p95 — · карта — · SIM —"
+    perf_label.add_theme_font_size_override("font_size", 14)
+    perf_label.add_theme_color_override("font_color", Color("#8fc6d9"))
+    perf_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    perf_label.clip_text = true
+    perf_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+    perf_label.tooltip_text = "Оригинальный UIFrameProfiler из SystemBalance. " + (
+        "Симуляция N158 пока не подключена.")
+    perf_bar.add_child(perf_label)
     var sidebar := PanelContainer.new()
     add_child(sidebar)
     sidebar.anchor_left = 1.0
@@ -147,15 +182,28 @@ func _reset_camera() -> void:
         native_view.reset_view()
 
 func _process(delta: float) -> void:
+    var started_usec: int = Time.get_ticks_usec()
+    var frame_delta: float = delta
+    if previous_process_started_usec >= 0:
+        frame_delta = float(maxi(0,
+            started_usec - previous_process_started_usec)) / 1000000.0
+    previous_process_started_usec = started_usec
+    var ui_started_usec: int = Time.get_ticks_usec()
     if not paused:
-        # Visual clock only; no N158 tick and no economic side effects.
-        native_time += delta * 20.0
+        _advance_visual_clock(delta)
         view_elapsed += delta
         if view_elapsed >= 0.10:
-            view_elapsed = 0.0
+            view_elapsed = fmod(view_elapsed, 0.10)
             _update_native_map()
     if time_label != null:
-        time_label.text = "Виз. тик %d  " % int(native_time)
+        time_label.text = "Виз. тик %d · ×%d  " % [int(native_time), speed]
+    var ui_usec: int = maxi(0, Time.get_ticks_usec() - ui_started_usec)
+    var process_usec: int = maxi(0, Time.get_ticks_usec() - started_usec)
+    # Zero N158 and zero real sim ticks: this project renders a visual clock
+    # only. Never present visual time as production/simulation performance.
+    frame_profiler.capture(frame_delta, process_usec, 0, ui_usec, 0)
+    if frame_profiler.display_due():
+        _update_performance_label()
 
 func _show_selected() -> void:
     if details == null:
@@ -250,7 +298,7 @@ func _make_native_map() -> void:
     native_view = NativeStarSystemView.new()
     native_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     native_view.anchor_right = 1.0
-    native_view.offset_top = 43.0
+    native_view.offset_top = 78.0
     native_view.offset_right = -SIDE_WIDTH
     native_view.mouse_filter = Control.MOUSE_FILTER_STOP
     native_view.body_selected.connect(_native_body_selected)
@@ -275,3 +323,57 @@ func _native_body_selected(body: Dictionary) -> void:
     selected = id
     native_view.select_body(id)
     _show_selected()
+
+func _set_speed(multiplier: int) -> void:
+    if not SPEED_PRESETS.has(multiplier):
+        return
+    speed = multiplier
+    for preset in speed_buttons:
+        var button: Button = speed_buttons[preset]
+        if is_instance_valid(button):
+            button.button_pressed = int(preset) == speed
+    if time_label != null:
+        time_label.text = "Виз. тик %d · ×%d  " % [int(native_time), speed]
+
+func _advance_visual_clock(delta: float) -> void:
+    if paused:
+        return
+    native_time += maxf(delta, 0.0) * 20.0 * float(speed)
+
+func _update_performance_label() -> void:
+    if perf_label == null:
+        return
+    var perf: Dictionary = frame_profiler.summary()
+    var draw: Dictionary = {}
+    if native_view != null:
+        draw = native_view.draw_profile()
+    perf_label.text = (
+        "FPS %d · кадр p95 %.1fмс · CPU p95 %.1fмс · " +
+        "UI p95 %.1fмс · карта %.1fмс · SIM —") % [
+        int(perf.get("fps", 0)),
+        float(perf.get("frame_p95_ms", 0.0)),
+        float(perf.get("process_p95_ms", 0.0)),
+        float(perf.get("ui_p95_ms", 0.0)),
+        float(draw.get("last_usec", 0)) / 1000.0]
+    perf_label.tooltip_text = (
+        "Профайлер SystemBalance: окно 120 кадров, обновление каждые 0.5 с\n" +
+        "CPU _process: avg %.2f / p95 %.2f / max %.2f мс\n" +
+        "UI: avg %.2f / p95 %.2f / max %.2f мс\n" +
+        "Кадр: p95 %.2f мс, худший %.2f мс\n" +
+        "Отрисовка карты: последняя %.2f / максимум %.2f мс, вызовов %d\n" +
+        "Кадров медленнее 16.7 мс за окно: %d\n" +
+        "SIM: не подключена. Тики N158 и физическая экономика = 0.\n" +
+        "Ускорение ×1/×4/×8/×16 действует только на движение планет.\n" +
+        "GPU и VSYNC не входят в CPU-замеры.") % [
+        float(perf.get("process_avg_ms", 0.0)),
+        float(perf.get("process_p95_ms", 0.0)),
+        float(perf.get("worst_process_ms", 0.0)),
+        float(perf.get("ui_avg_ms", 0.0)),
+        float(perf.get("ui_p95_ms", 0.0)),
+        float(perf.get("worst_ui_ms", 0.0)),
+        float(perf.get("frame_p95_ms", 0.0)),
+        float(perf.get("worst_frame_ms", 0.0)),
+        float(draw.get("last_usec", 0)) / 1000.0,
+        float(draw.get("max_usec", 0)) / 1000.0,
+        int(draw.get("calls", 0)),
+        int(perf.get("frame_over_16_7ms_window", 0))]
