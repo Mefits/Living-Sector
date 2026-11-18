@@ -163,6 +163,35 @@ static func _retain_orders(orders: Array, tick: int, expiry: int, already_owned:
 		remaining.resize(write_at)
 	return {"ok": true, "orders": remaining}
 
+static func _owned_market_for_tick(market: Dictionary, tick: int) -> Dictionary:
+	# On sampling boundaries Rust retains only the newest 200 trend rows
+	# AFTER appending the new sample. A restored/legacy history may contain
+	# thousands of older rows: do not deep-copy rows that this very tick
+	# will discard. On all other ticks retain the full source history.
+	if tick % MARKET_TREND_SAMPLE_INTERVAL_BASE != 0:
+		return market.duplicate(true)
+	var source_history: Dictionary = market["history"]
+	var source_trends: Array = source_history["trend_samples"]
+	if source_trends.size() < MARKET_TREND_KEEP:
+		return market.duplicate(true)
+	# Preserve all unknown extension fields and their ownership exactly as
+	# Dictionary.duplicate(true) does; only the doomed trend prefix is skipped.
+	var owned: Dictionary = {}
+	for field in market:
+		if field != "history":
+			var value: Variant = market[field]
+			owned[field] = value.duplicate(true) if value is Dictionary or value is Array else value
+	var history: Dictionary = {}
+	for field in source_history:
+		if field != "trend_samples":
+			var value: Variant = source_history[field]
+			history[field] = value.duplicate(true) if value is Dictionary or value is Array else value
+	# Append below brings 199 rows to 200; source order is unchanged.
+	history["trend_samples"] = source_trends.slice(
+		source_trends.size() - (MARKET_TREND_KEEP - 1)).duplicate(true)
+	owned["history"] = history
+	return owned
+
 static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		native_price_recalculate: Callable) -> Dictionary:
 	## Callable points to N131 ::recalculate(current_price, stock,
@@ -176,7 +205,7 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 	if not native_price_recalculate.is_valid():
 		return _fail("missing_original_price_engine")
 	var copy_start_us: int = Time.get_ticks_usec() if _copy_probe_enabled else 0
-	var result: Dictionary = market.duplicate(true)
+	var result: Dictionary = _owned_market_for_tick(market, tick)
 	if _copy_probe_enabled:
 		_copy_probe_us += Time.get_ticks_usec() - copy_start_us
 		_copy_probe_calls += 1
