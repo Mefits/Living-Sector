@@ -53,6 +53,7 @@ static func preview(view: Dictionary, comparison: Dictionary, tick: int, mult: i
     elif selected == "build":
         administrator = "construction"
     var planned: int = 0
+    var strategic_colony: bool = false
     var proposals: Array[Dictionary] = []
     for item in alternatives:
         if not item is Dictionary:
@@ -60,6 +61,8 @@ static func preview(view: Dictionary, comparison: Dictionary, tick: int, mult: i
         var action: String = str(item.get("action", ""))
         if action == selected:
             planned = int(item.get("first_payment", 0))
+            if action == "build" and str(item.get("reason", "")) == "strategic_colony_infrastructure":
+                strategic_colony = true
         if action != "deliver" and action != "build":
             continue
         var priority: int = 0
@@ -75,7 +78,7 @@ static func preview(view: Dictionary, comparison: Dictionary, tick: int, mult: i
             "requested_credits": int(item.get("first_payment", 0)),
             "priority": priority,
         })
-    var reason: String = "best_projected_relief"
+    var reason: String = "strategic_colony_infrastructure" if strategic_colony else "best_projected_relief"
     if already_commissioned:
         reason = "already_commissioned_this_tick"
     elif not has_problem:
