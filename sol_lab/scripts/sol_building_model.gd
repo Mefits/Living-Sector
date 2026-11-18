@@ -12,10 +12,33 @@ const BUILDINGS: Array = [
  {"id":"orbital_platform","name":"Орбитальная платформа","product":"none","base":0,"inputs":{},"ported":false},
  {"id":"shipyard","name":"Верфь (модуль)","product":"none","base":0,"inputs":{},"ported":false}
 ]
+## Fixed separated preview slots on the visible Sol globe, no biome logic.
+const SURFACE_SITES: Dictionary = {
+ "administrative_center": [-0.46, -0.34],
+ "mining_rig": [0.43, -0.34],
+ "refinery": [-0.41, 0.34],
+ "farm": [0.44, 0.33]
+}
+const BATCH_UNITS: Dictionary = {
+ "ore":"руды", "water":"воды", "food":"еды", "metals":"металла",
+ "fuel":"топлива", "components":"компонентов", "polymers":"полимеров",
+ "energy_cells":"энергии"
+}
+static func surface_site(building_id: String) -> Array:
+ return (SURFACE_SITES.get(building_id, []) as Array).duplicate()
+
+static func batch_unit(resource: String) -> String:
+ return str(BATCH_UNITS.get(resource, resource))
+
+static func batch_amount(value: float) -> String:
+ var number: float = snappedf(value, 0.01)
+ var whole: int = roundi(number)
+ return str(whole) if is_equal_approx(number, float(whole)) else str(number)
+
 const LABELS: Dictionary = {"ore":"Руда","ice":"Лёд","gas":"Газ","rare_ore":"Редкая руда","crystal_ore":"Кристаллы","water":"Вода","food":"Еда","metals":"Металлы","components":"Компоненты","fuel":"Топливо","polymers":"Полимеры","energy_cells":"Энергия","none":"—"}
 static func resource_label(id: String) -> String:
  return str(LABELS.get(id,id))
-static func building_defaults() -> Dictionary:
+static func building_defaults(recipes: Dictionary = {}) -> Dictionary:
  var result: Dictionary = {}
  for b in BUILDINGS:
   # The temporary construction test charges exactly 1 metal for EVERY
@@ -26,6 +49,20 @@ static func building_defaults() -> Dictionary:
   for ingredient in b["inputs"].keys():
    row["input_" + str(ingredient)] = int(b["inputs"][ingredient])
   result[str(b["id"])] = row
+ # Shipped JSON recipes initialize the same editable building settings.
+ var mapping: Dictionary = {
+  "farm_water_in": ["farm", "input_water"],
+  "farm_food_out": ["farm", "base"],
+  "smelt_ore_in": ["refinery", "input_ore"],
+  "smelt_fuel_in": ["refinery", "input_fuel"],
+  "smelt_metals_out": ["refinery", "base"]
+ }
+ for key in mapping:
+  var value: Variant = recipes.get(key, null)
+  if (value is int or value is float) and is_finite(float(value)) and (
+      float(value) >= 0.0 and float(value) <= 100000.0):
+   var target: Array = mapping[key]
+   result[target[0]][target[1]] = int(value)
  return result
 
 static func planet_defaults(world: Dictionary) -> Dictionary:

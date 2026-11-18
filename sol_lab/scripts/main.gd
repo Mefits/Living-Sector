@@ -136,7 +136,7 @@ func _build_ui() -> void:
     info_area.add_child(details)
     var hint := Label.new()
     hint.text = "Тест строительства: 1 металл · 45 дней.\n" + (
-        "Никакого труда. Производство N39 пока не подключено.")
+        "Никакого труда. Локальные партии: каждые 30 дней; N39 не подключён.")
     hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
     info_area.add_child(hint)
     message_line = Label.new()
@@ -302,7 +302,7 @@ func _input(event: InputEvent) -> void:
         get_viewport().set_input_as_handled()
 
 func _init_extra_settings() -> void:
-    config["buildings"] = Model.building_defaults()
+    config["buildings"] = Model.building_defaults(config.get("recipes", {}))
     config["planets"] = Model.planet_defaults(world)
     if not FileAccess.file_exists(USER_CONFIG):
         return

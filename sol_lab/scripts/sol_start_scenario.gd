@@ -4,6 +4,7 @@ extends RefCounted
 const OLD_LOCATION: String = "earth-station"
 const AC_LOCATION: String = "earth-colony"
 const AC_ID: String = "facility-earth-administrative-center"
+const Model = preload("res://scripts/sol_building_model.gd")
 
 static func apply(source: Dictionary) -> Dictionary:
     var world: Dictionary = source.duplicate(true)
@@ -30,6 +31,7 @@ static func apply(source: Dictionary) -> Dictionary:
     old_station["name"] = "Административный центр"
     old_station["location"] = AC_LOCATION
     old_station["body"] = "earth"
+    old_station["surface_site"] = Model.surface_site("administrative_center")
     remaining.append(old_station)
     world["facilities"] = remaining
 

@@ -3,6 +3,7 @@ extends RefCounted
 ## A newly completed N151 colony is the same station ID that previously was
 ## a construction_dock; no imaginary AC, market, or construction is minted.
 const Surface = preload("res://scripts/view/planet_surface_projection.gd")
+const Model = preload("res://scripts/sol_building_model.gd")
 const ORBITAL_TYPES: Array[String] = ["station", "shipyard",
     "construction_dock", "orbital_platform"]
 const SURFACE_TYPES: Array[String] = ["mining_rig", "refinery", "farm",
@@ -41,7 +42,9 @@ static func _asset(id: String, item: Dictionary) -> Dictionary:
         "services": services,
         "shared_legacy_location": location == "earth-station",
         "construction_start_native": float(item.get("construction_start_native", 0.0)),
-        "construction_finished_native": float(item.get("construction_finished_native", 0.0))
+        "construction_finished_native": float(item.get("construction_finished_native", 0.0)),
+        "construction_building_id": str(item.get("construction_building_id", "")),
+        "surface_site": item.get("surface_site", [])
     }
 
 static func build(world: Dictionary,
@@ -114,13 +117,27 @@ static func build(world: Dictionary,
             profile = Surface.build({"id": bid,
                 "biome": "terrestrial"}, system_id)
             profiles[bid] = profile
-        # Sol Lab starting AC sits exactly at the visible globe centre.
-        # The original SystemBalance view/camera is not modified.
-        facility["site"] = (Vector2.ZERO
-            if bid == "earth" and str(facility.get("render_type", "")) == (
-                "administrative_center")
-            else Surface.site_for(profile, str(facility["id"])))
-        facility["hub_site"] = profile["hub_site"]
+        # Persisted preview site; legacy saves derive identical type slots.
+        # Non-Sol planets keep their original deterministic procedural sites.
+        var site: Vector2 = Surface.site_for(profile, str(facility["id"]))
+        if system_id == "system-sol":
+            var kind: String = str(facility.get("render_type", ""))
+            if kind == "construction_site":
+                kind = str(facility.get("construction_building_id", ""))
+            var saved: Variant = facility.get("surface_site", [])
+            var coords: Array = saved if (
+                saved is Array and saved.size() == 2) else []
+            if coords.is_empty():
+                coords = Model.surface_site(kind)
+            if coords.size() == 2 and (coords[0] is int or coords[0] is float) and (
+                    coords[1] is int or coords[1] is float):
+                var candidate := Vector2(float(coords[0]), float(coords[1]))
+                if is_finite(candidate.x) and is_finite(candidate.y) and (
+                        candidate.length() <= 0.90):
+                    site = candidate
+        facility["site"] = site
+        facility["hub_site"] = site if str(facility.get(
+            "render_type", "")) == "administrative_center" else profile["hub_site"]
     return {
         "orbital": orbital, "surface": surface, "profiles": profiles,
         "source_ids": seen.keys()

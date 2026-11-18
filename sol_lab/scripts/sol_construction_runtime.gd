@@ -89,6 +89,7 @@ func order(body: String, building_id: String) -> Dictionary:
   "construction_building_id": building_id,
   "construction_start_native": now_native,
   "construction_finished_native": finish,
+  "surface_site": Model.surface_site(building_id),
   "services": [],
   "docking_capacity": 0
  }
@@ -187,6 +188,17 @@ func restore(data: Dictionary) -> bool:
   var id: String = str(f["id"])
   if all_ids.has(id):
    return false
+  if f.has("surface_site"):
+   var saved_site: Variant = f["surface_site"]
+   if not (saved_site is Array) or saved_site.size() != 2:
+    return false
+   if not ((saved_site[0] is int or saved_site[0] is float) and (
+       saved_site[1] is int or saved_site[1] is float)):
+    return false
+   var position := Vector2(float(saved_site[0]), float(saved_site[1]))
+   if not is_finite(position.x) or not is_finite(position.y) or (
+       position.length() > 0.90):
+    return false
   if f.has("next_batch_native"):
    var due: Variant = f.next_batch_native
    if not (due is float or due is int) or not is_finite(float(due)) or float(due) <= float(t):
@@ -235,7 +247,7 @@ func _index_producers() -> void:
 
 func _register_producer(facility: Dictionary, start: float) -> void:
  var kind: String = str(facility.get("type", ""))
- if kind not in ["mining_rig", "refinery"]:
+ if kind not in ["mining_rig", "refinery", "farm"]:
   return
  var body: String = str(facility.get("body", ""))
  var market := _market_for(body)
@@ -263,28 +275,54 @@ func _advance_production() -> void:
 
 func _run_batch(facility: Dictionary, supply: Dictionary, recipe: Dictionary) -> void:
  var row: Dictionary = settings.get(recipe.id, {})
- var output := Model.calculated(recipe, settings, planets, str(facility.body))
+ var output: float = Model.calculated(recipe, settings, planets, str(facility.body))
  if output <= 0:
-  facility["production_status"] = "Нулевая выработка"
+  facility["production_status"] = "Простой: нулевая выработка"
   return
+ # Check all ingredients before committing the complete batch.
  for key in recipe.inputs:
-  var required := int(row.get("input_" + key, recipe.inputs[key]))
-  if float(supply.get(key, 0)) < required:
-   facility["production_status"] = "Не хватает: " + Model.resource_label(key)
+  var required: int = int(row.get("input_" + key, recipe.inputs[key]))
+  var available: float = float(supply.get(key, 0))
+  if available < required:
+   facility["production_status"] = "Простой: не хватает %s (нужно %s, есть %s)" % [
+    Model.batch_unit(key), Model.batch_amount(float(required)),
+    Model.batch_amount(available)]
    return
+ var changes := PackedStringArray()
  for key in recipe.inputs:
-  supply[key] = float(supply.get(key, 0)) - int(row.get("input_" + key, recipe.inputs[key]))
- supply[recipe.product] = snappedf(float(supply.get(recipe.product, 0)) + output, 0.01)
- facility["production_status"] = "Выпущено: %s %s" % [output, Model.resource_label(recipe.product)]
+  var consumed: int = int(row.get("input_" + key, recipe.inputs[key]))
+  supply[key] = snappedf(float(supply.get(key, 0)) - consumed, 0.01)
+  if consumed > 0:
+   changes.append("−%s %s" % [
+    Model.batch_amount(float(consumed)), Model.batch_unit(key)])
+ supply[recipe.product] = snappedf(
+  float(supply.get(recipe.product, 0)) + output, 0.01)
+ changes.append("+%s %s" % [
+  Model.batch_amount(output), Model.batch_unit(str(recipe.product))])
+ facility["production_status"] = ", ".join(changes)
 
 func inventory_summary(body: String) -> String:
- var market := _market_for(body)
+ var market: Dictionary = _market_for(body)
  if market.is_empty():
   return "Нет склада колонии"
  var stock: Dictionary = market.supply
- var lines := PackedStringArray(["Склад · руда %s · топливо %s · металл %s" % [
-  stock.get("ore", 0), stock.get("fuel", 0), stock.get("metals", 0)]])
+ var lines := PackedStringArray([
+  "Склад: руда %s · топливо %s · металл %s" % [
+   Model.batch_amount(float(stock.get("ore", 0))),
+   Model.batch_amount(float(stock.get("fuel", 0))),
+   Model.batch_amount(float(stock.get("metals", 0)))],
+  "Вода: %s · еда: %s" % [
+   Model.batch_amount(float(stock.get("water", 0))),
+   Model.batch_amount(float(stock.get("food", 0)))]
+ ])
+ var has_producers := false
  for entry in producers:
-  if str(entry.facility.body) == body:
-   lines.append("%s · %s" % [entry.recipe.name, entry.facility.get("production_status", "Первый цикл")])
+  if str(entry.facility.body) != body:
+   continue
+  if not has_producers:
+   lines.append("Последняя партия (цикл 30 дней):")
+   has_producers = true
+  lines.append("%s: %s" % [
+   str(entry.recipe.name),
+   str(entry.facility.get("production_status", "Ожидается первый выпуск"))])
  return "\n".join(lines)

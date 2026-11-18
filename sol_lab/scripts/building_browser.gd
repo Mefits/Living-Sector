@@ -157,7 +157,7 @@ func _navigate(target: String) -> void:
  queue_mounted = false
  grid = null
  scroll.scroll_vertical = 0
- feedback.text = "Шахта и переработчик выпускают партию каждые 30 игровых дней."
+ feedback.text = "Шахта, переработчик и ферма: партия каждые 30 игровых дней."
  var planet_name: String = ("Земля" if body_id == "earth"
   else ("Луна" if body_id == "luna" else "Марс"))
  if page == "build":
