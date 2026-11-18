@@ -26,41 +26,48 @@ func _initialize() -> void:
         "satellite_orbit_radius_native", 0.0))
     assert(absf(local_radius - 384400.0 / SolOrbits.KM_PER_AU *
         SolOrbits.SOL_UNITS_PER_AU) < 0.000001)
+    # Compare physical screen pixels, not Godot logical Control pixels.
+    # The established SystemBalance 100%-UI view is the canonical size:
+    # changing only Windows UI scale must not resize planets or Luna's ring.
     var view: Control = View.new()
-    view.size = Vector2(1000, 740)
+    var physical_size := Vector2(1000, 740)
+    view.size = physical_size
     view.set_world(sol)
     view.set("_zoom", 85.0)
     view.set("_focused_body_id", "earth")
-    var original_separation: float = float(view.call(
+    var base_orbit: float = float(view.call(
         "_satellite_orbit_radius", luna, earth, float(
             view.call("_orbit_scale"))))
-    # Same precise SystemBalance visual formula, no arbitrary moon ratio.
     var expected_separation: float = pow(local_radius,
-        View.SATELLITE_COMPRESSION) * float(
-            view.call("_orbit_scale")) * 85.0
-    assert(is_equal_approx(original_separation, expected_separation))
-    var original_size: float = float(view.call("_body_size", luna))
-    var expected_size: float = float(view.call(
-        "_overview_body_radius", luna)) * float(view.call(
-        "_body_size_at_zoom", earth, 85.0)) / float(
-        view.call("_overview_body_radius", earth))
-    assert(is_equal_approx(original_size, expected_size))
-    # Global 140% changes Control.size in logical units; compensate
-    # *only* the camera viewport scale, without touching moon mechanics.
-    view.size = Vector2(1000.0 / 1.4, 740.0 / 1.4)
-    view.set_ui_viewport_scale(1.4)
-    var ui140_separation: float = float(view.call(
-        "_satellite_orbit_radius", luna, earth, float(
-            view.call("_orbit_scale"))))
-    assert(absf(ui140_separation / original_separation - 1.0) < 0.012)
-    assert(is_equal_approx(float(view.call("_body_size", luna)),
-        original_size))
-    # At overview scale, preserve the original responsive map fitting.
-    view.set("_zoom", 1.0)
-    var fit_140: float = float(view.call("_orbit_scale"))
+        View.SATELLITE_COMPRESSION) * float(view.call(
+            "_orbit_scale")) * 85.0
+    assert(is_equal_approx(base_orbit, expected_separation))
+    var earth_size: float = float(view.call("_body_size", earth))
+    var moon_size: float = float(view.call("_body_size", luna))
+    var physical_ratio: float = base_orbit / earth_size
+    for ui_scale in [1.25, 1.4, 1.6, 1.8, 2.0]:
+        view.size = physical_size / ui_scale
+        view.set_ui_viewport_scale(ui_scale)
+        var orbital_radius: float = float(view.call(
+            "_satellite_orbit_radius", luna, earth, float(
+                view.call("_orbit_scale")))) * ui_scale
+        var planet_radius: float = float(view.call(
+            "_body_size", earth)) * ui_scale
+        var luna_radius: float = float(view.call(
+            "_body_size", luna)) * ui_scale
+        assert(absf(orbital_radius / base_orbit - 1.0) < 0.012)
+        assert(absf(planet_radius / earth_size - 1.0) < 0.012)
+        assert(absf(luna_radius / moon_size - 1.0) < 0.012)
+        assert(absf(orbital_radius / planet_radius -
+            physical_ratio) < 0.012)
+        # Double-click focus also targets the original physical globe size.
+        assert(view.focus_body("earth"))
+        var focus_zoom: float = float(view.get("_focus_zoom_target"))
+        var focus_radius: float = float(view.call(
+            "_body_size_at_zoom", earth, focus_zoom)) * ui_scale
+        assert(absf(focus_radius - View.FOCUS_GLOBE_RADIUS) < 1.5)
     view.set_ui_viewport_scale(1.0)
-    var fit_100: float = float(view.call("_orbit_scale"))
-    assert(is_equal_approx(fit_140, fit_100))
+    view.size = physical_size
     view.free()
     assert(JSON.stringify(seed) == source_before)
     print("SOL_MOON_CLOSEUP_LOD_PASS")
