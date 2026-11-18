@@ -88,6 +88,8 @@ var _worker_last_view_usec: int = -1
 var _worker_calendar_text: String = ""
 var _worker_native_time_units: float = 0.0
 var _worker_economy: Dictionary = {}
+## Detached mode mirror; the N158 owner is the sole authority.
+var _player_control_view: Dictionary = {}
 var _worker_native: Dictionary = {}
 var _worker_summary: Dictionary = {}
 var _worker_fleet: Dictionary = {}
@@ -782,6 +784,43 @@ func _worker_send(kind: String, payload: Dictionary = {}) -> int:
         _worker_update_status()
     return ticket
 
+## Player commands are issued only to the single authoritative owner.
+## In a worker F5 session no UI callback may mutate live N39 directly.
+func _player_set_control(faction_id: String, manual: bool) -> void:
+    if _worker_mode:
+        if _worker_send("manual_control", {
+                "faction_id": faction_id, "manual": manual}) > 0:
+            _notice = "Переключение управления отправлено..."
+        _worker_update_status()
+        return
+    if _runner == null:
+        return
+    var outcome: Dictionary = _runner.request_player_control(faction_id, manual)
+    _notice = "Управление изменено" if outcome.get("ok", false) else (
+        "Управление: " + str(outcome.get("reason", "команда отклонена")))
+    _player_control_view = _runner.player_control_snapshot()
+    _update_status()
+    _sync_strategy_ui()
+
+func _player_build(faction_id: String, destination: String,
+        commodity: String) -> void:
+    if _worker_mode:
+        if _worker_send("manual_build", {"faction_id": faction_id,
+                "destination": destination, "commodity": commodity}) > 0:
+            _notice = "Приказ на строительство отправлен..."
+        _worker_update_status()
+        return
+    if _runner == null:
+        return
+    var outcome: Dictionary = _runner.request_player_construction(
+        faction_id, destination, commodity)
+    _notice = ("Стройка принята: " + str(outcome.get("site_id", "—"))
+        if outcome.get("ok", false) else "Приказ отклонён: " + str(
+            outcome.get("reason", "неизвестная причина")))
+    _update_status()
+    _refresh_selection()
+    _sync_strategy_ui(_runner.economy_snapshot())
+
 func _worker_gui_process(delta: float) -> void:
     var start_usec: int = Time.get_ticks_usec()
     var old_tick: int = _worker_tick
@@ -897,6 +936,22 @@ func _worker_receive(result: Dictionary) -> void:
         return
     if kind == "load":
         _worker_loading = false
+    if result.get("player_control") is Dictionary:
+        _player_control_view = result["player_control"].duplicate(true)
+    # A rejected human build is a normal gameplay reason, NOT a fatal N158
+    # worker failure. Only authoritative simulation/restore errors freeze it.
+    if kind in ["manual_control", "manual_build"]:
+        var manual_outcome: Dictionary = result.get("result", {})
+        if bool(result.get("ok", false)):
+            _notice = ("Ручное управление изменено" if kind == "manual_control"
+                else "Стройка принята: " + str(manual_outcome.get("site_id", "—")))
+        else:
+            _notice = "Приказ отклонён: " + str(result.get("error",
+                manual_outcome.get("reason", "unknown")))
+            _worker_update_status()
+            _sync_strategy_ui(_worker_economy)
+            return
+        _sync_strategy_ui(_worker_economy)
     if not bool(result.get("ok", false)):
         if kind == "save":
             _notice = "N38 сохранение отклонено: " + str(
@@ -2069,7 +2124,15 @@ func _sync_strategy_ui(shared_economy: Dictionary = {}) -> void:
         _runner.clock.paused if _runner != null else false)
     var speed: float = _worker_speed if _worker_mode else (
         _runner.clock.world_speed if _runner != null else 1.0)
-    _strategy_ui.present(world, shared_economy, _selected_body_id,
+    # Shallow detached presentation layer only: one scalar authority field,
+    # no N39 World clone or UI-side command effects.
+    var display_economy: Dictionary = shared_economy.duplicate(false)
+    if display_economy.is_empty() and _worker_mode:
+        display_economy = _worker_economy.duplicate(false)
+    display_economy["player_control"] = (_player_control_view
+        if _worker_mode else (_runner.player_control_snapshot()
+            if _runner != null else {}))
+    _strategy_ui.present(world, display_economy, _selected_body_id,
         _selected_facility_id, _selected_ship_id, tick, paused, speed,
         _status.text if _status != null else "",
         _details.text if _details != null else "",
