@@ -1160,7 +1160,7 @@ func _economy_workspace() -> void:
                 {"label":"Рынки N39", "value":str(markets.size())},
                 {"label":"Виды товаров", "value":str(known_commodities.size())},
                 {"label":"Кредиты рынков", "value":(
-                    str(roundi(total_credits)) if credit_samples > 0 else "—")},
+                    str(roundi(total_credits)) if credit_samples == markets.size() and credit_samples > 0 else "—")},
                 {"label":"Предприятия", "value":str(_facility_rows().size())}])
             _table(section, ["Рынок","Товаров","Кредиты","Тренд"], rows)
             var links := _section("ПРОИЗВОДСТВЕННЫЕ ОБЪЕКТЫ")

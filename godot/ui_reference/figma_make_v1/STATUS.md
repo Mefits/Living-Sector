@@ -92,3 +92,5 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - Implementation block: source-backed facility process, colony 2-column layout, market/project/fleet status strips; no new world snapshots and **no tests run**.
 
 - Implementation block: research, administration and ship detail views now use Theme-backed Figma rows/cards; missing telemetry is clearly marked; **no tests run**.
+
+- Market credit aggregate is displayed only if every listed market publishes a numeric credit amount; partially reported totals remain "—".
