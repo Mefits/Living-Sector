@@ -210,11 +210,11 @@ func shortest_path(start: String, destination: String) -> Dictionary:
 
 ## Heap entries are immutable snapshots of a tentative best path. A changed
 ## distance/path pushes a new entry; stale entries are discarded on pop.
-## The comparator mirrors the original N4 approximate-distance tie rule.
+## Strict ordering is required for a heap. The original approximate tie\n## rule is non-transitive; ambiguous near-equal frontiers use the legacy scan.
 static func _frontier_less(a: Dictionary, b: Dictionary) -> bool:
     var da: float = float(a["distance"])
     var db: float = float(b["distance"])
-    return da < db or (is_equal_approx(da, db) and str(a["path"]) < str(b["path"]))
+    return da < db or (da == db and str(a["path"]) < str(b["path"]))
 
 static func _frontier_push(heap: Array, item: Dictionary) -> void:
     heap.append(item)
@@ -250,6 +250,48 @@ static func _frontier_pop(heap: Array) -> Dictionary:
         heap[child] = swap
         parent = child
     return first
+
+## Exact source selection semantics for non-transitive approximate-distance ties.
+## Used only when the strict heap encounters distinct near-equal frontier costs.
+func _shortest_path_legacy(start: String, destination: String) -> Dictionary:
+    var best: Dictionary = {start: 0.0}
+    var paths: Dictionary = {start: start}
+    var previous: Dictionary = {}
+    var visited: Dictionary = {}
+    while true:
+        var current: String = ""
+        var smallest: float = INF
+        var path_key: String = ""
+        for node in best:
+            if visited.has(node):
+                continue
+            var distance: float = float(best[node])
+            var key: String = str(paths[node])
+            if current.is_empty() or distance < smallest or (is_equal_approx(distance, smallest) and key < path_key):
+                current = str(node)
+                smallest = distance
+                path_key = key
+        if current.is_empty():
+            break
+        if current == destination:
+            var route: Array[String] = [destination]
+            var cursor: String = destination
+            while cursor != start:
+                cursor = str(previous[cursor])
+                route.push_front(cursor)
+            return {"reachable": true, "locations": route, "distance": smallest}
+        visited[current] = true
+        for edge in _edges.get(current, []):
+            var target: String = str(edge["to"])
+            if visited.has(target):
+                continue
+            var candidate: float = smallest + float(edge["distance"])
+            var candidate_path: String = path_key + "/" + target
+            if not best.has(target) or candidate < float(best[target]) or (is_equal_approx(candidate, float(best[target])) and candidate_path < str(paths[target])):
+                best[target] = candidate
+                paths[target] = candidate_path
+                previous[target] = current
+    return {"reachable": false, "reason": "no_directed_path"}
 
 ## Source N4 directed Dijkstra and exact lexicographic tie-break retained.
 func _shortest_path_uncached(start: String, destination: String) -> Dictionary:
