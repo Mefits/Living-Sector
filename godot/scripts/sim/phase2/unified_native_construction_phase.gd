@@ -173,3 +173,73 @@ static func stage(world: Dictionary, sources: Dictionary, original: RefCounted,
         staged["approved_goal"] = offer.get("goal", {}).duplicate(true)
         staged["status"] = "N154_AUTHORIZED_STAGED_NOT_APPLIED"
     return staged
+
+
+## The human player is a distinct command authority. This does not reuse a
+## fictional N134 HeadDecision; the runtime first verifies that this faction
+## is under manual control. N154 still assesses the SAME physical world,
+## and N39 alone may commit the actual prepaid site + N104 contract.
+static func player_stage(world: Dictionary, sources: Dictionary,
+        original: RefCounted, graph: RefCounted, faction: String,
+        destination: String, commodity: String, tick: int,
+        multiplier: int) -> Dictionary:
+    if tick < 1 or multiplier < 1 or faction.is_empty() or destination.is_empty():
+        return {"ok": false, "reason": "invalid_player_build_request"}
+    # Only already implemented T1 producers. Power plants, landing pads,
+    # extra tech tiers and new resources do NOT silently become buildable.
+    if commodity not in [
+            "ore", "ice", "gas", "metals", "water", "fuel",
+            "polymers", "food", "components", "electronics",
+            "tools", "medical", "luxury"]:
+        return {"ok": false, "reason": "t1_building_not_implemented"}
+    if not sources.has(faction) or not world.get(
+            "faction_treasuries", {}).has(faction):
+        return {"ok": false, "reason": "player_faction_not_found"}
+    var ctx: Dictionary = context(world, sources, original, graph, faction)
+    if ctx.is_empty():
+        return {"ok": false, "reason": "missing_original_construction_context"}
+    var station_found: bool = false
+    var members: Array = []
+    for facility in ctx["facilities"]:
+        if str(facility.get("faction_id", "")) != faction:
+            continue
+        var loc: String = str(facility.get("location_name", ""))
+        if not members.has(loc):
+            members.append(loc)
+        if loc == destination and str(facility.get(
+                "facility_type", "")) == "station":
+            station_found = true
+    if not station_found:
+        return {"ok": false, "reason": "player_requires_owned_station"}
+    var owned_sites: Array = []
+    for site in ctx["sites"]:
+        if str(site.get("faction_id", "")) == faction and not bool(
+                site.get("completed", false)) and site.get(
+                "labor", {}).get("colony_source", null) == null:
+            owned_sites.append(site)
+    var profile: Dictionary = {"id": faction,
+        "treasury": int(world["faction_treasuries"][faction]),
+        "prefer_goals": {}}
+    var goal: Dictionary = {"goal_id": "develop_colony",
+        "commodity": commodity, "destination": destination,
+        "shortage_ticks": 0, "score": 100.0}
+    var offer: Dictionary = Strategy.assess_goal(
+        ctx, profile, goal, owned_sites, members)
+    if not bool(offer.get("ready", false)):
+        return {"ok": false, "reason": str(offer.get(
+            "reason", "player_construction_not_ready")),
+            "assessment": offer}
+    var source: String = str(offer.get("source", ""))
+    if source.is_empty() or not ctx.get(
+            "physical_distances", {}).get(source, {}).has(destination):
+        return {"ok": false, "reason": "source_graph_route_unreachable"}
+    # The authoritative N39 station anchor determines the physical site.
+    # Never synthesize a second station/market or free metal allocation.
+    var at_center: Callable = func(center: Dictionary, _id: String) -> Dictionary:
+        return center.duplicate(true)
+    var staged: Dictionary = Commission.stage_commission(
+        ctx, profile, offer, tick, multiplier, at_center)
+    if staged.get("ok", false):
+        staged["approved_goal"] = goal.duplicate(true)
+        staged["status"] = "N154_AUTHORIZED_STAGED_NOT_APPLIED"
+    return staged
