@@ -184,3 +184,15 @@ Commits: `fa41c65`, `ddcc03b`, `6b08450`.
 - [ ] Full native procedural **galaxy** generation (new N39 worlds, registered navigation nodes) is separate from this completed universal **visual** layer.
 
 Detailed data contract and boundaries: `godot/docs/UNIVERSAL_PLANETS_AND_COLONIES_RU.md`.
+
+### Figma Make UX v2 ZIP transfer — 18.11.2026
+
+- [x] Received and inspected the updated `Living Sector Game Interface.zip` (React `src/App.tsx` + CSS).
+- [x] Transferred compact seven-workspace navigation: colony 1 tab, facility 2, economy 2, construction 1, fleet 2, administration 2, research 1.
+- [x] Consolidated real source/N39 workspace sections (colony resources and projects; economy markets/chains; construction stocks/blockers; fleet ships/transit/contracts and cargo/docks; administration explanations; research state).
+- [x] Normalized legacy route names and Figma prototypes to canonical tabs, preserving back history and selected objects.
+- [x] Contextual Russian label for surface N151 colony station: AC versus orbital station; no N39 state mutation.
+- [x] Explicitly excluded all Make demo data, fake contracts, simulation dates, AI actions and telemetry.
+- [x] Source-to-Godot UX map: `godot/ui_reference/figma_make_v1/UX_V2_IMPORT_RU.md`.
+- [x] Regression fixture added: `godot/tests/p2_figma_ux_v2_route_check.gd`.
+- [ ] Godot parse and visual Windows acceptance not run; 1:1 geometry/scrolling not yet verified.
