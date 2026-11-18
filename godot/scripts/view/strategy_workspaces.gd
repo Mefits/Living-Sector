@@ -1001,6 +1001,73 @@ func _process_card(parent: Node, heading: String, value: String,
         note, &"LSBodyNote")
     content.add_child(caption)
 
+func _reason_row(parent: Node, caption: String, value: String,
+        chosen: bool = false) -> void:
+    # Data is an original N39 decision/research field; no fabricated priority.
+    var row_bg: PanelContainer = LSComponents.reasoning_row(chosen)
+    parent.add_child(row_bg)
+    var row := HBoxContainer.new()
+    row.add_theme_constant_override("separation", 10)
+    row_bg.add_child(row)
+    var name: Label = LSComponents.metric_text(
+        caption, &"LSReasonLabel")
+    name.custom_minimum_size.x = 110
+    row.add_child(name)
+    var answer: Label = LSComponents.metric_text(
+        value, &"LSReasonValue")
+    answer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    answer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    answer.tooltip_text = value
+    row.add_child(answer)
+
+func _research_entry(parent: Node, id: String, raw: Variant) -> void:
+    var card: PanelContainer = LSComponents.research_card()
+    parent.add_child(card)
+    var row := HBoxContainer.new()
+    row.add_theme_constant_override("separation", 15)
+    card.add_child(row)
+    var icon := TextureRect.new()
+    icon.texture = FigmaIcons.texture("research", 34, TEAL)
+    icon.custom_minimum_size = Vector2(34, 34)
+    icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    icon.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
+    icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    row.add_child(icon)
+    var content := VBoxContainer.new()
+    content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    content.add_theme_constant_override("separation", 7)
+    row.add_child(content)
+    var title: String = str(raw.get("name", id)) if raw is Dictionary else id
+    content.add_child(LSComponents.metric_text(title, &"LSResearchTitle"))
+    if raw is Dictionary:
+        # Only published absolute point totals can produce a real fraction.
+        var points: Variant = raw.get("points", null)
+        var required: Variant = raw.get("required_points", null)
+        if (points is int or points is float) and (
+                required is int or required is float) and float(required) > 0.0:
+            var fraction: float = float(points) / float(required)
+            var progress: ProgressBar = LSComponents.research_progress(fraction)
+            progress.tooltip_text = "%s / %s N39" % [str(points), str(required)]
+            content.add_child(progress)
+            _note(content, "%s / %s очков N39" % [str(points), str(required)])
+        for field in raw:
+            if str(field) in ["name", "points", "required_points"]:
+                continue
+            _reason_row(content, str(field), str(raw[field]))
+    else:
+        _note(content, str(raw))
+
+func _route_card(parent: Node, caption: String, value: String) -> void:
+    var card: PanelContainer = LSComponents.route_card()
+    parent.add_child(card)
+    var content := VBoxContainer.new()
+    content.add_theme_constant_override("separation", 6)
+    card.add_child(content)
+    content.add_child(LSComponents.metric_text(
+        caption.to_upper(), &"LSProcessHeading"))
+    content.add_child(LSComponents.metric_text(
+        value, &"LSProcessValue"))
+
 func _facility_workspace() -> void:
     var source: Dictionary = _facility_source()
     if source.is_empty():
@@ -1265,13 +1332,13 @@ func _administration_workspace() -> void:
     if _tab in ["Приоритеты ИИ", "Обоснование"]:
         if reasons is Dictionary and not reasons.is_empty():
             for key in reasons:
-                _pair(section, str(key), str(reasons[key]))
+                _reason_row(section, str(key), str(reasons[key]))
         else:
             _note(section, "ИИ выполняется, но человекочитаемые приоритеты/объяснения в N39 ещё не опубликованы.")
     elif _tab == "План действий":
         if actions is Dictionary and not actions.is_empty():
             for id in actions:
-                _pair(section, str(id), str(actions[id]))
+                _reason_row(section, str(id), str(actions[id]))
         else:
             _note(section, "Не опубликован список актуальных действий ИИ. Не выдумываем планы из макета.")
     else:
@@ -1283,10 +1350,17 @@ func _research_workspace() -> void:
     var state: Variant = _economy.get("research", null)
     if state is Dictionary and not state.is_empty():
         for id in state:
-            _pair(section, str(id), str(state[id]))
+            _research_entry(section, str(id), state[id])
     else:
-        _note(section, "Подтверждённых данных о прогрессе исследований в текущем N39 снимке нет.")
-        _note(section, "Будущая технология и время открытия остаются «—», а не фиктивными 72%.")
+        var placeholder: PanelContainer = LSComponents.research_card()
+        section.add_child(placeholder)
+        var pending := VBoxContainer.new()
+        pending.add_theme_constant_override("separation", 7)
+        placeholder.add_child(pending)
+        pending.add_child(LSComponents.metric_text(
+            "ИССЛЕДОВАНИЕ · —", &"LSResearchTitle"))
+        _note(pending, "N39 ещё не опубликовал исследование, очки и срок.")
+        _note(pending, "Прототипные 72% и технология из макета не подставляются.")
     if _tab == "Открытия":
         _note(section, "Реальные разблокировки показываются только после события исследования.")
 
@@ -1304,6 +1378,12 @@ func _ship_workspace() -> void:
             _link(section, "ФЛОТ И ЛОГИСТИКА ›", "fleet", "Корабли")
         "Груз":
             var cargo: Variant = ship.get("cargo", {})
+            _metric_strip(section, [
+                {"label":"Корабль", "value":_ship_name()},
+                {"label":"Позиций груза", "value":(
+                    str(cargo.size()) if cargo is Dictionary else "—")},
+                {"label":"Контракт", "value":str(ship.get("active_contract_id", "—"))},
+                {"label":"Док", "value":str(ship.get("docked_at", "—"))}])
             if cargo is Dictionary and not cargo.is_empty():
                 for key in cargo:
                     _pair(section, str(key), str(cargo[key]))
@@ -1312,7 +1392,18 @@ func _ship_workspace() -> void:
         "Маршрут":
             var transit: Variant = ship.get("transit", {})
             if transit is Dictionary and not transit.is_empty():
-                for key in ["from","to","departure_tick","arrival_tick"]:
+                var route_flow := HFlowContainer.new()
+                route_flow.add_theme_constant_override("h_separation", 12)
+                route_flow.add_theme_constant_override("v_separation", 9)
+                section.add_child(route_flow)
+                _route_card(route_flow, "Отправление · N14",
+                    str(transit.get("from", "—")))
+                var direction := _label("→", 16, TEAL)
+                direction.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+                route_flow.add_child(direction)
+                _route_card(route_flow, "Назначение · N14",
+                    str(transit.get("to", "—")))
+                for key in ["departure_tick", "arrival_tick"]:
                     _pair(section, str(key), str(transit.get(key, "—")))
             else:
                 _note(section, "Нет активного физического N14 рейса.")

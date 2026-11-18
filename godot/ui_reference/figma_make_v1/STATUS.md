@@ -55,7 +55,10 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Facility input → machine → output stage cards; only published N39 work_shift fields displayed, otherwise "—".
 - [x] Economy, construction and fleet four-up KPI strips derived from existing N39 dictionaries.
 - [x] Responsive two-column colony overview sections (Figma .workspace-grid).
-- [ ] Research and administration layout refinements, remaining facility/fleet detail views.
+- [x] N39-backed administration reasoning rows; no invented priorities or planner scores.
+- [x] Research track styling with bars only when published points/required_points exist.
+- [x] Ship cargo manifest and physical route stage cards from N14 transit; no estimated arrival percentages.
+- [ ] Remaining specialized tab layouts and final visual acceptance.
 - [ ] Visual acceptance postponed until the end at user request.
 
 ## Stages 6–7 [NOT STARTED]
@@ -87,3 +90,5 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - Implementation block: shared workspace primitives (key–value, notes, metric grid, chain stage and condition bar) now reuse LSTheme/LSComponents; **no Godot/runtime tests run**.
 
 - Implementation block: source-backed facility process, colony 2-column layout, market/project/fleet status strips; no new world snapshots and **no tests run**.
+
+- Implementation block: research, administration and ship detail views now use Theme-backed Figma rows/cards; missing telemetry is clearly marked; **no tests run**.

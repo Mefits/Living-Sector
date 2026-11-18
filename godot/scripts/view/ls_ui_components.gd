@@ -175,6 +175,33 @@ static func condition_bar(level: float) -> ProgressBar:
     meter.custom_minimum_size.y = 5
     return meter
 
+static func reasoning_row(chosen: bool = false) -> PanelContainer:
+    var panel: PanelContainer = chrome_panel(
+        &"LSReasonChosen" if chosen else &"LSReasonRow")
+    panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return panel
+
+static func research_card() -> PanelContainer:
+    var panel: PanelContainer = chrome_panel(&"LSResearchCard")
+    panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return panel
+
+static func research_progress(level: float) -> ProgressBar:
+    var meter := ProgressBar.new()
+    meter.theme_type_variation = &"LSResearchProgress"
+    meter.min_value = 0.0
+    meter.max_value = 1.0
+    meter.value = clampf(level, 0.0, 1.0)
+    meter.show_percentage = false
+    meter.custom_minimum_size.y = 5
+    return meter
+
+static func route_card() -> PanelContainer:
+    var panel: PanelContainer = chrome_panel(&"LSRouteCard")
+    panel.custom_minimum_size = Vector2(170, 70)
+    panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    return panel
+
 static func metric_panel() -> PanelContainer:
     var panel := PanelContainer.new()
     panel.theme_type_variation = &"LSMetricPanel"

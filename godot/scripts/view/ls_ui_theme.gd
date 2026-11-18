@@ -76,6 +76,14 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSConditionGood", &"ProgressBar")
     ui_theme.set_type_variation(&"LSConditionWorn", &"ProgressBar")
     ui_theme.set_type_variation(&"LSConditionCritical", &"ProgressBar")
+    ui_theme.set_type_variation(&"LSReasonRow", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSReasonChosen", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSReasonLabel", &"Label")
+    ui_theme.set_type_variation(&"LSReasonValue", &"Label")
+    ui_theme.set_type_variation(&"LSResearchCard", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSResearchTitle", &"Label")
+    ui_theme.set_type_variation(&"LSResearchProgress", &"ProgressBar")
+    ui_theme.set_type_variation(&"LSRouteCard", &"PanelContainer")
     ui_theme.set_type_variation(&"LSWorkspaceHeader", &"PanelContainer")
     ui_theme.set_type_variation(&"LSWorkspaceToolbar", &"PanelContainer")
     ui_theme.set_type_variation(&"LSSearchFrame", &"PanelContainer")
@@ -308,6 +316,26 @@ static func build() -> Theme:
         _flat(Color("#C99B54"), Color.TRANSPARENT))
     ui_theme.set_stylebox(&"fill", &"LSConditionCritical",
         _flat(Color("#CF856A"), Color.TRANSPARENT))
+
+    # Figma .reasoning-log, .priority-line, .research-track and .route-detail.
+    ui_theme.set_stylebox(&"panel", &"LSReasonRow",
+        _flat(Color.TRANSPARENT, Color("#1F343B"), 0, 10, 8, 0, 1, 0))
+    ui_theme.set_stylebox(&"panel", &"LSReasonChosen",
+        _flat(Color("#10272D"), Color("#1F343B"), 0, 10, 8, 0, 1, 0))
+    ui_theme.set_color(&"font_color", &"LSReasonLabel", Color("#AFC0C1"))
+    ui_theme.set_font_size(&"font_size", &"LSReasonLabel", 8)
+    ui_theme.set_color(&"font_color", &"LSReasonValue", Color("#7E9296"))
+    ui_theme.set_font_size(&"font_size", &"LSReasonValue", 8)
+    ui_theme.set_stylebox(&"panel", &"LSResearchCard",
+        _flat(Color.TRANSPARENT, Color.TRANSPARENT, 0, 18, 18))
+    ui_theme.set_color(&"font_color", &"LSResearchTitle", Color("#BECDCE"))
+    ui_theme.set_font_size(&"font_size", &"LSResearchTitle", 11)
+    ui_theme.set_stylebox(&"background", &"LSResearchProgress",
+        _flat(Color("#172B31"), Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"fill", &"LSResearchProgress",
+        _flat(Color("#53B5AC"), Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"panel", &"LSRouteCard",
+        _flat(Color("#0B1B22"), Color("#2B484E"), 1, 10, 10, 1, 1, 1))
     # Shared workspace chrome: original Figma Make V1 geometry.
     var workspace_header := _flat(Color("#152C35"), Color("#35515A"), 1)
     var workspace_toolbar := _flat(Color("#0A161D"), Color("#1E343B"), 1, 8, 3)
