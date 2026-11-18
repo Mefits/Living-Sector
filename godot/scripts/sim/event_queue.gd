@@ -108,9 +108,13 @@ func pending_count() -> int:
     return _pending.size()
 
 func snapshot() -> Dictionary:
-    var ordered: Array[Dictionary] = _pending.duplicate(true)
-    ordered.sort_custom(Callable(self, "_less"))
-    return {"next_sequence": _next_sequence, "pending": ordered}
+    # Sort borrowed records before copying payloads. The comparator only reads
+    # immutable scalar ordering fields; copying the whole growing payload
+    # tree before sorting wastes allocation and cache bandwidth.
+    var sorted_refs: Array[Dictionary] = _pending.duplicate(false)
+    sorted_refs.sort_custom(Callable(self, "_less"))
+    # Detach after sorting, before exposing any record to the caller.
+    return {"next_sequence": _next_sequence, "pending": sorted_refs.duplicate(true)}
 
 func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
     var next: Variant = data.get("next_sequence", null)
@@ -120,6 +124,10 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
     var staged: Array[Dictionary] = []
     var seen_ids: Dictionary = {}
     var seen_sequences: Dictionary = {}
+    # Build all derived indexes alongside validated, owned records.
+    # A failed restore never publishes any of these staged structures.
+    var staged_due_ids: Dictionary = {}
+    var staged_positions: Dictionary = {}
     for item in records:
         if not (item is Dictionary):
             return false
@@ -142,22 +150,18 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
             return false
         seen_ids[id] = true
         seen_sequences[int(seq)] = true
+        staged_positions[id] = staged.size()
         staged.append({"id": id, "due_tick": int(due), "phase": int(phase),
             "entity_id": entity, "sequence": int(seq), "kind": kind,
             "payload": payload.duplicate(true)})
-    var staged_due_ids: Dictionary = {}
-    for event in staged:
-        var due_tick: int = int(event["due_tick"])
-        var event_phase: int = int(event["phase"])
+        var due_tick: int = int(due)
+        var event_phase: int = int(phase)
         if not staged_due_ids.has(due_tick):
             staged_due_ids[due_tick] = {}
         var phases: Dictionary = staged_due_ids[due_tick]
         if not phases.has(event_phase):
             phases[event_phase] = {}
-        phases[event_phase][str(event["id"])] = true
-    var staged_positions: Dictionary = {}
-    for i in range(staged.size()):
-        staged_positions[str(staged[i]["id"])] = i
+        phases[event_phase][id] = true
     _pending = staged
     _positions = staged_positions
     _due_ids = staged_due_ids
