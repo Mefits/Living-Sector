@@ -170,3 +170,17 @@ Commits: `fa41c65`, `ddcc03b`, `6b08450`.
 - [x] Preserved current Figma UI, 125–200% Sol planet/Luna render scale, fresh N158 worker start, detailed performance footer and star_system_view.gd parse repair `5066644`.
 - [ ] **Godot 4.7.2 runtime and 500-ship performance acceptance pending.** No heavy Actions or local Godot runs performed during this merge.
 - Source branch is still live, so follow-on five-worker commits after `7b395981` require a subsequent merge.
+
+### Universal planet/colony display — implementation 2026-11-18
+
+- [x] One deterministic planet surface generator for ALL systems, keyed by system/body ID or authored surface_seed; multiple land regions, lakes/craters/bands and reproducible building sites; supports authored physical_radius_km/radius_km.
+- [x] One read-only N39/source facility projection regardless of system name. Existing Sol fixture now uses a compatibility adapter.
+- [x] Newly built N151 construction_dock and its subsequent same-ID station appear on the planet as an incomplete/founded center, respectively, without fabricating facilities or modifying N39.
+- [x] Main inspector, workspaces, colony quick cards, context panel and right outliner resolve live-only facilities on known bodies.
+- [x] Planet-specific access/production links with per-planet bounds, no cross-body network and no global quadratic pairing.
+- [x] Explicit parent_body_id + satellite_orbit_radius_native remains the general moon contract; Sol's frozen orbit adapter remains unchanged.
+- [x] Added new generalization acceptance fixture: `godot/tests/p2_universal_planet_colony_visual_check.gd`.
+- [ ] Godot parse/runtime/visual review remains pending. Do not claim verified parity or save compatibility without running the checks.
+- [ ] Full native procedural **galaxy** generation (new N39 worlds, registered navigation nodes) is separate from this completed universal **visual** layer.
+
+Detailed data contract and boundaries: `godot/docs/UNIVERSAL_PLANETS_AND_COLONIES_RU.md`.
