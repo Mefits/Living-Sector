@@ -56,3 +56,32 @@ static func summarize_window(end_tick: int, samples: Array) -> Dictionary:
         "worker_projection_wall_avg_usec": worker["projection_wall_avg_usec"],
         "time_kind": "elapsed_wall_not_cpu",
         "performance_claim": false}
+
+## Compare independently parity-verified early/late windows without treating
+## differing source ticks as identical checkpoints or claiming CPU time.
+static func compare_late_windows(early: Dictionary, late: Dictionary) -> Dictionary:
+    for side in [early, late]:
+        if side.get("accepted", false) != true or side.get("time_kind", "") != "elapsed_wall_not_cpu":
+            return {"accepted": false, "reason": "unverified_window"}
+        if typeof(side.get("from_tick", null)) != TYPE_INT or typeof(side.get("to_tick", null)) != TYPE_INT:
+            return {"accepted": false, "reason": "invalid_tick_bounds"}
+        if int(side["to_tick"]) - int(side["from_tick"]) != 99 or side.get("observed_paid_ticks", -1) != 100:
+            return {"accepted": false, "reason": "incomplete_coverage"}
+        for key in ["direct_advance_wall_avg_usec", "worker_advance_wall_avg_usec",
+                "worker_request_wall_avg_usec", "worker_projection_wall_avg_usec"]:
+            if typeof(side.get(key, null)) not in [TYPE_INT, TYPE_FLOAT] or not is_finite(float(side[key])) or float(side[key]) < 0.0:
+                return {"accepted": false, "reason": "invalid_" + key}
+        if float(side["worker_request_wall_avg_usec"]) + 0.01 < (
+                float(side["worker_advance_wall_avg_usec"]) + float(side["worker_projection_wall_avg_usec"])):
+            return {"accepted": false, "reason": "invalid_worker_attribution"}
+    if int(early["to_tick"]) >= int(late["from_tick"]):
+        return {"accepted": false, "reason": "overlapping_or_reversed_windows"}
+    var delta: Dictionary = {}
+    for key in ["direct_advance_wall_avg_usec", "worker_advance_wall_avg_usec",
+            "worker_request_wall_avg_usec", "worker_projection_wall_avg_usec"]:
+        delta[key + "_delta_usec"] = float(late[key]) - float(early[key])
+        delta[key + "_ratio"] = (float(late[key]) / float(early[key])
+            if float(early[key]) > 0.0 else -1.0)
+    return {"accepted": true, "early_end_tick": early["to_tick"],
+        "late_end_tick": late["to_tick"], "deltas": delta,
+        "time_kind": "elapsed_wall_not_cpu", "performance_claim": false}
