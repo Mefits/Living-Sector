@@ -15,6 +15,9 @@ var world: Dictionary = {}
 var active_sites: Array = []
 var now_native: float = 0.0
 var queue_panel: VBoxContainer
+## Reuse live nodes; only create/destroy them when queue membership changes.
+var queue_rows: Dictionary = {}
+var queue_membership: Array[String] = []
 var config: Dictionary = {}
 var body_id: String = "earth"
 var page: String = "build"
@@ -88,7 +91,9 @@ func configure(source_world: Dictionary, settings: Dictionary,
 func set_construction_state(source_world: Dictionary,
         pending_sites: Array, current_native: float) -> void:
  world = source_world
- active_sites = pending_sites.duplicate(true)
+ # The construction controller owns the site rows. The dock reads them and
+ # never mutates them, so no expensive deep copy is required per refresh.
+ active_sites = pending_sites
  now_native = current_native
  if visible and page == "build" and queue_panel != null:
   _refresh_queue()
@@ -146,6 +151,8 @@ func _navigate(target: String) -> void:
  output_labels.clear()
  time_labels.clear()
  queue_panel = null
+ queue_rows.clear()
+ queue_membership.clear()
  grid = null
  scroll.scroll_vertical = 0
  feedback.text = "Тест строительства: расходы и сроки действуют, производство N39 пока нет."
@@ -285,35 +292,58 @@ func _request_build(building_id: String) -> void:
 func _refresh_queue() -> void:
  if queue_panel == null or not is_instance_valid(queue_panel):
   return
- _clear(queue_panel)
- var has_any: bool = false
+ var relevant: Array = []
+ var current_ids: Array[String] = []
  for entry in active_sites:
-  if str(entry.get("body", "")) != body_id:
+  if not (entry is Dictionary) or str(entry.get("body", "")) != body_id:
    continue
-  has_any = true
-  var panel := VBoxContainer.new()
-  panel.add_theme_constant_override("separation", 2)
-  queue_panel.add_child(panel)
-  var start: float = float(entry.get("start_native", now_native))
-  var finish: float = float(entry.get("finish_native", start))
+  relevant.append(entry)
+  current_ids.append(str(entry.get("id", "")))
+ # Original SystemBalance keeps long-lived controls and changes only their
+ # values. Creating/queue_free'ing a VBox, Label and ProgressBar every 0.5s
+ # caused a speed-independent recurring CPU/allocator spike in Sol Lab.
+ if current_ids != queue_membership:
+  queue_membership = current_ids
+  queue_rows.clear()
+  _clear(queue_panel)
+  if relevant.is_empty():
+   _label(queue_panel, "Очередь строительства пуста", 14,
+    Color("#a4bdcc"))
+  else:
+   for entry in relevant:
+    var site_id: String = str(entry.get("id", ""))
+    var panel := VBoxContainer.new()
+    panel.add_theme_constant_override("separation", 2)
+    queue_panel.add_child(panel)
+    var line := _label(panel, "", 14, Color("#eed6a1"))
+    var bar := ProgressBar.new()
+    bar.custom_minimum_size = Vector2(0, 15)
+    bar.show_percentage = true
+    bar.min_value = 0.0
+    bar.max_value = 100.0
+    panel.add_child(bar)
+    queue_rows[site_id] = {"line": line, "bar": bar}
+ # Every 0.5 seconds update just values, not the Godot scene tree.
+ for entry in relevant:
+  var site_id: String = str(entry.get("id", ""))
+  var controls: Dictionary = queue_rows.get(site_id, {})
+  if controls.is_empty():
+   continue
+  var begin: float = float(entry.get("start_native", now_native))
+  var finish: float = float(entry.get("finish_native", begin))
   var completion: float = 1.0
-  if finish > start:
-   completion = clampf((now_native - start) / (finish - start),
-    0.0, 1.0)
+  if finish > begin:
+   completion = clampf((now_native - begin) / (finish - begin), 0.0, 1.0)
   var left: int = Calendar.days_remaining(now_native, finish)
-  _label(panel, "%s · осталось %d дн." % [
-   str(entry.get("name", "Стройплощадка")), left],
-   14, Color("#eed6a1"))
-  var bar := ProgressBar.new()
-  bar.custom_minimum_size = Vector2(0, 15)
-  bar.show_percentage = true
-  bar.min_value = 0.0
-  bar.max_value = 100.0
-  bar.value = completion * 100.0
-  panel.add_child(bar)
- if not has_any:
-  _label(queue_panel, "Очередь строительства пуста", 14,
-   Color("#a4bdcc"))
+  var next_text: String = "%s · осталось %d дн." % [
+   str(entry.get("name", "Стройплощадка")), left]
+  var line: Label = controls["line"]
+  var bar: ProgressBar = controls["bar"]
+  if line.text != next_text:
+   line.text = next_text
+  var next_percent: float = completion * 100.0
+  if absf(bar.value - next_percent) > 0.05:
+   bar.value = next_percent
 
 func _spin(parent: Node, caption: String, value: float, changed: Callable,
         step_value: float, maximum: float) -> void:

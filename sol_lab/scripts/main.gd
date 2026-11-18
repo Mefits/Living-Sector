@@ -22,6 +22,11 @@ var visual_clock = NativeClock.new()
 var construction = ConstructionRuntime.new()
 var construction_ui_elapsed: float = 0.0
 var message_line: Label
+var _calendar_display_day: int = -1
+var _map_view_last_usec: int = 0
+var _map_view_peak_usec: int = 0
+var _dock_refresh_last_usec: int = 0
+var _dock_refresh_peak_usec: int = 0
 var paused: bool = false
 var speed: int = 1
 var speed_buttons: Dictionary = {}
@@ -254,7 +259,11 @@ func _process(delta: float) -> void:
     construction_ui_elapsed += delta
     if construction_ui_elapsed >= 0.5:
         construction_ui_elapsed = fmod(construction_ui_elapsed, 0.5)
-        _refresh_construction_ui()
+        # No construction rows = nothing to animate. Open/close/order/
+        # completion paths still refresh immediately as needed.
+        if browser != null and browser.visible and (
+                browser.page == "build") and not construction.sites.is_empty():
+            _refresh_construction_ui()
     var ui_usec: int = maxi(0, Time.get_ticks_usec() - ui_started_usec)
     var process_usec: int = maxi(0, Time.get_ticks_usec() - started_usec)
     # Zero N158 and zero real sim ticks: this project renders a visual clock
@@ -374,8 +383,11 @@ func _layout_right_side() -> void:
     browser.set_dock_width(active_width)
 
 func _native_view_world() -> Dictionary:
-    # Filter PRESENTATION only. Frozen source Sol and colony data stay intact.
-    var result: Dictionary = world.duplicate(true)
+    # Original SystemBalance's view accepts a read-only detached projection.
+    # Copy only the small mutable body rows whose display angles change.
+    # The old world.duplicate(true) copied markets, routes, ships and more
+    # ten times per second, even though this map only reads them.
+    var result: Dictionary = world.duplicate(false)
     var visible: Array = []
     for item in world.get("bodies", []):
         if not (item is Dictionary):
@@ -383,7 +395,7 @@ func _native_view_world() -> Dictionary:
         var id: String = str(item.get("id", ""))
         if not Model.VISIBLE.has(id):
             continue
-        var body: Dictionary = item.duplicate(true)
+        var body: Dictionary = item.duplicate(false)
         var period: float = float(body.get("orbit_period", 0))
         if str(body.get("parent_body_id", "")) != "":
             period = float(body.get("satellite_orbit_period_native", period))
@@ -395,8 +407,12 @@ func _native_view_world() -> Dictionary:
     result["bodies"] = visible
     var facilities: Array = []
     for f in world.get("facilities", []):
+        if not (f is Dictionary):
+            continue
         if Model.VISIBLE.has(str(f.get("body", ""))):
-            facilities.append(f.duplicate(true))
+            # View.update_world() deep-detaches changed facility arrays
+            # itself, so an extra detached copy is unnecessary here.
+            facilities.append(f)
     result["facilities"] = facilities
     return result
 
@@ -419,8 +435,11 @@ func _make_native_map() -> void:
 func _update_native_map() -> void:
     if native_view == null:
         return
+    var begun: int = Time.get_ticks_usec()
     native_view.update_world(_native_view_world())
     native_view.set_native_station_time(native_time)
+    _map_view_last_usec = maxi(0, Time.get_ticks_usec() - begun)
+    _map_view_peak_usec = maxi(_map_view_peak_usec, _map_view_last_usec)
 
 func _native_body_selected(body: Dictionary) -> void:
     var id: String = str(body.get("id", ""))
@@ -491,6 +510,15 @@ func _update_performance_label() -> void:
         float(draw.get("max_usec", 0)) / 1000.0,
         int(draw.get("calls", 0)),
         int(perf.get("frame_over_16_7ms_window", 0))]
+    perf_label.tooltip_text += (
+        "
+Sol Lab · обновление проекции карты: %.3f / пик %.3f мс" +
+        "
+Sol Lab · обновление очереди: %.3f / пик %.3f мс") % [
+        float(_map_view_last_usec) / 1000.0,
+        float(_map_view_peak_usec) / 1000.0,
+        float(_dock_refresh_last_usec) / 1000.0,
+        float(_dock_refresh_peak_usec) / 1000.0]
 func _pending_on(body_id: String) -> int:
     var count: int = 0
     for site in construction.sites:
@@ -502,6 +530,9 @@ func _update_calendar_label() -> void:
     if time_label == null:
         return
     var whole_days: int = int(floor(Calendar.native_to_days(native_time)))
+    if whole_days == _calendar_display_day:
+        return
+    _calendar_display_day = whole_days
     time_label.text = "Г%d · Д%03d" % [
         whole_days / Calendar.DAYS_PER_YEAR + 1,
         whole_days % Calendar.DAYS_PER_YEAR + 1]
@@ -527,7 +558,11 @@ func _advance_construction() -> void:
 func _refresh_construction_ui() -> void:
     if browser == null:
         return
+    var begun: int = Time.get_ticks_usec()
     browser.set_construction_state(world, construction.sites, native_time)
+    _dock_refresh_last_usec = maxi(0, Time.get_ticks_usec() - begun)
+    _dock_refresh_peak_usec = maxi(_dock_refresh_peak_usec,
+        _dock_refresh_last_usec)
 
 func _order_build(body: String, building_id: String) -> void:
     var result: Dictionary = construction.order(body, building_id)
