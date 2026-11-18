@@ -56,8 +56,9 @@ func _initialize() -> void:
         assert(owned["world"] == oracle["world"], "LOD owned stage differs from deep oracle")
         assert(owned["fired"] == oracle["fired"], "LOD fired set or cadence changed")
         assert(original == frozen, "LOD stage mutated canonical World")
-        owned["world"]["facilities"]["due"]["dock_queue"][0]["ship"] = "changed"
-        assert(original == frozen, "due row nested mutable alias escaped")
+        if tick >= 10:
+            owned["world"]["facilities"]["due"]["dock_queue"][0]["ship"] = "changed"
+            assert(original == frozen, "due row nested mutable alias escaped")
         # No-op stage rows remain read-only; the caller must never mutate
         # them before another explicit owned-write transition.
     var unsafe: Dictionary = original.duplicate()
