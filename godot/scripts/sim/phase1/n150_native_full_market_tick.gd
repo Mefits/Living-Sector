@@ -192,6 +192,34 @@ static func _owned_market_for_tick(market: Dictionary, tick: int) -> Dictionary:
 	owned["history"] = history
 	return owned
 
+# Construct a detached flow while omitting consumption samples which the
+# same paid tick would immediately discard. Validate even discarded samples:
+# malformed old data must still reject instead of silently disappearing.
+# The returned windows retain source order and independently owned rows.
+static func _owned_flow_without_expired(flow: Dictionary, cutoff: int) -> Dictionary:
+	var owned: Dictionary = {}
+	for key in flow:
+		if key != "consumption_window":
+			var value: Variant = flow[key]
+			owned[key] = value.duplicate(true) if value is Dictionary or value is Array else value
+	var windows: Dictionary = {}
+	var source: Dictionary = flow["consumption_window"]
+	var slugs: Array = source.keys()
+	slugs.sort()
+	for slug in slugs:
+		var entries: Variant = source[slug]
+		if not (entries is Array):
+			return _fail("invalid_native_consumption_window")
+		var kept: Array = []
+		for entry in entries:
+			if not (entry is Dictionary) or typeof(entry.get("tick")) != TYPE_INT or not _num(entry.get("qty")):
+				return _fail("invalid_consumption_sample")
+			if int(entry["tick"]) >= cutoff:
+				kept.append(entry.duplicate(true))
+		windows[slug] = kept
+	owned["consumption_window"] = windows
+	return {"ok": true, "flow": owned}
+
 static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		native_price_recalculate: Callable) -> Dictionary:
 	## Callable points to N131 ::recalculate(current_price, stock,
@@ -204,8 +232,22 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		return _fail("invalid_market_tick")
 	if not native_price_recalculate.is_valid():
 		return _fail("missing_original_price_engine")
+	# N150's owned compaction drops expired rows immediately after copying.
+	# Build the retained flow before the full-market duplicate, so a restored
+	# oversized consumption history is not deeply cloned just to be discarded.
+	var cutoff_for_copy: int = maxi(0, tick - DEMAND_WINDOW_BASE * tick_multiplier)
+	var staged_flow: Dictionary = _owned_flow_without_expired(market["flow"], cutoff_for_copy)
+	if not staged_flow.get("ok", false):
+		return staged_flow
 	var copy_start_us: int = Time.get_ticks_usec() if _copy_probe_enabled else 0
-	var result: Dictionary = _owned_market_for_tick(market, tick)
+	# Borrow the original flow only while copying unrelated market fields.
+	# Never mutate the input or expose it in the returned proposal.
+	var market_without_flow: Dictionary = {}
+	for field in market:
+		if field != "flow":
+			market_without_flow[field] = market[field]
+	var result: Dictionary = _owned_market_for_tick(market_without_flow, tick)
+	result["flow"] = staged_flow["flow"]
 	if _copy_probe_enabled:
 		_copy_probe_us += Time.get_ticks_usec() - copy_start_us
 		_copy_probe_calls += 1
