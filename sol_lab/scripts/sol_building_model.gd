@@ -19,12 +19,16 @@ static func resource_label(id: String) -> String:
 static func building_defaults() -> Dictionary:
  var result: Dictionary = {}
  for b in BUILDINGS:
-  var native: bool = bool(b["ported"])
-  var row: Dictionary = {"metals":600 if native else 0,"labor":150 if native else 0,"base":int(b["base"])}
+  # The temporary construction test charges exactly 1 metal for EVERY
+  # catalog entry. No paid labor, executor, or construction-shift formula.
+  var row: Dictionary = {
+   "metals": 1, "days": 45, "base": int(b["base"])
+  }
   for ingredient in b["inputs"].keys():
-   row["input_"+str(ingredient)] = int(b["inputs"][ingredient])
+   row["input_" + str(ingredient)] = int(b["inputs"][ingredient])
   result[str(b["id"])] = row
  return result
+
 static func planet_defaults(world: Dictionary) -> Dictionary:
  var result: Dictionary = {}
  for b in world.get("bodies",[]):
@@ -58,19 +62,45 @@ static func colony(world: Dictionary, body: String) -> bool:
   if str(f.get("body","")) == body and str(f.get("type","")) == "station":
    return true
  return false
-static func available(b: Dictionary, settings: Dictionary, world: Dictionary, body: String) -> bool:
- return bool(b["ported"]) and colony(world,body) and stock(world,body) >= int(settings.get(str(b["id"]),{}).get("metals",0))
+static func find_building(id: String) -> Dictionary:
+ for item in BUILDINGS:
+  if str(item["id"]) == id:
+   return item
+ return {}
 
+static func built_or_pending(world: Dictionary,
+        body: String, building_id: String) -> bool:
+ for facility in world.get("facilities", []):
+  if not (facility is Dictionary):
+   continue
+  if str(facility.get("body", "")) != body:
+   continue
+  if building_id == "administrative_center":
+   if str(facility.get("type", "")) == "station" and (
+      str(facility.get("location", "")) == body + "-colony"):
+    return true
+  if str(facility.get("construction_building_id", "")) == building_id:
+   return true
+  if str(facility.get("type", "")) == building_id:
+   return true
+ return false
 
-## Original N17 construction is paid by shift, not a fixed build timer.
-## This value is a LOWER BOUND after all materials arrive, an executor is
-## available, and enough workers are paid. It is not an ETA in game ticks.
-static func minimum_construction_shifts(building: Dictionary,
+static func available(b: Dictionary, settings: Dictionary,
+        world: Dictionary, body: String) -> bool:
+ var id: String = str(b.get("id", ""))
+ if not VISIBLE.has(body) or id.is_empty() or not colony(world, body):
+  return false
+ if built_or_pending(world, body, id):
+  return false
+ var cost: int = int(settings.get(id, {}).get("metals", 1))
+ return cost >= 1 and stock(world, body) >= cost
+
+static func construction_days(building: Dictionary,
         settings: Dictionary) -> int:
- if not bool(building.get("ported", false)):
-  return -1
- var row: Dictionary = settings.get(str(building.get("id", "")), {})
- var labor: int = int(row.get("labor", 0))
- if labor <= 0:
-  return -1
- return ceili(float(labor) / float(ConstructionCycle.MAX_SHIFT_WORKERS))
+ return maxi(1, int(settings.get(str(building.get("id", "")),
+  {}).get("days", 45)))
+
+## Legacy compatibility for old test scripts. No labor shifts are used.
+static func minimum_construction_shifts(_building: Dictionary,
+        _settings: Dictionary) -> int:
+ return -1
