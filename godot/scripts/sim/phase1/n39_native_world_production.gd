@@ -3063,6 +3063,23 @@ func apply_native_colony_prepare_docks(tick: int, graph: RefCounted) -> Dictiona
 ## already employed by N39 facilities, N143 Director and other N141 sites.
 ## This phase does not invent completed facilities: N154 materialization and
 ## builder AI authorization are separate gated native operations.
+## Ordinary N141 only replaces paid site rows, appends receipts, removes
+## completed site/contract keys, inserts new facilities and changes scalar
+## treasuries. None of those writes mutates a pre-existing nested row.
+## B3 colony establishment is different: its source stage can inspect and
+## update nested facility/site/market graphs, so retain the deep oracle path.
+## This is also the ownership boundary exercised by the N141 regression.
+static func _n141_owned_construction_domains(source: Dictionary,
+        colony_stage: bool) -> Dictionary:
+    var staged: Dictionary = source.duplicate(false)
+    for domain in ["construction_sites", "construction_receipts",
+            "construction_contracts", "faction_treasuries",
+            "facilities", "markets"]:
+        staged[domain] = source[domain].duplicate(colony_stage)
+    staged["populations"] = source["populations"].duplicate(colony_stage)
+    return staged
+
+
 func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 1:
         return {"ok": false, "reason": "not_current_native_construction_tick"}
@@ -3080,7 +3097,6 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     # N141 writes only these owned domains. Keep all other registries as
     # read-only inputs to labor/colony proposals and strict Schema oracle.
     # B3 colony establishment performs its own detached full proposal.
-    var staged: Dictionary = _world.duplicate(false)
     # B3 colony establishment inspects the entire population graph.
     # Retain the original deep-owned path whenever any site can establish
     # a colony; ordinary N141 shifts only write the paid household rows.
@@ -3090,12 +3106,7 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
         if site_view.get("labor", {}).get("colony_source", null) != null:
             colony_stage = true
             break
-    for domain in ["construction_sites", "construction_receipts",
-            "construction_contracts", "faction_treasuries",
-            "facilities", "markets"]:
-        staged[domain] = _world[domain].duplicate(true)
-    staged["populations"] = (_world["populations"].duplicate(true)
-        if colony_stage else _world["populations"].duplicate(false))
+    staged = _n141_owned_construction_domains(_world, colony_stage)
     var owned_households: Dictionary = {}
     var ledger: RefCounted = _ledger.fork()
     var paid: Array = []
