@@ -84,6 +84,23 @@ func _run() -> void:
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
             print("P2_PERF_E_DIRECT_THREAD_EXACT tick=", tick)
+            if tick == 60:
+                # Exercise actual N38-style runtime restore at a committed boundary.
+                # Both owners restart from independent detached checkpoint trees.
+                if not direct.restore_checkpoint(detached_direct.duplicate(true), seed):
+                    _finish("direct N38 restart rejected", false)
+                    return
+                var restart: Dictionary = await _command("restore", {
+                    "checkpoint": detached_worker.duplicate(true)})
+                if not restart.get("ok", false) or int(restart.get("tick", -1)) != tick:
+                    _finish("worker N38 restart rejected", false)
+                    return
+                var after_restart: Dictionary = await _command("checkpoint")
+                if not after_restart.get("ok", false) or not Oracle.compare(
+                        direct.checkpoint(), after_restart.get("checkpoint", {})).get("equal", false):
+                    _finish("post-restart direct/thread divergence", false)
+                    return
+                print("P2_PERF_E_DIRECT_THREAD_RESTART_EXACT tick=", tick)
     var window: Dictionary = Metrics.bounded_paid_tick_window(timings, TARGET)
     if not window.get("complete", false) or int(window.get("observed_paid_ticks", -1)) != TARGET:
         _finish("missing 100 consecutive paid worker requests", false)
