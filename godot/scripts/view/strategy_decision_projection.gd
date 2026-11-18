@@ -24,6 +24,8 @@ const REASONS: Dictionary = {
     "research_required_quantumtech3": "Требуется квантовая технология T3",
     "awaiting_paid_labor": "Материалы доставлены; ожидается оплачиваемый труд",
     "no_projected_shortage_relief": "Не обнаружен дефицит, который окупит проект",
+    "strategic_colony_infrastructure": "Строительство нужно для развития колонии; окупаемость через текущий спрос не рассчитывается",
+    "source_n134_N111_strategic_colony_infrastructure": "Глава разрешил развитие колонии после проверки материалов и бюджета",
     "cost_exceeds_projected_relief": "Расчётная польза ниже стоимости проекта",
     "outstanding_native_plan_retained": "Предыдущий оплаченный план ещё выполняется",
     "n113_current_original_head_preempts_legacy_n154": "Приоритет главы фракции выше строительства",
