@@ -115,22 +115,6 @@ var _speed: float = 1.0
 var _show_outliner: bool = true
 var _outliner_force_overlay: bool = false
 
-func _style(color: Color, border: Color = LINE, left: int = 1,
-        top: int = 1, right: int = 1, bottom: int = 1) -> StyleBoxFlat:
-    var box := StyleBoxFlat.new()
-    box.bg_color = color
-    box.border_color = border
-    box.border_width_left = left
-    box.border_width_top = top
-    box.border_width_right = right
-    box.border_width_bottom = bottom
-    box.content_margin_left = 8
-    box.content_margin_right = 8
-    box.content_margin_top = 6
-    box.content_margin_bottom = 6
-    box.anti_aliasing = false
-    return box
-
 func _label(value: String, size_px: int = 14, color: Color = TEXT) -> Label:
     var label := Label.new()
     label.text = value
@@ -142,26 +126,14 @@ func _label(value: String, size_px: int = 14, color: Color = TEXT) -> Label:
     return label
 
 func _button(value: String, callback: Callable, size_px: int = 12) -> Button:
-    var button := Button.new()
-    button.text = value
+    # Legacy HUD callbacks remain unchanged; only styling is centralized.
+    var button: Button = LSComponents.action_button(value, callback)
+    button.theme_type_variation = &"LSHUDActionButton"
     button.add_theme_font_size_override("font_size", size_px)
-    button.add_theme_color_override("font_color", TEXT)
-    button.add_theme_color_override("font_hover_color", Color("#A4E8DE"))
-    button.add_theme_stylebox_override("normal", _style(BG, LINE, 0, 0, 0, 1))
-    button.add_theme_stylebox_override("hover", _style(Color("#132B34"), TEAL, 0, 0, 0, 2))
-    button.add_theme_stylebox_override("pressed", _style(Color("#193B42"), TEAL, 0, 0, 0, 2))
-    button.add_theme_stylebox_override("focus", _style(Color.TRANSPARENT, TEAL))
-    button.focus_mode = Control.FOCUS_NONE
-    button.pressed.connect(callback)
     return button
 
 func _panel() -> PanelContainer:
-    var panel := PanelContainer.new()
-    var frame: StyleBoxFlat = _style(BG, LINE)
-    frame.shadow_color = Color(0.0, 0.0, 0.0, 0.30)
-    frame.shadow_size = 3
-    panel.add_theme_stylebox_override("panel", frame)
-    return panel
+    return LSComponents.chrome_panel(&"LSLegacyPanel")
 
 func attach(game: Control) -> void:
     _game = game
@@ -262,9 +234,7 @@ func _build_top() -> void:
     row.add_child(_alert_button)
     _alert_count = _label("", 9, Color("#14150F"))
     _alert_count.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    var badge_style := _style(AMBER, AMBER, 0, 0, 0, 0)
-    badge_style.set_content_margin_all(0)
-    _alert_count.add_theme_stylebox_override("normal", badge_style)
+    _alert_count.theme_type_variation = &"LSAlertCount"
     _alert_count.position = Vector2(27, 8)
     _alert_count.size = Vector2(15, 15)
     _alert_count.visible = false
@@ -1576,8 +1546,7 @@ func _render_cards(cards: Array) -> void:
     for card in cards:
         if not (card is Dictionary):
             continue
-        var panel := _panel()
-        panel.add_theme_stylebox_override("panel", _style(BG2, LINE))
+        var panel: PanelContainer = LSComponents.chrome_panel(&"LSFallbackCard")
         panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
         _window_cards.add_child(panel)
         var content := VBoxContainer.new()
@@ -1619,7 +1588,7 @@ func _update_window() -> void:
         for name in tabs:
             var btn := _button(name, _switch_tab.bind(name), 13)
             if name == _tab:
-                btn.add_theme_stylebox_override("normal", _style(BG2, TEAL))
+                btn.theme_type_variation = &"LSActiveTabButton"
                 btn.add_theme_color_override("font_color", TEAL)
             _window_tabs.add_child(btn)
     var lines: Array[String] = []

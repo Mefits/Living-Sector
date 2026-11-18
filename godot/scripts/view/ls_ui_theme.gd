@@ -51,6 +51,14 @@ static func build() -> Theme:
     ui_theme.set_type_variation(&"LSOutlinerSelectedGlyph", &"LSOutlinerGlyph")
     ui_theme.set_type_variation(&"LSOutlinerFilter", &"Button")
     ui_theme.set_type_variation(&"LSOutlinerFilterActive", &"LSOutlinerFilter")
+    # All remaining former per-control StyleBoxes in legacy and workspace UI.
+    ui_theme.set_type_variation(&"LSHUDActionButton", &"Button")
+    ui_theme.set_type_variation(&"LSLegacyPanel", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSFallbackCard", &"PanelContainer")
+    ui_theme.set_type_variation(&"LSAlertCount", &"Label")
+    ui_theme.set_type_variation(&"LSFocusBadge", &"Label")
+    ui_theme.set_type_variation(&"LSWorkspaceTabsScroller", &"ScrollContainer")
+    ui_theme.set_type_variation(&"LSFilterLineEdit", &"LineEdit")
     ui_theme.set_type_variation(&"LSPrimaryButton", &"Button")
     ui_theme.set_type_variation(&"LSSecondaryButton", &"Button")
     ui_theme.set_type_variation(&"LSNavButton", &"Button")
@@ -226,6 +234,48 @@ static func build() -> Theme:
     ui_theme.set_color(&"font_color", &"LSOutlinerFilter", Color("#748B92"))
     ui_theme.set_color(&"font_color", &"LSOutlinerFilterActive", Color("#53B5AC"))
     ui_theme.set_font_size(&"font_size", &"LSOutlinerFilter", 9)
+
+    # Former legacy _style/_box overrides now have shared Theme owners.
+    var hud_button_normal := _flat(Color("#09141C"), Color("#243942"),
+        1, 8, 6)
+    var hud_button_hover := _flat(Color("#132B34"), Color("#53B5AC"),
+        2, 8, 6)
+    var hud_button_pressed := _flat(Color("#193B42"), Color("#53B5AC"),
+        2, 8, 6)
+    for state in [&"normal", &"hover", &"pressed"]:
+        var skin: StyleBoxFlat = (
+            hud_button_normal if state == &"normal" else (
+            hud_button_hover if state == &"hover" else hud_button_pressed))
+        ui_theme.set_stylebox(state, &"LSHUDActionButton", skin)
+    ui_theme.set_stylebox(&"focus", &"LSHUDActionButton",
+        _flat(Color.TRANSPARENT, Color("#53B5AC"),
+            1, 8, 6, 1, 1, 1))
+    ui_theme.set_color(&"font_color", &"LSHUDActionButton", Color("#C4D0D3"))
+    ui_theme.set_color(&"font_hover_color", &"LSHUDActionButton",
+        Color("#A4E8DE"))
+
+    var old_panel := _flat(Color("#09141C"), Color("#243942"),
+        1, 8, 6, 1, 1, 1)
+    old_panel.shadow_color = Color(0, 0, 0, 0.30)
+    old_panel.shadow_size = 3
+    ui_theme.set_stylebox(&"panel", &"LSLegacyPanel", old_panel)
+    var old_card := _flat(Color("#0D1B24"), Color("#243942"),
+        1, 8, 6, 1, 1, 1)
+    ui_theme.set_stylebox(&"panel", &"LSFallbackCard", old_card)
+    ui_theme.set_stylebox(&"normal", &"LSAlertCount",
+        _flat(Color("#C99B54"), Color.TRANSPARENT))
+    ui_theme.set_stylebox(&"normal", &"LSFocusBadge",
+        _flat(Color("#201B14"), Color("#594A31"),
+            1, 5, 5, 1, 1, 1))
+    ui_theme.set_stylebox(&"panel", &"LSWorkspaceTabsScroller",
+        _flat(Color("#09151D"), Color.TRANSPARENT))
+    var transparent_field := _flat(Color.TRANSPARENT, Color.TRANSPARENT)
+    ui_theme.set_stylebox(&"normal", &"LSFilterLineEdit", transparent_field)
+    ui_theme.set_stylebox(&"focus", &"LSFilterLineEdit", transparent_field)
+    ui_theme.set_color(&"font_color", &"LSFilterLineEdit", Color("#C4D0D3"))
+    ui_theme.set_color(&"font_placeholder_color", &"LSFilterLineEdit",
+        Color("#748B92"))
+    ui_theme.set_font_size(&"font_size", &"LSFilterLineEdit", 8)
 
     # Ordinary workspace actions, previously rebuilt via _box() per control.
     # Preserve the original 12×10px padding while moving style ownership

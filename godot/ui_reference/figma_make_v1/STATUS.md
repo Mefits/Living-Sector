@@ -20,7 +20,8 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] StrategyUI inherits the Theme, preserving existing local overrides until migration.
 - [x] Workspace header, toolbar, search panel, window icon, section header, table rows **and outer management window shell** moved to Theme.
 - [ ] Run Godot 4.7.2 headless parse and `godot/tests/p2_figma_ui_theme_check.gd`.
-- [ ] Migrate remaining per-control StyleBox overrides and verify in a rendered game.
+- [x] Legacy HUD/Context and workspace local StyleBox skin construction replaced with centralized Theme variants; per-control color accents and font sizes remain where semantically necessary.
+- [ ] Verify native theme parser and rendered game in final acceptance.
 
 ## Stage 3 — component library [IN PROGRESS]
 
@@ -31,7 +32,8 @@ Source Figma Make: https://www.figma.com/make/ecvrssCEMaMqUObXlDkLzN/Living-Sect
 - [x] Theme-backed management window shell (original navigation logic remains).
 - [x] Shared per-table column sizing profile: identical header/data widths, Figma five-column layout, four-column ID exception, and full-width clickable rows.
 - [x] Shared navigation links and Figma issue alerts (47px, critical/normal variants, original callbacks).
-- [ ] Remaining specialized controls and complete Windows visual comparison.
+- [x] Focus badge, alert badge, filter field, tab scroller and fallback cards use common Theme variations.
+- [ ] Complete Windows visual comparison postponed until final acceptance.
 - [ ] Visual screenshot comparisons.
 
 ## Stage 4 — native HUD and peripheral shell [IN PROGRESS]
@@ -128,3 +130,4 @@ Source-level consistency checks passed: all 7 `.tres` StyleBox subresources reso
 - `e591d8a`: nested table/tab scroll event integration.
 
 **All Stage 6 implementation changes are committed, not runtime tested.** No GitHub Actions or Godot validation has been run at the user's request. Stage 7 is the single final validation and correction gate.
+\n- Final cleanup: removed obsolete per-control _style/_box builders from StrategyUI and StrategyWorkspaces, centralized their styles in LSTheme. Long N39 notes no longer clip to ellipsis. **Requires Godot validation before claiming readiness.**\n

@@ -71,19 +71,6 @@ var _scroll_by_page: Dictionary = {}
 var _metric_grids: Array[GridContainer] = []
 var _colony_grids: Array[GridContainer] = []
 
-func _box(fill: Color = SURFACE, outlined: bool = true) -> StyleBoxFlat:
-    var style := StyleBoxFlat.new()
-    style.bg_color = fill
-    style.border_color = LINE
-    if outlined:
-        style.set_border_width_all(1)
-    style.content_margin_left = 12
-    style.content_margin_right = 12
-    style.content_margin_top = 10
-    style.content_margin_bottom = 10
-    style.anti_aliasing = false
-    return style
-
 func _label(value: String, size_px: int = 14,
         tone: Color = TEXT) -> Label:
     var control := Label.new()
@@ -154,11 +141,7 @@ func _ready() -> void:
     _focus_badge = _label("", 7, AMBER)
     _focus_badge.visible = false
     _focus_badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-    var tag_style := _box(Color("#201B14"), false)
-    tag_style.border_color = Color("#594A31")
-    tag_style.set_border_width_all(1)
-    tag_style.set_content_margin_all(5)
-    _focus_badge.add_theme_stylebox_override("normal", tag_style)
+    _focus_badge.theme_type_variation = &"LSFocusBadge"
     header.add_child(_focus_badge)
     _close_button = _button("✕", func() -> void: close_requested.emit())
     _close_button.custom_minimum_size = Vector2(42, 49)
@@ -174,7 +157,7 @@ func _ready() -> void:
     _tabs_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
     _tabs_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
     _tabs_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _tabs_scroll.add_theme_stylebox_override("panel", _box(Color("#09151D"), false))
+    _tabs_scroll.theme_type_variation = &"LSWorkspaceTabsScroller"
     add_child(_tabs_scroll)
     _tabs = HBoxContainer.new()
     _tabs.add_theme_constant_override("separation", 0)
@@ -204,13 +187,7 @@ func _ready() -> void:
     _filter.placeholder_text = "Фильтр по объектам и статусам"
     _filter.custom_minimum_size.x = 0
     _filter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    _filter.add_theme_font_size_override("font_size", 8)
-    _filter.add_theme_color_override("font_color", TEXT)
-    _filter.add_theme_color_override("font_placeholder_color", MUTED)
-    var transparent_style := _box(Color.TRANSPARENT, false)
-    transparent_style.set_content_margin_all(0)
-    _filter.add_theme_stylebox_override("normal", transparent_style)
-    _filter.add_theme_stylebox_override("focus", transparent_style)
+    _filter.theme_type_variation = &"LSFilterLineEdit"
     _filter.text_changed.connect(func(_value: String) -> void:
         _last_signature = ""
         _filter_clear.visible = not _filter.text.is_empty()

@@ -139,8 +139,10 @@ static func metric_text(value: String, role: StringName) -> Label:
     var label := Label.new()
     label.text = value
     label.theme_type_variation = role
-    label.clip_text = true
-    label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+    # Long N39 descriptions/AI reasons must wrap, never silently disappear.
+    label.clip_text = not (role in [&"LSBodyNote", &"LSReasonValue"])
+    if label.clip_text:
+        label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
     label.mouse_filter = Control.MOUSE_FILTER_IGNORE
     label.tooltip_text = value
     return label
