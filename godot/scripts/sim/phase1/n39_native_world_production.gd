@@ -344,7 +344,31 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     if bool(initial["due"]["restock"]):
         lifecycle_world["markets"] = _world["markets"].duplicate(true)
     if not initial["repair_candidates"].is_empty():
-        lifecycle_world["populations"] = _world["populations"].duplicate(true)
+        # Payroll.pay_shift selects households by the producer's faction and
+        # location, in sorted population-ID order. Only those households can
+        # receive wages/employment writes; unrelated colonies are read-only.
+        # Build the complete union BEFORE the first payment, since an earlier
+        # paid repair changes occupied() and later assignments. Do not filter
+        # by available workers or wallet: those values can change mid-stage.
+        var payroll_locations: Dictionary = {}
+        for candidate in initial["repair_candidates"]:
+            var repair_id: String = str(candidate.get("facility_id", ""))
+            if not _world["facilities"].has(repair_id):
+                return {"ok": false, "reason": "unknown_repair_candidate"}
+            var employer: Dictionary = _world["facilities"][repair_id]
+            var faction: String = str(employer.get("faction", ""))
+            var location: String = str(employer.get("location", ""))
+            if not payroll_locations.has(faction):
+                payroll_locations[faction] = {}
+            payroll_locations[faction][location] = true
+        var payroll_populations: Dictionary = _world["populations"].duplicate(false)
+        for population_id in _world["populations"]:
+            var household: Dictionary = _world["populations"][population_id]
+            var faction: String = str(household.get("faction", ""))
+            var location: String = str(household.get("location", ""))
+            if payroll_locations.has(faction) and payroll_locations[faction].has(location):
+                payroll_populations[population_id] = household.duplicate(true)
+        lifecycle_world["populations"] = payroll_populations
     # Receipts accumulate indefinitely; cloning the whole N9 history on
     # every no-op orbit tick would make long-term simulation quadratic.
     # No new maintenance payments are possible unless there is a paid
