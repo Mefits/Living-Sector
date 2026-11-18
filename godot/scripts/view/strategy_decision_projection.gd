@@ -142,7 +142,7 @@ static func build(trace: Dictionary, economy: Dictionary,
                     break
         result["factions"].append({
             "id": fid, "action": str(head.get("action",
-                head.get("selected_option", "wait"))),
+                head.get("selected_option", ""))),
             "head_reason": str(head.get("reason", "")),
             "problem": head.get("problem", {}),
             "construction_status": str(view.get("status", "")),

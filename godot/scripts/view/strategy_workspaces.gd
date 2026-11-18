@@ -9,6 +9,7 @@ signal back_requested()
 signal close_requested()
 
 const ShipPresence = preload("res://scripts/view/ship_body_projection.gd")
+const StrategyInsights = preload("res://scripts/view/strategy_decision_projection.gd")
 const FacilityNames = preload("res://scripts/view/facility_labels_ru.gd")
 const FigmaIcons = preload("res://scripts/view/figma_strategy_icons.gd")
 const LSComponents = preload("res://scripts/view/ls_ui_components.gd")
@@ -113,6 +114,7 @@ var _ship: String = ""
 var _focus: String = ""
 var _tick: int = 0
 var _debug_text: String = ""
+var _strategy_trace: Dictionary = {}
 var _header_title: Label
 var _close_button: Button
 var _back_button: Button
@@ -327,7 +329,8 @@ func tabs_for(mode: String) -> Array:
 func show_state(mode: String, tab: String, world: Dictionary,
         economy: Dictionary, body: String, facility: String,
         ship: String, tick: int, focus: String = "",
-        debug_text: String = "") -> void:
+        debug_text: String = "",
+        strategy_trace: Dictionary = {}) -> void:
     var prior_mode: String = _mode
     var prior_tab: String = _tab
     var prior_body: String = _body
@@ -343,6 +346,7 @@ func show_state(mode: String, tab: String, world: Dictionary,
     _tick = tick
     _focus = focus
     _debug_text = debug_text
+    _strategy_trace = strategy_trace
     var changed: bool = (prior_mode != mode or prior_tab != _tab or
         prior_body != body or prior_facility != facility or prior_ship != ship)
     if changed:
@@ -1525,43 +1529,80 @@ func _fleet_deliveries_section() -> void:
     _link(section, "ПОСМОТРЕТЬ КОНТРАКТЫ ›", "fleet", "Контракты")
 
 func _administration_workspace() -> void:
-    var section := _section(_tab.to_upper(), "Реальные решения автономных фракций")
-    var reasons: Variant = _economy.get("autonomy_diagnostics", {})
-    var actions: Variant = _economy.get("ai_actions", {})
-    if _tab == "Цели и задачи":
-        var has_priorities: bool = reasons is Dictionary and not reasons.is_empty()
-        if has_priorities:
-            for key in reasons:
-                if str(key) == "consequences":
-                    continue
-                _planner_priority(section, str(key), reasons[key])
+    var report: Dictionary = StrategyInsights.build(
+        _strategy_trace, _economy, _body_id())
+    var decisions: Array = report.get("factions", [])
+    var tick: int = int(_strategy_trace.get("strategy_trace", {}).get(
+        "tick", report.get("tick", -1)))
+    if decisions.is_empty():
+        var unavailable := _section("РЕШЕНИЯ АВТОНОМНЫХ ФРАКЦИЙ")
+        _note(unavailable,
+            "Пока нет опубликованного решения для выбранной колонии.")
+        _note(unavailable,
+            "ИИ продолжает работать; отсутствие данных не означает ожидание.")
+        _link(unavailable, "ПРОВЕРИТЬ СТРОЙКИ ›",
+            "construction", "Проекты и снабжение")
+        return
+    for raw in decisions:
+        if not (raw is Dictionary):
+            continue
+        var item: Dictionary = raw
+        var faction: String = str(item.get("id", ""))
+        var section := _section("ФРАКЦИЯ · " + faction,
+            "Решение, основанное на реальных проверках" + (
+            " · тик " + str(tick) if tick >= 0 else ""))
+        var action: String = str(item.get("action", ""))
+        if action.is_empty():
+            _note(section, "Стратегическое решение пока не опубликовано.")
         else:
-            _note(section,
-                "Цели фракции пока не опубликованы симуляцией.")
-        var tasks := _section("ОЧЕРЕДЬ ДЕЙСТВИЙ")
-        if actions is Dictionary and not actions.is_empty():
-            for id in actions:
-                _reason_row(tasks, str(id), str(actions[id]))
-        else:
-            _note(tasks, "Список текущих решений ИИ пока недоступен.")
-    else:
-        var has_explanations: bool = false
-        if reasons is Dictionary:
-            for key in reasons:
-                if str(key) == "consequences":
+            _pair(section, "Решение главы",
+                StrategyInsights.action_text(action))
+            var why: String = str(item.get("head_reason", ""))
+            if not why.is_empty():
+                _pair(section, "Основание решения",
+                    StrategyInsights.reason_text(why))
+        var goal: Variant = item.get("selected_goal", {})
+        if goal is Dictionary and not goal.is_empty():
+            _pair(section, "Предложенная цель",
+                str(goal.get("goal_id", "")) + " · " +
+                str(goal.get("commodity", "")) + " · " +
+                str(goal.get("destination", "")))
+        var status: String = str(item.get("construction_status", ""))
+        var blocker: String = str(item.get("construction_reason", ""))
+        if not status.is_empty():
+            _pair(section, "Проверка строительства", status)
+        if not blocker.is_empty():
+            _pair(section, "Почему стройка не началась",
+                StrategyInsights.reason_text(blocker))
+        if _tab == "Объяснения":
+            var alternatives: Array = item.get("offers", [])
+            var alternatives_box := _section(
+                "КАНДИДАТЫ И РЕАЛЬНЫЕ БЛОКИРОВКИ")
+            if alternatives.is_empty():
+                _note(alternatives_box,
+                    "Последняя проверка не опубликовала кандидатов.")
+            for candidate in alternatives:
+                if not (candidate is Dictionary):
                     continue
-                _reason_row(section, str(key), str(reasons[key]))
-                has_explanations = true
-            var consequences: Variant = reasons.get("consequences", {})
-            if consequences is Dictionary and not consequences.is_empty():
-                var consequences_box := _section("ПОДТВЕРЖДЁННЫЕ ПОСЛЕДСТВИЯ")
-                for key in consequences:
-                    _reason_row(consequences_box, str(key),
-                        str(consequences[key]))
-                has_explanations = true
-        if not has_explanations:
-            _note(section, "Объяснения и последствия ещё не опубликованы.")
-    _link(section, "ЭКОНОМИЧЕСКИЕ УЗКИЕ МЕСТА ›",
+                var label: String = str(candidate.get("building", ""))
+                var location: String = str(candidate.get("location", ""))
+                var commodity: String = str(candidate.get("commodity", ""))
+                var reason: String = str(candidate.get("reason", ""))
+                _reason_row(alternatives_box,
+                    label + " · " + commodity + " · " + location,
+                    StrategyInsights.reason_text(reason))
+                if bool(candidate.get("ready", false)):
+                    _pair(alternatives_box, "Расчётная стоимость проекта",
+                        str(candidate.get("cost", "—")) + " CR")
+            _note(alternatives_box,
+                "Готовность предложения не равна разрешению главы фракции.")
+        else:
+            _link(section, "ПОЧЕМУ ВЫБРАНА ЭТА ЦЕЛЬ? ›",
+                "administration", "Объяснения")
+    var next := _section("СВЯЗАННЫЕ РАЗДЕЛЫ")
+    _link(next, "СТРОЙКИ И ПОСТАВКИ ›",
+        "construction", "Проекты и снабжение")
+    _link(next, "ДЕФИЦИТЫ И УЗКИЕ МЕСТА ›",
         "economy", "Дефициты и узкие места")
 
 func _research_workspace() -> void:
