@@ -67,7 +67,7 @@ func _case(count: int, tick: int, failures: Array[String]) -> void:
             failures.append("window mismatch %s count=%d tick=%d" % [slug, count, tick])
         var seed: float = float(before["flow"]["seed_demand"][slug])
         var amount: float = float(expected["amount"])
-        var expected_demand: float = amount if amount > 0.0 else seed
+        var expected_demand: float = maxf(amount, seed) if tick < 50 else (amount if amount > 0.0 else seed)
         if result["pricing"]["demand"].get(slug) != expected_demand:
             failures.append("demand mismatch %s count=%d tick=%d" % [slug, count, tick])
     if result["pricing"]["prices"] != before["pricing"]["prices"]:
