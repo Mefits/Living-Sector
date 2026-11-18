@@ -813,7 +813,7 @@ func _facility_rows(body_id: String = "") -> Array[Dictionary]:
         if state is int or state is float:
             condition = "%.0f%%" % (float(state) * 100.0)
         rows.append({"id":id, "cells":[FacilityNames.display_name(item),
-            FacilityNames.type_name(str(item.get("type", "—"))),
+            FacilityNames.context_type_name(item),
             count, condition, str(item.get("location", "—"))]})
     # Keep live-created real N39 facilities in colony overview and tables.
     if active is Dictionary:
@@ -842,7 +842,7 @@ func _facility_rows(body_id: String = "") -> Array[Dictionary]:
                 condition = "%.0f%%" % (float(raw_condition) * 100.0)
             rows.append({"id": id, "cells":[
                 FacilityNames.display_name(live),
-                FacilityNames.type_name(kind),
+                FacilityNames.context_type_name(live),
                 str(live.get("assigned_workers", "—")), condition,
                 str(live.get("location", "—"))]})
     return rows
