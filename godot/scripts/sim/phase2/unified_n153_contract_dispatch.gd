@@ -58,7 +58,7 @@ static func _ship_flight_fitting(ship: Dictionary, ship_id: String,
 static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary,
         graph: RefCounted, positions: Dictionary, resolver: RefCounted,
         tick_scale: float, route_index: Dictionary = {},
-        readiness_cache: Dictionary = {}, fitting_cache: Dictionary = {}) -> Dictionary:
+        shared_routes: Dictionary = {}, readiness_cache: Dictionary = {}, fitting_cache: Dictionary = {}) -> Dictionary:
     var ship: Dictionary = world["ships"][ship_id]
     var static_gate: Dictionary = _ship_static_readiness(world, ship_id, readiness_cache)
     if not static_gate.get("ok", false):
@@ -69,7 +69,7 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
     var source: String = str(contract.get("source_location", ""))
     var dest: String = str(contract.get("destination_location", ""))
     var here: String = str(ship.get("location", ""))
-    var route: Dictionary = EligibilityIndex.legs(route_index, here, source, dest, graph, positions, false)
+    var route: Dictionary = EligibilityIndex.legs(route_index, here, source, dest, graph, positions, false, shared_routes)
     if route.has("error"):
         return {"ok": false, "reason": str(route["error"])}
     var fitting: Dictionary = _ship_flight_fitting(ship, ship_id, fitting_cache)
@@ -234,6 +234,7 @@ static func propose(world: Dictionary, graph: RefCounted,
     # Per-proposal geometry: contracts sharing source/destination can reuse
     # the same here->legs index. Never persists across World/tick/N38 load.
     var route_indices: Dictionary = {} # source -> destination -> here -> legs
+    var shared_routes: Dictionary = {} # inbound/endpoint preflight, one proposal
     var readiness_cache: Dictionary = {} # ship -> stable rejection or ok
     var fitting_cache: Dictionary = {} # ship -> speed and fuel rate
     var observation_cache: Dictionary = {} # ship -> sensor and comms observations
@@ -315,7 +316,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 continue
             var source_purchase: int = int(quote_result["cost"])
             var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver,
-                tick_scale, route_index, readiness_cache, fitting_cache)
+                tick_scale, route_index, shared_routes, readiness_cache, fitting_cache)
             if not readiness.get("ok", false):
                 _blocked_ship(ship_blockers, "n14_" + str(
                     readiness.get("reason", "unavailable")))
