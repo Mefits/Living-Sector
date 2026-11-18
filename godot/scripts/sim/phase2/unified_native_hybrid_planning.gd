@@ -69,12 +69,19 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
             "prices": m.get("prices", {}).duplicate(true)})
     var ships: Array = []
     var ship_ids: Array = []
-    for sid in world["ships"]:
-        if str(world["ships"][sid].get("faction_id", "")) == faction:
+    # Collect the owning ship rows once. Keep the source ID sort before
+    # cargo validation: malformed rows must still fail in canonical order.
+    # This is a capture-local borrowed roster, never persisted across ticks.
+    var owned_ships: Dictionary = {}
+    var source_ships: Dictionary = world["ships"]
+    for sid in source_ships:
+        var candidate: Dictionary = source_ships[sid]
+        if str(candidate.get("faction_id", "")) == faction:
             ship_ids.append(sid)
+            owned_ships[sid] = candidate
     ship_ids.sort()
     for sid in ship_ids:
-        var ship: Dictionary = world["ships"][sid]
+        var ship: Dictionary = owned_ships[sid]
         var cargo_total: int = 0
         for amount in ship.get("cargo", {}).values():
             if typeof(amount) != TYPE_INT or int(amount) < 0:
@@ -97,6 +104,10 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
     # the entire growing global board once per faction is not. Sort only the
     # matching IDs, retaining the original lexicographic source order.
     var contract_ids: Array = []
+    # Preserve the source status normalization once per selected contract.
+    # The local projection is invalidated after this capture, so changed
+    # ownership/status on the next paid tick cannot reuse stale entries.
+    var selected_contracts: Dictionary = {}
     # This alias is identical for every board row; avoid constructing it
     # once per global contract on each faction's planning capture.
     var requestor_alias: String = "faction/" + faction
@@ -113,10 +124,12 @@ static func capture(world: Dictionary, faction: String, tick: int) -> Dictionary
         if status in ["paid", "expired"]:
             continue
         contract_ids.append(cid)
+        selected_contracts[cid] = {"row": c, "status": status}
     contract_ids.sort()
     for cid in contract_ids:
-        var c: Dictionary = contracts[cid]
-        var status: String = str(c.get("status", "")).to_lower()
+        var selected: Dictionary = selected_contracts[cid]
+        var c: Dictionary = selected["row"]
+        var status: String = selected["status"]
         commitments.append({
             "contract_id": str(cid), "status": status,
             "source": str(c.get("source_location", "")),
