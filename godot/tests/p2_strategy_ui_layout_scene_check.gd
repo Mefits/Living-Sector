@@ -69,7 +69,9 @@ func _run() -> void:
     ui.call("update_performance", 61, 193.2, 3.1, true, "Perf test")
     var readout: String = (ui.get("_perf_readout") as Label).text
     assert(readout.contains("FPS 61"))
-    assert(readout.contains("PING —"))
+    # Diagnostics moved from the 82px HUD into the 24px footer.
+    # The PING note remains accessible in the profiler tooltip.
+    assert((ui.get("_perf_readout") as Label).tooltip_text.contains("PING —"))
     ui.call("_open_selection_details")
     assert((ui.get("_window") as PanelContainer).visible)
     var workspace: Control = ui.get("_workspace_ui")
@@ -295,7 +297,8 @@ func _run() -> void:
         var popup: Rect2 = alerts.get_rect()
         var header: Rect2 = (ui.get("_top") as PanelContainer).get_rect()
         assert(panel.end.x <= list_rect.position.x)
-        assert(panel.position.y >= breadcrumb.end.y)
+        assert(not (ui.get("_nav_panel") as PanelContainer).visible)
+        assert(panel.position.y >= header.end.y)
         assert(popup.position.y >= breadcrumb.end.y)
         assert(popup.position.y >= header.end.y)
         # Previously native PanelContainer grew beyond hardcoded TOP_H=82,
@@ -328,11 +331,17 @@ func _run() -> void:
     assert(big_scale_window.end.x <= 683.0)
     assert(big_scale_window.position.x >= rail.size.x)
     assert(big_scale_window.position.y >= (
-        ui.get("_nav_panel") as PanelContainer).get_rect().end.y)
-    assert((ui.get("_nav_panel") as PanelContainer).position.y >= (
         ui.get("_top") as PanelContainer).get_rect().end.y)
+    assert(not (ui.get("_nav_panel") as PanelContainer).visible)
     ui.call("_close_window")
+    # When viewport width is only 683 logical pixels, the map wins over
+    # the docked outliner even without an open management workspace.
+    assert(not (ui.get("_outliner") as PanelContainer).visible)
+    assert((ui.get("_outliner_reopen") as Button).visible)
+    ui.call("_toggle_outliner")
     assert((ui.get("_outliner") as PanelContainer).visible)
+    ui.call("_toggle_outliner")
+    assert(not (ui.get("_outliner") as PanelContainer).visible)
     host.queue_free()
     print("SYSTEMBALANCE_FIGMA_LAYOUT_SCENE_PASS")
     quit(0)
