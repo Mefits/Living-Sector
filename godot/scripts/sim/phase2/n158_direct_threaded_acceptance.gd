@@ -281,3 +281,46 @@ static func summarize_checkpoint_observations(samples: Array,
         "time_kind": "elapsed_wall_not_cpu",
         "included_in_paid_tick_window": false,
         "performance_claim": false}
+
+## Only exact completed source checkpoints authorize phase attribution. Timing
+## distributions may differ across threads; the authoritative state may not.
+## Reject forged phase totals exceeding the measured full paid-tick advance.
+static func verify_paid_phase_pair(tick: int, direct_checkpoint: Dictionary,
+        worker_response: Dictionary, direct_phase: Dictionary,
+        paid_window: Dictionary) -> Dictionary:
+    var boundary: Dictionary = verify_boundary(tick, direct_checkpoint, worker_response)
+    if not boundary.get("accepted", false):
+        return {"accepted": false, "reason": "source_parity_unverified",
+            "difference": boundary.get("difference", {})}
+    if typeof(worker_response.get("paid_phase_window", null)) != TYPE_DICTIONARY:
+        return {"accepted": false, "reason": "missing_worker_phases"}
+    var worker_phase: Dictionary = worker_response["paid_phase_window"]
+    if paid_window.get("accepted", false) != true or (
+            int(paid_window.get("to_tick", -1)) != tick or
+            int(paid_window.get("observed_paid_ticks", -1)) != 100):
+        return {"accepted": false, "reason": "paid_window_unverified"}
+    # compare_phase_windows validates all four phase distributions, exact
+    # 100-paid-tick bounds and their nearest-rank p95 arithmetic.
+    var comparison: Dictionary = METRICS.compare_phase_windows(
+        direct_phase, worker_phase, "checkpoint_exact", "checkpoint_exact")
+    if not comparison.get("accepted", false):
+        return {"accepted": false, "reason": "phase_distribution_invalid",
+            "detail": comparison}
+    var total_direct: int = 0
+    var total_worker: int = 0
+    for phase in ["ships", "dock_queue", "markets", "factions"]:
+        total_direct += int(direct_phase["phase_total_usec"][phase])
+        total_worker += int(worker_phase["phase_total_usec"][phase])
+    # Monotonic wall clocks around each paid advance enclose phase calls.
+    # No fake CPU attribution: both are elapsed wall measurements.
+    var direct_limit: float = float(paid_window.get(
+        "direct_advance_wall_avg_usec", -1.0)) * 100.0
+    var worker_limit: float = float(paid_window.get(
+        "worker_advance_wall_avg_usec", -1.0)) * 100.0
+    if total_direct > direct_limit + 100.0 or total_worker > worker_limit + 100.0:
+        return {"accepted": false, "reason": "phase_exceeds_paid_advance"}
+    return {"accepted": true, "tick": tick,
+        "phase_comparison": comparison.duplicate(true),
+        "direct_phase": direct_phase.duplicate(true),
+        "worker_phase": worker_phase.duplicate(true),
+        "time_kind": "elapsed_wall_not_cpu", "performance_claim": false}
