@@ -968,6 +968,43 @@ func apply_native_n108_gate_jump(tick: int, ship_id: String,
         "receipt": receipt.duplicate(true)}
 
 
+## II-B: publish only detached rows written by N97/N83, never a full
+## historical fleet/market/receipt copy. The source proposal has already
+## passed the complete Schema/N9 oracle before this function is called.
+## Empty result means a rejected ownership boundary, not a no-op World.
+static func _n97_n83_owned_physical_publication(original: Dictionary,
+        proposed: Dictionary, ship_id: String, changed_rows: Dictionary,
+        receipt_id: String, applied: bool) -> Dictionary:
+    var published: Dictionary = original.duplicate()
+    for domain in ["ships", "facilities", "markets", "bodies", "cargo_receipts"]:
+        if not (original.get(domain) is Dictionary) or not (proposed.get(domain) is Dictionary):
+            return {}
+        var old_rows: Dictionary = original[domain]
+        var new_rows: Dictionary = proposed[domain]
+        var is_receipts: bool = domain == "cargo_receipts"
+        if new_rows.size() != old_rows.size() + (1 if is_receipts and applied else 0):
+            return {}
+        var permitted: Dictionary = changed_rows.get(domain, {})
+        var owned: Dictionary = old_rows.duplicate()
+        for key in old_rows:
+            if not new_rows.has(key) or not (old_rows[key] is Dictionary) or not (new_rows[key] is Dictionary):
+                return {}
+            if new_rows[key] != old_rows[key]:
+                if not permitted.has(str(key)) or is_receipts:
+                    return {}
+                owned[key] = (new_rows[key] as Dictionary).duplicate(true)
+        if is_receipts and applied:
+            if old_rows.has(receipt_id) or not new_rows.has(receipt_id) or not (new_rows[receipt_id] is Dictionary):
+                return {}
+            owned[receipt_id] = (new_rows[receipt_id] as Dictionary).duplicate(true)
+        published[domain] = owned
+    for domain in original:
+        if domain not in ["ships", "facilities", "markets", "bodies", "cargo_receipts"]:
+            if not proposed.has(domain) or proposed[domain] != original[domain]:
+                return {}
+    return published
+
+
 ## Frozen Rust N97 Refuel/Mine single-owner Apply. A genuine N90
 ## request is processed on detached P1 physical authority; only its
 ## verified delta may enter this existing N39 World and N9 Ledger.
@@ -1099,7 +1136,21 @@ func apply_native_n97_ship_service(tick: int, ship_id: String,
     for account in accounts:
         if money["balances"].get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true, "reason": "n97_service_real_n9_wallet_disagreed"}
-    _world = staged
+    var n97_rows: Dictionary = {"ships": {ship_id: true},
+        "facilities": {}, "markets": {}, "bodies": {}}
+    if paid:
+        n97_rows["facilities"][str(staged["cargo_receipts"][receipt_id].get("facility_id", ""))] = true
+        n97_rows["markets"][str(staged["cargo_receipts"][receipt_id].get("location", ""))] = true
+    if mined:
+        n97_rows["bodies"][str(staged["cargo_receipts"][receipt_id].get("body_id", ""))] = true
+    var owned_n97: Dictionary = _n97_n83_owned_physical_publication(
+        old_world, staged, ship_id, n97_rows, receipt_id, source_status == "applied")
+    if owned_n97.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n97_owned_publication_rejected"}
+    var owned_n97_error: String = _measured_schema_validate("L799-owned", owned_n97)
+    if not owned_n97_error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n97_owned_schema_" + owned_n97_error}
+    _world = owned_n97
     _ledger = canonical
     return {"ok": true, "tick": tick, "status": source_status,
         "ship_id": ship_id, "request_id": request_id, "kind": source_kind,
@@ -1240,7 +1291,19 @@ func apply_native_n83_free_trade(tick: int, ship_id: String,
         if next_bank["balances"].get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true,
                 "reason": "n83_true_n9_balance_mismatch"}
-    _world = next_world
+    var n83_rows: Dictionary = {"ships": {ship_id: true},
+        "facilities": {}, "markets": {}, "bodies": {}}
+    if paid:
+        n83_rows["facilities"][str(next_world["cargo_receipts"][receipt_id].get("facility_id", ""))] = true
+        n83_rows["markets"][str(next_world["cargo_receipts"][receipt_id].get("location", ""))] = true
+    var owned_n83: Dictionary = _n97_n83_owned_physical_publication(
+        before_world, next_world, ship_id, n83_rows, receipt_id, paid)
+    if owned_n83.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n83_owned_publication_rejected"}
+    var owned_n83_error: String = _measured_schema_validate("L937-owned", owned_n83)
+    if not owned_n83_error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n83_owned_schema_" + owned_n83_error}
+    _world = owned_n83
     _ledger = restored
     return {"ok": true, "status": status, "tick": tick,
         "ship_id": ship_id, "request_id": request_id,
