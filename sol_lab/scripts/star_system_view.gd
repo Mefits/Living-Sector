@@ -47,6 +47,7 @@ const SATELLITE_ORBIT_LINE_OPACITY: float = 0.25
 const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
 const StationShipProjection = preload("res://scripts/ui_station_ship_projection.gd")
+const Model = preload("res://scripts/sol_building_model.gd")
 const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd")
 const PlanetSurface = preload("res://scripts/view/planet_surface_projection.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
@@ -959,19 +960,23 @@ func set_freight(freight: Dictionary, snap: bool = false) -> void:
 func _draw_freighter(earth: Vector2, luna: Vector2) -> void:
     if _freight.is_empty():
         return
-    var origin := earth + Vector2(-14, -14)
-    var target := luna + Vector2(-14, -14)
-    var position := target if _freight.location == "luna-colony" else origin
+    var position := luna if _freight.location == "luna" else earth
     var flying: bool = _freight.location == "transit"
+    var cargo: Dictionary = _freight.get("order", {})
     if flying:
+        var origin := earth if cargo.source == "earth" else luna
+        var target := luna if cargo.destination == "luna" else earth
         var progress := clampf(inverse_lerp(float(_freight.departure), float(_freight.arrival),
             _display_native_time(_draw_now_usec)), 0.0, 1.0)
         position = origin.lerp(target, progress)
+    position += Vector2(-14, -14)
     var tint := Color("#f6d38a")
     draw_rect(Rect2(position - Vector2(5, 4), Vector2(10, 8)), tint)
     if flying:
+        var label := "%s · %d %s" % [
+            Model.PLANET_NAMES[cargo.destination], cargo.amount, Model.batch_unit(cargo.resource)]
         draw_string(get_theme_default_font(), position + Vector2(9, -7),
-            "Луна · %d металла" % int(_freight.metals), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, tint)
+            label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, tint)
 
 func _draw() -> void:
     var started: int = Time.get_ticks_usec()

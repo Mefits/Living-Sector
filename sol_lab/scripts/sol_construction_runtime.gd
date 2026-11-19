@@ -5,11 +5,12 @@ extends RefCounted
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 
-const VERSION: int = 2
-const FREIGHT_METALS := 10
+const VERSION: int = 3
 const FREIGHT_DAYS := 12
-const EARTH := "earth-colony"
-const LUNA := "luna-colony"
+const FREIGHT_ORDERS := {
+ "luna": {"source": "earth", "destination": "luna", "resource": "metals", "amount": 10},
+ "earth": {"source": "luna", "destination": "earth", "resource": "ore", "amount": 10}
+}
 var world: Dictionary = {}
 var settings: Dictionary = {}
 var now_native: float = 0.0
@@ -40,7 +41,7 @@ func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
 
 func _starting_freighter() -> Dictionary:
  if world.get("system", {}).get("id") == "system-sol":
-  return {"location": EARTH, "metals": 0}
+  return {"location": "earth"}
  return {}
 
 static func _has_spaceport(facilities: Array, body: String) -> bool:
@@ -54,59 +55,92 @@ static func _ensure_earth_spaceport(facilities: Array) -> void:
  if Model.built_or_pending({"facilities": facilities}, "earth", "spaceport"):
   return
  for facility in facilities:
-  if facility.get("body") == "earth" and facility.get("location") == EARTH and (
+  if facility.get("body") == "earth" and facility.get("location") == "earth-colony" and (
       facility.get("type") == "station"):
    facilities.append({"id": "facility-earth-spaceport", "name": "Космопорт",
-    "type": "spaceport", "body": "earth", "location": EARTH, "tier": 1,
+    "type": "spaceport", "body": "earth", "location": "earth-colony", "tier": 1,
     "faction_id": facility.get("faction_id", "")})
    return
 
-func freight_block_reason() -> String:
- if _freighter.get("location") != EARTH:
-  return "Грузовик в пути" if _freighter.get("location") == "transit" else "Грузовик на Луне"
- if not _has_spaceport(world.facilities, "luna"):
-  return "Нужен готовый космопорт на Луне"
- if not _has_spaceport(world.facilities, "earth"):
-  return "Нужен готовый космопорт на Земле"
- if _market_for("luna").is_empty():
-  return "Нет лунного склада"
- if float(_market_for("earth").get("supply", {}).get("metals", 0)) < FREIGHT_METALS:
-  return "На Земле меньше 10 металла"
+func freight_order(destination: String) -> Dictionary:
+ return FREIGHT_ORDERS.get(destination, {}).duplicate()
+
+func freight_block_reason(destination: String) -> String:
+ var shipment: Dictionary = FREIGHT_ORDERS.get(destination, {})
+ if shipment.is_empty() or _freighter.is_empty():
+  return "Рейс недоступен"
+ if _freighter.location == "transit":
+  return "Грузовик в пути"
+ if _freighter.location != shipment.source:
+  return "Грузовик уже здесь"
+ for body in [shipment.source, shipment.destination]:
+  if not _has_spaceport(world.facilities, body):
+   return "Нужен готовый космопорт (%s)" % Model.PLANET_NAMES[body]
+  if _market_for(body).is_empty():
+   return "Нужен склад колонии (%s)" % Model.PLANET_NAMES[body]
+ var available := float(_market_for(shipment.source).supply.get(shipment.resource, 0))
+ if available < shipment.amount:
+  return "На складе %s %s · требуется %d" % [
+   Model.batch_amount(available), Model.batch_unit(shipment.resource), shipment.amount]
  return ""
 
-func depart_freighter() -> bool:
- if not freight_block_reason().is_empty():
+func depart_freighter(destination: String) -> bool:
+ if not freight_block_reason(destination).is_empty():
   return false
- var stock: Dictionary = _market_for("earth").supply
- stock.metals = float(stock.metals) - FREIGHT_METALS
- _freighter = {"location": "transit", "metals": FREIGHT_METALS,
+ var shipment := freight_order(destination)
+ var stock: Dictionary = _market_for(shipment.source).supply
+ stock[shipment.resource] = float(stock[shipment.resource]) - shipment.amount
+ _freighter = {"location": "transit", "order": shipment,
   "departure": now_native, "arrival": now_native + Calendar.days_to_native(FREIGHT_DAYS)}
  return true
 
 func freight_status() -> Dictionary:
- return _freighter.duplicate()
+ return _freighter.duplicate(true)
 
 func _land_freighter() -> bool:
  if _freighter.get("location") != "transit" or now_native < float(_freighter.arrival):
   return false
- var stock: Dictionary = _market_for("luna").supply
- stock.metals = float(stock.metals) + int(_freighter.metals)
- _freighter = {"location": LUNA, "metals": 0}
+ var shipment: Dictionary = _freighter.order
+ var stock: Dictionary = _market_for(shipment.destination).supply
+ stock[shipment.resource] = float(stock.get(shipment.resource, 0)) + int(shipment.amount)
+ _freighter = {"location": shipment.destination}
  return true
+
+func _migrate_freighter(version: int, saved: Variant) -> Variant:
+ if version == 1:
+  return _starting_freighter()
+ if version != 2 or not saved is Dictionary or saved.is_empty():
+  return saved
+ match saved.get("location"):
+  "earth-colony", "luna-colony":
+   if saved.get("metals") == 0:
+    return {"location": "earth" if saved.location == "earth-colony" else "luna"}
+  "transit":
+   var shipment := freight_order("luna")
+   if saved.get("metals") == shipment.amount:
+    return {"location": "transit", "order": shipment,
+     "departure": saved.get("departure"), "arrival": saved.get("arrival")}
+ return null
 
 func _valid_freighter(saved: Variant, facilities: Array, lunar: bool, time: float) -> bool:
  if not saved is Dictionary:
   return false
  if _starting_freighter().is_empty():
   return saved.is_empty()
- if saved.get("location") == EARTH:
-  return saved.get("metals") == 0
+ if saved.get("location") == "earth":
+  return not saved.has("order")
  if not lunar or not _has_spaceport(facilities, "luna"):
   return false
- if saved.get("location") == LUNA:
-  return saved.get("metals") == 0
- if saved.get("location") != "transit" or saved.get("metals") != FREIGHT_METALS or (
-     not _has_spaceport(facilities, "earth")):
+ if saved.get("location") == "luna":
+  return not saved.has("order")
+ if saved.get("location") != "transit" or not _has_spaceport(facilities, "earth"):
+  return false
+ var shipment: Variant = saved.get("order")
+ if not shipment is Dictionary:
+  return false
+ var expected: Dictionary = FREIGHT_ORDERS.get(shipment.get("destination"), {})
+ if expected.is_empty() or shipment.get("source") != expected.source or (
+     shipment.get("resource") != expected.resource or shipment.get("amount") != expected.amount):
   return false
  var start: Variant = saved.get("departure")
  var end: Variant = saved.get("arrival")
@@ -224,7 +258,7 @@ func advance_to(new_native: float) -> Array:
    remaining.append(site)
  sites = remaining
  if _land_freighter():
-  completed.append("Грузовик доставил на Луну 10 металла")
+  completed.append("Грузовик разгружен")
  _advance_production()
  return completed
 
@@ -262,7 +296,7 @@ func snapshot() -> Dictionary:
 
 func restore(data: Dictionary) -> bool:
  var version := int(data.get("version", -1))
- if version not in [1, VERSION] or (
+ if version not in [1, 2, VERSION] or (
     str(data.get("system_id", "")) != str(world.get("system", {}).get(
     "id", ""))):
   return false
@@ -340,8 +374,7 @@ func restore(data: Dictionary) -> bool:
    return false
   if int(m["supply"].get("metals", -1)) < 0:
    return false
- # Older saves have no freight order. Keep any completed or queued ports.
- var restored_freighter: Variant = _starting_freighter() if version == 1 else data.get("freighter")
+ var restored_freighter: Variant = _migrate_freighter(version, data.get("freighter"))
  if not _valid_freighter(restored_freighter, input_facilities, lunar, float(t)):
   return false
  # Commit all restored domains only after all checks pass.
@@ -349,7 +382,7 @@ func restore(data: Dictionary) -> bool:
  world["facilities"] = input_facilities.duplicate(true)
  _ensure_earth_spaceport(world.facilities)
  world["markets"] = input_markets.duplicate(true)
- _freighter = restored_freighter.duplicate()
+ _freighter = restored_freighter.duplicate(true)
  sites = input_sites.duplicate(true)
  now_native = float(t)
  _index_producers()

@@ -1,6 +1,7 @@
 extends RefCounted
 ## UI-only catalog; original Rust-port seed is unchanged.
 const VISIBLE: Array = ["earth", "luna", "mars"]
+const PLANET_NAMES := {"earth": "Земля", "luna": "Луна", "mars": "Марс"}
 const BUILDINGS: Array = [
  {"id":"administrative_center","name":"Административный центр","product":"food","base":0,"inputs":{},"ported":false},
  {"id":"mining_rig","name":"Добывающий комплекс","product":"ore","base":10,"inputs":{},"ported":true},

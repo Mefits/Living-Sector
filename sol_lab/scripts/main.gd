@@ -10,9 +10,6 @@ const NativeClock = preload("res://scripts/sim/clock.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 const ConstructionRuntime = preload("res://scripts/sol_construction_runtime.gd")
 const ColonyStockPanel = preload("res://scripts/view/colony_stock_panel.gd")
-const PLANET_NAMES: Dictionary = {
-    "earth": "Земля", "luna": "Луна", "mars": "Марс"
-}
 const SPEED_PRESETS: Array[int] = [1, 4, 8, 16]
 const DEFAULTS = "res://data/balance_defaults.json"
 const USER_CONFIG = "user://sol_lab_balance.json"
@@ -160,7 +157,7 @@ func _build_ui() -> void:
     filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
     contents.add_child(filler)
     colony_button = _button(contents, "Колонизировать Луну", _colonize_luna)
-    freight_button = _button(contents, "Доставить 10 металла с Земли", _send_freighter)
+    freight_button = _button(contents, "", _send_freighter)
     _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
     mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
     var saves := HBoxContainer.new()
@@ -292,11 +289,11 @@ func _colonize_luna() -> void:
         _notice("Колонизатор отправился к Луне")
 
 func _send_freighter() -> void:
-    if selected != "luna" or not construction.depart_freighter():
+    if not construction.depart_freighter(selected):
         return
     native_view.set_freight(construction.freight_status())
     _show_selected()
-    _notice("Грузовик отправился на Луну")
+    _notice("Грузовик отправлен")
 
 func _show_selected() -> void:
     if details == null:
@@ -304,7 +301,7 @@ func _show_selected() -> void:
     for body in world.get("bodies", []):
         if str(body.get("id", "")) != selected:
             continue
-        var name_ru: String = str(PLANET_NAMES.get(
+        var name_ru: String = str(Model.PLANET_NAMES.get(
             selected, body.get("name", selected)))
         planet_name_label.text = name_ru
         colony_stock_panel.show_inventory(
@@ -325,21 +322,28 @@ func _show_selected() -> void:
                 items.insert(1, "Колонизатор у Земли · выберите Луну")
         elif selected == "luna" and not expedition.settlers.is_empty():
             items.insert(1, "Население: %d" % int(expedition.settlers.population_count))
-        freight_button.visible = selected == "luna"
+        var order: Dictionary = construction.freight_order(selected)
+        freight_button.visible = not order.is_empty()
         if freight_button.visible:
-            var reason: String = construction.freight_block_reason()
+            var source_name := "Земли" if order.source == "earth" else "Луны"
+            freight_button.text = "Доставить %d %s с %s" % [
+                order.amount, Model.batch_unit(order.resource), source_name]
+            var reason: String = construction.freight_block_reason(selected)
             freight_button.disabled = not reason.is_empty()
             freight_button.tooltip_text = reason
-        if selected in ["earth", "luna"]:
             var freight: Dictionary = construction.freight_status()
             match freight.get("location"):
-                "earth-colony":
+                "earth":
                     items.insert(1, "Грузовик на Земле · трюм пуст")
                 "transit":
-                    items.insert(1, "Грузовик → Луна · %d металла\nПрибытие: %s" % [
-                        int(freight.metals), Calendar.calendar_text(float(freight.arrival))])
-                "luna-colony":
+                    var cargo: Dictionary = freight.order
+                    items.insert(1, "Грузовик → %s · %d %s\nПрибытие: %s" % [
+                        Model.PLANET_NAMES[cargo.destination], cargo.amount,
+                        Model.batch_unit(cargo.resource), Calendar.calendar_text(freight.arrival)])
+                "luna":
                     items.insert(1, "Грузовик на Луне · трюм пуст")
+            if freight.get("location") == order.source and not reason.is_empty():
+                items.insert(2, reason)
         var coeff: Dictionary = config.get("planets",{}).get(selected,{})
         for key in body.get("resources",{}).keys():
             items.append("%s: %.2f" % [Model.resource_label(str(key)),

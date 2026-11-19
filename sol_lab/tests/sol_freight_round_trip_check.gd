@@ -1,0 +1,162 @@
+extends SceneTree
+## From sol_lab: XDG_DATA_HOME="$(mktemp -d)" godot --headless --path . --script tests/sol_freight_round_trip_check.gd
+const Scene = preload("res://scenes/main.tscn")
+const Lab = preload("res://scripts/main.gd")
+
+var game: Control
+var failed := false
+
+func _initialize() -> void:
+ run.call_deferred()
+
+func check(condition: bool, message: String) -> void:
+ if not condition:
+  failed = true
+  push_error(message)
+
+func fresh_scene() -> void:
+ change_scene_to_packed(Scene)
+ await scene_changed
+ game = current_scene
+
+func press(label: String) -> void:
+ for control in game.find_children("*", "Button", true, false):
+  if control.text == label and control.is_visible_in_tree():
+   check(not control.disabled, "Disabled button: " + label)
+   control.pressed.emit()
+   return
+ check(false, "Missing button: " + label)
+
+func select_body(id: String) -> void:
+ for body in game.world.bodies:
+  if body.id == id:
+   game.native_view.body_selected.emit(body)
+   return
+
+func stock(body: String, resource: String) -> float:
+ return float(game.construction.colony_inventory(body).supply.get(resource, 0))
+
+func freight() -> Dictionary:
+ return game.construction.freight_status()
+
+func advance_to(deadline: float) -> void:
+ for i in range(200):
+  if game.native_time >= deadline:
+   return
+  game._step()
+ check(false, "Game clock did not reach the deadline")
+
+func build(id: String) -> void:
+ var button: Button = game.browser.build_controls[id].button
+ check(not button.disabled, "Cannot order: " + id)
+ button.pressed.emit()
+
+func load_v2_freight(old_state: Dictionary) -> void:
+ var data: Dictionary = game.construction.snapshot()
+ data.version = 2
+ data.freighter = old_state
+ data.paused = true
+ data.speed = 16
+ var file := FileAccess.open(Lab.USER_SAVE, FileAccess.WRITE)
+ file.store_string(JSON.stringify(data, "", true, true))
+ file.close()
+ press("Загруз.")
+ check(game.message_line.text.begins_with("Игра загружена"), "Version 2 checkpoint rejected")
+
+func run() -> void:
+ if FileAccess.file_exists(Lab.USER_SAVE) or FileAccess.file_exists(Lab.USER_SAVE + ".tmp") or (
+     FileAccess.file_exists(Lab.USER_CONFIG)):
+  push_error("Run the freight check with an isolated user-data directory")
+  quit(1)
+  return
+ await fresh_scene()
+ press("Пауза")
+ press("×16")
+ select_body("luna")
+ press("Колонизировать Луну")
+ advance_to(game.construction.expedition.ship.arrival)
+ press("СТРОИТЕЛЬСТВО")
+ build("mining_rig")
+ build("spaceport")
+ game.browser.close_requested.emit()
+ check(game.freight_button.disabled, "A port under construction must block shipping")
+ if failed:
+  quit(1)
+  return
+ advance_to(game.construction.sites[0].finish_native)
+
+ var earth_metal := stock("earth", "metals")
+ var moon_metal := stock("luna", "metals")
+ press("Доставить 10 металла с Земли")
+ game.freight_button.pressed.emit()
+ var outbound := freight()
+ check(outbound.get("order", {}).get("resource") == "metals", "Missing outbound cargo")
+ check(stock("earth", "metals") == earth_metal - 10 and stock("luna", "metals") == moon_metal,
+  "Outbound loading changed the warehouses incorrectly")
+ if failed:
+  quit(1)
+  return
+ game._step()
+ load_v2_freight({"location": "transit", "metals": 10,
+  "departure": outbound.departure, "arrival": outbound.arrival})
+ check(freight() == outbound, "Migration changed outbound cargo or timing")
+ advance_to(outbound.arrival)
+ check(freight() == {"location": "luna"} and stock("luna", "metals") == moon_metal + 10,
+  "Outbound unloading must credit ten metals once")
+ load_v2_freight({"location": "luna-colony", "metals": 0})
+ check(freight() == {"location": "luna"} and stock("luna", "metals") == moon_metal + 10,
+  "Migration repeated a completed delivery")
+
+ select_body("earth")
+ check(stock("luna", "ore") == 0 and game.freight_button.disabled and
+  game.details.text.contains("0 руды · требуется 10"), "Shortage must show available and required ore")
+ for i in range(200):
+  if stock("luna", "ore") >= 10:
+   break
+  game._step()
+ var moon_ore := stock("luna", "ore")
+ var earth_ore := stock("earth", "ore")
+ check(moon_ore >= 10 and not game.freight_button.disabled, "Lunar mine must supply the return flight")
+ if failed:
+  DirAccess.remove_absolute(Lab.USER_SAVE)
+  quit(1)
+  return
+ press("Доставить 10 руды с Луны")
+ game.freight_button.pressed.emit()
+ var inbound := freight()
+ check(inbound.get("order", {}) ==
+  {"source": "luna", "destination": "earth", "resource": "ore", "amount": 10}, "Wrong return cargo")
+ check(game.native_view._freight == inbound and game.details.text.contains("Грузовик → Земля · 10 руды"),
+  "Map and panel must show the return cargo and destination")
+ check(stock("luna", "ore") == moon_ore - 10 and stock("earth", "ore") == earth_ore,
+  "Return loading changed the warehouses incorrectly")
+ game._step()
+ var saved_time: float = game.native_time
+ press("Сохр.")
+ await fresh_scene()
+ press("Загруз.")
+ press("Загруз.")
+ check(game.paused and game.native_time == saved_time and freight().get("arrival") == inbound.get("arrival")
+  and freight().get("order", {}).get("amount") == 10, "Loading must preserve the flight and ETA")
+ check(stock("luna", "ore") == moon_ore - 10 and stock("earth", "ore") == earth_ore,
+  "Reloading duplicated or lost ore")
+ check(game.freight_button.disabled and game.native_view._freight == freight(),
+  "Loaded return flight must remain in flight on the map and block dispatch")
+ advance_to(inbound.arrival)
+ game._step()
+ check(freight() == {"location": "earth"} and stock("earth", "ore") == earth_ore + 10 and
+  stock("luna", "ore") == moon_ore - 10, "Return landing must empty the hold and unload once")
+ press("Сохр.")
+ press("Загруз.")
+ game._step()
+ check(stock("earth", "ore") == earth_ore + 10, "Reload after landing credited ore twice")
+
+ select_body("luna")
+ press("Доставить 10 металла с Земли")
+ check(freight().get("order", {}).get("resource") == "metals" and
+  stock("earth", "metals") == earth_metal - 20 and stock("luna", "metals") == moon_metal + 10,
+  "The same freighter must be ready for another outbound order")
+ DirAccess.remove_absolute(Lab.USER_SAVE)
+ if not failed:
+  print("SOL_FREIGHT_ROUND_TRIP_PASS")
+ quit(1 if failed else 0)
