@@ -316,7 +316,8 @@ func _process(delta: float) -> void:
         if VisualMotion.alpha(int(row["started_usec"]),
                 int(row["duration_usec"]), now_usec) >= 1.0:
             _recent_arrivals.erase(sid)
-    if camera_changed or not _docking_visuals.is_empty() or (
+    if camera_changed or (
+            not _flight_paused and not _docking_visuals.is_empty()) or (
             not _flight_paused and (
             _colonizer.get("location", "") == "transit" or
             _freight.get("location", "") == "transit")) or (
@@ -1096,6 +1097,7 @@ func _start_visual_docking(kind: String, ship: Dictionary) -> void:
         return
     _docking_visuals[kind] = {
         "from": (old["position"] as Vector2) - _center(),
+        "heading": old.get("direction", Vector2.RIGHT),
         "destination": str(old.get("destination", "luna")),
         "started_usec": Time.get_ticks_usec(),
         "duration_usec": 150000
@@ -1162,7 +1164,14 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
                 _flight_offset(kind))
             var from: Vector2 = _center() + (docking["from"] as Vector2)
             var position: Vector2 = from.lerp(target, alpha)
-            var heading: Vector2 = (target - from).normalized()
+            var start_heading: Vector2 = docking.get("heading", Vector2.RIGHT)
+            var final_heading: Vector2 = (
+                Vector2.RIGHT if kind == "freight" else
+                (target - from).normalized())
+            if final_heading.length_squared() < 0.000001:
+                final_heading = start_heading
+            var heading := Vector2.RIGHT.rotated(lerp_angle(
+                start_heading.angle(), final_heading.angle(), alpha))
             _paint_flight_ship(kind, position, heading,
                 1.0 - alpha if kind == "colonizer" else 1.0)
             _flight_draw_states[kind] = {
