@@ -28,6 +28,9 @@ func _initialize() -> void:
  panel.show_inventory("Земля", runtime.colony_inventory("earth"))
  ok = ok and panel.visible and panel.heading.text == "Склад колонии · Земля"
  ok = ok and _amount(panel, "metals") == "1000"
+ var earth_label: Label = panel.amount_labels["metals"]
+ panel.show_inventory("Земля", runtime.colony_inventory("earth"))
+ ok = ok and earth_label == panel.amount_labels["metals"]
  ok = ok and (panel.amount_labels["metals"] as Label).horizontal_alignment == (
   HORIZONTAL_ALIGNMENT_RIGHT)
  # The uncolonized Moon has no panel, not a fake empty warehouse.
@@ -40,10 +43,12 @@ func _initialize() -> void:
  panel.show_inventory("Луна", runtime.colony_inventory("luna"))
  ok = ok and panel.visible and panel.heading.text == "Склад колонии · Луна"
  ok = ok and _amount(panel, "metals") == "2"
+ var luna_label: Label = panel.amount_labels["metals"]
  # Ordering a mine debits the *lunar* warehouse immediately.
  ok = ok and bool(runtime.order("luna", "mining_rig").get("ok", false))
  panel.show_inventory("Луна", runtime.colony_inventory("luna"))
  ok = ok and _amount(panel, "metals") == "1"
+ ok = ok and panel.amount_labels["metals"] == luna_label
  # Switching back never leaks Lunar inventory into Earth.
  panel.show_inventory("Земля", runtime.colony_inventory("earth"))
  ok = ok and panel.visible and _amount(panel, "metals") == "1000"

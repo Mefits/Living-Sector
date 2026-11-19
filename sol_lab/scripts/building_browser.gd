@@ -30,6 +30,8 @@ var feedback: Label
 var footer: HBoxContainer
 var grid: GridContainer
 var card_nodes: Array = []
+## Keep nine catalog cards alive while inventory and build availability change.
+var build_controls: Dictionary = {}
 var output_labels: Dictionary = {}
 var time_labels: Dictionary = {}
 var scroll: ScrollContainer
@@ -102,7 +104,7 @@ func set_construction_state(source_world: Dictionary,
 func show_order_result(result: Dictionary) -> void:
  var message: String = str(result.get("reason", ""))
  if bool(result.get("ok", false)):
-  _navigate("build")
+  refresh_build_availability()
   message = "Стройка начата: списано %d металла · %d дней." % [
    int(result.get("spent", 0)), int(result.get("days", 0))]
  feedback.text = message
@@ -149,6 +151,7 @@ func _navigate(target: String) -> void:
  _clear(cards_root)
  _clear(footer)
  card_nodes.clear()
+ build_controls.clear()
  output_labels.clear()
  time_labels.clear()
  queue_panel = null
@@ -212,7 +215,7 @@ func _cards(editable: bool) -> void:
   var stack := VBoxContainer.new()
   stack.add_theme_constant_override("separation", 5)
   card.add_child(stack)
-  _label(stack, str(building["name"]), 17,
+  var name_label: Label = _label(stack, str(building["name"]), 17,
    Color("#e7f0f4") if available or editable else Color("#8da3b2"))
   if editable:
    _spin(stack, "Металлы", float(row.get("metals", 0)),
@@ -254,7 +257,38 @@ func _cards(editable: bool) -> void:
    action.disabled = not available
    if not available:
     card.modulate = Color(0.71, 0.74, 0.79, 1.0)
+   build_controls[id] = {
+    "card": card, "title": name_label, "button": action,
+    "available": available
+   }
  _fit_cards()
+
+func refresh_build_availability() -> void:
+ # A production batch or completed site changes stock/eligibility,
+ # not the structure of the card grid. Preserve every scene node.
+ if not visible or page != "build":
+  return
+ var buildings: Dictionary = config.get("buildings", {})
+ for building in Model.BUILDINGS:
+  var id: String = str(building["id"])
+  var controls: Dictionary = build_controls.get(id, {})
+  if controls.is_empty():
+   continue
+  var available: bool = Model.available(building, buildings, world, body_id)
+  if available == bool(controls["available"]):
+   continue
+  controls["available"] = available
+  var card: PanelContainer = controls["card"]
+  var box: StyleBoxFlat = card.get_theme_stylebox("panel") as StyleBoxFlat
+  box.bg_color = Color("#1a3040") if available else Color("#111c29")
+  box.border_color = Color("#3d6374") if available else Color("#27394b")
+  card.modulate = Color.WHITE if available else Color(0.71, 0.74, 0.79, 1.0)
+  (controls["title"] as Label).add_theme_color_override("font_color",
+   Color("#e7f0f4") if available else Color("#8da3b2"))
+  var action: Button = controls["button"]
+  action.text = "Заказать" if available else "Недоступно"
+  action.disabled = not available
+  build_controls[id] = controls
 
 func _fit_cards() -> void:
  if grid == null or not is_instance_valid(grid):

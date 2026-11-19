@@ -13,6 +13,7 @@ const EXTRA_LABELS: Dictionary = {
 var heading: Label
 var columns: HBoxContainer
 var amount_labels: Dictionary = {}
+var _visible_keys: Array[String] = []
 
 func _init() -> void:
  visible = false
@@ -42,10 +43,6 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
  if not visible:
   return
  heading.text = "Склад колонии · " + planet
- for child in columns.get_children():
-  columns.remove_child(child)
-  child.queue_free()
- amount_labels.clear()
  var supply: Dictionary = warehouse.get("supply", {})
  var keys: Array[String] = []
  for resource in ORDER:
@@ -58,6 +55,19 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
    extra.append(id)
  extra.sort()
  keys.append_array(extra)
+ if keys == _visible_keys:
+  # Keep the existing nodes when only amounts change.
+  for resource in keys:
+   var label: Label = amount_labels[resource]
+   var next_value: String = Model.batch_amount(float(supply[resource]))
+   if label.text != next_value:
+    label.text = next_value
+  return
+ _visible_keys = keys
+ for child in columns.get_children():
+  columns.remove_child(child)
+  child.queue_free()
+ amount_labels.clear()
  if keys.is_empty():
   var empty := Label.new()
   empty.text = "Склад пуст"

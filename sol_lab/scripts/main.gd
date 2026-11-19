@@ -585,13 +585,13 @@ func _advance_construction() -> void:
         if previous_revision != construction.batch_revision:
             _show_selected()
             if browser.visible and browser.page == "build":
-                browser.configure(world, config, selected, false)
+                browser.refresh_build_availability()
                 _refresh_construction_ui()
         return
     _update_native_map()
     _show_selected()
     if browser.visible and browser.page == "build":
-        browser.configure(world, config, selected, false)
+        browser.refresh_build_availability()
     _refresh_construction_ui()
     var names := PackedStringArray()
     for item in finished:
