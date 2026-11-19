@@ -7,7 +7,7 @@ const ShipTransit = preload("res://scripts/sim/ship_transit.gd")
 const N140Gate = preload("res://scripts/sim/phase2/unified_n140_ship_lod_phase.gd")
 const NativeShipMemory = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
 
-static func _load(world: Dictionary) -> Dictionary:
+static func _load(world: Dictionary, detach: bool = true) -> Dictionary:
     if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
         return {"ok": false, "reason": "missing_canonical_fleet"}
     var fleet = ShipState.new()
@@ -28,7 +28,7 @@ static func _load(world: Dictionary) -> Dictionary:
         # fleet. Passing the read-only source row avoids a redundant full
         # copy before N14/N84 without exposing World to transit mutations.
         rows.append(ship)
-    if not fleet.restore(rows):
+    if not fleet.restore(rows, detach):
         return {"ok": false, "reason": "invalid_ship_state"}
     var transit = ShipTransit.new()
     if not transit.restore_next_token(int(world["ship_next_token"]), max_token):
@@ -42,7 +42,11 @@ static func advance(world: Dictionary, positions: Dictionary,
         tick_multiplier: int = 1, observers: Array = []) -> Dictionary:
     if tick < 1 or not is_finite(tick_scale) or tick_scale <= 0.0:
         return {"ok": false, "reason": "invalid_fleet_clock"}
-    var opened: Dictionary = _load(world)
+    ## N140.stage validates cursors and returns a fully detached fleet before
+    ## any motion. Do not deep-copy every cargo/BT/memory twice per paid tick:
+    ## ShipState.restore still validates the full original roster, but borrows
+    ## rows only for this read-only preflight. Depart() keeps owned restore.
+    var opened: Dictionary = _load(world, false)
     if not opened.get("ok", false):
         return opened
     var state: RefCounted = opened["fleet"]
