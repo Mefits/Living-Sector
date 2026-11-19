@@ -37,7 +37,9 @@ func _initialize() -> void:
         "to_tick": 100, "paid_ticks": 100, "order": "alternating",
         "time_kind": "elapsed_wall_not_cpu", "plain_total_usec": 100,
         "profiled_total_usec": 120, "measured_instrumentation_total_usec": 0,
-        "observed_delta_total_usec": 20}
+        "observed_delta_total_usec": 20,
+        "checkpoint_plain_total_usec": 2, "checkpoint_profiled_total_usec": 3,
+        "checkpoint_total_usec": 5, "checkpoint_time_excluded": true}
     var late: Dictionary = sample.duplicate(true)
     late["from_tick"] = 201
     late["to_tick"] = 300
@@ -55,7 +57,7 @@ func _initialize() -> void:
 func _left(tick: int) -> Dictionary:
     _left_tick += 1
     return {"ok": true, "tick": _left_tick, "elapsed_usec": 10,
-        "instrumentation_usec": 0, "checkpoint": _checkpoint(tick)}
+        "instrumentation_usec": 0, "checkpoint_usec": 2, "checkpoint": _checkpoint(tick)}
 
 func _right(tick: int) -> Dictionary:
     _right_tick += 1
@@ -77,7 +79,7 @@ func _right(tick: int) -> Dictionary:
     return {"ok": _fault != "partial",
         "tick": tick - (1 if _fault == "clock" else 0),
         "elapsed_usec": -1 if _fault == "bad_timing" else 12,
-        "instrumentation_usec": 0, "checkpoint": checkpoint}
+        "instrumentation_usec": 0, "checkpoint_usec": 2, "checkpoint_usec": 3, "checkpoint": checkpoint}
 
 func _checkpoint(tick: int) -> Dictionary:
     return {"tick": tick, "world": {"ships": [{"id": "s", "fuel": 5}]},
