@@ -23,8 +23,11 @@ var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
 var colony_button: Button
 var freight_button: Button
-var food_freight_button: Button
-var return_freight_button: Button
+var manual_freight_dialog: AcceptDialog
+var manual_destination: OptionButton
+var manual_resource: OptionButton
+var manual_amount: SpinBox
+var manual_preview: Label
 var freight_line_buttons: HBoxContainer
 var freight_line_toggle: Button
 var freight_line_dialog: AcceptDialog
@@ -157,15 +160,11 @@ func _build_ui() -> void:
     colony_button = colony_panel.colonize_button
     colony_button.pressed.connect(_colonize_luna)
     freight_button = colony_panel.freight_button
-    freight_button.pressed.connect(_send_freighter)
+    freight_button.hide()
     colony_panel.build_requested.connect(_open_build)
     colony_panel.line_requested.connect(_open_freight_line)
     colony_panel.facility_requested.connect(_colony_facility_selected)
     _build_freight_line_controls(colony_panel.line_holder)
-    food_freight_button = _button(colony_panel.line_holder,
-        "Доставить 10 еды с Земли", _send_freighter.bind(true))
-    return_freight_button = _button(colony_panel.line_holder, "", _return_freighter)
-    return_freight_button.tooltip_text = "После отправки линия отключится. С Земли можно привезти еду вручную."
 
 
 func _on_game_menu(id: int) -> void:
@@ -322,7 +321,55 @@ func _build_freight_line_controls(parent: Control) -> void:
     freight_line_buttons = HBoxContainer.new()
     parent.add_child(freight_line_buttons)
     _button(freight_line_buttons, "Настройка линии", _open_freight_line)
+    _button(freight_line_buttons, "Разовый рейс", _open_manual_freight)
     freight_line_toggle = _button(freight_line_buttons, "", _toggle_freight_line)
+    for action in freight_line_buttons.get_children():
+        if action is Button:
+            action.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+            action.add_theme_font_size_override("font_size", 12)
+
+    manual_freight_dialog = AcceptDialog.new()
+    manual_freight_dialog.title = "Разовый рейс грузовика"
+    manual_freight_dialog.ok_button_text = "Отправить"
+    manual_freight_dialog.add_cancel_button("Отмена")
+    manual_freight_dialog.confirmed.connect(_submit_manual_freight)
+    add_child(manual_freight_dialog)
+    var manual_form := VBoxContainer.new()
+    manual_form.custom_minimum_size.x = 340.0
+    manual_freight_dialog.add_child(manual_form)
+    var direction_label := Label.new()
+    direction_label.text = "Маршрут"
+    manual_form.add_child(direction_label)
+    manual_destination = OptionButton.new()
+    for destination in ["luna", "earth"]:
+        var shipment: Dictionary = construction.freight_order(destination)
+        manual_destination.add_item("%s → %s" % [
+            Model.PLANET_NAMES[shipment.source],
+            Model.PLANET_NAMES[shipment.destination]])
+        manual_destination.set_item_metadata(
+            manual_destination.item_count - 1, destination)
+    manual_form.add_child(manual_destination)
+    manual_destination.item_selected.connect(_manual_route_changed)
+    var commodity_label := Label.new()
+    commodity_label.text = "Товар"
+    manual_form.add_child(commodity_label)
+    manual_resource = OptionButton.new()
+    manual_form.add_child(manual_resource)
+    manual_resource.item_selected.connect(
+        func(_index: int): _preview_manual_freight())
+    var amount_label := Label.new()
+    amount_label.text = "Количество (0 — пустой возврат на Землю)"
+    manual_form.add_child(amount_label)
+    manual_amount = SpinBox.new()
+    manual_amount.min_value = 0
+    manual_amount.max_value = ConstructionRuntime.FREIGHT_CAPACITY
+    manual_amount.value = ConstructionRuntime.FREIGHT_CAPACITY
+    manual_form.add_child(manual_amount)
+    manual_amount.value_changed.connect(
+        func(_value: float): _preview_manual_freight())
+    manual_preview = Label.new()
+    manual_preview.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    manual_form.add_child(manual_preview)
 
     freight_line_dialog = AcceptDialog.new()
     freight_line_dialog.title = "Грузовая линия Земля ↔ Луна"
@@ -359,6 +406,62 @@ func _build_freight_line_controls(parent: Control) -> void:
         reserve.allow_greater = true
         grid.add_child(reserve)
         freight_line_fields[destination] = {"resource": resource, "amount": amount, "reserve": reserve}
+
+func _open_manual_freight() -> void:
+    var location: String = str(construction.freight_status().get(
+        "location", "earth"))
+    var wanted: String = "earth" if location == "luna" else "luna"
+    for index in manual_destination.item_count:
+        if str(manual_destination.get_item_metadata(index)) == wanted:
+            manual_destination.select(index)
+            break
+    _manual_route_changed(manual_destination.selected)
+    manual_freight_dialog.popup_centered()
+
+
+func _manual_route_changed(_index: int) -> void:
+    var destination: String = str(manual_destination.get_selected_metadata())
+    manual_resource.clear()
+    for resource in ConstructionRuntime.FREIGHT_RESOURCES.get(destination, []):
+        manual_resource.add_item(Model.resource_label(resource))
+        manual_resource.set_item_metadata(
+            manual_resource.item_count - 1, resource)
+    manual_amount.min_value = 0 if destination == "earth" else 1
+    manual_amount.value = clampf(manual_amount.value,
+        manual_amount.min_value, manual_amount.max_value)
+    _preview_manual_freight()
+
+
+func _preview_manual_freight() -> void:
+    if manual_resource.item_count == 0:
+        manual_freight_dialog.get_ok_button().disabled = true
+        return
+    var destination: String = str(manual_destination.get_selected_metadata())
+    var resource: String = str(manual_resource.get_selected_metadata())
+    var amount: int = int(manual_amount.value)
+    var shipment: Dictionary = construction.freight_order(destination)
+    var reason: String = construction.manual_freight_reason(
+        destination, resource, amount)
+    manual_preview.text = "%s → %s\nГруз: %d %s%s" % [
+        Model.PLANET_NAMES[shipment.source],
+        Model.PLANET_NAMES[shipment.destination],
+        amount, Model.resource_label(resource),
+        "" if reason.is_empty() else "\n" + reason]
+    manual_freight_dialog.get_ok_button().disabled = not reason.is_empty()
+
+
+func _submit_manual_freight() -> void:
+    var destination: String = str(manual_destination.get_selected_metadata())
+    var resource: String = str(manual_resource.get_selected_metadata())
+    var amount: int = int(manual_amount.value)
+    if not construction.depart_manual_freight(destination, resource, amount):
+        _notice(construction.manual_freight_reason(
+            destination, resource, amount))
+        return
+    native_view.set_freight(construction.freight_status())
+    _show_selected()
+    _notice("Разовый рейс отправлен")
+
 
 func _open_freight_line() -> void:
     var line: Dictionary = construction.freight_line()
@@ -416,44 +519,29 @@ func _show_selected() -> void:
         elif selected == "luna" and not expedition.settlers.is_empty():
             items.insert(1, "Население: %d" % int(expedition.settlers.population_count))
         var order: Dictionary = construction.freight_order(selected)
-        freight_button.visible = not order.is_empty()
-        freight_line_buttons.visible = freight_button.visible
-        food_freight_button.visible = selected == "luna"
-        var food_reason: String = construction.freight_block_reason("luna", true)
-        food_freight_button.disabled = not food_reason.is_empty()
-        food_freight_button.tooltip_text = food_reason
         var freight: Dictionary = construction.freight_status()
-        return_freight_button.visible = selected == "luna" and freight.get("location") == "luna"
-        if return_freight_button.visible:
-            var recovered: Dictionary = construction.return_order()
-            return_freight_button.text = ("Вернуть на Землю · %d руды" % recovered.amount
-                if recovered.amount > 0 else "Вернуть на Землю пустым")
-        if freight_button.visible:
+        freight_button.hide()
+        freight_line_buttons.visible = not order.is_empty()
+        if freight_line_buttons.visible:
             var line: Dictionary = construction.freight_line()
-            freight_line_toggle.text = "Отключить линию" if line.enabled else "Включить линию"
-            var source_name := "Земли" if order.source == "earth" else "Луны"
-            freight_button.text = "Доставить %d %s с %s" % [
-                order.amount, Model.batch_unit(order.resource), source_name]
-            var reason: String = construction.freight_block_reason(selected)
-            freight_button.disabled = not reason.is_empty()
-            freight_button.tooltip_text = reason
+            freight_line_toggle.text = "Откл. линию" if line.enabled else "Вкл. линию"
             match freight.get("location"):
                 "earth":
                     items.insert(1, "Грузовик на Земле · трюм пуст")
                 "transit":
                     var cargo: Dictionary = freight.order
-                    var payload := "%d %s" % [cargo.amount, Model.batch_unit(cargo.resource)] if (
+                    var payload := "%d %s" % [
+                        cargo.amount, Model.batch_unit(cargo.resource)] if (
                         cargo.amount > 0) else "трюм пуст"
                     items.insert(1, "Грузовик → %s · %s\nПрибытие: %s" % [
-                        Model.PLANET_NAMES[cargo.destination], payload, Calendar.calendar_text(freight.arrival)])
+                        Model.PLANET_NAMES[cargo.destination], payload,
+                        Calendar.calendar_text(freight.arrival)])
                 "luna":
                     items.insert(1, "Грузовик на Луне · трюм пуст")
             if line.enabled:
                 var wait: String = construction.freight_line_wait()
                 if not wait.is_empty():
                     items.insert(2, wait)
-            elif freight.get("location") == order.source and not reason.is_empty():
-                items.insert(2, reason)
         var coeff: Dictionary = config.get("planets",{}).get(selected,{})
         for key in body.get("resources",{}).keys():
             items.append("%s: %.2f" % [Model.resource_label(str(key)),
@@ -488,9 +576,15 @@ func _show_selected() -> void:
         return
 
 func _input(event: InputEvent) -> void:
-    if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F9:
-        _toggle_admin()
-        get_viewport().set_input_as_handled()
+    if event is InputEventKey and event.pressed and not event.echo:
+        if event.keycode == KEY_F9:
+            _toggle_admin()
+            get_viewport().set_input_as_handled()
+        elif event.keycode == KEY_SPACE:
+            # Handle BEFORE focused Buttons can reinterpret Space as
+            # ui_accept and accidentally repeat the previous command.
+            _pause()
+            get_viewport().set_input_as_handled()
 
 func _init_extra_settings() -> void:
     config["buildings"] = Model.building_defaults(config.get("recipes", {}))
@@ -532,6 +626,7 @@ func _make_browser() -> void:
     browser.values_changed.connect(_show_selected)
     browser.close_requested.connect(_close_browser)
     browser.build_requested.connect(_order_build)
+    browser.cancel_requested.connect(_cancel_build)
     browser.save_game_requested.connect(_save_game)
     browser.load_game_requested.connect(_load_game)
     browser.new_game_requested.connect(_new_game)
@@ -556,7 +651,7 @@ func _layout_right_side() -> void:
     if sidebar == null or native_view == null or browser == null:
         return
     var active_width: float = clampf(size.x * 0.30, 390.0, 500.0)
-    if browser.visible:
+    if browser.visible and browser.page.begins_with("admin"):
         active_width = clampf(size.x * 0.43, 470.0, 740.0)
     for bar in [top_bar, performance_bar]:
         if bar != null:
@@ -805,6 +900,21 @@ func _order_build(body: String, building_id: String) -> void:
         message_line.text = ("Строительство начато" if bool(
             result.get("ok", false)) else str(
             result.get("reason", "Заказ отклонён")))
+
+func _cancel_build(site_id: String) -> void:
+    var result: Dictionary = construction.cancel_order(site_id)
+    if bool(result.get("ok", false)):
+        _update_native_map()
+        _show_selected()
+        _refresh_construction_ui()
+        if browser != null:
+            browser.refresh_build_availability()
+        var refunded: Dictionary = result.get("refunded", {})
+        _notice("Стройка отменена · возвращено %s металла" % [
+            Model.batch_amount(float(refunded.get("metals", 0)))])
+    else:
+        _notice(str(result.get("reason", "Отмена невозможна")))
+
 
 func _notice(message: String) -> void:
     if message_line != null:

@@ -115,6 +115,34 @@ func depart_freighter(destination: String, food: bool = false) -> bool:
  _launch_freighter(_manual_order(destination, food))
  return true
 
+## A manual flight is configured once, independently of scheduled legs.
+## The old one-button APIs below remain for legacy test/save compatibility.
+func manual_freight_reason(destination: String,
+        resource: String, amount: int) -> String:
+ if _line_enabled:
+  return "Сначала отключите регулярную линию"
+ if not FREIGHT_ORDERS.has(destination) or (
+     resource not in FREIGHT_RESOURCES.get(destination, [])):
+  return "Недопустимый маршрут или груз"
+ if amount < 0 or amount > FREIGHT_CAPACITY or (
+     amount == 0 and destination != "earth"):
+  return "Количество должно быть от 1 до %d" % FREIGHT_CAPACITY
+ var shipment: Dictionary = freight_order(destination)
+ shipment["resource"] = resource
+ shipment["amount"] = amount
+ return _shipment_block_reason(shipment)
+
+func depart_manual_freight(destination: String,
+        resource: String, amount: int) -> bool:
+ if not manual_freight_reason(destination, resource, amount).is_empty():
+  return false
+ var shipment: Dictionary = freight_order(destination)
+ shipment["resource"] = resource
+ shipment["amount"] = amount
+ _launch_freighter(shipment)
+ return true
+
+
 func return_order() -> Dictionary:
  var shipment := freight_order("earth")
  var available := float(_market_for("luna").get("supply", {}).get("ore", 0))
@@ -313,7 +341,8 @@ func order(body: String, building_id: String) -> Dictionary:
   "start_native": now_native,
   "finish_native": finish,
   "duration_days": duration_days,
-  "metals_spent": cost
+  "metals_spent": cost,
+  "paid_resources": {"metals": cost}
  }
  var facility: Dictionary = {
   "id": id,
@@ -342,6 +371,54 @@ func order(body: String, building_id: String) -> Dictionary:
  next_id += 1
  return {"ok": true, "id": id, "finish_native": finish,
   "days": duration_days, "spent": cost}
+
+## Refund only the exact resources previously debited by a still-pending
+## order. Atomic with removal of its construction_site, including on restore.
+## Repeated cancel / completed order cannot refund a second time.
+func cancel_order(site_id: String) -> Dictionary:
+ var site_index: int = -1
+ for index in range(sites.size()):
+  if str(sites[index].get("id", "")) == site_id:
+   site_index = index
+   break
+ if site_index < 0:
+  return {"ok": false, "reason": "Заказ уже отменён или завершён"}
+ var site: Dictionary = sites[site_index]
+ var facility_index: int = -1
+ var facilities: Array = world.get("facilities", [])
+ for index in range(facilities.size()):
+  if str(facilities[index].get("id", "")) == site_id and str(
+      facilities[index].get("type", "")) == "construction_site":
+   facility_index = index
+   break
+ if facility_index < 0:
+  return {"ok": false, "reason": "Стройплощадка уже отсутствует"}
+ var body: String = str(site.get("body", ""))
+ if str(facilities[facility_index].get("body", "")) != body:
+  return {"ok": false, "reason": "Несовпадение колонии и стройплощадки"}
+ var market: Dictionary = _market_for(body)
+ if market.is_empty():
+  return {"ok": false, "reason": "Нет склада колонии для возврата"}
+ var paid: Dictionary = {}
+ if site.get("paid_resources") is Dictionary:
+  paid = site["paid_resources"]
+ elif site.has("metals_spent"):
+  paid = {"metals": site["metals_spent"]}
+ for resource in paid:
+  var amount: Variant = paid[resource]
+  if not (amount is int or amount is float) or not is_finite(
+      float(amount)) or float(amount) < 0:
+   return {"ok": false, "reason": "Неверная запись списанных материалов"}
+ # Validated all receipt fields before any inventory mutation.
+ var supply: Dictionary = market["supply"]
+ for resource in paid:
+  supply[str(resource)] = float(supply.get(resource, 0.0)) + float(
+   paid[resource])
+ facilities.remove_at(facility_index)
+ sites.remove_at(site_index)
+ return {"ok": true, "id": site_id, "body": body,
+  "refunded": paid.duplicate(true)}
+
 
 func progress(site: Dictionary) -> float:
  var start: float = float(site.get("start_native", now_native))
@@ -489,6 +566,15 @@ func restore(data: Dictionary) -> bool:
   if not is_finite(float(site["finish_native"])) or (
       float(site["finish_native"]) < float(t)):
    return false
+  var paid: Variant = site.get("paid_resources",
+   {"metals": site.get("metals_spent", 0)})
+  if not (paid is Dictionary):
+   return false
+  for resource in paid:
+   var amount: Variant = paid[resource]
+   if not (amount is int or amount is float) or not is_finite(
+       float(amount)) or float(amount) < 0:
+    return false
   site_ids[sid] = true
  for m in input_markets:
   if not (m is Dictionary) or not (m.get("supply", null) is Dictionary):

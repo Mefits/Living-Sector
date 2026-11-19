@@ -5,6 +5,7 @@ signal reset_requested
 signal values_changed
 signal close_requested
 signal build_requested(body_id: String, building_id: String)
+signal cancel_requested(site_id: String)
 signal save_game_requested
 signal load_game_requested
 signal new_game_requested
@@ -219,9 +220,7 @@ func _cards(editable: bool) -> void:
   queue_panel = VBoxContainer.new()
   cards_root.add_child(queue_panel)
   _refresh_queue()
-  build_detail = _label(cards_root, "", 14, Color("#afc8d4"))
-  build_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-  build_detail.hide()
+
  grid = GridContainer.new()
  grid.columns = 3 if editable else 1
  grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -264,55 +263,84 @@ func _cards(editable: bool) -> void:
    time_labels[id] = _label(stack, _construction_time(building), 13)
   else:
    card.visible = not existing
-   var line := HBoxContainer.new()
-   line.add_theme_constant_override("separation", 7)
-   card.add_child(line)
+   var stack := VBoxContainer.new()
+   stack.add_theme_constant_override("separation", 3)
+   card.add_child(stack)
+   var top := HBoxContainer.new()
+   top.add_theme_constant_override("separation", 5)
+   stack.add_child(top)
    var symbol := Glyph.new()
    symbol.kind = id
-   symbol.tint = Color("#c4d5d8")
-   line.add_child(symbol)
-   var label: Label = _label(line, str(building["name"]), 15,
+   symbol.custom_minimum_size = Vector2(30, 30)
+   top.add_child(symbol)
+   var label: Label = _label(top, str(building["name"]), 14,
     Color("#e7f0f4") if available else Color("#8da3b2"))
+   label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
    label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-   label.clip_text = true
-   label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+   label.custom_minimum_size.y = 32
+   var action := _button(top, "Заказать" if available else "Нет металла",
+    _request_build.bind(id))
+   action.custom_minimum_size = Vector2(99, 32)
+   action.add_theme_font_size_override("font_size", 12)
+   action.disabled = not available
+   var purpose: Label = _label(stack, _purpose(id), 12,
+    Color("#abc7d3"))
+   purpose.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+   var meta := HBoxContainer.new()
+   meta.add_theme_constant_override("separation", 4)
+   stack.add_child(meta)
    var metal_icon: TextureRect = Icons.make_icon("metals", false, 20)
    if metal_icon != null:
-    line.add_child(metal_icon)
-   var price := _label(line, "%d · %d д" % [
+    meta.add_child(metal_icon)
+   _label(meta, "Цена: %d металл · %d дн." % [
     int(row.get("metals", 1)),
     Model.construction_days(building, buildings)], 13,
     Color("#d5bb8c"))
-   price.custom_minimum_size.x = 88
-   var info := _button(line, "i", _show_building_detail.bind(id))
-   info.custom_minimum_size = Vector2(30, 32)
-   var action := _button(line,
-    "Заказать" if available else "Нет ресурсов",
-    _request_build.bind(id))
-   action.custom_minimum_size = Vector2(104, 32)
-   action.disabled = not available
+   var expand := _button(meta, "Подробнее", _toggle_build_details.bind(id))
+   expand.custom_minimum_size = Vector2(104, 28)
+   expand.add_theme_font_size_override("font_size", 11)
+   var local_details: Label = _label(stack, "", 12, Color("#afc8d4"))
+   local_details.hide()
    build_controls[id] = {
     "card": card, "title": label, "button": action,
-    "available": available, "hidden": existing
+    "details": local_details, "available": available, "hidden": existing
    }
  _fit_cards()
 
-func _show_building_detail(building_id: String) -> void:
- if build_detail == null:
+static func _purpose(id: String) -> String:
+ match id:
+  "administrative_center": return "Управляет колонией и складом"
+  "mining_rig": return "Добывает руду"
+  "farm": return "Выращивает продовольствие"
+  "power_plant": return "Производство энергии (заготовка)"
+  "refinery": return "Перерабатывает руду в металл"
+  "factory": return "Изготавливает компоненты"
+  "spaceport": return "Принимает и отправляет грузовые корабли"
+  "orbital_platform": return "Обеспечивает орбитальную инфраструктуру"
+  "shipyard": return "Строительство кораблей (заготовка)"
+ return "Здание колонии"
+
+
+func _toggle_build_details(building_id: String) -> void:
+ var controls: Dictionary = build_controls.get(building_id, {})
+ if controls.is_empty():
+  return
+ var local_details: Label = controls["details"]
+ if local_details.visible:
+  local_details.hide()
   return
  var item: Dictionary = Model.find_building(building_id)
- if item.is_empty():
-  return
  var inputs: Array[String] = []
  for resource in item.get("inputs", {}).keys():
-  var value: int = int(config["buildings"][building_id].get(
+  var amount: int = int(config["buildings"][building_id].get(
    "input_" + str(resource), item["inputs"][resource]))
-  inputs.append("%d %s" % [value, Model.batch_unit(str(resource))])
- var output: String = _production(item) if str(item.get("product", "")) != "none" else "Сервисное здание"
- build_detail.text = "%s · %s · %s · Расход: %s" % [
-  str(item["name"]), _construction_time(item), output,
-  ", ".join(inputs) if not inputs.is_empty() else "нет"]
- build_detail.show()
+  inputs.append("%d %s" % [amount, Model.batch_unit(str(resource))])
+ var output: String = _production(item) if str(item.get(
+  "product", "")) != "none" else "Сервисное здание"
+ local_details.text = "%s\nРасход: %s" % [
+  output, ", ".join(inputs) if not inputs.is_empty() else "нет"]
+ local_details.show()
+
 
 func refresh_build_availability() -> void:
  if not visible or page != "build":
@@ -414,7 +442,9 @@ func _refresh_queue() -> void:
     bar.min_value = 0.0
     bar.max_value = 100.0
     panel.add_child(bar)
-    queue_rows[site_id] = {"line": line, "bar": bar}
+    var cancel := _button(panel, "Отменить", func(): cancel_requested.emit(site_id))
+    cancel.custom_minimum_size = Vector2(0, 28)
+    queue_rows[site_id] = {"line": line, "bar": bar, "cancel": cancel}
  # Every 0.5 seconds update just values, not the Godot scene tree.
  for entry in relevant:
   var site_id: String = str(entry.get("id", ""))

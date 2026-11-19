@@ -1460,7 +1460,24 @@ func _draw_physical_assets(scale: float) -> void:
     var is_sol: bool = str(
         _world.get("system", {}).get("id", "")) == "system-sol"
     var font: Font = get_theme_default_font()
+    # Project both separate gameplay assets into ONE orbital hull per
+    # colony. Do not merge facilities, services, locations or save IDs.
+    var platform_by_body: Dictionary = {}
+    var yard_by_body: Dictionary = {}
+    for asset in _physical_assets.get("orbital", []):
+        var bid: String = str(asset.get("body", ""))
+        if str(asset.get("type", "")) == "orbital_platform":
+            platform_by_body[bid] = asset
+        elif str(asset.get("type", "")) == "shipyard":
+            yard_by_body[bid] = asset
     for facility in _physical_assets.get("orbital", []):
+        var orbital_body: String = str(facility.get("body", ""))
+        if str(facility.get("type", "")) == "shipyard" and (
+                platform_by_body.has(orbital_body)):
+            continue
+        var attached_yard: Dictionary = yard_by_body.get(orbital_body, {})
+        var has_module: bool = not attached_yard.is_empty() and (
+            str(facility.get("type", "")) in ["orbital_platform", "shipyard"])
         var parent: Dictionary = _body_by_id(str(facility["body"]))
         if parent.is_empty():
             continue
@@ -1554,6 +1571,19 @@ func _draw_physical_assets(scale: float) -> void:
         _facility_pins.append({"id": str(facility["id"]),
             "position": pos,
             "hit_radius": lerpf(15.0, 24.0, station_lod)})
+        if has_module:
+            var module_pos: Vector2 = pos + Vector2(
+                18.0, -9.0) * icon_scale
+            BuildingGlyph.paint(self, "shipyard", module_pos,
+                4.5 * icon_scale, Color("#c4dcea"))
+            if str(attached_yard.get("id", "")) == _selected_facility_id:
+                draw_arc(module_pos, 8.5 * icon_scale, 0, TAU, 20,
+                    Color("#fff4c5"), 1.6, true)
+            if str(attached_yard.get("id", "")) != str(facility["id"]):
+                _facility_pins.append({
+                    "id": str(attached_yard["id"]),
+                    "position": module_pos,
+                    "hit_radius": 10.0 * icon_scale})
         var docked_ids: Array = _ship_ids_by_location.get(
             str(facility["location"]), [])
         if not docked_ids.is_empty():
@@ -1569,7 +1599,8 @@ func _draw_physical_assets(scale: float) -> void:
             draw_string(font, pos + Vector2(17, -9) * icon_scale,
                 "Административный док" if str(facility.get(
                     "type", "")) == "construction_dock"
-                else "Орбитальная станция", HORIZONTAL_ALIGNMENT_LEFT,
+                else ("Орбитальная станция · верфь" if has_module
+                    else "Орбитальная станция"), HORIZONTAL_ALIGNMENT_LEFT,
                 -1, 12, Color("#dfc8a4"))
     # Roads go behind the existing clickable source-backed facilities.
     # Only draw on the enlarged focused globe; roads are NOT physical cargo.
@@ -1991,12 +2022,20 @@ func _pick(pointer: Vector2, open_body: bool = false) -> void:
         return
     if _pick_ship(pointer):
         return
+    # Pick closest marker, not the first wide hull hit box. This keeps
+    # the small shipyard module selectable beside its parent station.
+    var closest_facility: Dictionary = {}
+    var closest_distance: float = INF
     for pin in _facility_pins:
-        if pointer.distance_to(pin["position"]) <= float(
-                pin.get("hit_radius", 12.0)):
-            select_facility(str(pin["id"]))
-            facility_selected.emit(str(pin["id"]))
-            return
+        var distance: float = pointer.distance_to(pin["position"])
+        if distance <= float(pin.get("hit_radius", 12.0)) and (
+                distance < closest_distance):
+            closest_distance = distance
+            closest_facility = pin
+    if not closest_facility.is_empty():
+        select_facility(str(closest_facility["id"]))
+        facility_selected.emit(str(closest_facility["id"]))
+        return
     var chosen: Dictionary = {}
     var nearest: float = INF
     for pin in _body_pins:
@@ -2006,10 +2045,15 @@ func _pick(pointer: Vector2, open_body: bool = false) -> void:
             chosen = pin["body"]
     if chosen.is_empty():
         return
-    select_body(str(chosen.get("id", "")))
-    body_selected.emit(chosen.duplicate(true))
+    var id: String = str(chosen.get("id", ""))
+    select_body(id)
     if open_body:
+        # Immediate follow acquisition, independent of wheel x3.1.
+        # Use the existing focus/tracking path for moving moons.
+        focus_body(id)
         body_open_requested.emit(chosen.duplicate(true))
+    else:
+        body_selected.emit(chosen.duplicate(true))
 
 
 func _nearest_pin(pointer: Vector2) -> Dictionary:
