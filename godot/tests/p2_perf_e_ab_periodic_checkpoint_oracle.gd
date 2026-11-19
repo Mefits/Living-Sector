@@ -35,7 +35,9 @@ func _initialize() -> void:
         "time_kind": "elapsed_wall_not_cpu", "from_tick": 1, "to_tick": 10,
         "paid_ticks": 10, "checkpoint_stride": 5, "parity_gates": 2,
         "plain_total_usec": 100, "profiled_total_usec": 120,
-        "measured_instrumentation_total_usec": 0, "observed_delta_total_usec": 20}
+        "measured_instrumentation_total_usec": 0, "observed_delta_total_usec": 20,
+        "checkpoint_plain_total_usec": 4, "checkpoint_profiled_total_usec": 4,
+        "checkpoint_total_usec": 8, "checkpoint_time_excluded": true}
     var late: Dictionary = early.duplicate(true)
     late["from_tick"] = 21
     late["to_tick"] = 30
@@ -70,6 +72,7 @@ func _sample(tick: int, right: bool) -> Dictionary:
     if right and _fault == "missing_gate" and tick == 5:
         gate = false
     if gate:
+        row["checkpoint_usec"] = 2
         row["checkpoint"] = {"tick": tick, "world": {"cargo": 10},
             "ledger": {"receipts": []}, "rng": [3, tick], "bt": {"action": "mine"}}
         if right and _fault == "divergent_gate" and tick == 10:
