@@ -62,25 +62,18 @@ static func propose(world: Dictionary, tick: int, multiplier: int) -> Dictionary
                 "source": "faction/" + str(row["from"]),
                 "destination": "facility/" + str(row["to"]),
                 "amount": int(row["amount"])})
-    # N129 taxes/bailouts are due more often than household relief.
-    # Both paths must return the full population wealth projection, but only
-    # relief consumes the richer household DTO. Never materialize that DTO
-    # on a tax-only cycle; it is not an input to Taxes or to N39 commit.
-    # Keep the canonical sorted population order and original wealth cast.
     var population_wealth: Dictionary = {}
     var population_ids: Array = world["populations"].keys()
     population_ids.sort()
     var households: Array = []
     for id in population_ids:
         var p: Dictionary = world["populations"][id]
-        var wealth: int = int(p.get("wealth", -1))
-        population_wealth[id] = wealth
-        if relief_due:
-            households.append({"id": str(id),
-                "faction_id": str(p.get("faction", "")),
-                "location": str(p.get("location", "")),
-                "wealth": wealth,
-                "food_satisfaction": int(p.get("food_satisfaction", 50))})
+        population_wealth[id] = int(p.get("wealth", -1))
+        households.append({"id": str(id),
+            "faction_id": str(p.get("faction", "")),
+            "location": str(p.get("location", "")),
+            "wealth": int(p.get("wealth", -1)),
+            "food_satisfaction": int(p.get("food_satisfaction", 50))})
     if relief_due:
         var market_rows: Array = []
         var locations: Array = world["markets"].keys()
