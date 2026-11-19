@@ -14,7 +14,8 @@ static func propose(physical_world: Dictionary, tick: int,
     # These DTO fields are borrowed read-only until that ownership boundary;
     # copying them here duplicates the entire market graph a second time.
     # No caller-owned reference may escape in updates (detached below).
-    var views: Dictionary = {}
+    # Preflight all rows before any N150 tick; only retain scalar IDs.
+    # Assemble each borrowed DTO immediately before its sorted execution.
     var owner_by_id: Dictionary = {}
     for location in physical_world["markets"]:
         if not (physical_world["markets"][location] is Dictionary):
@@ -30,10 +31,24 @@ static func propose(physical_world: Dictionary, tick: int,
         if not (m["elasticity"] is float or m["elasticity"] is int) or not (m["spread"] is float or m["spread"] is int):
             return {"ok": false, "reason": "invalid_native_market_pricing"}
         var id: String = str(m["id"])
-        if id.is_empty() or views.has(id):
+        if id.is_empty() or owner_by_id.has(id):
             return {"ok": false, "reason": "duplicate_native_market_id"}
         owner_by_id[id] = str(location)
-        views[id] = {
+
+    # N150 validates every market in sorted identity order before crisis
+    # staging. Preserve that failure precedence while avoiding the second
+    # full-sized output registry: the owned results live in updates, then
+    # are replaced in place with final N39 proposals after all ticks pass.
+    var ids: Array = owner_by_id.keys()
+    ids.sort()
+    var updates: Dictionary = {}
+    var crisis_events: Array[Dictionary] = []
+    for id in ids:
+        if not (id is String):
+            return {"ok": false, "reason": "invalid_real_market_registry"}
+        var location: String = str(owner_by_id[id])
+        var m: Dictionary = physical_world["markets"][location]
+        var input: Dictionary = {
             "id": id, "facility_location": str(location),
             "pricing": {
                 "price_elasticity": float(m["elasticity"]),
@@ -49,18 +64,6 @@ static func propose(physical_world: Dictionary, tick: int,
             "orders": m["orders"],
             "history": m["history"]
         }
-    # N150 validates every market in sorted identity order before crisis
-    # staging. Preserve that failure precedence while avoiding the second
-    # full-sized output registry: the owned results live in updates, then
-    # are replaced in place with final N39 proposals after all ticks pass.
-    var ids: Array = views.keys()
-    ids.sort()
-    var updates: Dictionary = {}
-    var crisis_events: Array[Dictionary] = []
-    for id in ids:
-        if not (id is String) or not (views[id] is Dictionary):
-            return {"ok": false, "reason": "invalid_real_market_registry"}
-        var input: Dictionary = views[id]
         if str(input.get("id", "")) != str(id):
             return {"ok": false, "reason": "market_identity_mismatch"}
         var changed: Dictionary = Markets.tick_one_market(input, tick,
