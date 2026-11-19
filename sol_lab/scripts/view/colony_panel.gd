@@ -58,13 +58,9 @@ func _ready() -> void:
  if metal_icon != null:
   metals_row.add_child(metal_icon)
  metal = _label(metals_row, "", 15, Color("#e6d59d"))
- var food_row := HBoxContainer.new()
- food_row.add_theme_constant_override("separation", 5)
- layout.add_child(food_row)
- var food_icon: TextureRect = Icons.make_icon("food", false, 20)
- if food_icon != null:
-  food_row.add_child(food_icon)
- food_status = _label(food_row, "", 13, Color("#bfd0d9"))
+ # Long food/ration diagnostics must remain a wrapping full-width Label.
+ # A nested HBox here can force a tall minimum panel on 1366x768.
+ food_status = _label(layout, "", 13, Color("#bfd0d9"))
  food_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
  var navigation := HBoxContainer.new()
