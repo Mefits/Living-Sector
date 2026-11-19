@@ -50,7 +50,7 @@ func _initialize() -> void:
 func _plain(tick: int) -> Dictionary:
     plain_clock += 1
     return {"ok": true, "tick": tick, "elapsed_usec": 10,
-        "instrumentation_usec": 0, "checkpoint": _state(tick)}
+        "instrumentation_usec": 0, "checkpoint_usec": 2, "checkpoint": _state(tick)}
 
 func _profile(tick: int) -> Dictionary:
     profile_clock += 1
@@ -61,7 +61,7 @@ func _profile(tick: int) -> Dictionary:
         "tick": tick - (1 if broken == "clock" else 0),
         "elapsed_usec": -1 if broken == "negative" else 13,
         "instrumentation_usec": 14 if broken == "cost" else 1,
-        "checkpoint": checkpoint}
+        "checkpoint_usec": 3, "checkpoint": checkpoint}
 
 func _state(tick: int) -> Dictionary:
     return {"tick": tick, "world": {"ships": [{"id": "s", "fuel": 8}]},
