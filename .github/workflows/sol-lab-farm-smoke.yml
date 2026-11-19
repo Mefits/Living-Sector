@@ -150,7 +150,7 @@ jobs:
           else
             export XDG_DATA_HOME="$(mktemp -d)"
             if timeout --signal=TERM --kill-after=5s 55s \
-              xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 SOL_CAPTURE_UI=1 \
+              xvfb-run -a -s "-screen 0 2560x1440x24" env LIBGL_ALWAYS_SOFTWARE=1 SOL_CAPTURE_UI=1 \
               godot --path sol_lab --script res://tests/sol_colony_window_check.gd \
               > "$RUNNER_TEMP/sol-lab-logs/colony-screenshots.log" 2>&1; then
               grep -E 'SOL_COLONY_SCREENSHOT|SOL_COLONY_WINDOW_PASS' \

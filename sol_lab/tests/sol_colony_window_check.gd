@@ -112,7 +112,10 @@ func _layout(width: int, height: int, context: String) -> void:
   "resolution": "%dx%d" % [width, height],
   "context": context, "side_x": side.position.x,
   "side_width": side.size.x, "header_bottom": heading.end.y,
-  "scroll_height": view.size.y, "actions_bottom": last_controls.end.y
+  "scroll_height": view.size.y, "actions_bottom": last_controls.end.y,
+  "side_visible": game.sidebar.is_visible_in_tree(),
+  "topbar_right": game.top_bar.get_global_rect().end.x,
+  "render_window": DisplayServer.window_get_size()
  }))
 
 func _run() -> void:
