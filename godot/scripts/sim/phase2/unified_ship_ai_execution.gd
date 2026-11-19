@@ -91,14 +91,28 @@ static func _real_contract_dock(world: Dictionary,
 static func _latest_dock_ticks(world: Dictionary, scratch: Dictionary) -> Dictionary:
     if scratch.has("_n84_latest_dock_ticks"):
         return scratch["_n84_latest_dock_ticks"]
+    # DockDwell can only read this index for a ship currently occupying a
+    # physical dock. Historic N21 receipts can grow indefinitely, including
+    # removed ships and ships now in transit. Keep only relevant IDs while
+    # preserving the original max-tick rule and receipt iteration semantics.
+    # This filter is built once per synchronous N84 proposal; N84 never
+    # applies N21 dock mutations until N39 commits the proposal.
+    var docked_ids: Dictionary = {}
+    for ship_id in world.get("ships", {}):
+        var row: Variant = world["ships"][ship_id]
+        if row is Dictionary and not str(row.get("docked_at", "")).is_empty():
+            docked_ids[str(ship_id)] = true
     var latest: Dictionary = {}
-    for receipt_id in world.get("dock_receipts", {}):
-        var receipt: Dictionary = world["dock_receipts"][receipt_id]
-        if str(receipt.get("action", "")) != "dock":
-            continue
-        var receipt_ship: String = str(receipt.get("ship_id", ""))
-        latest[receipt_ship] = maxi(int(latest.get(receipt_ship, -1)),
-            int(receipt.get("tick", -1)))
+    if not docked_ids.is_empty():
+        for receipt_id in world.get("dock_receipts", {}):
+            var receipt: Dictionary = world["dock_receipts"][receipt_id]
+            if str(receipt.get("action", "")) != "dock":
+                continue
+            var receipt_ship: String = str(receipt.get("ship_id", ""))
+            if not docked_ids.has(receipt_ship):
+                continue
+            latest[receipt_ship] = maxi(int(latest.get(receipt_ship, -1)),
+                int(receipt.get("tick", -1)))
     scratch["_n84_latest_dock_ticks"] = latest
     return latest
 
