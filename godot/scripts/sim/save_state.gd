@@ -539,11 +539,20 @@ static func _promote_recovered_checkpoint(absolute_path: String,
             # named file, never silently deletes its bytes.
             DirAccess.rename_absolute(parking, absolute_path)
         return false
-    if had_primary:
-        # Only discard a displaced primary after the candidate was restored.
-        # If it was invalid, preserve it for diagnostics until a later save.
-        if not candidate_is_displaced:
-            DirAccess.remove_absolute(parking)
+    # Confirm the promoted file still passes the same authenticated N38
+    # preflight. A successful filesystem rename alone is not durability.
+    if not _trusted_for_backup_rotation(_read_checkpoint(absolute_path)):
+        # Keep the promoted bytes under their original candidate name when
+        # possible, and restore the parked primary. No recovery file is
+        # unlinked on this failure path.
+        DirAccess.rename_absolute(absolute_path, candidate)
+        if had_primary:
+            DirAccess.rename_absolute(parking, absolute_path)
+        return false
+    if had_primary and not candidate_is_displaced:
+        # The old primary was already rejected by the live runner. Preserve
+        # its diagnostic bytes if the removal fails; do not mask success.
+        DirAccess.remove_absolute(parking)
     return true
 
 static func load_runner(runner: RefCounted, seed: Dictionary,
@@ -573,14 +582,20 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
             # Never touch a valid primary or the last good backup.
             var promoted_pending: bool = false
             var promoted_previous: bool = false
+            var promoted_displaced: bool = false
+            var promotion_attempted: bool = false
             if candidate == absolute_path + ".pending":
+                promotion_attempted = true
                 promoted_pending = _promote_recovered_checkpoint(
                     absolute_path, candidate)
             elif candidate == absolute_path + ".bak.previous":
+                promotion_attempted = true
                 promoted_previous = _promote_recovered_checkpoint(
                     absolute_path, candidate)
             elif candidate == absolute_path + ".recovery-displaced":
-                _promote_recovered_checkpoint(absolute_path, candidate)
+                promotion_attempted = true
+                promoted_displaced = _promote_recovered_checkpoint(
+                    absolute_path, candidate)
             elif candidate == absolute_path + ".recovery-rejected":
                 # A rejected original can still be the last valid save after
                 # an interrupted promotion. Restore it without overwriting
@@ -590,13 +605,22 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
                 # A successful live restore is stronger than envelope-only
                 # validation; an orphaned prior primary is no longer needed.
                 _reconcile_recovery_displaced(absolute_path, true)
+            var promotion_succeeded: bool = promoted_pending or \
+                promoted_previous or promoted_displaced
+            # A recovered in-memory world is not necessarily durable on disk:
+            # collision, denied rename or invalid post-rename verification
+            # must be visible to callers before they rely on another restart.
             return {
                 "ok": true,
                 "source": candidate,
                 "tick": runner.tick_count,
                 "recovered_pending": candidate == absolute_path + ".pending",
                 "promoted_pending": promoted_pending,
-                "promoted_previous": promoted_previous
+                "promoted_previous": promoted_previous,
+                "promoted_displaced": promoted_displaced,
+                "promotion_attempted": promotion_attempted,
+                "restart_safe": not promotion_attempted or promotion_succeeded,
+                "persistence_warning": "Recovered state was not promoted; retry recovery before next restart" if promotion_attempted and not promotion_succeeded else ""
             }
         if not runner.restore_checkpoint(baseline, seed):
             return {
