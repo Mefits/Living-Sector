@@ -102,14 +102,14 @@ func _run() -> void:
             _finish(false, "incomplete paid tick coverage")
             return
         mode_reports.append(reports.duplicate(true))
-        var comparison: Dictionary = AB.compare_checkpoint_modes(mode_reports[0], mode_reports[1])
-        if not comparison.get("accepted", false):
-            _finish(false, "independent mode comparison rejected " + JSON.stringify(comparison))
-            return
-        print("P2_PERF_E_CHECKPOINT_MODE_COMPARISON ", JSON.stringify(comparison))
-        print("P2_PERF_E_LIVE_AB_PASS target=", target,
-            " independent_modes=2 profiler_cost_is_not_cpu=true")
-        quit(0)
+    var comparison: Dictionary = AB.compare_checkpoint_modes(mode_reports[0], mode_reports[1])
+    if not comparison.get("accepted", false):
+        _finish(false, "independent mode comparison rejected " + JSON.stringify(comparison))
+        return
+    print("P2_PERF_E_CHECKPOINT_MODE_COMPARISON ", JSON.stringify(comparison))
+    print("P2_PERF_E_LIVE_AB_PASS target=", target,
+        " independent_modes=2 profiler_cost_is_not_cpu=true")
+    quit(0)
 
 func _plain_step(tick: int) -> Dictionary:
     return _step(_plain, tick, false)
