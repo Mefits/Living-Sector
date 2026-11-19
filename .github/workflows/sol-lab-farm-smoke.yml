@@ -166,7 +166,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sol-lab-colony-layout
-          path: sol_lab/sol-colony-*.png
+          path: |
+            sol_lab/sol-colony-*.png
+            sol_lab/sol-build-*.png
           if-no-files-found: ignore
           retention-days: 7
 

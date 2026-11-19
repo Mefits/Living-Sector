@@ -233,6 +233,18 @@ func _run() -> void:
   _check(title_rect.position.y >= 45 and title_rect.end.y <= dimension[1] and
    browser_rect.end.x <= game.size.x + 1 and scroll_rect.size.y > 120,
    "catalog title/actions within %dx%d" % [dimension[0], dimension[1]])
+  if OS.get_environment("SOL_CAPTURE_UI") == "1" and (
+      DisplayServer.get_name() != "headless"):
+   await create_timer(0.25).timeout
+   for frame in range(5):
+    await process_frame
+   await RenderingServer.frame_post_draw
+   var image: Image = root.get_texture().get_image()
+   if image != null and not image.is_empty():
+    var destination: String = "res://sol-build-%dx%d.png" % [
+     dimension[0],dimension[1]]
+    image.save_png(destination)
+    print("SOL_BUILD_SCREENSHOT ", ProjectSettings.globalize_path(destination))
  if FileAccess.file_exists(Lab.USER_SAVE):
   DirAccess.remove_absolute(ProjectSettings.globalize_path(Lab.USER_SAVE))
  if errors.is_empty():
