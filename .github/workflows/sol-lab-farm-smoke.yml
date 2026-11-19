@@ -95,6 +95,11 @@ jobs:
             fi
             echo "::endgroup::"
           done
+      - name: Parse-check Windows-only draw-position recorder
+        shell: bash
+        run: |
+          godot --headless --path sol_lab --check-only --script res://tests/sol_motion_30s.gd
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |
