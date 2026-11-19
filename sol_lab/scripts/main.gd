@@ -23,6 +23,7 @@ var config: Dictionary = {}
 var native_time: float = 0.0
 var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
+var freight_button: Button
 var colony_button: Button
 var construction = ConstructionRuntime.new()
 var construction_ui_elapsed: float = 0.0
@@ -158,6 +159,7 @@ func _build_ui() -> void:
     var filler := Control.new()
     filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
     contents.add_child(filler)
+    freight_button = _button(contents, "Доставить 10 металла с Земли", _send_freight)
     colony_button = _button(contents, "Колонизировать Луну", _colonize_luna)
     _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
     mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
@@ -284,6 +286,11 @@ func _process(delta: float) -> void:
     if frame_profiler.display_due():
         _update_performance_label()
 
+func _send_freight() -> void:
+    if selected == "luna" and construction.dispatch_freight():
+        _show_selected()
+        _update_native_map()
+
 func _colonize_luna() -> void:
     if selected == "luna" and construction.expedition.depart(native_time):
         _show_selected()
@@ -307,6 +314,18 @@ func _show_selected() -> void:
             "Строек в очереди: %d" % _pending_on(selected),
             "Ресурсные коэффициенты:"
         ]
+        var ship = construction.freight
+        freight_button.visible = selected == "luna" and Model.colony(world, "luna") and ship.location == "earth"
+        if freight_button.visible:
+            var reason: String = construction.freight_blocker()
+            freight_button.disabled = not reason.is_empty()
+            if freight_button.disabled:
+                items.insert(0, reason)
+        if selected in ["earth", "luna"]:
+            if ship.location == "transit":
+                items.insert(0, "Грузовик → Луна · в трюме %d металла · %s" % [ship.cargo, Calendar.calendar_text(ship.arrival)])
+            elif selected == ship.location:
+                items.insert(0, "Грузовик в порту · трюм пуст")
         var expedition = construction.expedition
         colony_button.visible = selected == "luna" and expedition.ship.get("location") == "earth-colony"
         if selected in ["earth", "luna"] and not expedition.ship.is_empty():
@@ -460,6 +479,7 @@ func _make_native_map() -> void:
     move_child(native_view, 0)
     native_view.set_world(_native_view_world())
     native_view.select_body(selected)
+    native_view.freight_progress = construction.freight.progress(native_time)
     native_view.colonizer_progress = construction.expedition.progress(native_time)
     native_view.set_native_station_time(native_time)
 
@@ -468,6 +488,7 @@ func _update_native_map() -> void:
         return
     var begun: int = Time.get_ticks_usec()
     native_view.update_world(_native_view_world())
+    native_view.freight_progress = construction.freight.progress(native_time)
     native_view.colonizer_progress = construction.expedition.progress(native_time)
     native_view.set_native_station_time(native_time)
     _map_view_last_usec = maxi(0, Time.get_ticks_usec() - begun)
@@ -675,5 +696,6 @@ func _load_game() -> void:
     _refresh_construction_ui()
     _show_selected()
     _notice("Игра загружена: " + Calendar.calendar_text(native_time))
+
 
 

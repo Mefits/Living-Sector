@@ -17,6 +17,7 @@ const SURFACE_SITES: Dictionary = {
  "administrative_center": [-0.46, -0.34],
  "mining_rig": [0.43, -0.34],
  "refinery": [-0.41, 0.34],
+ "spaceport": [0.02, 0.65],
  "farm": [0.44, 0.33]
 }
 const BATCH_UNITS: Dictionary = {
@@ -140,3 +141,4 @@ static func construction_days(building: Dictionary,
 static func minimum_construction_shifts(_building: Dictionary,
         _settings: Dictionary) -> int:
  return -1
+

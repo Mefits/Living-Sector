@@ -11,6 +11,8 @@ var settings: Dictionary = {}
 var now_native: float = 0.0
 var next_id: int = 1
 var sites: Array = []
+const SupplyFlight = preload("res://scripts/sol_supply_flight.gd")
+var freight := SupplyFlight.new()
 var expedition := preload("res://scripts/sol_lunar_expedition.gd").new()
 var initial_markets := 0
 var initial_manifest: Dictionary
@@ -22,6 +24,8 @@ var batch_revision := 0
 
 func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  world = source_world
+ freight = SupplyFlight.new()
+ _ensure_home_port()
  expedition.reset(world)
  initial_markets = world.get("markets", []).size()
  initial_manifest = expedition.snapshot()
@@ -128,6 +132,9 @@ func advance_to(new_native: float) -> Array:
  if expedition.ship.get("location", "") == "transit" and now_native >= float(expedition.ship.arrival):
   if expedition.land_if_due(world, now_native, _colony_owner("earth")):
    completed.append("Колония на Луне основана")
+ if freight.location == "transit" and now_native >= freight.arrival:
+  freight.unload(_market_for("luna").supply)
+  completed.append("На Луну доставлено 10 металла")
  var remaining: Array = []
  for site in sites:
   if now_native + 0.000001 < float(site["finish_native"]):
@@ -164,6 +171,7 @@ func _finish(site: Dictionary) -> bool:
 func snapshot() -> Dictionary:
  return {
   "version": VERSION,
+  "freight": freight.snapshot(),
   "expedition": expedition.snapshot(),
   "system_id": str(world.get("system", {}).get("id", "")),
   "native_time": now_native,
@@ -252,10 +260,15 @@ func restore(data: Dictionary) -> bool:
    return false
   if int(m["supply"].get("metals", -1)) < 0:
    return false
+ var restored_freight := SupplyFlight.new()
+ if data.has("freight") and not restored_freight.restore(data.freight, float(t), lunar and _has_port(input_facilities, "luna")):
+  return false
  # Commit all restored domains only after all checks pass.
  expedition.restore(world, manifest)
  world["facilities"] = input_facilities.duplicate(true)
  world["markets"] = input_markets.duplicate(true)
+ freight = restored_freight
+ _ensure_home_port()
  sites = input_sites.duplicate(true)
  now_native = float(t)
  _index_producers()
@@ -374,3 +387,32 @@ func inventory_summary(body: String) -> String:
    str(entry.facility.get("production_status", "Ожидается первый выпуск"))])
  return "\n".join(lines)
 
+
+
+func _has_port(facilities: Array, body: String) -> bool:
+ for f in facilities:
+  if f.get("body") == body and f.get("type") == "spaceport":
+   return true
+ return false
+
+func _ensure_home_port() -> void:
+ if world.get("system", {}).get("id") != "system-sol" or _colony_owner("earth").is_empty():
+  return
+ if Model.built_or_pending(world, "earth", "spaceport"):
+  return
+ world.facilities.append({"id":"earth-starter-spaceport", "type":"spaceport",
+  "body":"earth", "location":"earth-colony", "name":"Космопорт",
+  "surface_site":Model.surface_site("spaceport"), "faction_id":_colony_owner("earth")})
+
+func freight_blocker() -> String:
+ if freight.location != "earth":
+  return "Грузовик в пути" if freight.location == "transit" else "Грузовик на Луне"
+ for body in ["luna", "earth"]:
+  if not _has_port(world.facilities, body):
+   return "Нужен готовый космопорт на Луне" if body == "luna" else "Нужен готовый космопорт на Земле"
+ if Model.stock(world, "earth") < SupplyFlight.LOAD:
+  return "На Земле требуется 10 металла"
+ return ""
+
+func dispatch_freight() -> bool:
+ return freight_blocker().is_empty() and freight.depart(_market_for("earth").supply, now_native)

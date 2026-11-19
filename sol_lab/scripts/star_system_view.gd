@@ -938,6 +938,7 @@ func _facility_count(body_id: String) -> int:
 func _live_ship_count(body_id: String) -> int:
     return int(_ships_by_body.get(body_id, 0))
 
+var freight_progress := -1.0
 var colonizer_progress := -1.0
 
 func _draw() -> void:
@@ -951,6 +952,11 @@ func _draw() -> void:
         var target := _body_position(_body_by_id("luna"), scale)
         var pos := origin.lerp(target, colonizer_progress)
         draw_colored_polygon(PackedVector2Array([pos + Vector2(0,-5), pos + Vector2(4,4), pos + Vector2(-4,4)]), Color("#93dfca"))
+    if freight_progress >= 0 and _draw_body_positions.has("earth") and _draw_body_positions.has("luna"):
+        var start: Vector2 = _draw_body_positions.earth + Vector2(-12, 10)
+        var end: Vector2 = _draw_body_positions.luna + Vector2(-8, 8)
+        var marker := start.lerp(end, freight_progress)
+        draw_rect(Rect2(marker - Vector2(5, 3), Vector2(10, 6)), Color("#e1b16e"))
     _last_draw_usec = maxi(0, Time.get_ticks_usec() - started)
     _max_draw_usec = maxi(_max_draw_usec, _last_draw_usec)
     _draw_calls += 1
@@ -1689,5 +1695,6 @@ func _gui_input(event: InputEvent) -> void:
         _pan += event.relative
         queue_redraw()
         accept_event()
+
 
 
