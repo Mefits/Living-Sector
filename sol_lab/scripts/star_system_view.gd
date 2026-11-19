@@ -46,6 +46,7 @@ const ORBIT_LINE_OPACITY: float = 0.30
 const SATELLITE_ORBIT_LINE_OPACITY: float = 0.25
 const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
+const FlightVisual = preload("res://scripts/view/sol_flight_visual.gd")
 const StationShipProjection = preload("res://scripts/ui_station_ship_projection.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd")
@@ -137,6 +138,13 @@ var _ship_motion_started_usec: int = -1
 var _ship_motion_duration_usec: int = 0
 var _last_ship_commit_usec: int = -1
 var _draw_now_usec: int = 0
+## Sol-only flight presentation. Ship and market snapshots remain authoritative.
+var _colonizer: Dictionary = {}
+var _flight_draw_states: Dictionary = {}
+var _docking_visuals: Dictionary = {}
+var _flight_paused: bool = false
+var _flight_pause_started_usec: int = -1
+var _flight_frozen_native: float = 0.0
 
 func draw_profile() -> Dictionary:
     return {"calls": _draw_calls, "last_usec": _last_draw_usec,
@@ -297,12 +305,22 @@ func _process(delta: float) -> void:
             _colony_anim_accum = 0.0
             camera_changed = true
     var now_usec: int = Time.get_ticks_usec()
+    if not _flight_paused:
+        for kind in _docking_visuals.keys():
+            var docking: Dictionary = _docking_visuals[kind]
+            if now_usec - int(docking["started_usec"]) >= int(docking["duration_usec"]):
+                _docking_visuals.erase(kind)
+                camera_changed = true
     for sid in _recent_arrivals.keys():
         var row: Dictionary = _recent_arrivals[sid]
         if VisualMotion.alpha(int(row["started_usec"]),
                 int(row["duration_usec"]), now_usec) >= 1.0:
             _recent_arrivals.erase(sid)
-    if camera_changed or not _recent_arrivals.is_empty() or (
+    if camera_changed or not _docking_visuals.is_empty() or (
+            not _flight_paused and (
+            _colonizer.get("location", "") == "transit" or
+            _freight.get("location", "") == "transit")) or (
+            not _recent_arrivals.is_empty()) or (
             _station_time_started_usec >= 0 and (
             VisualMotion.alpha(_station_time_started_usec,
                 _station_time_duration_usec, now_usec) < 1.0)) or (
@@ -524,6 +542,46 @@ func select_facility(facility_id: String) -> void:
 
 ## One native scalar from the real N158 calendar, not another simulation.
 ## The station uses exactly the N43 initial phase and orbit period.
+func set_flight_clock_paused(value: bool) -> void:
+    if value == _flight_paused:
+        return
+    var now: int = Time.get_ticks_usec()
+    if value:
+        _flight_frozen_native = _display_native_time(now)
+        _flight_pause_started_usec = now
+        _flight_paused = true
+    else:
+        var elapsed: int = maxi(0, now - _flight_pause_started_usec)
+        # Hold the same visual phase while paused; do not let wall clock
+        # consume its interpolation or a docking animation.
+        if _station_time_started_usec >= 0:
+            _station_time_started_usec += elapsed
+        if _last_station_sample_usec >= 0:
+            _last_station_sample_usec += elapsed
+        if _body_motion_started_usec >= 0:
+            _body_motion_started_usec += elapsed
+        if _last_body_commit_usec >= 0:
+            _last_body_commit_usec += elapsed
+        for kind in _docking_visuals:
+            _docking_visuals[kind]["started_usec"] += elapsed
+        _flight_paused = false
+        _flight_pause_started_usec = -1
+    queue_redraw()
+
+
+func snap_flight_clock(native_units: float, paused_now: bool) -> void:
+    # Save/load must not interpolate from the OLD game's calendar.
+    _native_station_time = native_units
+    _previous_native_time = native_units
+    _station_time_started_usec = -1
+    _last_station_sample_usec = -1
+    _flight_frozen_native = native_units
+    _flight_paused = paused_now
+    _flight_pause_started_usec = Time.get_ticks_usec() if paused_now else -1
+    _docking_visuals.clear()
+    queue_redraw()
+
+
 func set_native_station_time(native_units: float) -> void:
     if not is_finite(native_units) or native_units < 0.0:
         return
@@ -533,6 +591,9 @@ func set_native_station_time(native_units: float) -> void:
     _previous_native_time = _display_native_time(now)
     _station_phase_from_deg = _visual_station_time(now)
     _native_station_time = native_units
+    if _flight_paused:
+        # One explicit manual tick while paused updates the visible clock.
+        _flight_frozen_native = native_units
     _station_time_duration_usec = VisualMotion.sample_duration(
         _last_station_sample_usec, now, 160000)
     _station_time_started_usec = now
@@ -541,6 +602,8 @@ func set_native_station_time(native_units: float) -> void:
 
 
 func _display_native_time(now: int) -> float:
+    if _flight_paused:
+        return _flight_frozen_native
     return lerpf(_previous_native_time, _native_station_time, VisualMotion.alpha(
         _station_time_started_usec, _station_time_duration_usec, now))
 
@@ -950,51 +1013,193 @@ func _facility_count(body_id: String) -> int:
 func _live_ship_count(body_id: String) -> int:
     return int(_ships_by_body.get(body_id, 0))
 
-var colonizer_progress := -1.0
+var colonizer_progress := -1.0 # legacy readout, no longer drives a ship draw
 var _freight: Dictionary = {}
 
-func set_freight(freight: Dictionary, snap: bool = false) -> void:
-    if snap:
-        _previous_native_time = _native_station_time
-    if snap or freight != _freight:
-        _freight = freight
+
+func _flight_offset(kind: String) -> Vector2:
+    return Vector2(14.0, -14.0) if kind == "colonizer" else Vector2(-14.0, -14.0)
+
+
+func _native_body_screen(body: Dictionary, at_native: float,
+        scale: float) -> Vector2:
+    # Same model as _body_position(), but evaluated at the REAL future
+    # arrival timestamp. This is a view projection, not N14 navigation.
+    var delta: float = at_native - _native_station_time
+    var period: float = float(body.get("orbit_period", 0.0))
+    if str(body.get("parent_body_id", "")) != "":
+        period = float(body.get("satellite_orbit_period_native", period))
+    var degrees: float = float(body.get("current_angle", 0.0))
+    if period > 0.0:
+        degrees += 360.0 * delta / period
+    var direction := Vector2(cos(deg_to_rad(degrees)),
+        -sin(deg_to_rad(degrees)))
+    var parent: Dictionary = _known_moon_parent(body)
+    if not parent.is_empty():
+        return _native_body_screen(parent, at_native, scale) + direction * (
+            _satellite_orbit_radius(body, parent, scale))
+    return _center() + direction * (
+        _radius_transform(float(body.get("orbit_radius", 0.0))) *
+        scale * _zoom)
+
+
+func _flight_pose(kind: String, ship: Dictionary, when_usec: int) -> Dictionary:
+    if ship.is_empty():
+        return {}
+    var location: String = str(ship.get("location", ""))
+    var offset: Vector2 = _flight_offset(kind)
+    if location != "transit":
+        var dock_id: String = location if kind == "freight" else "earth"
+        if dock_id == "earth-colony":
+            dock_id = "earth"
+        if dock_id not in ["earth", "luna"]:
+            return {}
+        var dock: Dictionary = _body_by_id(dock_id)
+        if dock.is_empty():
+            return {}
+        return {"moving": false, "position": _body_position(
+            dock, _orbit_scale()) + offset, "direction": Vector2.RIGHT,
+            "progress": 0.0, "source": dock_id, "destination": dock_id}
+    var start_id: String = "earth"
+    var finish_id: String = "luna"
+    if kind == "freight":
+        var cargo: Dictionary = ship.get("order", {})
+        start_id = str(cargo.get("source", ""))
+        finish_id = str(cargo.get("destination", ""))
+    var start_body: Dictionary = _body_by_id(start_id)
+    var finish_body: Dictionary = _body_by_id(finish_id)
+    if start_body.is_empty() or finish_body.is_empty():
+        return {}
+    var depart: float = float(ship.get("departure", 0.0))
+    var arrive: float = float(ship.get("arrival", depart))
+    if arrive <= depart:
+        return {}
+    var scale: float = _orbit_scale()
+    var from: Vector2 = _native_body_screen(start_body, depart, scale) + offset
+    var to: Vector2 = _native_body_screen(finish_body, arrive, scale) + offset
+    var curve: PackedVector2Array = FlightVisual.curve(from, to)
+    var fraction: float = FlightVisual.fraction(depart, arrive,
+        _display_native_time(when_usec))
+    return {"moving": true,
+        "position": FlightVisual.point(curve, fraction),
+        "direction": FlightVisual.tangent(curve, fraction),
+        "progress": fraction, "source": start_id,
+        "destination": finish_id, "control": curve,
+        "departure": depart, "arrival": arrive}
+
+
+func _start_visual_docking(kind: String, ship: Dictionary) -> void:
+    var old: Dictionary = _flight_draw_states.get(kind, {})
+    if old.is_empty():
+        old = _flight_pose(kind, ship, Time.get_ticks_usec())
+    if old.is_empty():
+        return
+    _docking_visuals[kind] = {
+        "from": (old["position"] as Vector2) - _center(),
+        "destination": str(old.get("destination", "luna")),
+        "started_usec": Time.get_ticks_usec(),
+        "duration_usec": 150000
+    }
+
+
+func set_colonizer(ship: Dictionary, snap: bool = false) -> void:
+    if not snap and _colonizer.get("location", "") == "transit" and (
+            ship.get("location", "") != "transit"):
+        _start_visual_docking("colonizer", _colonizer)
+    if snap or ship.get("location", "") == "transit":
+        _docking_visuals.erase("colonizer")
+    if ship != _colonizer or snap:
+        _colonizer = ship.duplicate(true)
         queue_redraw()
 
-func _draw_freighter(earth: Vector2, luna: Vector2) -> void:
-    if _freight.is_empty():
+
+func set_freight(freight: Dictionary, snap: bool = false) -> void:
+    if not snap and _freight.get("location", "") == "transit" and (
+            freight.get("location", "") != "transit"):
+        _start_visual_docking("freight", _freight)
+    if snap or freight.get("location", "") == "transit":
+        _docking_visuals.erase("freight")
+    if snap or freight != _freight:
+        _freight = freight.duplicate(true)
+        queue_redraw()
+
+
+func _paint_flight_ship(kind: String, position: Vector2,
+        direction: Vector2, fade: float = 1.0) -> void:
+    var forward: Vector2 = direction.normalized() if (
+        direction.length_squared() > 0.000001) else Vector2.RIGHT
+    var lateral := Vector2(-forward.y, forward.x)
+    var tint: Color = Color("#93dfca" if kind == "colonizer" else "#f6d38a")
+    tint.a = clampf(fade, 0.0, 1.0)
+    var polygon: PackedVector2Array
+    if kind == "colonizer":
+        polygon = PackedVector2Array([
+            position + forward * 8.0,
+            position - forward * 5.0 + lateral * 5.0,
+            position - forward * 5.0 - lateral * 5.0])
+    else:
+        polygon = PackedVector2Array([
+            position + forward * 6.0 + lateral * 3.5,
+            position + forward * 6.0 - lateral * 3.5,
+            position - forward * 6.0 - lateral * 5.0,
+            position - forward * 6.0 + lateral * 5.0])
+    draw_colored_polygon(polygon, tint)
+    draw_line(position - forward * 2.0,
+        position + forward * 4.0, Color("#102331", tint.a), 1.4)
+
+
+func _draw_flight(kind: String, ship: Dictionary) -> void:
+    if _docking_visuals.has(kind):
+        var docking: Dictionary = _docking_visuals[kind]
+        var delta_usec: int = (
+            _flight_pause_started_usec if _flight_paused else _draw_now_usec
+        ) - int(docking["started_usec"])
+        var alpha: float = clampf(float(maxi(0, delta_usec)) /
+            float(docking["duration_usec"]), 0.0, 1.0)
+        var body: Dictionary = _body_by_id(str(docking["destination"]))
+        if not body.is_empty():
+            var target: Vector2 = _body_position(body, _orbit_scale()) + (
+                _flight_offset(kind))
+            var from: Vector2 = _center() + (docking["from"] as Vector2)
+            var position: Vector2 = from.lerp(target, alpha)
+            var heading: Vector2 = (target - from).normalized()
+            _paint_flight_ship(kind, position, heading,
+                1.0 - alpha if kind == "colonizer" else 1.0)
+            _flight_draw_states[kind] = {
+                "position": position, "direction": heading,
+                "progress": alpha, "docking": true,
+                "moving": alpha < 1.0}
         return
-    var position := luna if _freight.location == "luna" else earth
-    var flying: bool = _freight.location == "transit"
-    var cargo: Dictionary = _freight.get("order", {})
-    if flying:
-        var origin := earth if cargo.source == "earth" else luna
-        var target := luna if cargo.destination == "luna" else earth
-        var progress := clampf(inverse_lerp(float(_freight.departure), float(_freight.arrival),
-            _display_native_time(_draw_now_usec)), 0.0, 1.0)
-        position = origin.lerp(target, progress)
-    position += Vector2(-14, -14)
-    var tint := Color("#f6d38a")
-    draw_rect(Rect2(position - Vector2(5, 4), Vector2(10, 8)), tint)
-    if flying:
-        var payload := "%d %s" % [cargo.amount, Model.batch_unit(cargo.resource)] if (
-            cargo.amount > 0) else "трюм пуст"
-        var label := "%s · %s" % [Model.PLANET_NAMES[cargo.destination], payload]
-        draw_string(get_theme_default_font(), position + Vector2(9, -7),
-            label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, tint)
+    var pose: Dictionary = _flight_pose(kind, ship, _draw_now_usec)
+    if pose.is_empty():
+        return
+    var position: Vector2 = pose["position"]
+    if bool(pose["moving"]):
+        var curve: PackedVector2Array = pose["control"]
+        var points: PackedVector2Array = PackedVector2Array()
+        for n in range(25):
+            points.append(FlightVisual.point(curve, float(n) / 24.0))
+        draw_polyline(points, Color("#9abac6", 0.22), 1.1, true)
+    _paint_flight_ship(kind, position, pose["direction"])
+    if bool(pose["moving"]) and kind == "freight":
+        var cargo: Dictionary = ship.get("order", {})
+        var label: String = "%s · %d %s" % [
+            Model.PLANET_NAMES.get(str(cargo.get("destination", "")), "?"),
+            int(cargo.get("amount", 0)),
+            Model.batch_unit(str(cargo.get("resource", "")))]
+        draw_string(get_theme_default_font(), position + Vector2(9.0, -7.0),
+            label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#f6d38a"))
+    _flight_draw_states[kind] = pose
 
 func _draw() -> void:
     var started: int = Time.get_ticks_usec()
     _draw_now_usec = started
     _draw_body_positions.clear()
     _draw_system()
+    _flight_draw_states.clear()
     if not _body_by_id("earth").is_empty() and not _body_by_id("luna").is_empty():
-        var scale := _orbit_scale()
-        var earth := _body_position(_body_by_id("earth"), scale)
-        var luna := _body_position(_body_by_id("luna"), scale)
-        if colonizer_progress >= 0:
-            var pos := (earth + Vector2(14, -14)).lerp(luna, colonizer_progress)
-            draw_colored_polygon(PackedVector2Array([pos + Vector2(0,-5), pos + Vector2(4,4), pos + Vector2(-4,4)]), Color("#93dfca"))
-        _draw_freighter(earth, luna)
+        _draw_flight("colonizer", _colonizer)
+        _draw_flight("freight", _freight)
     _last_draw_usec = maxi(0, Time.get_ticks_usec() - started)
     _max_draw_usec = maxi(_max_draw_usec, _last_draw_usec)
     _draw_calls += 1
