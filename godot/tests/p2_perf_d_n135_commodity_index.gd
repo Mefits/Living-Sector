@@ -80,10 +80,15 @@ func _test_order_and_reservations() -> void:
     world["facilities"]["f003"]["location"] = "MOVED"
     world["markets"]["S007"]["supply"]["ore"] = 0.0
     var changed: Dictionary = Demand.propose(world, 3)
-    _check(changed.get("ok", false), "changed supplier roster rejected")
-    _check(changed.get("proposals", []).size() == 1, "stale supplier index reused")
-    if changed.get("proposals", []).size() == 1:
-        _check(changed["proposals"][0]["source_location"] == "S011", "incorrect live source")
+    _check(not changed.get("ok", true) and changed.get("reason") == "station_market_location_mismatch",
+        "moved owner must fail canonical destination validation")
+    world["markets"]["S003"]["owner"] = "f003"
+    world["facilities"]["f003"]["location"] = "S003"
+    changed = Demand.propose(world, 3)
+    _check(changed.get("ok", false), "valid changed supply rejected")
+    _check(changed.get("proposals", []).size() == 2, "stale supplier stock reused")
+    if changed.get("proposals", []).size() == 2:
+        _check(changed["proposals"][0]["source_location"] == "S003" and changed["proposals"][1]["source_location"] == "S011", "incorrect live source order")
 
 func _test_invalidation_and_negatives() -> void:
     var world: Dictionary = {"facilities": {
@@ -102,8 +107,8 @@ func _test_invalidation_and_negatives() -> void:
     world["markets"]["A"]["supply"]["ore"] = 4.0
     world["facilities"]["s"]["location"] = "C"
     var changed: Dictionary = Demand.propose(world, 4)
-    _check(changed.get("ok", false) and changed.get("proposals", []).is_empty(),
-        "moved owner still offered stock")
+    _check(not changed.get("ok", true) and changed.get("reason") == "station_market_location_mismatch",
+        "moved owner validation lost")
     world["facilities"]["s"]["location"] = "A"
     world["markets"]["A"]["owner"] = "missing"
     bad = Demand.propose(world, 4)
