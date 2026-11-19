@@ -37,6 +37,9 @@ func _check(body: Dictionary, system_id: String, errors: Array[String]) -> void:
         if texture == null:
             errors.append("Texture missing: %s icon=%s" % [key, use_icon])
             continue
-        var expected: int = 32 if use_icon else 256
+        # Three vector pilot bodies use a 512px normal-view tier, while
+        # the remaining Sol/biome PNGs keep their original 256px dimensions.
+        var pilot: bool = Sprites.VECTOR_PILOT_KEYS.has(key)
+        var expected: int = 32 if use_icon else (512 if pilot else 256)
         if texture.get_width() != expected or texture.get_height() != expected:
             errors.append("Unexpected texture size: %s icon=%s" % [key, use_icon])
