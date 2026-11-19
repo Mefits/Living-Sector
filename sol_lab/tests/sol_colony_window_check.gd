@@ -97,6 +97,11 @@ func _layout(width: int, height: int, context: String) -> void:
     and rect.end.y <= height + 1.0, context + " action " + caption)
   _check(found, context + " missing action " + caption)
  if OS.get_environment("SOL_CAPTURE_UI") == "1" and DisplayServer.get_name() != "headless":
+  # Let the window-manager resize, Control layout and GPU backbuffer agree.
+  # A capture on the first post-resize frame can be one frame behind.
+  await create_timer(0.25).timeout
+  for frame in range(5):
+   await process_frame
   await RenderingServer.frame_post_draw
   var image: Image = root.get_texture().get_image()
   if image != null and not image.is_empty():
