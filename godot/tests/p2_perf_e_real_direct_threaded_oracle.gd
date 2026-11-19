@@ -14,6 +14,7 @@ const ObservationCosts = preload("res://scripts/sim/phase2/n158_observation_cost
 const SizePhase = preload("res://scripts/sim/phase2/n158_size_phase_attribution.gd")
 const CheckpointBytes = preload("res://scripts/sim/phase2/n158_checkpoint_byte_probe.gd")
 const ResourceProbe = preload("res://scripts/sim/phase2/n158_paid_window_resource_probe.gd")
+const PairedDrift = preload("res://scripts/sim/phase2/n158_paired_paid_tick_drift.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
 const EXTENDED_TARGET: int = 900
@@ -74,6 +75,8 @@ func _run() -> void:
     var previous_window: Dictionary = {}
     var first_resource_window: Dictionary = {}
     var previous_resource_window: Dictionary = {}
+    var first_paired_window: Dictionary = {}
+    var previous_paired_window: Dictionary = {}
     var observation_samples: Array = []
     var observation_callsite_samples: Array = []
     var checkpoint_byte_samples: Array = []
@@ -118,6 +121,8 @@ func _run() -> void:
             if not window.get("accepted", false):
                 _finish("invalid paid window at " + str(tick) + ": " + str(window), false)
                 return
+            # Paired per-tick comparison uses the same real 100 paid steps;
+            # exact checkpoint gate below authorizes publishing the result.
             if tick == 100:
                 early_window = window.duplicate(true)
             last_window = window.duplicate(true)
@@ -150,6 +155,21 @@ func _run() -> void:
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
             if LATE_WINDOWS.has(tick) and tick <= target:
+                var paired: Dictionary = PairedDrift.accept(tick, timings, parity)
+                if not paired.get("accepted", false):
+                    _finish("paired paid tick drift rejected " + JSON.stringify(paired), false)
+                    return
+                if tick == 100:
+                    first_paired_window = paired.duplicate(true)
+                if not previous_paired_window.is_empty():
+                    var paired_adjacent: Dictionary = PairedDrift.compare(
+                        previous_paired_window, paired)
+                    if not paired_adjacent.get("accepted", false):
+                        _finish("paired drift growth rejected " + JSON.stringify(paired_adjacent), false)
+                        return
+                    print("P2_PERF_E_PAIRED_ADJACENT ", JSON.stringify(paired_adjacent))
+                previous_paired_window = paired.duplicate(true)
+                print("P2_PERF_E_PAIRED_WINDOW ", JSON.stringify(paired))
                 # Same process hosts both owners: allocator bytes are combined,
                 # never attributed to one worker or reported as OS RSS.
                 var resource_window: Dictionary = ResourceProbe.measure(
@@ -357,6 +377,13 @@ func _run() -> void:
         return
     print("P2_PERF_E_OBSERVATION_CALLSITES ", JSON.stringify(observation_calls))
     print("P2_PERF_E_PHASE_WINDOW_COVERAGE ", JSON.stringify(phase_reports))
+    if target >= LATE_TARGET:
+        var paired_growth: Dictionary = PairedDrift.compare(
+            first_paired_window, previous_paired_window)
+        if not paired_growth.get("accepted", false):
+            _finish("late paired drift rejected " + JSON.stringify(paired_growth), false)
+            return
+        print("P2_PERF_E_PAIRED_LATE ", JSON.stringify(paired_growth))
     if target >= LATE_TARGET:
         var resource_growth: Dictionary = ResourceProbe.compare(
             first_resource_window, previous_resource_window)
