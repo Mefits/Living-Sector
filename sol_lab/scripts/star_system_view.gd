@@ -142,6 +142,10 @@ var _draw_now_usec: int = 0
 var _colonizer: Dictionary = {}
 var _flight_draw_states: Dictionary = {}
 var _docking_visuals: Dictionary = {}
+## Cached once per flight receipt in stable map-space, never screen pixels.
+var _flight_routes: Dictionary = {}
+var _selected_flight_kind: String = ""
+var _flight_pins: Array = []
 var _flight_paused: bool = false
 var _flight_pause_started_usec: int = -1
 var _flight_frozen_native: float = 0.0
@@ -1022,26 +1026,86 @@ func _flight_offset(kind: String) -> Vector2:
     return Vector2(14.0, -14.0) if kind == "colonizer" else Vector2(-14.0, -14.0)
 
 
-func _native_body_screen(body: Dictionary, at_native: float,
-        scale: float) -> Vector2:
-    # Same model as _body_position(), but evaluated at the REAL future
-    # arrival timestamp. This is a view projection, not N14 navigation.
+func _flight_body_world(body: Dictionary, at_native: float) -> Vector2:
+    # Stable Sol MAP coordinates, before applying camera pan/zoom. Parent
+    # moons use the same local-radius compression as visible globe orbits.
+    # Values are derived from the existing world snapshot + native calendar.
     var delta: float = at_native - _native_station_time
     var period: float = float(body.get("orbit_period", 0.0))
-    if str(body.get("parent_body_id", "")) != "":
+    if not str(body.get("parent_body_id", "")).is_empty():
         period = float(body.get("satellite_orbit_period_native", period))
-    var degrees: float = float(body.get("current_angle", 0.0))
+    var angle: float = float(body.get("current_angle", 0.0))
     if period > 0.0:
-        degrees += 360.0 * delta / period
-    var direction := Vector2(cos(deg_to_rad(degrees)),
-        -sin(deg_to_rad(degrees)))
+        angle += 360.0 * delta / period
+    var vector: Vector2 = Vector2(cos(deg_to_rad(angle)),
+        -sin(deg_to_rad(angle)))
     var parent: Dictionary = _known_moon_parent(body)
     if not parent.is_empty():
-        return _native_body_screen(parent, at_native, scale) + direction * (
-            _satellite_orbit_radius(body, parent, scale))
-    return _center() + direction * (
-        _radius_transform(float(body.get("orbit_radius", 0.0))) *
-        scale * _zoom)
+        return _flight_body_world(parent, at_native) + vector * (
+            pow(_satellite_orbit_native_radius(body), SATELLITE_COMPRESSION))
+    return vector * _radius_transform(float(body.get("orbit_radius", 0.0)))
+
+
+func _flight_screen(world_point: Vector2) -> Vector2:
+    # Camera transform is applied ONLY at render time. Zoom never
+    # replans a path or changes its curvature/side.
+    return _center() + world_point * _orbit_scale() * _zoom
+
+
+func _native_body_screen(body: Dictionary, at_native: float,
+        scale: float) -> Vector2:
+    # Kept as a read-only convenience for the existing orbital checks.
+    return _center() + _flight_body_world(body, at_native) * scale * _zoom
+
+
+func _flight_obstacles(source_id: String, destination_id: String,
+        departure: float, arrival: float) -> Array:
+    var unit_per_km: float = SOL_NATIVE_UNITS_PER_AU / KM_PER_AU
+    var star_radius: float = pow(696340.0 * unit_per_km,
+        ORBIT_COMPRESSION)
+    var obstacles: Array = [{"id": "sol", "center": Vector2.ZERO,
+        "radius": star_radius}]
+    # Only real third-party celestial bodies. Source and destination are
+    # allowed contact points; exclude them from collision planning.
+    for raw in _world.get("bodies", []):
+        if not (raw is Dictionary):
+            continue
+        var body: Dictionary = raw
+        var id: String = str(body.get("id", ""))
+        if id == source_id or id == destination_id or (
+                str(body.get("type", "")) not in ["planet", "moon"]):
+            continue
+        var km: float = float(body.get("physical_radius_km",
+            body.get("radius_km", SOL_BODY_RADII_KM.get(id, 0.0))))
+        if km <= 0.0:
+            continue
+        # Physical-body radius converted into fixed Sol map units.
+        # We explicitly do NOT use icon pixels, _zoom or viewport size.
+        obstacles.append({"id": id, "center": _flight_body_world(body,
+            (departure + arrival) * 0.5),
+            "radius": pow(km * unit_per_km, ORBIT_COMPRESSION)})
+    return obstacles
+
+
+func _flight_route(kind: String, ship: Dictionary,
+        source_id: String, destination_id: String) -> Dictionary:
+    var departure: float = float(ship.get("departure", 0.0))
+    var arrival: float = float(ship.get("arrival", 0.0))
+    var key: Array = [source_id, destination_id, departure, arrival]
+    var cached: Dictionary = _flight_routes.get(kind, {})
+    if cached.get("key", []) == key:
+        return cached["path"]
+    var source: Dictionary = _body_by_id(source_id)
+    var destination: Dictionary = _body_by_id(destination_id)
+    if source.is_empty() or destination.is_empty():
+        return {}
+    var start: Vector2 = _flight_body_world(source, departure)
+    var finish: Vector2 = _flight_body_world(destination, arrival)
+    var obstacles: Array = _flight_obstacles(
+        source_id, destination_id, departure, arrival)
+    var path: Dictionary = FlightVisual.plan(start, finish, obstacles)
+    _flight_routes[kind] = {"key": key, "path": path}
+    return path
 
 
 func _flight_pose(kind: String, ship: Dictionary, when_usec: int) -> Dictionary:
@@ -1061,32 +1125,29 @@ func _flight_pose(kind: String, ship: Dictionary, when_usec: int) -> Dictionary:
         return {"moving": false, "position": _body_position(
             dock, _orbit_scale()) + offset, "direction": Vector2.RIGHT,
             "progress": 0.0, "source": dock_id, "destination": dock_id}
-    var start_id: String = "earth"
-    var finish_id: String = "luna"
+    var source_id: String = "earth"
+    var destination_id: String = "luna"
     if kind == "freight":
-        var cargo: Dictionary = ship.get("order", {})
-        start_id = str(cargo.get("source", ""))
-        finish_id = str(cargo.get("destination", ""))
-    var start_body: Dictionary = _body_by_id(start_id)
-    var finish_body: Dictionary = _body_by_id(finish_id)
-    if start_body.is_empty() or finish_body.is_empty():
+        var order: Dictionary = ship.get("order", {})
+        source_id = str(order.get("source", ""))
+        destination_id = str(order.get("destination", ""))
+    var route: Dictionary = _flight_route(
+        kind, ship, source_id, destination_id)
+    if route.is_empty():
         return {}
-    var depart: float = float(ship.get("departure", 0.0))
-    var arrive: float = float(ship.get("arrival", depart))
-    if arrive <= depart:
+    var departure: float = float(ship.get("departure", 0.0))
+    var arrival: float = float(ship.get("arrival", departure))
+    if arrival <= departure:
         return {}
-    var scale: float = _orbit_scale()
-    var from: Vector2 = _native_body_screen(start_body, depart, scale) + offset
-    var to: Vector2 = _native_body_screen(finish_body, arrive, scale) + offset
-    var curve: PackedVector2Array = FlightVisual.curve(from, to)
-    var fraction: float = FlightVisual.fraction(depart, arrive,
-        _display_native_time(when_usec))
-    return {"moving": true,
-        "position": FlightVisual.point(curve, fraction),
-        "direction": FlightVisual.tangent(curve, fraction),
-        "progress": fraction, "source": start_id,
-        "destination": finish_id, "control": curve,
-        "departure": depart, "arrival": arrive}
+    var progress: float = FlightVisual.fraction(
+        departure, arrival, _display_native_time(when_usec))
+    var sample: Dictionary = FlightVisual.sample(route, progress)
+    var world_point: Vector2 = sample["position"]
+    return {"moving": true, "world_position": world_point,
+        "position": _flight_screen(world_point) + offset,
+        "direction": sample["direction"], "progress": progress,
+        "source": source_id, "destination": destination_id,
+        "route": route, "departure": departure, "arrival": arrival}
 
 
 func _start_visual_docking(kind: String, ship: Dictionary) -> void:
@@ -1097,6 +1158,8 @@ func _start_visual_docking(kind: String, ship: Dictionary) -> void:
         return
     _docking_visuals[kind] = {
         "from": (old["position"] as Vector2) - _center(),
+        "from_world": old.get("world_position", (_flight_screen(
+            Vector2.ZERO) - _center())),
         "heading": old.get("direction", Vector2.RIGHT),
         "destination": str(old.get("destination", "luna")),
         "started_usec": Time.get_ticks_usec(),
@@ -1108,6 +1171,8 @@ func set_colonizer(ship: Dictionary, snap: bool = false) -> void:
     if not snap and _colonizer.get("location", "") == "transit" and (
             ship.get("location", "") != "transit"):
         _start_visual_docking("colonizer", _colonizer)
+    if snap:
+        _flight_routes.erase("colonizer")
     if snap or ship.get("location", "") == "transit":
         _docking_visuals.erase("colonizer")
     if ship != _colonizer or snap:
@@ -1119,6 +1184,8 @@ func set_freight(freight: Dictionary, snap: bool = false) -> void:
     if not snap and _freight.get("location", "") == "transit" and (
             freight.get("location", "") != "transit"):
         _start_visual_docking("freight", _freight)
+    if snap:
+        _flight_routes.erase("freight")
     if snap or freight.get("location", "") == "transit":
         _docking_visuals.erase("freight")
     if snap or freight != _freight:
@@ -1162,7 +1229,8 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
         if not body.is_empty():
             var target: Vector2 = _body_position(body, _orbit_scale()) + (
                 _flight_offset(kind))
-            var from: Vector2 = _center() + (docking["from"] as Vector2)
+            var from: Vector2 = _flight_screen(
+                docking["from_world"]) + _flight_offset(kind)
             var position: Vector2 = from.lerp(target, alpha)
             var start_heading: Vector2 = docking.get("heading", Vector2.RIGHT)
             var final_heading: Vector2 = (
@@ -1183,13 +1251,20 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
     if pose.is_empty():
         return
     var position: Vector2 = pose["position"]
-    if bool(pose["moving"]):
-        var curve: PackedVector2Array = pose["control"]
-        var points: PackedVector2Array = PackedVector2Array()
-        for n in range(25):
-            points.append(FlightVisual.point(curve, float(n) / 24.0))
-        draw_polyline(points, Color("#9abac6", 0.22), 1.1, true)
+    if bool(pose["moving"]) and kind == _selected_flight_kind:
+        var route: Dictionary = pose["route"]
+        var map_points: PackedVector2Array = route["points"]
+        var line := PackedVector2Array()
+        for world_point in map_points:
+            line.append(_flight_screen(world_point) + _flight_offset(kind))
+        if line.size() > 1:
+            draw_polyline(line, Color("#8cbbce", 0.65), 1.5, true)
     _paint_flight_ship(kind, position, pose["direction"])
+    if bool(pose["moving"]):
+        _flight_pins.append({"kind": kind, "position": position})
+        if kind == _selected_flight_kind:
+            draw_arc(position, 11.0, 0.0, TAU, 18,
+                Color("#fff0b0", 0.9), 1.3, true)
     if bool(pose["moving"]) and kind == "freight":
         var cargo: Dictionary = ship.get("order", {})
         var label: String = "%s · %d %s" % [
@@ -1206,6 +1281,7 @@ func _draw() -> void:
     _draw_body_positions.clear()
     _draw_system()
     _flight_draw_states.clear()
+    _flight_pins.clear()
     if not _body_by_id("earth").is_empty() and not _body_by_id("luna").is_empty():
         _draw_flight("colonizer", _colonizer)
         _draw_flight("freight", _freight)
@@ -1891,7 +1967,20 @@ func _pick_ship(pointer: Vector2) -> bool:
     return true
 
 
+## Flying Sol craft can be selected without bringing back permanent
+## decorative route lines. An unselected craft is just a small marker.
+func _pick_sol_flight(pointer: Vector2) -> bool:
+    for pin in _flight_pins:
+        if pointer.distance_to(pin["position"]) <= 10.0:
+            _selected_flight_kind = str(pin["kind"])
+            queue_redraw()
+            return true
+    return false
+
+
 func _pick(pointer: Vector2, open_body: bool = false) -> void:
+    if _pick_sol_flight(pointer):
+        return
     if _pick_ship(pointer):
         return
     for pin in _facility_pins:
