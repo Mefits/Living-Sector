@@ -17,6 +17,7 @@ var _start_ms: int = 0
 var _failed: String = ""
 var _steps_plain: int = 0
 var _steps_profiled: int = 0
+var _active_stride: int = CHECKPOINT_STRIDE
 
 func _initialize() -> void:
     call_deferred("_run")
@@ -27,78 +28,88 @@ func _run() -> void:
     if seed.has("error"):
         _finish(false, "seed unavailable")
         return
-    _plain = Plain.new()
-    _profiled = Profiled.new()
-    if not _plain.start_from_seed(seed.duplicate(true)) or not (
-            _profiled.start_from_seed(seed.duplicate(true))):
-        _finish(false, "independent seed boot failed")
-        return
-    for runner in [_plain, _profiled]:
-        if not runner.queue_control("pause"):
-            _finish(false, "pause rejected")
+    var mode_reports: Array = []
+    for stride in [1, CHECKPOINT_STRIDE]:
+        _active_stride = stride
+        _steps_plain = 0
+        _steps_profiled = 0
+        _plain = Plain.new()
+        _profiled = Profiled.new()
+        if not _plain.start_from_seed(seed.duplicate(true)) or not (
+                _profiled.start_from_seed(seed.duplicate(true))):
+            _finish(false, "independent seed boot failed")
             return
-        runner.advance_frame(0.0)
-        if runner.tick_count != 0 or not runner.last_phase_failure().is_empty():
-            _finish(false, "initial source clock invalid")
-            return
-    var target: int = 900 if OS.get_environment("LS_E_AB_EXTENDED") == "1" else 300
-    var previous: Dictionary = {}
-    var reports: Array = []
-    for end_tick in CHECKPOINTS:
-        if end_tick > target:
-            break
-        var first_tick: int = end_tick - 99
-        # Advance BOTH real simulations through the gap, including source
-        # economy/AI/cadence. No synthetic state jump or skipped paid ticks.
-        while _plain.tick_count < first_tick - 1:
+        for runner in [_plain, _profiled]:
+            if not runner.queue_control("pause"):
+                _finish(false, "pause rejected")
+                return
+            runner.advance_frame(0.0)
+            if runner.tick_count != 0 or not runner.last_phase_failure().is_empty():
+                _finish(false, "initial source clock invalid")
+                return
+        var target: int = 900 if OS.get_environment("LS_E_AB_EXTENDED") == "1" else 300
+        var previous: Dictionary = {}
+        var reports: Array = []
+        for end_tick in CHECKPOINTS:
+            if end_tick > target:
+                break
+            var first_tick: int = end_tick - 99
+            # Advance BOTH real simulations through the gap, including source
+            # economy/AI/cadence. No synthetic state jump or skipped paid ticks.
+            while _plain.tick_count < first_tick - 1:
+                if not _within_budget():
+                    _finish(false, "wall budget before warmup")
+                    return
+                var next_tick: int = _plain.tick_count + 1
+                var warm_plain: Dictionary = _plain_step(next_tick)
+                var warm_profiled: Dictionary = _profile_step(next_tick)
+                if not warm_plain.get("ok", false) or not warm_profiled.get("ok", false):
+                    _finish(false, "warmup paid tick failed " + str(next_tick))
+                    return
             if not _within_budget():
-                _finish(false, "wall budget before warmup")
+                _finish(false, "wall budget before A/B window")
                 return
-            var next_tick: int = _plain.tick_count + 1
-            var warm_plain: Dictionary = _plain_step(next_tick)
-            var warm_profiled: Dictionary = _profile_step(next_tick)
-            if not warm_plain.get("ok", false) or not warm_profiled.get("ok", false):
-                _finish(false, "warmup paid tick failed " + str(next_tick))
+            var result: Dictionary = AB.run_pair(first_tick, 100,
+                Callable(self, "_plain_step"), Callable(self, "_profile_step"),
+                Callable(self, "_exact"), _active_stride)
+            if not result.get("accepted", false):
+                _finish(false, "A/B rejected " + JSON.stringify(result))
                 return
-        if not _within_budget():
-            _finish(false, "wall budget before A/B window")
-            return
-        var result: Dictionary = AB.run_pair(first_tick, 100,
-            Callable(self, "_plain_step"), Callable(self, "_profile_step"),
-            Callable(self, "_exact"), CHECKPOINT_STRIDE)
-        if not result.get("accepted", false):
-            _finish(false, "A/B rejected " + JSON.stringify(result))
-            return
-        if _plain.tick_count != end_tick or _profiled.tick_count != end_tick:
-            _finish(false, "checkpoint clock mismatch " + str(end_tick))
-            return
-        # This is a second independent full-state oracle at window boundary.
-        var exact: Dictionary = Oracle.compare(_plain.checkpoint(), _profiled.checkpoint())
-        if not exact.get("equal", false):
-            _finish(false, "boundary divergence " + JSON.stringify(exact))
-            return
-        # Profiler must have observed the actual paid phase calls; this
-        # excludes an accidentally uninstrumented profiled runtime.
-        var observed: Dictionary = _profiled.paid_phase_totals(end_tick)
-        if observed.is_empty() or int(observed.get("observed_paid_ticks", 0)) != 100:
-            _finish(false, "missing real profiled phase window " + str(end_tick))
-            return
-        if not previous.is_empty():
-            var drift: Dictionary = AB.compare_windows(previous, result)
-            if not drift.get("accepted", false):
-                _finish(false, "A/B drift rejected " + JSON.stringify(drift))
+            if _plain.tick_count != end_tick or _profiled.tick_count != end_tick:
+                _finish(false, "checkpoint clock mismatch " + str(end_tick))
                 return
-            print("P2_PERF_E_LIVE_AB_DRIFT ", JSON.stringify(drift))
-        previous = result.duplicate(true)
-        reports.append(result.duplicate(true))
-        print("P2_PERF_E_LIVE_AB_WINDOW ", JSON.stringify(result))
-    if reports.is_empty() or _steps_plain != target or _steps_profiled != target:
-        _finish(false, "incomplete paid tick coverage")
-        return
-    print("P2_PERF_E_LIVE_AB_PASS target=", target,
-        " parity_stride=", CHECKPOINT_STRIDE,
-        " profiler_cost_is_not_cpu=true")
-    quit(0)
+            # This is a second independent full-state oracle at window boundary.
+            var exact: Dictionary = Oracle.compare(_plain.checkpoint(), _profiled.checkpoint())
+            if not exact.get("equal", false):
+                _finish(false, "boundary divergence " + JSON.stringify(exact))
+                return
+            # Profiler must have observed the actual paid phase calls; this
+            # excludes an accidentally uninstrumented profiled runtime.
+            var observed: Dictionary = _profiled.paid_phase_totals(end_tick)
+            if observed.is_empty() or int(observed.get("observed_paid_ticks", 0)) != 100:
+                _finish(false, "missing real profiled phase window " + str(end_tick))
+                return
+            if not previous.is_empty():
+                var drift: Dictionary = AB.compare_windows(previous, result)
+                if not drift.get("accepted", false):
+                    _finish(false, "A/B drift rejected " + JSON.stringify(drift))
+                    return
+                print("P2_PERF_E_LIVE_AB_DRIFT ", JSON.stringify(drift))
+            previous = result.duplicate(true)
+            reports.append(result.duplicate(true))
+            print("P2_PERF_E_LIVE_AB_WINDOW ", JSON.stringify(result))
+        if reports.is_empty() or _steps_plain != target or _steps_profiled != target:
+            _finish(false, "incomplete paid tick coverage")
+            return
+        mode_reports.append(reports.duplicate(true))
+        var comparison: Dictionary = AB.compare_checkpoint_modes(mode_reports[0], mode_reports[1])
+        if not comparison.get("accepted", false):
+            _finish(false, "independent mode comparison rejected " + JSON.stringify(comparison))
+            return
+        print("P2_PERF_E_CHECKPOINT_MODE_COMPARISON ", JSON.stringify(comparison))
+        print("P2_PERF_E_LIVE_AB_PASS target=", target,
+            " independent_modes=2 profiler_cost_is_not_cpu=true")
+        quit(0)
 
 func _plain_step(tick: int) -> Dictionary:
     return _step(_plain, tick, false)
@@ -127,7 +138,7 @@ func _step(runner, tick: int, instrumented: bool) -> Dictionary:
         "elapsed_usec": elapsed, "instrumentation_usec": 0}
     # Full checkpoint is outside timing and only on a periodic parity gate.
     # Intermediate ticks remain real paid ticks with exact SourceClock checks.
-    if tick % CHECKPOINT_STRIDE == 0:
+    if tick % _active_stride == 0:
         sample["checkpoint"] = runner.checkpoint()
     return sample
 
