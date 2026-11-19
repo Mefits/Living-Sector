@@ -647,8 +647,9 @@ static func propose(world: Dictionary, graph: RefCounted,
         if not contract_id.is_empty() and (held.is_empty() or str(held.get("status", "")) not in ["accepted", "picked_up"] or str(held.get("fulfiller_id", "")) != str(ship_id)):
             return {"ok": false, "reason": "n84_missing_actual_n104_obligation",
                 "ship_id": str(ship_id)}
-        # The N104 proof has passed. Resume/tick may mutate nested state.
-        ship = _owned_fleet_row(staged["ships"], str(ship_id), owned_ship_rows)
+        # The N104 proof has passed. Keep this row read-only while testing
+        # the saved BT or attempting a missing-plan resume. A failed resume
+        # emits only a trace and must not clone the nested cargo/BT/transaction.
         var bt: Variant = ship.get("current_bt", null)
         if bt == null:
             var recovered: Dictionary = {}
@@ -657,6 +658,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                 # from the current ship, cargo and held N104 contract.
                 recovered = N104Resume.propose(ship, held, graph, staged)
                 if recovered.get("ok", false):
+                    ship = _owned_fleet_row(staged["ships"], str(ship_id),
+                        owned_ship_rows)
                     ship["current_bt"] = recovered["tree"].duplicate(true)
                     ship["current_goal"] = str(recovered["goal"])
                     ship["last_plan_tick"] = tick
@@ -675,12 +678,15 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "contract_id": contract_id, "leaf": "",
                 "status": Bt.RUNNING, "reason": missing_plan_reason})
             continue
-        # The autonomous-goal branch already validated this exact BT above.
-        # Avoid a second recursive validation on every paid tick; contract
-        # plans and any other path still pass the original validation.
+        # Validate the original read-only contract BT before acquiring
+        # ownership. Autonomous goals were already validated above.
         if not (bt is Dictionary) or (contract_id != "" and not Bt.validate(bt)):
             return {"ok": false, "reason": "n84_invalid_saved_plan",
                 "ship_id": str(ship_id)}
+        # From this point BT.tick/_dispatch may write ship fields or nested
+        # state. The detached row must be installed in staged before dispatch.
+        ship = _owned_fleet_row(staged["ships"], str(ship_id), owned_ship_rows)
+        bt = ship.get("current_bt", null)
         var current_leaf: String = Bt.current_action(bt)
         # One leaf tick per ship per tick; action may return Running for many
         # physical flight ticks without advancing its saved Sequence.index.
