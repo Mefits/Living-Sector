@@ -975,6 +975,8 @@ func apply_native_n108_gate_jump(tick: int, ship_id: String,
 static func _n97_n83_owned_physical_publication(original: Dictionary,
         proposed: Dictionary, ship_id: String, changed_rows: Dictionary,
         receipt_id: String, applied: bool) -> Dictionary:
+    if proposed.size() != original.size() or not original.get("ships", {}).has(ship_id):
+        return {}
     var published: Dictionary = original.duplicate()
     for domain in ["ships", "facilities", "markets", "bodies", "cargo_receipts"]:
         if not (original.get(domain) is Dictionary) or not (proposed.get(domain) is Dictionary):
