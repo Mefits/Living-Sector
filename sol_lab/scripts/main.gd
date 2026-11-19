@@ -10,6 +10,7 @@ const NativeClock = preload("res://scripts/sim/clock.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 const ConstructionRuntime = preload("res://scripts/sol_construction_runtime.gd")
 const ColonyStockPanel = preload("res://scripts/view/colony_stock_panel.gd")
+const ColonyPanel = preload("res://scripts/view/colony_panel.gd")
 const SPEED_PRESETS: Array[int] = [1, 4, 8, 16]
 const DEFAULTS = "res://data/balance_defaults.json"
 const USER_CONFIG = "user://sol_lab_balance.json"
@@ -51,6 +52,8 @@ var time_label: Label
 var browser
 var native_view
 var sidebar: PanelContainer
+var colony_panel
+var diagnostics_visible: bool = false
 var top_bar: HBoxContainer
 var performance_bar: HBoxContainer
 
@@ -107,14 +110,25 @@ func _build_ui() -> void:
             "строительство и орбиты используют одни часы. " +
             "Экономика N39 пока не подключена.") % preset
         speed_buttons[preset] = speed_button
+    var game_menu := MenuButton.new()
+    game_menu.text = "Игра"
+    game_menu.custom_minimum_size = Vector2(70, 32)
+    bar.add_child(game_menu)
+    var popup: PopupMenu = game_menu.get_popup()
+    popup.add_item("Новая игра", 1)
+    popup.add_item("Сохранить", 2)
+    popup.add_item("Загрузить", 3)
+    popup.add_separator()
+    popup.add_item("Диагностика", 4)
+    popup.add_item("Админ-панель · F9", 5)
+    popup.id_pressed.connect(_on_game_menu)
     _button(bar, "Камера", _reset_camera)
-    var perf_bar := HBoxContainer.new()
-    performance_bar = perf_bar
-    add_child(perf_bar)
-    perf_bar.anchor_right = 1.0
-    perf_bar.offset_top = 46
-    perf_bar.offset_bottom = 78
-    perf_bar.offset_right = -SIDE_WIDTH
+    performance_bar = HBoxContainer.new()
+    add_child(performance_bar)
+    performance_bar.anchor_right = 1.0
+    performance_bar.offset_top = 46
+    performance_bar.offset_bottom = 78
+    performance_bar.offset_right = -SIDE_WIDTH
     perf_label = Label.new()
     perf_label.text = "FPS — · кадр p95 — · CPU p95 — · UI p95 — · карта — · SIM —"
     perf_label.add_theme_font_size_override("font_size", 14)
@@ -122,54 +136,42 @@ func _build_ui() -> void:
     perf_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     perf_label.clip_text = true
     perf_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-    perf_label.tooltip_text = "Оригинальный UIFrameProfiler из SystemBalance. " + (
-        "Симуляция N158 пока не подключена.")
-    perf_bar.add_child(perf_label)
-    sidebar = PanelContainer.new()
+    performance_bar.add_child(perf_label)
+    performance_bar.hide()
+
+    colony_panel = ColonyPanel.new()
+    sidebar = colony_panel
     add_child(sidebar)
     sidebar.anchor_left = 1.0
     sidebar.anchor_right = 1.0
     sidebar.anchor_bottom = 1.0
     sidebar.offset_left = -SIDE_WIDTH
     sidebar.offset_right = 0.0
-    var contents := VBoxContainer.new()
-    sidebar.add_child(contents)
-    info_area = VBoxContainer.new()
-    contents.add_child(info_area)
-    var heading := Label.new()
-    heading.text = "ВЫБРАННЫЙ ОБЪЕКТ"
-    info_area.add_child(heading)
-    planet_name_label = Label.new()
-    planet_name_label.add_theme_font_size_override("font_size", 20)
-    planet_name_label.add_theme_color_override("font_color", Color("#e8edf1"))
-    info_area.add_child(planet_name_label)
-    colony_stock_panel = ColonyStockPanel.new()
-    info_area.add_child(colony_stock_panel)
-    details = Label.new()
-    details.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-    info_area.add_child(details)
-    var hint := Label.new()
-    hint.text = "Тест строительства: 1 металл · 45 дней.\n" + (
-        "Никакого труда. Локальные партии: каждые 30 дней; N39 не подключён.")
-    hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-    info_area.add_child(hint)
-    message_line = Label.new()
-    message_line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-    message_line.add_theme_color_override("font_color", Color("#e0c18b"))
-    info_area.add_child(message_line)
-    var filler := Control.new()
-    filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    contents.add_child(filler)
-    colony_button = _button(contents, "Колонизировать Луну", _colonize_luna)
-    freight_button = _button(contents, "", _send_freighter)
-    _build_freight_line_controls(contents)
-    _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
-    mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
-    var saves := HBoxContainer.new()
-    contents.add_child(saves)
-    _button(saves, "Новая", _new_game)
-    _button(saves, "Сохр.", _save_game)
-    _button(saves, "Загруз.", _load_game)
+    sidebar.offset_top = 46
+    planet_name_label = colony_panel.heading
+    colony_stock_panel = colony_panel.stock_panel
+    details = colony_panel.details
+    message_line = colony_panel.message
+    colony_button = colony_panel.colonize_button
+    colony_button.pressed.connect(_colonize_luna)
+    freight_button = colony_panel.freight_button
+    freight_button.pressed.connect(_send_freighter)
+    colony_panel.build_requested.connect(_open_build)
+    colony_panel.line_requested.connect(_open_freight_line)
+    colony_panel.facility_requested.connect(_colony_facility_selected)
+    _build_freight_line_controls(colony_panel.line_holder)
+
+
+func _on_game_menu(id: int) -> void:
+    match id:
+        1: _new_game()
+        2: _save_game()
+        3: _load_game()
+        4:
+            diagnostics_visible = not diagnostics_visible
+            performance_bar.visible = diagnostics_visible
+            _layout_right_side()
+        5: _toggle_admin()
 
 
 func _button(parent: Node, label: String, action: Callable) -> Button:
@@ -432,6 +434,36 @@ func _show_selected() -> void:
             items.append("%s: %.2f" % [Model.resource_label(str(key)),
                 float(coeff.get(key,0.0))])
         details.text = "\n".join(items)
+        var population_count: int = 0
+        for citizen in world.get("populations", []):
+            if str(citizen.get("facility_id", "")) == selected + "-colony":
+                population_count += int(citizen.get("population_count", 0))
+        var built: Array = []
+        var idle: String = ""
+        for facility in world.get("facilities", []):
+            if str(facility.get("body", "")) != selected:
+                continue
+            if str(facility.get("type", "")) == "construction_site":
+                continue
+            if str(facility.get("type", "")) == "station" and (
+                    str(facility.get("location", "")) != selected + "-colony"):
+                continue
+            built.append(facility)
+            var problem: String = str(facility.get("production_status", ""))
+            if idle.is_empty() and problem.begins_with("Простой"):
+                idle = str(facility.get("name", "")) + " · " + problem
+        var line_status: String = "Линия выкл."
+        if construction.freight_line().enabled:
+            line_status = "Линия активна"
+            var line_wait: String = construction.freight_line_wait()
+            if not line_wait.is_empty():
+                line_status = line_wait
+        colony_panel.show_colony(selected, name_ru, population_count,
+            construction.colony_inventory(selected), built,
+            construction.sites, idle, line_status, native_time)
+        if browser != null and browser.visible:
+            browser.set_colony_summary(name_ru, population_count,
+                construction.colony_inventory(selected))
         return
 
 func _input(event: InputEvent) -> void:
@@ -502,24 +534,23 @@ func _close_browser() -> void:
 func _layout_right_side() -> void:
     if sidebar == null or native_view == null or browser == null:
         return
-    var active_width: float = SIDE_WIDTH
+    var active_width: float = clampf(size.x * 0.30, 390.0, 500.0)
     if browser.visible:
-        # Reserve actual viewport space for the original map.
-        # The catalog never overlays the planet/camera canvas.
-        active_width = minf(clampf(size.x * 0.57, 620.0, 870.0),
-            maxf(300.0, size.x - 430.0))
+        active_width = clampf(size.x * 0.43, 470.0, 740.0)
     for bar in [top_bar, performance_bar]:
         if bar != null:
             bar.offset_right = -active_width
-    sidebar.offset_left = -SIDE_WIDTH
+    sidebar.offset_left = -active_width
     sidebar.offset_right = 0.0
+    sidebar.offset_top = 46.0
     native_view.offset_right = -active_width
+    native_view.offset_top = 78.0 if diagnostics_visible else 46.0
     browser.anchor_left = 1.0
     browser.anchor_right = 1.0
     browser.anchor_bottom = 1.0
     browser.offset_left = -active_width
     browser.offset_right = 0.0
-    browser.offset_top = 78.0
+    browser.offset_top = 46.0
     browser.offset_bottom = 0.0
     browser.set_dock_width(active_width)
 
@@ -561,11 +592,12 @@ func _make_native_map() -> void:
     native_view = NativeStarSystemView.new()
     native_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     native_view.anchor_right = 1.0
-    native_view.offset_top = 78.0
+    native_view.offset_top = 46.0
     native_view.offset_right = -SIDE_WIDTH
     native_view.mouse_filter = Control.MOUSE_FILTER_STOP
     native_view.body_selected.connect(_native_body_selected)
     native_view.body_open_requested.connect(_native_body_selected)
+    native_view.facility_selected.connect(_native_facility_selected)
     add_child(native_view)
     # Under sidebar and header, but above the empty root background.
     move_child(native_view, 0)
@@ -595,6 +627,26 @@ func _native_body_selected(body: Dictionary) -> void:
     if browser.visible:
         browser.select_planet(id)
     _show_selected()
+
+func _native_facility_selected(facility_id: String) -> void:
+    for item in world.get("facilities", []):
+        if str(item.get("id", "")) != facility_id:
+            continue
+        var body: String = str(item.get("body", ""))
+        if not Model.VISIBLE.has(body):
+            return
+        selected = body
+        if browser.visible:
+            _close_browser()
+        _show_selected()
+        colony_panel.select_facility(facility_id)
+        native_view.select_facility(facility_id)
+        return
+
+
+func _colony_facility_selected(facility_id: String) -> void:
+    native_view.select_facility(facility_id)
+
 
 func _set_speed(multiplier: int) -> void:
     if not SPEED_PRESETS.has(multiplier):
