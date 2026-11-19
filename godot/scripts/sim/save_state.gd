@@ -397,6 +397,27 @@ static func _promote_verified_pending(absolute_path: String,
     return OK
 
 
+## A crash may leave .pending as the sole intact checkpoint. Never open it
+## with WRITE (which truncates immediately) until another independently
+## recoverable checkpoint exists. This is a conservative preflight: it does
+## not assert that a SHA-valid snapshot is accepted by the live Runner.
+## If no trusted sibling exists, the user must first load/recover pending.
+static func _pending_is_only_recoverable_checkpoint(absolute_path: String) -> bool:
+    var pending: String = absolute_path + ".pending"
+    if not FileAccess.file_exists(pending):
+        return false
+    if not _trusted_for_backup_rotation(_read_checkpoint(pending)):
+        return false
+    for candidate in [absolute_path, absolute_path + ".bak",
+            absolute_path + ".bak.previous",
+            absolute_path + ".recovery-displaced",
+            absolute_path + ".recovery-rejected"]:
+        if FileAccess.file_exists(candidate) and \\
+                _trusted_for_backup_rotation(_read_checkpoint(candidate)):
+            return false
+    return true
+
+
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
         return ERR_INVALID_DATA
@@ -422,6 +443,11 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     var displaced_result: Error = _reconcile_recovery_displaced(absolute_path, false)
     if displaced_result != OK:
         return displaced_result
+    # Opening .pending for WRITE truncates a previous interrupted save.
+    # If it is the last structurally recoverable checkpoint, do not replace
+    # it with a newer snapshot before the real Runner has restored it.
+    if _pending_is_only_recoverable_checkpoint(absolute_path):
+        return ERR_BUSY
     var tmp: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
     # Encode the actual on-disk UTF-8 payload once. The N38 size limit
