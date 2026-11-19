@@ -18,6 +18,9 @@ var _failed: String = ""
 var _steps_plain: int = 0
 var _steps_profiled: int = 0
 var _active_stride: int = CHECKPOINT_STRIDE
+var _warmup_plain: int = 0
+var _warmup_profiled: int = 0
+var _warmup_checkpoint_count: int = 0
 
 func _initialize() -> void:
     call_deferred("_run")
@@ -33,6 +36,9 @@ func _run() -> void:
         _active_stride = stride
         _steps_plain = 0
         _steps_profiled = 0
+        _warmup_plain = 0
+        _warmup_profiled = 0
+        _warmup_checkpoint_count = 0
         _plain = Plain.new()
         _profiled = Profiled.new()
         if not _plain.start_from_seed(seed.duplicate(true)) or not (
@@ -61,14 +67,24 @@ func _run() -> void:
                     _finish(false, "wall budget before warmup")
                     return
                 var next_tick: int = _plain.tick_count + 1
-                var warm_plain: Dictionary = _plain_step(next_tick)
-                var warm_profiled: Dictionary = _profile_step(next_tick)
-                if not warm_plain.get("ok", false) or not warm_profiled.get("ok", false):
+                var warm_plain: Dictionary = _step(_plain, next_tick, false, false)
+                var warm_profiled: Dictionary = _step(_profiled, next_tick, true, false)
+                if not warm_plain.get("ok", false) or not warm_profiled.get("ok", false) or (
+                        warm_plain.has("checkpoint") or warm_profiled.has("checkpoint") or
+                        warm_plain.has("checkpoint_usec") or warm_profiled.has("checkpoint_usec")):
                     _finish(false, "warmup paid tick failed " + str(next_tick))
                     return
             if not _within_budget():
                 _finish(false, "wall budget before A/B window")
                 return
+            # One detached boundary oracle after warmup, never a full copy
+            # after each warmup tick. Keep it outside the paid-time samples.
+            if first_tick > 1:
+                var warm_boundary: Dictionary = Oracle.compare(
+                    _plain.checkpoint(), _profiled.checkpoint())
+                if not warm_boundary.get("equal", false):
+                    _finish(false, "warmup boundary divergence " + str(first_tick))
+                    return
             var result: Dictionary = AB.run_pair(first_tick, 100,
                 Callable(self, "_plain_step"), Callable(self, "_profile_step"),
                 Callable(self, "_exact"), _active_stride)
@@ -98,7 +114,9 @@ func _run() -> void:
             previous = result.duplicate(true)
             reports.append(result.duplicate(true))
             print("P2_PERF_E_LIVE_AB_WINDOW ", JSON.stringify(result))
-        if reports.is_empty() or _steps_plain != target or _steps_profiled != target:
+        if reports.is_empty() or _steps_plain != target or _steps_profiled != target or (
+                _warmup_plain != target - reports.size() * 100 or
+                _warmup_profiled != _warmup_plain or _warmup_checkpoint_count != 0):
             _finish(false, "incomplete paid tick coverage")
             return
         mode_reports.append(reports.duplicate(true))
@@ -112,12 +130,13 @@ func _run() -> void:
     quit(0)
 
 func _plain_step(tick: int) -> Dictionary:
-    return _step(_plain, tick, false)
+    return _step(_plain, tick, false, true)
 
 func _profile_step(tick: int) -> Dictionary:
-    return _step(_profiled, tick, true)
+    return _step(_profiled, tick, true, true)
 
-func _step(runner, tick: int, instrumented: bool) -> Dictionary:
+func _step(runner, tick: int, instrumented: bool,
+        capture_checkpoint: bool) -> Dictionary:
     if not _within_budget() or runner.tick_count != tick - 1:
         return {"ok": false, "tick": tick, "reason": "budget_or_source_clock"}
     if not runner.queue_control("step", 1):
@@ -129,8 +148,12 @@ func _step(runner, tick: int, instrumented: bool) -> Dictionary:
         return {"ok": false, "tick": tick, "reason": "paid_tick_failed"}
     if instrumented:
         _steps_profiled += 1
+        if not capture_checkpoint:
+            _warmup_profiled += 1
     else:
         _steps_plain += 1
+        if not capture_checkpoint:
+            _warmup_plain += 1
     # No separate measured instrumentation cost is available from the
     # source probe; 0 means unknown/not isolated, NOT zero overhead.
     # Checkpoint cost is intentionally excluded from elapsed_usec.
@@ -138,7 +161,7 @@ func _step(runner, tick: int, instrumented: bool) -> Dictionary:
         "elapsed_usec": elapsed, "instrumentation_usec": 0}
     # Full checkpoint is outside timing and only on a periodic parity gate.
     # Intermediate ticks remain real paid ticks with exact SourceClock checks.
-    if tick % _active_stride == 0:
+    if capture_checkpoint and tick % _active_stride == 0:
         var checkpoint_began: int = Time.get_ticks_usec()
         sample["checkpoint"] = runner.checkpoint()
         sample["checkpoint_usec"] = maxi(0, Time.get_ticks_usec() - checkpoint_began)
