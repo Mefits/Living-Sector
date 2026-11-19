@@ -119,6 +119,7 @@ func _run() -> void:
  await scene_changed
  game = current_scene
  game._pause()
+ _press_button(game.top_bar, "×16")
  _select("luna")
  _check(game.selected == "luna", "selected Luna")
  _press_button(game.colony_panel, "Колонизировать Луну")
