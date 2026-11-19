@@ -605,9 +605,11 @@ static func _promote_recovered_checkpoint(absolute_path: String,
             DirAccess.rename_absolute(parking, absolute_path)
         return false
     if had_primary and not candidate_is_displaced:
-        # The old primary was already rejected by the live runner. Preserve
-        # its diagnostic bytes if the removal fails; do not mask success.
-        DirAccess.remove_absolute(parking)
+        # Keep the displaced original until a SECOND launch accepts the
+        # promoted primary through the actual Runner. A SHA-valid promotion
+        # alone is not a durable restart proof. save_runner refuses to
+        # rotate unresolved displaced recovery files.
+        pass
     return true
 
 static func load_runner(runner: RefCounted, seed: Dictionary,
@@ -656,10 +658,12 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
                 # an interrupted promotion. Restore it without overwriting
                 # any other candidate until the next verified save.
                 pass
-            elif candidate == absolute_path:
-                # A successful live restore is stronger than envelope-only
-                # validation; an orphaned prior primary is no longer needed.
-                _reconcile_recovery_displaced(absolute_path, true)
+            var cleanup_result: Error = OK
+            if candidate == absolute_path:
+                # The real Runner accepted primary. Only now can its
+                # displaced predecessor be retired. Surface IO failures.
+                cleanup_result = _reconcile_recovery_displaced(
+                    absolute_path, true)
             var promotion_succeeded: bool = promoted_pending or \
                 promoted_previous or promoted_displaced
             # A recovered in-memory world is not necessarily durable on disk:
@@ -674,8 +678,13 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
                 "promoted_previous": promoted_previous,
                 "promoted_displaced": promoted_displaced,
                 "promotion_attempted": promotion_attempted,
-                "restart_safe": not promotion_attempted or promotion_succeeded,
-                "persistence_warning": "Recovered state was not promoted; retry recovery before next restart" if promotion_attempted and not promotion_succeeded else ""
+                "restart_safe": (not promotion_attempted or promotion_succeeded) and cleanup_result == OK,
+                "persistence_warning": (
+                    "Recovered state was not promoted; retry recovery before next restart"
+                    if promotion_attempted and not promotion_succeeded else
+                    "Restored primary but could not retire displaced recovery checkpoint"
+                    if cleanup_result != OK else ""),
+                "recovery_cleanup_error": cleanup_result
             }
         if not runner.restore_checkpoint(baseline, seed):
             return {
