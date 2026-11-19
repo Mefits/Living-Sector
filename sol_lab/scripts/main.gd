@@ -22,6 +22,10 @@ var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
 var colony_button: Button
 var freight_button: Button
+var freight_line_buttons: HBoxContainer
+var freight_line_toggle: Button
+var freight_line_dialog: AcceptDialog
+var freight_line_fields: Dictionary = {}
 var construction = ConstructionRuntime.new()
 var construction_ui_elapsed: float = 0.0
 var message_line: Label
@@ -158,6 +162,7 @@ func _build_ui() -> void:
     contents.add_child(filler)
     colony_button = _button(contents, "Колонизировать Луну", _colonize_luna)
     freight_button = _button(contents, "", _send_freighter)
+    _build_freight_line_controls(contents)
     _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
     mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
     var saves := HBoxContainer.new()
@@ -295,6 +300,77 @@ func _send_freighter() -> void:
     _show_selected()
     _notice("Грузовик отправлен")
 
+func _build_freight_line_controls(parent: Control) -> void:
+    freight_line_buttons = HBoxContainer.new()
+    parent.add_child(freight_line_buttons)
+    _button(freight_line_buttons, "Настройка линии", _open_freight_line)
+    freight_line_toggle = _button(freight_line_buttons, "", _toggle_freight_line)
+
+    freight_line_dialog = AcceptDialog.new()
+    freight_line_dialog.title = "Грузовая линия Земля ↔ Луна"
+    freight_line_dialog.ok_button_text = "Применить"
+    freight_line_dialog.add_cancel_button("Отмена")
+    freight_line_dialog.confirmed.connect(_apply_freight_line)
+    add_child(freight_line_dialog)
+    var grid := GridContainer.new()
+    grid.columns = 4
+    grid.add_theme_constant_override("h_separation", 12)
+    grid.add_theme_constant_override("v_separation", 8)
+    freight_line_dialog.add_child(grid)
+    for heading in ["Направление", "Груз", "Партия", "Мин. остаток"]:
+        var label := Label.new()
+        label.text = heading
+        grid.add_child(label)
+    for destination in ["luna", "earth"]:
+        var order: Dictionary = construction.freight_order(destination)
+        var direction := Label.new()
+        direction.text = "%s → %s" % [
+            Model.PLANET_NAMES[order.source], Model.PLANET_NAMES[destination]]
+        grid.add_child(direction)
+        var resource := OptionButton.new()
+        for id in ConstructionRuntime.FREIGHT_RESOURCES[destination]:
+            resource.add_item(Model.resource_label(id))
+            resource.set_item_metadata(resource.item_count - 1, id)
+        grid.add_child(resource)
+        var amount := SpinBox.new()
+        amount.min_value = 1
+        amount.max_value = ConstructionRuntime.FREIGHT_CAPACITY
+        grid.add_child(amount)
+        var reserve := SpinBox.new()
+        reserve.max_value = 100000
+        reserve.allow_greater = true
+        grid.add_child(reserve)
+        freight_line_fields[destination] = {"resource": resource, "amount": amount, "reserve": reserve}
+
+func _open_freight_line() -> void:
+    var line: Dictionary = construction.freight_line()
+    for destination in freight_line_fields:
+        var fields: Dictionary = freight_line_fields[destination]
+        var leg: Dictionary = line.legs[destination]
+        var resource: OptionButton = fields.resource
+        for index in resource.item_count:
+            if resource.get_item_metadata(index) == leg.resource:
+                resource.select(index)
+                break
+        fields.amount.value = leg.amount
+        fields.reserve.value = leg.reserve
+    freight_line_dialog.popup_centered()
+
+func _apply_freight_line() -> void:
+    var legs := {}
+    for destination in freight_line_fields:
+        var fields: Dictionary = freight_line_fields[destination]
+        fields.amount.apply()
+        fields.reserve.apply()
+        legs[destination] = {"resource": fields.resource.get_selected_metadata(),
+            "amount": fields.amount.value, "reserve": fields.reserve.value}
+    if construction.configure_freight_line(legs):
+        _show_selected()
+
+func _toggle_freight_line() -> void:
+    construction.set_freight_line_enabled(not construction.freight_line().enabled)
+    _show_selected()
+
 func _show_selected() -> void:
     if details == null:
         return
@@ -324,7 +400,10 @@ func _show_selected() -> void:
             items.insert(1, "Население: %d" % int(expedition.settlers.population_count))
         var order: Dictionary = construction.freight_order(selected)
         freight_button.visible = not order.is_empty()
+        freight_line_buttons.visible = freight_button.visible
         if freight_button.visible:
+            var line: Dictionary = construction.freight_line()
+            freight_line_toggle.text = "Отключить линию" if line.enabled else "Включить линию"
             var source_name := "Земли" if order.source == "earth" else "Луны"
             freight_button.text = "Доставить %d %s с %s" % [
                 order.amount, Model.batch_unit(order.resource), source_name]
@@ -342,7 +421,11 @@ func _show_selected() -> void:
                         Model.batch_unit(cargo.resource), Calendar.calendar_text(freight.arrival)])
                 "luna":
                     items.insert(1, "Грузовик на Луне · трюм пуст")
-            if freight.get("location") == order.source and not reason.is_empty():
+            if line.enabled:
+                var wait: String = construction.freight_line_wait()
+                if not wait.is_empty():
+                    items.insert(2, wait)
+            elif freight.get("location") == order.source and not reason.is_empty():
                 items.insert(2, reason)
         var coeff: Dictionary = config.get("planets",{}).get(selected,{})
         for key in body.get("resources",{}).keys():

@@ -5,12 +5,14 @@ extends RefCounted
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 
-const VERSION: int = 3
+const VERSION: int = 4
 const FREIGHT_DAYS := 12
+const FREIGHT_CAPACITY := 10
 const FREIGHT_ORDERS := {
  "luna": {"source": "earth", "destination": "luna", "resource": "metals", "amount": 10},
  "earth": {"source": "luna", "destination": "earth", "resource": "ore", "amount": 10}
 }
+const FREIGHT_RESOURCES := {"luna": ["metals", "food"], "earth": ["ore"]}
 var world: Dictionary = {}
 var settings: Dictionary = {}
 var now_native: float = 0.0
@@ -18,6 +20,8 @@ var next_id: int = 1
 var sites: Array = []
 var expedition := preload("res://scripts/sol_lunar_expedition.gd").new()
 var _freighter: Dictionary = {}
+var _line_enabled := false
+var _line_legs: Dictionary = {}
 var initial_markets := 0
 var initial_manifest: Dictionary
 const CYCLE_DAYS := 30
@@ -30,6 +34,8 @@ func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  world = source_world
  expedition.reset(world)
  _freighter = _starting_freighter()
+ _line_enabled = false
+ _line_legs = _default_line_legs()
  _ensure_earth_spaceport(world.get("facilities", []))
  initial_markets = world.get("markets", []).size()
  initial_manifest = expedition.snapshot()
@@ -66,7 +72,11 @@ func freight_order(destination: String) -> Dictionary:
  return FREIGHT_ORDERS.get(destination, {}).duplicate()
 
 func freight_block_reason(destination: String) -> String:
- var shipment: Dictionary = FREIGHT_ORDERS.get(destination, {})
+ if _line_enabled:
+  return "Для ручного рейса отключите линию"
+ return _shipment_block_reason(FREIGHT_ORDERS.get(destination, {}))
+
+func _shipment_block_reason(shipment: Dictionary, reserve: float = 0.0) -> String:
  if shipment.is_empty() or _freighter.is_empty():
   return "Рейс недоступен"
  if _freighter.location == "transit":
@@ -78,20 +88,92 @@ func freight_block_reason(destination: String) -> String:
    return "Нужен готовый космопорт (%s)" % Model.PLANET_NAMES[body]
   if _market_for(body).is_empty():
    return "Нужен склад колонии (%s)" % Model.PLANET_NAMES[body]
+ if _colony_owner(shipment.source) != _colony_owner(shipment.destination):
+  return "Склады должны принадлежать одной фракции"
  var available := float(_market_for(shipment.source).supply.get(shipment.resource, 0))
- if available < shipment.amount:
-  return "На складе %s %s · требуется %d" % [
-   Model.batch_amount(available), Model.batch_unit(shipment.resource), shipment.amount]
+ var required: float = shipment.amount + reserve
+ if available < required:
+  return "На складе %s %s · требуется %s" % [
+   Model.batch_amount(available), Model.batch_unit(shipment.resource), Model.batch_amount(required)]
  return ""
 
 func depart_freighter(destination: String) -> bool:
  if not freight_block_reason(destination).is_empty():
   return false
- var shipment := freight_order(destination)
+ _launch_freighter(freight_order(destination))
+ return true
+
+func _launch_freighter(shipment: Dictionary) -> void:
  var stock: Dictionary = _market_for(shipment.source).supply
  stock[shipment.resource] = float(stock[shipment.resource]) - shipment.amount
  _freighter = {"location": "transit", "order": shipment,
   "departure": now_native, "arrival": now_native + Calendar.days_to_native(FREIGHT_DAYS)}
+
+static func _default_line_legs() -> Dictionary:
+ var legs := {}
+ for destination in FREIGHT_ORDERS:
+  var order: Dictionary = FREIGHT_ORDERS[destination]
+  legs[destination] = {"resource": order.resource, "amount": order.amount, "reserve": 0.0}
+ return legs
+
+func freight_line() -> Dictionary:
+ return {"enabled": _line_enabled, "legs": _line_legs.duplicate(true)}
+
+func set_freight_line_enabled(enabled: bool) -> void:
+ _line_enabled = enabled and not _freighter.is_empty()
+
+func configure_freight_line(legs: Dictionary) -> bool:
+ if not _valid_line_legs(legs):
+  return false
+ for destination in FREIGHT_ORDERS:
+  var leg: Dictionary = legs[destination]
+  _line_legs[destination] = {"resource": leg.resource, "amount": int(leg.amount),
+   "reserve": float(leg.reserve)}
+ return true
+
+static func _valid_line_legs(legs: Variant) -> bool:
+ if not legs is Dictionary or legs.size() != FREIGHT_ORDERS.size():
+  return false
+ for destination in FREIGHT_ORDERS:
+  var leg: Variant = legs.get(destination)
+  if not leg is Dictionary or not _valid_cargo(leg, destination):
+   return false
+  if not _whole_number(leg.get("reserve")) or leg.reserve < 0:
+   return false
+ return true
+
+static func _valid_cargo(cargo: Dictionary, destination: String) -> bool:
+ var amount: Variant = cargo.get("amount")
+ return cargo.get("resource") in FREIGHT_RESOURCES.get(destination, []) and (
+  _whole_number(amount) and amount >= 1 and amount <= FREIGHT_CAPACITY)
+
+static func _whole_number(value: Variant) -> bool:
+ return (value is float or value is int) and is_finite(value) and floorf(value) == value
+
+func _next_line_order() -> Dictionary:
+ var destination := "earth" if _freighter.location == "luna" else "luna"
+ var shipment := freight_order(destination)
+ var leg: Dictionary = _line_legs[destination]
+ shipment.resource = leg.resource
+ shipment.amount = leg.amount
+ return shipment
+
+func freight_line_wait() -> String:
+ if not _line_enabled or _freighter.location == "transit":
+  return ""
+ var shipment := _next_line_order()
+ var reason := _shipment_block_reason(shipment, _line_legs[shipment.destination].reserve)
+ if reason.is_empty():
+  return ""
+ return "Ждёт (%s) · %s" % [Model.PLANET_NAMES[shipment.source], reason]
+
+func _dispatch_line() -> bool:
+ if not _line_enabled or _freighter.location == "transit":
+  return false
+ var shipment := _next_line_order()
+ if not _shipment_block_reason(shipment, _line_legs[shipment.destination].reserve).is_empty():
+  return false
+ _launch_freighter(shipment)
  return true
 
 func freight_status() -> Dictionary:
@@ -140,7 +222,7 @@ func _valid_freighter(saved: Variant, facilities: Array, lunar: bool, time: floa
   return false
  var expected: Dictionary = FREIGHT_ORDERS.get(shipment.get("destination"), {})
  if expected.is_empty() or shipment.get("source") != expected.source or (
-     shipment.get("resource") != expected.resource or shipment.get("amount") != expected.amount):
+     not _valid_cargo(shipment, expected.destination)):
   return false
  var start: Variant = saved.get("departure")
  var end: Variant = saved.get("arrival")
@@ -260,6 +342,8 @@ func advance_to(new_native: float) -> Array:
  if _land_freighter():
   completed.append("Грузовик разгружен")
  _advance_production()
+ if _dispatch_line():
+  completed.append("Погрузка грузовика")
  return completed
 
 func _finish(site: Dictionary) -> bool:
@@ -286,6 +370,7 @@ func snapshot() -> Dictionary:
   "version": VERSION,
   "expedition": expedition.snapshot(),
   "freighter": freight_status(),
+  "freight_line": freight_line(),
   "system_id": str(world.get("system", {}).get("id", "")),
   "native_time": now_native,
   "next_id": next_id,
@@ -296,7 +381,7 @@ func snapshot() -> Dictionary:
 
 func restore(data: Dictionary) -> bool:
  var version := int(data.get("version", -1))
- if version not in [1, 2, VERSION] or (
+ if version not in [1, 2, 3, VERSION] or (
     str(data.get("system_id", "")) != str(world.get("system", {}).get(
     "id", ""))):
   return false
@@ -377,12 +462,21 @@ func restore(data: Dictionary) -> bool:
  var restored_freighter: Variant = _migrate_freighter(version, data.get("freighter"))
  if not _valid_freighter(restored_freighter, input_facilities, lunar, float(t)):
   return false
+ var restored_line: Variant = data.get("freight_line") if version == VERSION else (
+  {"enabled": false, "legs": _default_line_legs()})
+ if not restored_line is Dictionary or not restored_line.get("enabled") is bool or (
+     not _valid_line_legs(restored_line.get("legs"))):
+  return false
  # Commit all restored domains only after all checks pass.
  expedition.restore(world, manifest)
  world["facilities"] = input_facilities.duplicate(true)
  _ensure_earth_spaceport(world.facilities)
  world["markets"] = input_markets.duplicate(true)
  _freighter = restored_freighter.duplicate(true)
+ if _freighter.has("order"):
+  _freighter.order.amount = int(_freighter.order.amount)
+ configure_freight_line(restored_line.legs)
+ set_freight_line_enabled(restored_line.enabled)
  sites = input_sites.duplicate(true)
  now_native = float(t)
  _index_producers()
