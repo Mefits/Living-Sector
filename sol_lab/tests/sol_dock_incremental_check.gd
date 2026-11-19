@@ -8,6 +8,9 @@ const Runtime = preload("res://scripts/sol_construction_runtime.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 
 func _initialize() -> void:
+ call_deferred("_run")
+
+func _run() -> void:
  var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(
   "res://data/sol.json"))
  if not (parsed is Dictionary):
