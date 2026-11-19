@@ -524,7 +524,7 @@ func _show_selected() -> void:
         freight_line_buttons.visible = not order.is_empty()
         if freight_line_buttons.visible:
             var line: Dictionary = construction.freight_line()
-            freight_line_toggle.text = "Откл. линию" if line.enabled else "Вкл. линию"
+            freight_line_toggle.text = "Отключить линию" if line.enabled else "Включить линию"
             match freight.get("location"):
                 "earth":
                     items.insert(1, "Грузовик на Земле · трюм пуст")
