@@ -269,13 +269,17 @@ static func advance(world: Dictionary, ledger: Variant,
     # A clean finite Galaxy has no queued arrivals most ticks. Do not
     # deep-copy all markets/factions/ships/receipts or N9 just to perform
     # an empty Rust tick_dock_queue_advance pass.
-    var has_waiters: bool = false
-    for facility in world["facilities"].values():
+    # Collect only occupied queue owners in the source's lexical order.
+    # The old stage sorted *every* facility even when one dock had waiters.
+    # The roster is invocation-local: a later request/undock/N38 load
+    # rebuilds it from authoritative queues, never from stale cache state.
+    var queued_facilities: Array = []
+    for fid in world["facilities"]:
+        var facility: Variant = world["facilities"][fid]
         if facility is Dictionary and facility.get("dock_queue", []) is Array and (
                 not facility.get("dock_queue", []).is_empty()):
-            has_waiters = true
-            break
-    if not has_waiters:
+            queued_facilities.append(str(fid))
+    if queued_facilities.is_empty():
         return {"ok": true, "changed": false, "world": world,
             "ledger_snapshot": ledger, "events": [], "tick": tick,
             "status": "SOURCE_N21_FIFO_EMPTY"}
@@ -291,14 +295,18 @@ static func advance(world: Dictionary, ledger: Variant,
     # Count occupied docks once per paid tick. The old queue loop scanned
     # every ship for each admission and fee calculation (Q * ships).
     # This cache is invocation-local, never persisted across N38/World changes.
+    # Count only docks whose queues are actually being serviced.
+    # Preseed zeroes so _fee/_admit never fall back to O(all ships).
+    # Other dock occupancy cannot change: N21 admits only to these fids.
     var occupancy: Dictionary = {}
+    for fid in queued_facilities:
+        occupancy[fid] = 0
     for ship in staged["ships"].values():
         var dock_id: String = str(ship.get("docked_at", ""))
-        if not dock_id.is_empty():
-            occupancy[dock_id] = int(occupancy.get(dock_id, 0)) + 1
-    var keys: Array = staged["facilities"].keys()
-    keys.sort()
-    for fid in keys:
+        if occupancy.has(dock_id):
+            occupancy[dock_id] = int(occupancy[dock_id]) + 1
+    queued_facilities.sort()
+    for fid in queued_facilities:
         var fac: Dictionary = staged["facilities"][fid]
         # The stage already owns a detached facility queue. Avoid
         # recursively copying the remaining FIFO for every head read.
