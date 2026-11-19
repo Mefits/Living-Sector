@@ -1998,14 +1998,62 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary,
     for account in balances:
         if _ledger.balance(str(account)) != int(balances[account]):
             return false
-    # The proposal is caller-owned. Publish only detached writable domains;
-    # all other domains were compared against the authoritative World above.
-    # Never retain proposal aliases, even when the caller reuses its stage.
-    var committed: Dictionary = _world.duplicate(false)
-    for domain in ["ships", "markets", "dock_receipts", "cargo_receipts"]:
-        committed[domain] = staged[domain].duplicate(true)
+    # Publish the N15 write set, not the entire growing ship/market/receipt
+    # history. The source proposal remains caller-owned and cannot alias a
+    # published mutable ship, market or new receipt.
+    var committed: Dictionary = _n15_owned_logistics_publication(
+        _world, staged, ship_id, str(r.get("location_id", "")),
+        action, receipt_key, op_id)
+    if committed.is_empty():
+        return false
     _world = committed
     return true
+
+
+## Only call after the full N15 delta checks, Schema and N9 account oracle.
+## Existing untouched rows are authoritative; staged rows are untrusted.
+## Deep-detach the one mutable ship, one affected market, and new receipt.
+## No full-history duplicate on each paid cargo operation.
+static func _n15_owned_logistics_publication(source: Dictionary,
+        proposed: Dictionary, ship_id: String, location: String,
+        action: String, receipt_domain: String, op_id: String) -> Dictionary:
+    if action not in ["load", "unload", "undock"] or (
+            receipt_domain not in ["dock_receipts", "cargo_receipts"]):
+        return {}
+    if (receipt_domain == "cargo_receipts") != (action in ["load", "unload"]):
+        return {}
+    if not (source.get("ships") is Dictionary) or not (
+            proposed.get("ships") is Dictionary) or not (
+            source.get("markets") is Dictionary) or not (
+            proposed.get("markets") is Dictionary):
+        return {}
+    if not (source.get(receipt_domain) is Dictionary) or not (
+            proposed.get(receipt_domain) is Dictionary):
+        return {}
+    if not source["ships"].has(ship_id) or not (
+            proposed["ships"].get(ship_id) is Dictionary):
+        return {}
+    if source[receipt_domain].has(op_id) or not (
+            proposed[receipt_domain].get(op_id) is Dictionary):
+        return {}
+    if proposed["ships"].size() != source["ships"].size() or (
+            proposed["markets"].size() != source["markets"].size()) or (
+            proposed[receipt_domain].size() != source[receipt_domain].size() + 1):
+        return {}
+    if action in ["load", "unload"] and (
+            not source["markets"].has(location) or not (
+            proposed["markets"].get(location) is Dictionary)):
+        return {}
+    var committed: Dictionary = source.duplicate()
+    committed["ships"] = source["ships"].duplicate()
+    committed["ships"][ship_id] = proposed["ships"][ship_id].duplicate(true)
+    if action in ["load", "unload"]:
+        committed["markets"] = source["markets"].duplicate()
+        committed["markets"][location] = proposed["markets"][location].duplicate(true)
+    # For undock, no market mutation is permitted by the caller's oracle.
+    committed[receipt_domain] = source[receipt_domain].duplicate()
+    committed[receipt_domain][op_id] = proposed[receipt_domain][op_id].duplicate(true)
+    return committed
 
 
 
