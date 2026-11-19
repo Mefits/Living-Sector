@@ -66,12 +66,14 @@ func _ready() -> void:
  _button(navigation, "Колония", func(): close_requested.emit())
  _button(navigation, "Строительство", _navigate.bind("build"))
  var stock_bar := HBoxContainer.new()
+ stock_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  stock_bar.add_theme_constant_override("separation", 5)
  layout.add_child(stock_bar)
  var stock_icon: TextureRect = Icons.make_icon("metals", false, 20)
  if stock_icon != null:
   stock_bar.add_child(stock_icon)
  colony_line = _label(stock_bar, "", 14, Color("#e1d1a4"))
+ colony_line.custom_minimum_size.x = 190
  colony_line.clip_text = true
  colony_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
@@ -80,6 +82,8 @@ func _ready() -> void:
  layout.add_child(tabs)
 
  scroll = ScrollContainer.new()
+ # This dock does not have a horizontal-scrolling catalog: fill its width.
+ scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
  scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
  scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  layout.add_child(scroll)
@@ -373,9 +377,15 @@ func _fit_cards() -> void:
   return
  if page != "admin_buildings":
   grid.columns = 1
+  # ScrollContainer does not necessarily stretch nested VBox/Grid children.
+  # Without explicit min widths it shrunk the entire building row to 150px,
+  # wrapping full names one CHARACTER per line at 1366 and at 1920.
+  var row_width: float = maxf(260.0, dock_width - 44.0)
+  cards_root.custom_minimum_size.x = row_width
+  grid.custom_minimum_size.x = row_width
   for card in card_nodes:
    if is_instance_valid(card):
-    card.custom_minimum_size = Vector2(0, 48)
+    card.custom_minimum_size = Vector2(row_width, 0.0)
   return
  var columns: int = 3 if dock_width >= 690.0 else (
   2 if dock_width >= 475.0 else 1)

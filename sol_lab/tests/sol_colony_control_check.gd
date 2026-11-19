@@ -83,6 +83,10 @@ func _run() -> void:
    "full building title "+id)
   check(str(row["button"].text) != "" and row["card"].size.x <=
    game.browser.size.x, "order button inside dock "+id)
+  check(row["card"].size.x >= game.browser.size.x - 56,
+   "build row consumes available dock width "+id)
+  check(row["title"].size.x >= 110,
+   "building title has readable width "+id)
  var refinery_id: String = click_build("refinery")
  check(stock("earth") == old_metals - 1,
   "building debits once")
@@ -264,6 +268,14 @@ func _run() -> void:
    "catalog same width at %dx%d" % [dimension[0],dimension[1]])
   check(game.browser.scroll.size.y > 120,
    "catalog list scroll fits %dx%d" % [dimension[0],dimension[1]])
+  for id in ["refinery","factory","orbital_platform"]:
+   var expanded: Dictionary = game.browser.build_controls.get(id,{})
+   if expanded.is_empty() or not expanded["card"].visible:
+    continue
+   check(expanded["card"].size.x >= game.browser.size.x - 56 and
+    expanded["title"].size.x >= 110,
+    "full-name building row readable at %dx%d: %s" % [
+     dimension[0],dimension[1],id])
   for id in ["administrative_center","mining_rig","spaceport"]:
    var row: Dictionary = game.browser.build_controls.get(id,{})
    if row.is_empty() or not row["card"].visible:
