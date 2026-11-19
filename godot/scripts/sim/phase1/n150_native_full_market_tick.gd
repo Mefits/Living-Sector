@@ -211,14 +211,26 @@ static func _owned_flow_without_expired(flow: Dictionary, cutoff: int) -> Dictio
 		var entries: Variant = source[slug]
 		if not (entries is Array):
 			return _fail("invalid_native_consumption_window")
+		# Validate every row, including expired ones, before taking the fast
+		# path. The common bounded-window case retains every row: one native
+		# deep Array duplicate is cheaper than a GDScript duplicate per sample.
+		# Mixed/expired windows still copy only survivors. Never borrow rows.
 		var kept: Array = []
 		var amount: float = 0.0
+		var all_retained: bool = true
 		for entry in entries:
 			if not (entry is Dictionary) or typeof(entry.get("tick")) != TYPE_INT or not _num(entry.get("qty")):
 				return _fail("invalid_consumption_sample")
-			if int(entry["tick"]) >= cutoff:
-				kept.append(entry.duplicate(true))
+			if int(entry["tick"]) < cutoff:
+				all_retained = false
+			else:
 				amount += float(entry["qty"])
+		if all_retained:
+			kept = entries.duplicate(true)
+		else:
+			for entry in entries:
+				if int(entry["tick"]) >= cutoff:
+					kept.append(entry.duplicate(true))
 		windows[slug] = kept
 		if amount > 0.0:
 			observed[slug] = amount
