@@ -8,6 +8,7 @@ const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 const Glyph = preload("res://scripts/view/colony_building_glyph.gd")
 const Stock = preload("res://scripts/view/colony_stock_panel.gd")
+const Icons = preload("res://scripts/view/sol_icon_atlas.gd")
 
 var heading: Label
 var population: Label
@@ -23,6 +24,7 @@ var line_holder: VBoxContainer
 var built_list: VBoxContainer
 var detail_title: Label
 var detail_description: Label
+var detail_icon: Control
 var overview: VBoxContainer
 var stock_view: VBoxContainer
 var scroll: ScrollContainer
@@ -49,8 +51,20 @@ func _ready() -> void:
  summary = _label(layout, "", 13, Color("#a8c6d4"))
  summary.clip_text = true
  summary.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
- metal = _label(layout, "", 15, Color("#e6d59d"))
- food_status = _label(layout, "", 13, Color("#bfd0d9"))
+ var metals_row := HBoxContainer.new()
+ metals_row.add_theme_constant_override("separation", 5)
+ layout.add_child(metals_row)
+ var metal_icon: TextureRect = Icons.make_icon("metals", false, 20)
+ if metal_icon != null:
+  metals_row.add_child(metal_icon)
+ metal = _label(metals_row, "", 15, Color("#e6d59d"))
+ var food_row := HBoxContainer.new()
+ food_row.add_theme_constant_override("separation", 5)
+ layout.add_child(food_row)
+ var food_icon: TextureRect = Icons.make_icon("food", false, 20)
+ if food_icon != null:
+  food_row.add_child(food_icon)
+ food_status = _label(food_row, "", 13, Color("#bfd0d9"))
  food_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
  var navigation := HBoxContainer.new()
@@ -75,7 +89,14 @@ func _ready() -> void:
  _label(overview, "ПОСТРОЕНО", 14, Color("#d4bc84"))
  # The selected card comes before the potentially long, scrollable list.
  # _switch_page resets scroll to top on selection from list or globe.
- detail_title = _label(overview, "", 16, Color("#f0dfae"))
+ var building_detail_row := HBoxContainer.new()
+ building_detail_row.add_theme_constant_override("separation", 6)
+ overview.add_child(building_detail_row)
+ detail_icon = Glyph.new()
+ detail_icon.custom_minimum_size = Vector2(36, 36)
+ detail_icon.hide()
+ building_detail_row.add_child(detail_icon)
+ detail_title = _label(building_detail_row, "", 16, Color("#f0dfae"))
  detail_description = _label(overview, "", 13, Color("#bfd0d9"))
  detail_description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
  built_list = VBoxContainer.new()
@@ -221,6 +242,7 @@ func select_facility(facility_id: String) -> void:
 func _show_selected_detail() -> void:
  detail_title.hide()
  detail_description.hide()
+ detail_icon.hide()
  for facility in built_facilities:
   if str(facility.get("id", "")) != selected_facility:
    continue
@@ -233,6 +255,9 @@ func _show_selected_detail() -> void:
    state = produced if not produced.is_empty() else "Ожидание первой партии (30 дней)"
   elif kind in ["factory", "power_plant"]:
    state = "Цикл производства не подключён в Sol Lab"
+  detail_icon.kind = kind
+  detail_icon.show()
+  detail_icon.queue_redraw()
   detail_title.text = str(facility.get("name", kind))
   detail_description.text = "%s\nСостояние: %s" % [purpose, state]
   detail_title.show()
