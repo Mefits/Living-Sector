@@ -49,10 +49,10 @@ static func propose(physical_world: Dictionary, tick: int,
             "orders": m["orders"],
             "history": m["history"]
         }
-    # N150's market registry wrapper only sorts and stages a second complete
-    # dictionary of already-owned results. Walk the same sorted IDs here,
-    # preserving the exact validation/error precedence and atomic proposal.
-    # No World row is changed until N39 applies the returned updates.
+    # N150 validates every market in sorted identity order before crisis
+    # staging. Preserve that failure precedence while avoiding the second
+    # full-sized output registry: the owned results live in updates, then
+    # are replaced in place with final N39 proposals after all ticks pass.
     var ids: Array = views.keys()
     ids.sort()
     var updates: Dictionary = {}
@@ -68,12 +68,10 @@ static func propose(physical_world: Dictionary, tick: int,
         if not bool(changed.get("ok", false)):
             return {"ok": false, "reason": str(id) + ":" +
                 str(changed.get("reason", ""))}
-        # Each N150 result is deep-owned. Transfer it directly to the
-        # eventual N39 proposal; no intermediate computed["markets"] map.
-        var result: Dictionary = changed["market"]
+        updates[id] = changed["market"]
+    for id in ids:
+        var result: Dictionary = updates[id]
         var location: String = str(owner_by_id[id])
-        # The source output validator is retained: corrupted adapter
-        # boundaries must reject before crisis staging or stock comparison.
         if not (result.get("pricing") is Dictionary) or not (result.get("flow") is Dictionary):
             return {"ok": false, "reason": "invalid_native_market_result_sections"}
         for key in ["prices", "supply", "demand"]:
@@ -95,7 +93,7 @@ static func propose(physical_world: Dictionary, tick: int,
         var m: Dictionary = physical_world["markets"][location]
         if result["pricing"]["supply"] != m["supply"]:
             return {"ok": false, "reason": "market_tick_must_not_mint_stock"}
-        updates[location] = {
+        updates[id] = {
             "id": id,
             # N150 tick_markets returns a freshly deep-owned market for every
             # identity. This proposal is the sole consumer of those markets;
@@ -109,7 +107,10 @@ static func propose(physical_world: Dictionary, tick: int,
             "orders": result["orders"],
             "history": crisis["history"]
         }
-    return {"ok": true, "tick": tick, "updates": updates,
+    var by_location: Dictionary = {}
+    for id in ids:
+        by_location[str(owner_by_id[id])] = updates[id]
+    return {"ok": true, "tick": tick, "updates": by_location,
         "market_count": updates.size(),
         "crisis_events": crisis_events,
         "source": "N150 native full market tick + original Rust structural warning hysteresis + existing N131 price engine"}
