@@ -10,10 +10,11 @@ const Payroll = preload("res://scripts/sim/phase1/n39_native_paid_shift.gd")
 
 # These maps are borrowed for this one synchronous due cycle only. No
 # cross-tick cache: install/remove/move/owner changes are observed immediately.
-static func _live_market_roster_keys(world: Dictionary) -> Dictionary:
+static func _live_market_roster_keys(world: Dictionary,
+        sorted_market_locations: Array) -> Dictionary:
     var keys: Dictionary = {}
     var facilities: Dictionary = world["facilities"]
-    for raw_location in world["markets"]:
+    for raw_location in sorted_market_locations:
         var market: Variant = world["markets"][raw_location]
         if not (market is Dictionary):
             continue
@@ -30,13 +31,20 @@ static func _live_market_roster_keys(world: Dictionary) -> Dictionary:
 static func _market_scoped_rosters(world: Dictionary, occupied: Dictionary,
         sorted_facility_ids: Array, market_keys: Dictionary) -> Dictionary:
     var populations: Dictionary = {}
-    var population_ids: Array = world["populations"].keys()
+    # Filter before sorting: unrelated population rows still receive the
+    # original Dictionary type check, but never enter the ordered aggregation.
+    # Each selected population is accumulated in the same ID order as the
+    # former global sort, preserving integer truncation per population.
+    var population_ids: Array = []
+    for pop_id in world["populations"]:
+        var candidate: Dictionary = world["populations"][pop_id]
+        var candidate_key: String = str(candidate.get("faction", "")) + "|" + str(candidate.get("location", ""))
+        if market_keys.has(candidate_key):
+            population_ids.append(pop_id)
     population_ids.sort()
     for pop_id in population_ids:
         var pop: Dictionary = world["populations"][pop_id]
         var key: String = str(pop.get("faction", "")) + "|" + str(pop.get("location", ""))
-        if not market_keys.has(key):
-            continue
         var people: int = maxi(0, int(pop.get("count", 0)))
         if not populations.has(key):
             populations[key] = {"people": 0, "workforce": 0, "occupied": 0}
@@ -89,7 +97,10 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
     # consume it. Do not validate owners here: the original sorted market
     # loop below must retain its error precedence after Payroll. Invalid
     # owners simply contribute no roster key and fail at the original site.
-    var market_keys: Dictionary = _live_market_roster_keys(world)
+    var market_locations: Array = world["markets"].keys()
+    market_locations.sort()
+    var market_keys: Dictionary = _live_market_roster_keys(world,
+        market_locations)
     var rosters: Dictionary = _market_scoped_rosters(world, occupied,
         facility_ids, market_keys)
     var population_totals: Dictionary = rosters["populations"]
@@ -100,8 +111,6 @@ static func propose(world: Dictionary, ledger: RefCounted, tick: int,
     # Borrow these growing World maps for the synchronous planning call;
     # never retain source references in the persisted administration memory.
     var views: Array = []
-    var market_locations: Array = world["markets"].keys()
-    market_locations.sort()
     for raw_location in market_locations:
         var location: String = str(raw_location)
         var market: Dictionary = world["markets"][location]
