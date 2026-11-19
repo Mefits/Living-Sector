@@ -27,9 +27,9 @@ static func preflight(ship: Dictionary, positions: Dictionary,
     # The same directed leg may occur in several candidate BT routes.
     # Geometry belongs to this invocation only: moving orbital positions,
     # graph edits and N38 reloads cannot reuse a stale distance.
-    # Cache ONLY validated geometry; fuel is accumulated per occurrence in
+    # Cache ONLY validated geometry and integral edge ticks; fuel is accumulated per occurrence in
     # the original order so overflow, rounding and error priority are intact.
-    var leg_distances: Dictionary = {}
+    var leg_ticks: Dictionary = {}
     for route in routes:
         if not (route is Dictionary) or not (route.get("nodes") is Array):
             return {"ok": false, "reason": "n14_invalid_route_segments"}
@@ -47,20 +47,21 @@ static func preflight(ship: Dictionary, positions: Dictionary,
                     not (positions[to] is Vector2)):
                 return {"ok": false, "reason": "n14_missing_real_leg_geometry"}
             var leg_key: Array = [current, to]
-            var distance: float
-            if leg_distances.has(leg_key):
-                distance = float(leg_distances[leg_key])
+            var ticks: int
+            if leg_ticks.has(leg_key):
+                ticks = int(leg_ticks[leg_key])
             else:
                 var a: Vector2 = positions[current]
                 var target: Vector2 = positions[to]
-                distance = a.distance_to(target)
+                var distance: float = a.distance_to(target)
                 if not is_finite(distance) or distance <= 0.0:
                     return {"ok": false, "reason": "n14_invalid_original_orbit_distance"}
-                leg_distances[leg_key] = distance
+                ticks = maxi(1, ceili(distance / velocity))
+                leg_ticks[leg_key] = ticks
             # Same conservative N153 multi-leg estimate, no future
             # orbital prediction or optimistic early free arrival.
             # Keep multiplication and addition exactly as the uncached path.
-            cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
+            cost += float(ticks) * rate * tick_scale
             if not is_finite(cost):
                 return {"ok": false, "reason": "n14_fuel_cost_overflow"}
             current = to
