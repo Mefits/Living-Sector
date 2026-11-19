@@ -3,9 +3,13 @@ extends "res://scripts/sim/phase2/n158_production_runtime.gd"
 ## One row per paid tick, bounded to 100; no World or N38 mutations.
 const PHASES: Array[String] = ["ships", "dock_queue", "markets", "factions"]
 const WINDOW_LIMIT: int = 100
+const MAX_PHASE_CALLS_PER_TICK: int = 64
+const MAX_RETAINED_CALL_SAMPLES: int = WINDOW_LIMIT * PHASES.size() * MAX_PHASE_CALLS_PER_TICK
 var _phase_cost: Dictionary = {}
 var _paid_rows: Array[Dictionary] = []
 var _failed_tick: int = -1
+var _latest_observed_tick: int = 0
+var _retained_call_samples: int = 0
 
 func _execute_integrated_phase(phase: String, tick: int) -> bool:
     var began: int = Time.get_ticks_usec()
@@ -19,25 +23,20 @@ func _execute_integrated_phase(phase: String, tick: int) -> bool:
 func _record_phase_elapsed(phase: String, tick: int, elapsed: int, accepted: bool) -> void:
     if tick < 1 or not PHASES.has(phase):
         return
-    if not accepted or elapsed < 0:
-        # An aborted phase invalidates the entire paid-tick candidate, even
-        # when earlier phases succeeded. Never certify a partial source tick.
-        _failed_tick = tick
+    # A restarted or rewound source clock invalidates ALL old phase evidence.
+    # This never changes the authoritative N158 tick or simulation state.
+    if tick < _latest_observed_tick:
         _paid_rows.clear()
+        _phase_cost.clear()
+        _failed_tick = -1
+        _retained_call_samples = 0
+    _latest_observed_tick = tick
+    if not accepted or elapsed < 0:
+        _invalidate_paid_observation(tick)
         return
     if tick == _failed_tick:
         return
-    var stats: Dictionary = _phase_cost.get(phase, {
-        "calls": 0, "total_usec": 0, "max_usec": 0})
-    stats["calls"] = int(stats["calls"]) + 1
-    stats["total_usec"] = int(stats["total_usec"]) + elapsed
-    stats["max_usec"] = maxi(int(stats["max_usec"]), elapsed)
-    _phase_cost[phase] = stats
     if _paid_rows.is_empty() or int(_paid_rows.back()["tick"]) != tick:
-        # Discontinuities (restart, replay, or a skipped tick) cannot be
-        # presented as contiguous paid-tick evidence.
-        if not _paid_rows.is_empty() and tick < int(_paid_rows.back()["tick"]):
-            _paid_rows.clear()
         var row: Dictionary = {"tick": tick}
         for name in PHASES:
             row[name] = 0
@@ -46,15 +45,34 @@ func _record_phase_elapsed(phase: String, tick: int, elapsed: int, accepted: boo
         row["_durations"] = {}
         _paid_rows.append(row)
         while not _paid_rows.is_empty() and int(_paid_rows[0]["tick"]) <= tick - WINDOW_LIMIT:
-            _paid_rows.pop_front()
-    _paid_rows[_paid_rows.size() - 1][phase] += elapsed
-    _paid_rows[_paid_rows.size() - 1]["_seen"][phase] = true
-    var counts: Dictionary = _paid_rows[_paid_rows.size() - 1]["_calls"]
+            var expired: Dictionary = _paid_rows.pop_front()
+            for name in PHASES:
+                _retained_call_samples -= int(expired["_calls"].get(name, 0))
+    var current: Dictionary = _paid_rows.back()
+    var counts: Dictionary = current["_calls"]
+    if int(counts.get(phase, 0)) >= MAX_PHASE_CALLS_PER_TICK or (
+            _retained_call_samples >= MAX_RETAINED_CALL_SAMPLES):
+        _invalidate_paid_observation(tick)
+        return
     counts[phase] = int(counts.get(phase, 0)) + 1
-    var durations: Dictionary = _paid_rows[_paid_rows.size() - 1]["_durations"]
+    current[phase] = int(current[phase]) + elapsed
+    current["_seen"][phase] = true
+    var durations: Dictionary = current["_durations"]
     if not durations.has(phase):
         durations[phase] = []
     durations[phase].append(elapsed)
+    _retained_call_samples += 1
+    var stats: Dictionary = _phase_cost.get(phase, {
+        "calls": 0, "total_usec": 0, "max_usec": 0})
+    stats["calls"] = int(stats["calls"]) + 1
+    stats["total_usec"] = int(stats["total_usec"]) + elapsed
+    stats["max_usec"] = maxi(int(stats["max_usec"]), elapsed)
+    _phase_cost[phase] = stats
+
+func _invalidate_paid_observation(tick: int) -> void:
+    _failed_tick = tick
+    _paid_rows.clear()
+    _retained_call_samples = 0
 
 func phase_metrics() -> Dictionary:
     return _phase_cost.duplicate(true)
