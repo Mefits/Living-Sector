@@ -1876,6 +1876,77 @@ func apply_native_n21_dock_queue(tick: int) -> Dictionary:
 ## N84 ship intent was saved. Only accepted+matching fulfiller may
 ## return to Posted; N9 reserved escrow and all real N15 cargo remain.
 ## N39 is the ONLY publisher. No parallel Board/ledger/ship registry.
+## N104 release is a bounded mutation: only the releasing ship, one paid
+## contract, and changed diplomatic rows may be published. Keep untouched
+## growing registries read-only; detach all changed nested containers.
+## Called only AFTER the full source Schema/N9/contract write-set oracle.
+static func _n104_owned_release_publication(before: Dictionary,
+        proposed: Dictionary, ship_id: String, contract_id: String) -> Dictionary:
+    for domain in ["ships", "contract_board", "faction_relations"]:
+        if not (before.get(domain) is Dictionary) or not (
+                proposed.get(domain) is Dictionary):
+            return {}
+    var old_ships: Dictionary = before["ships"]
+    var new_ships: Dictionary = proposed["ships"]
+    if not old_ships.has(ship_id) or not new_ships.has(ship_id) or (
+            not (new_ships[ship_id] is Dictionary)) or (
+            old_ships.size() != new_ships.size()):
+        return {}
+    for id in old_ships:
+        if not new_ships.has(id) or not (new_ships[id] is Dictionary) or (
+                str(id) != ship_id and new_ships[id] != old_ships[id]):
+            return {}
+    var old_board: Dictionary = before["contract_board"]
+    var new_board: Dictionary = proposed["contract_board"]
+    if not (old_board.get("contracts") is Dictionary) or not (
+            new_board.get("contracts") is Dictionary):
+        return {}
+    var old_contracts: Dictionary = old_board["contracts"]
+    var new_contracts: Dictionary = new_board["contracts"]
+    if not old_contracts.has(contract_id) or not (
+            new_contracts.get(contract_id) is Dictionary) or (
+            old_contracts.size() != new_contracts.size()):
+        return {}
+    for id in old_contracts:
+        if not new_contracts.has(id) or not (new_contracts[id] is Dictionary) or (
+                str(id) != contract_id and new_contracts[id] != old_contracts[id]):
+            return {}
+    if old_board.size() != new_board.size():
+        return {}
+    for key in old_board:
+        if not new_board.has(key):
+            return {}
+    var published: Dictionary = before.duplicate()
+    var ships: Dictionary = old_ships.duplicate()
+    ships[ship_id] = (new_ships[ship_id] as Dictionary).duplicate(true)
+    published["ships"] = ships
+    var board: Dictionary = old_board.duplicate()
+    var contracts: Dictionary = old_contracts.duplicate()
+    contracts[contract_id] = (new_contracts[contract_id] as Dictionary).duplicate(true)
+    board["contracts"] = contracts
+    for key in old_board:
+        if key != "contracts" and new_board[key] != old_board[key]:
+            if new_board[key] is Dictionary or new_board[key] is Array:
+                board[key] = new_board[key].duplicate(true)
+            else:
+                board[key] = new_board[key]
+    published["contract_board"] = board
+    var old_relations: Dictionary = before["faction_relations"]
+    var new_relations: Dictionary = proposed["faction_relations"]
+    var relations: Dictionary = old_relations.duplicate()
+    for key in old_relations:
+        if not new_relations.has(key):
+            return {}
+    for key in new_relations:
+        if not old_relations.has(key) or new_relations[key] != old_relations[key]:
+            if new_relations[key] is Dictionary or new_relations[key] is Array:
+                relations[key] = new_relations[key].duplicate(true)
+            else:
+                relations[key] = new_relations[key]
+    published["faction_relations"] = relations
+    return published
+
+
 func apply_native_n104_release_contract(tick: int, ship_id: String,
         contract_id: String, reason: String) -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1:
@@ -1943,9 +2014,12 @@ func apply_native_n104_release_contract(tick: int, ship_id: String,
     # check above. Reuse authoritative untouched domains rather than cloning
     # the entire growing World; detach every domain the stage may own/write.
     # Never publish a mutable container borrowed from candidate["world"].
-    var committed: Dictionary = _copy_world("n104_release_commit", false)
-    for domain in ["ships", "contract_board", "faction_relations"]:
-        committed[domain] = next[domain].duplicate(true)
+    var committed: Dictionary = _n104_owned_release_publication(
+        _world, next, ship_id, contract_id)
+    if committed.is_empty() or _measured_schema_validate(
+            "L1413_owned", committed) != "":
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_owned_publication_invalid"}
     _world = committed
     return {"ok": true, "changed": true, "tick": tick,
         "contract_id": contract_id, "ship_id": ship_id,
