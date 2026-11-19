@@ -49,24 +49,31 @@ static func propose(physical_world: Dictionary, tick: int,
             "orders": m["orders"],
             "history": m["history"]
         }
-    var computed: Dictionary = Markets.tick_markets(views, tick,
-        tick_multiplier, Callable(Price, "recalculate"))
-    if not computed.get("ok", false):
-        return {"ok": false, "reason": str(computed.get("reason", "native_market_tick_rejected"))}
-    if not (computed.get("markets") is Dictionary):
-        return {"ok": false, "reason": "invalid_native_market_output"}
+    # N150's market registry wrapper only sorts and stages a second complete
+    # dictionary of already-owned results. Walk the same sorted IDs here,
+    # preserving the exact validation/error precedence and atomic proposal.
+    # No World row is changed until N39 applies the returned updates.
+    var ids: Array = views.keys()
+    ids.sort()
     var updates: Dictionary = {}
     var crisis_events: Array[Dictionary] = []
-    var output: Dictionary = computed["markets"]
-    if output.size() != views.size():
-        return {"ok": false, "reason": "incomplete_native_market_output"}
-    for id in output:
-        if not owner_by_id.has(id):
-            return {"ok": false, "reason": "unregistered_native_market"}
+    for id in ids:
+        if not (id is String) or not (views[id] is Dictionary):
+            return {"ok": false, "reason": "invalid_real_market_registry"}
+        var input: Dictionary = views[id]
+        if str(input.get("id", "")) != str(id):
+            return {"ok": false, "reason": "market_identity_mismatch"}
+        var changed: Dictionary = Markets.tick_one_market(input, tick,
+            tick_multiplier, Callable(Price, "recalculate"))
+        if not bool(changed.get("ok", false)):
+            return {"ok": false, "reason": str(id) + ":" +
+                str(changed.get("reason", ""))}
+        # Each N150 result is deep-owned. Transfer it directly to the
+        # eventual N39 proposal; no intermediate computed["markets"] map.
+        var result: Dictionary = changed["market"]
         var location: String = str(owner_by_id[id])
-        if not (output[id] is Dictionary):
-            return {"ok": false, "reason": "invalid_native_market_result"}
-        var result: Dictionary = output[id]
+        # The source output validator is retained: corrupted adapter
+        # boundaries must reject before crisis staging or stock comparison.
         if not (result.get("pricing") is Dictionary) or not (result.get("flow") is Dictionary):
             return {"ok": false, "reason": "invalid_native_market_result_sections"}
         for key in ["prices", "supply", "demand"]:
