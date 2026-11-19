@@ -113,6 +113,20 @@ jobs:
           cat "$RUNNER_TEMP/sol-lab-logs/motion-alignment.log"
           grep -qF SOL_MOTION_ALIGNMENT_PASS "$RUNNER_TEMP/sol-lab-logs/motion-alignment.log"
 
+      - name: Reproduce lunar colony via actual UI before redesign
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_DATA_HOME="$(mktemp -d)"
+          if ! timeout --signal=TERM --kill-after=5s 30s \
+            godot --headless --path sol_lab --script res://tests/sol_colony_repro_check.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/colony-repro.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/colony-repro.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sol-lab-logs/colony-repro.log"
+          grep -qF SOL_COLONY_REPRO_PASS "$RUNNER_TEMP/sol-lab-logs/colony-repro.log"
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |
