@@ -3431,6 +3431,42 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
 ## no second Director resource, no default player mandate, no money.
 ## This adapter is available for the eventual source command gateway;
 ## untrusted UI data must still arrive through an explicit caller action.
+## N109/N110 optional policy maps are independent. Clone only the root
+## selected by the command and its target row. The other two maps remain
+## immutable aliases until publication; Schema and N9 still validate ALL.
+static func _n110_policy_domain(operation: String) -> String:
+    match operation:
+        "set_research_mandate", "clear_research_mandate":
+            return "research_mandates"
+        "set_faction_charter":
+            return "faction_charters"
+        "set_economic_mandate", "clear_economic_mandate":
+            return "economic_mandates"
+    return ""
+
+
+static func _n110_owned_policy_stage(world: Dictionary,
+        active_domain: String, faction: String = "") -> Dictionary:
+    if active_domain not in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
+        return {}
+    for key in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
+        if world.has(key) and not (world[key] is Dictionary):
+            return {}
+    var staged: Dictionary = world.duplicate()
+    for key in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
+        if not staged.has(key):
+            staged[key] = {}
+    staged[active_domain] = staged[active_domain].duplicate()
+    if not faction.is_empty() and staged[active_domain].has(faction):
+        if not (staged[active_domain][faction] is Dictionary):
+            return {}
+        staged[active_domain][faction] = staged[active_domain][faction].duplicate(true)
+    return staged
+
+
 func apply_native_player_research_policy(tick: int, faction: String,
         operation: String, incoming: Dictionary = {}) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 0:
@@ -3454,23 +3490,13 @@ func apply_native_player_research_policy(tick: int, faction: String,
         return {"ok": true, "tick": tick, "faction_id": faction,
             "operation": operation, "changed": false,
             "status": "N110_ECONOMIC_DIRECTIVE_ALREADY_ABSENT"}
-    # N109/N110 policy operations only write their three optional maps.
-    # Keep markets/facilities/directors as read-only inputs and detach
-    # every mutable policy map before applying source governance actions.
-    var next_world: Dictionary = _copy_world("L2987_owned_root", false)
-    for policy_key in ["research_mandates", "faction_charters",
-            "economic_mandates"]:
-        if _world.has(policy_key) and _world[policy_key] is Dictionary:
-            next_world[policy_key] = _world[policy_key].duplicate(true)
-    # Rust's original optional Director maps are independent. A legacy
-    # checkpoint may contain neither OR only one: do not erase a
-    # genuine existing charter while installing the first mandate.
-    for key in ["research_mandates", "faction_charters",
-            "economic_mandates"]:
-        if next_world.has(key) and not (next_world[key] is Dictionary):
-            return {"ok": false, "reason": "invalid_original_policy_map:" + key}
-        if not next_world.has(key):
-            next_world[key] = {}
+    # One policy command owns exactly one optional registry. The other
+    # two registries are read-only through the full Schema/N9 oracle.
+    # No existing nested policy row may be mutated through an alias.
+    var policy_key: String = _n110_policy_domain(operation)
+    var next_world: Dictionary = _n110_owned_policy_stage(_world, policy_key, faction)
+    if next_world.is_empty():
+        return {"ok": false, "reason": "invalid_original_policy_map"}
     var operation_result: Dictionary = {}
     match operation:
         "set_research_mandate":
