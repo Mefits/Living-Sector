@@ -17,6 +17,14 @@ const BIOME_FILES: Dictionary = {
     "venuslike": "venuslike", "ice_giant": "ice_giant",
     "titanlike": "titanlike", "tidally_locked": "tidally_locked"
 }
+## Only three pilot visuals use vector-sourced raster exports.
+## Existing planets retain their original raster art.
+const VECTOR_PILOT_KEYS: Dictionary = {
+    "sol/earth": true,
+    "sol/saturn": true,
+    "biomes/desert_world": true
+}
+
 static var _texture_cache: Dictionary = {}
 
 
@@ -44,6 +52,13 @@ static func texture_for(body: Dictionary, system_id: String,
     var folder: String = "map_icons" if map_icon else "planets"
     var path: String = "res://assets/planets/%s/%s/%s.png" % [
         pieces[0], folder, pieces[1]]
+    # Prefer pre-rendered 32 px / 512 px exports, never rasterize SVG in-game.
+    # Preserve the original sprite if the pilot export is missing.
+    if VECTOR_PILOT_KEYS.has(key):
+        var vector_path: String = "res://assets/planets/%s/%s/%s_vector.png" % [
+            pieces[0], folder, pieces[1]]
+        if ResourceLoader.exists(vector_path, "Texture2D"):
+            path = vector_path
     if _texture_cache.has(path):
         return _texture_cache[path] as Texture2D
     var texture: Texture2D = null

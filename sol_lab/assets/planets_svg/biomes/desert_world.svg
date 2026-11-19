@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Desert world | reusable biome">
+<title>Desert world | reusable biome</title>
+<defs>
+<clipPath id="disc"><circle cx="128" cy="128" r="127.5"/></clipPath>
+<linearGradient id="sand" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f0b870"/><stop offset="1" stop-color="#d79b5c"/></linearGradient>
+<linearGradient id="edge" x1="0" y1="0" x2="0.8" y2="1"><stop stop-color="#f8d39f" stop-opacity=".12"/><stop offset="1" stop-color="#754d36" stop-opacity=".12"/></linearGradient>
+</defs>
+<g clip-path="url(#disc)"><circle cx="128" cy="128" r="127.5" fill="url(#sand)"/>
+<!-- Broad layered dunes: the geometry can be recolored and reshaped. -->
+<path d="M -34 211 C 48 139 91 115 145 100 C 204 85 248 61 281 21" fill="none" stroke="#c58d55" stroke-width="24"/>
+<path d="M -23 220 C 60 151 104 135 156 120 C 205 108 250 85 277 53" fill="none" stroke="#f1c58d" stroke-width="13"/>
+<path d="M -38 197 C 34 130 98 110 147 92 C 198 75 240 47 284 10" fill="none" stroke="#db9f5e" stroke-width="5"/>
+<path d="M 85 282 C 79 222 121 205 171 205 C 202 204 227 196 272 187 L 277 276 Z" fill="#ebcba3"/>
+<path d="M 98 272 C 103 245 139 226 168 224 C 214 217 238 209 273 196" fill="none" stroke="#f5d8b2" stroke-width="5"/>
+<circle cx="128" cy="128" r="127.5" fill="url(#edge)"/></g>
+</svg>
