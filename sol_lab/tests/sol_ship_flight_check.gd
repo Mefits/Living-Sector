@@ -232,6 +232,9 @@ func _run() -> void:
   _check((freight_visual_after["position"] as Vector2).distance_to(
    freight_visual_before["position"]) < maxf(3.0, chord*0.12),
    "freight reload does not teleport")
+ # Use the actual last rendered image AFTER reload for docking continuity.
+ await process_frame
+ freight_last_draw = _pose("freight").get("position", freight_last_draw)
  _step_until(outbound_arrival, "freight to Moon")
  _check(game.construction.freight_status().get("location") == "luna",
   "freighter docked at Moon on simulation deadline")
