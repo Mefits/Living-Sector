@@ -17,9 +17,9 @@ func _update_performance_label() -> void:
  perf_last_usec = Time.get_ticks_usec() - start
  perf_calls += 1
 
-func _update_native_map() -> void:
+func _update_native_map(snap_freight: bool = false) -> void:
  var start: int = Time.get_ticks_usec()
- super._update_native_map()
+ super._update_native_map(snap_freight)
  map_last_usec = Time.get_ticks_usec() - start
  map_calls += 1
 
