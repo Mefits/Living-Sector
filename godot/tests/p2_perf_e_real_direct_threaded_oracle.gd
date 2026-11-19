@@ -15,6 +15,7 @@ const SizePhase = preload("res://scripts/sim/phase2/n158_size_phase_attribution.
 const CheckpointBytes = preload("res://scripts/sim/phase2/n158_checkpoint_byte_probe.gd")
 const ResourceProbe = preload("res://scripts/sim/phase2/n158_paid_window_resource_probe.gd")
 const PairedDrift = preload("res://scripts/sim/phase2/n158_paired_paid_tick_drift.gd")
+const RestartContinuation = preload("res://scripts/sim/phase2/n158_post_restart_paid_continuation.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
 const EXTENDED_TARGET: int = 900
@@ -351,6 +352,43 @@ func _run() -> void:
                     _finish("post-restart direct/thread divergence", false)
                     return
                 print("P2_PERF_E_DIRECT_THREAD_RESTART_EXACT tick=", tick)
+                # A restored checkpoint matching itself is insufficient: prove
+                # three real subsequent paid steps preserve N9/World/RNG/BT.
+                # This is intentionally outside the pre-restart 100-tick windows.
+                var continuation_rows: Array = []
+                for resumed_tick in range(tick + 1, tick + 4):
+                    if not direct.queue_control("step", 1):
+                        _finish("post-restart direct step refused " + str(resumed_tick), false)
+                        return
+                    var resumed_started: int = Time.get_ticks_usec()
+                    direct.advance_frame(0.0)
+                    var resumed_direct_usec: int = Time.get_ticks_usec() - resumed_started
+                    if not direct.last_phase_failure().is_empty():
+                        _finish("post-restart direct phase failed " + str(resumed_tick), false)
+                        return
+                    var resumed_worker_started: int = Time.get_ticks_usec()
+                    var resumed_worker: Dictionary = await _command("step", {"count": 1})
+                    var resumed_worker_request_usec: int = (
+                        Time.get_ticks_usec() - resumed_worker_started)
+                    var resumed_checkpoint: Dictionary = await _command("checkpoint")
+                    var resumed_direct_checkpoint: Dictionary = direct.checkpoint()
+                    var resumed_gate: Dictionary = RestartContinuation.accept_step(
+                        resumed_tick - 1, direct.tick_count, resumed_direct_checkpoint,
+                        resumed_worker, resumed_checkpoint, resumed_direct_usec,
+                        resumed_worker_request_usec)
+                    if not resumed_gate.get("accepted", false):
+                        _finish("post-restart paid parity failed tick " + str(resumed_tick) +
+                            " " + JSON.stringify(resumed_gate), false)
+                        return
+                    continuation_rows.append(resumed_gate)
+                var continuation: Dictionary = RestartContinuation.summarize(
+                    tick, continuation_rows)
+                if not continuation.get("accepted", false):
+                    _finish("post-restart paid coverage failed " +
+                        JSON.stringify(continuation), false)
+                    return
+                print("P2_PERF_E_POST_RESTART_PAID_CONTINUATION ",
+                    JSON.stringify(continuation))
     var expected_observations: Array[int] = []
     for milestone in MILESTONES:
         if milestone <= target:
