@@ -34,20 +34,18 @@ static func _live_market_roster_keys(world: Dictionary,
 static func _market_scoped_rosters(world: Dictionary, occupied: Dictionary,
         sorted_facility_ids: Array, market_keys: Dictionary) -> Dictionary:
     var populations: Dictionary = {}
-    # Filter before sorting: unrelated population rows still receive the
-    # original Dictionary type check, but never enter the ordered aggregation.
-    # Each selected population is accumulated in the same ID order as the
-    # former global sort, preserving integer truncation per population.
-    var population_ids: Array = []
-    for pop_id in world["populations"]:
-        var candidate: Dictionary = world["populations"][pop_id]
-        var candidate_key: String = str(candidate.get("faction", "")) + "|" + str(candidate.get("location", ""))
-        if market_keys.has(candidate_key):
-            population_ids.append(pop_id)
-    population_ids.sort()
-    for pop_id in population_ids:
-        var pop: Dictionary = world["populations"][pop_id]
+    # Population contributions are independent integer terms: each row's
+    # workforce is truncated before addition, so addition order cannot
+    # affect any total. The previous global ID sort was O(P log P) on every
+    # due staffing cycle even when only a few markets were active.
+    # Keep the original Dictionary row type check for every population,
+    # including unrelated rows; no World aliases escape this aggregation.
+    var source_populations: Dictionary = world["populations"]
+    for pop_id in source_populations:
+        var pop: Dictionary = source_populations[pop_id]
         var key: String = str(pop.get("faction", "")) + "|" + str(pop.get("location", ""))
+        if not market_keys.has(key):
+            continue
         var people: int = maxi(0, int(pop.get("count", 0)))
         if not populations.has(key):
             populations[key] = {"people": 0, "workforce": 0, "occupied": 0}
