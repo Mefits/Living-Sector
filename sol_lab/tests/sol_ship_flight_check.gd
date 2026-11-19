@@ -62,22 +62,40 @@ func _step_until(when: float, label: String) -> void:
  _check(false, "could not reach " + label)
 
 func _test_geometry() -> void:
+ # Direct legs must remain perfectly straight, in both directions.
  for ends in [[Vector2(0, 0), Vector2(85, -24)],
               [Vector2(85, -24), Vector2(0, 0)]]:
-  var a: Vector2 = ends[0]
-  var b: Vector2 = ends[1]
-  var curve: PackedVector2Array = Flight.curve(a, b)
-  _check(Flight.point(curve, 0.0).distance_to(a) < 0.0001,
-   "flight must start at departure point")
-  _check(Flight.point(curve, 1.0).distance_to(b) < 0.0001,
-   "flight must reach predicted arrival point")
-  for p in [0.05, 0.3, 0.7, 0.97]:
-   var tangent: Vector2 = Flight.tangent(curve, p)
-   var derivative: Vector2 = Flight.point(curve, p+0.0001)-Flight.point(curve, p-0.0001)
-   _check(tangent.dot(derivative.normalized()) > 0.999,
-    "heading follows tangent")
+  var start: Vector2 = ends[0]
+  var end: Vector2 = ends[1]
+  var path: Dictionary = Flight.plan(start, end)
+  var points: PackedVector2Array = path["points"]
+  _check(points.size() == 2, "unblocked flight uses exactly one straight segment")
+  _check(points[0].distance_to(start) < 0.0001,
+   "route starts at departure position")
+  _check(points[1].distance_to(end) < 0.0001,
+   "route ends at destination position")
+  var midpoint: Dictionary = Flight.sample(path, 0.5)
+  _check((midpoint["position"] as Vector2).distance_to(
+   start.lerp(end, 0.5)) < 0.0001, "no decorative bow in direct flight")
+  _check((midpoint["direction"] as Vector2).dot(
+   (end - start).normalized()) > 0.999, "ship points along straight leg")
+ # Tangent approach, shallow circular arc and tangent departure ONLY when
+ # an actual exclusion zone intersects the source/destination segment.
+ var block: Dictionary = {"id":"obstacle","center":Vector2.ZERO,"radius":2.5}
+ var detour: Dictionary = Flight.plan(Vector2(-10, 0.3), Vector2(10, 0.3),
+  [block])
+ var detour_points: PackedVector2Array = detour["points"]
+ _check(detour["detours"].size() == 1 and detour_points.size() > 3,
+  "blocked flight uses the SystemBalance-style tangent arc")
+ for i in range(1, detour_points.size()):
+  _check(not Flight.segment_crosses(
+   detour_points[i-1], detour_points[i],
+   block["center"], block["radius"]),
+   "detour must not enter the obstacle exclusion zone")
+ _check(Flight.plan(Vector2(-10, 4), Vector2(10, 4),
+  [block])["detours"].is_empty(), "no detour for a clear segment")
  _check(Flight.fraction(2.0, 12.0, 7.0) == 0.5,
-  "display fraction derives from fixed ship timestamps")
+  "progress follows only the simulation timestamp")
 
 func _run() -> void:
  _test_geometry()
@@ -137,8 +155,8 @@ func _run() -> void:
  _check(not visual_after.is_empty() and not visual_before.is_empty(),
   "colonizer visual route available after loading")
  if not visual_after.is_empty() and not visual_before.is_empty():
-  var flight_length: float = (visual_before["control"][3] as Vector2).distance_to(
-   visual_before["control"][0])
+  var flight_length: float = float(visual_before["route"]["total"]) * (
+   game.native_view._orbit_scale() * game.native_view._zoom)
   _check((visual_before["position"] as Vector2).distance_to(
    visual_after["position"]) < maxf(3.0,flight_length*0.12),
    "loading in-flight ship must not teleport across its route")
@@ -148,8 +166,25 @@ func _run() -> void:
  var target: Vector2 = game.native_view._native_body_screen(
   game.native_view._body_by_id("luna"), original_arrival,
   game.native_view._orbit_scale()) + game.native_view._flight_offset("colonizer")
- _check((visual["control"][3] as Vector2).distance_to(target) < 0.01,
-  "arrival trajectory predicts Moon at actual ETA")
+ var points: PackedVector2Array = visual["route"]["points"]
+ _check((game.native_view._flight_screen(points[points.size() - 1]) +
+  game.native_view._flight_offset("colonizer")).distance_to(target) < 0.01,
+  "route reaches predicted Moon position at actual ETA")
+ var cached_world_route: PackedVector2Array = points.duplicate()
+ var old_zoom: float = game.native_view._zoom
+ var old_pan: Vector2 = game.native_view._pan
+ game.native_view._zoom = 2.5
+ game.native_view._pan = Vector2(61, -38)
+ var camera_pose: Dictionary = game.native_view._flight_pose(
+  "colonizer", game.construction.expedition.ship, Time.get_ticks_usec())
+ _check(camera_pose["route"]["points"] == cached_world_route,
+  "zoom and pan must NEVER recalculate the flight path")
+ _check((camera_pose["position"] as Vector2).distance_to(
+  game.native_view._flight_screen(camera_pose["world_position"]) +
+  game.native_view._flight_offset("colonizer")) < 0.001,
+  "screen position equals transformed world position + ship marker offset")
+ game.native_view._zoom = old_zoom
+ game.native_view._pan = old_pan
  var colony_last_draw: Vector2 = _pose("colonizer").get("position",
   Vector2.ZERO)
  game._pause()
@@ -160,8 +195,9 @@ func _run() -> void:
  _check(game.native_view._docking_visuals.has("colonizer"),
   "colonizer has a visual final dock transition")
  if game.native_view._docking_visuals.has("colonizer"):
-  var colony_from: Vector2 = (game.native_view._docking_visuals[
-   "colonizer"]["from"] as Vector2) + game.native_view._center()
+  var colony_from: Vector2 = game.native_view._flight_screen(
+   game.native_view._docking_visuals["colonizer"]["from_world"]) + (
+   game.native_view._flight_offset("colonizer"))
   _check(colony_from.distance_to(colony_last_draw) < 0.02,
    "colonizer docking begins at last drawn point (no teleport)")
  game._pause()
@@ -227,8 +263,8 @@ func _run() -> void:
  _check(not freight_visual_after.is_empty(),
   "freight visual survives mid-route load")
  if not freight_visual_after.is_empty() and not freight_visual_before.is_empty():
-  var chord: float = (freight_visual_before["control"][3] as Vector2).distance_to(
-   freight_visual_before["control"][0])
+  var chord: float = float(freight_visual_before["route"]["total"]) * (
+   game.native_view._orbit_scale() * game.native_view._zoom)
   _check((freight_visual_after["position"] as Vector2).distance_to(
    freight_visual_before["position"]) < maxf(3.0, chord*0.12),
    "freight reload does not teleport")
@@ -244,8 +280,9 @@ func _run() -> void:
  _check(game.native_view._docking_visuals.has("freight"),
   "freighter has continuous visual docking")
  if game.native_view._docking_visuals.has("freight"):
-  var freight_from: Vector2 = (game.native_view._docking_visuals[
-   "freight"]["from"] as Vector2) + game.native_view._center()
+  var freight_from: Vector2 = game.native_view._flight_screen(
+   game.native_view._docking_visuals["freight"]["from_world"]) + (
+   game.native_view._flight_offset("freight"))
   _check(freight_from.distance_to(freight_last_draw) < 0.02,
    "freighter docking begins at its last drawn point")
  game._pause() # resume interpolation so the final approach can complete
@@ -274,8 +311,12 @@ func _run() -> void:
   var arrival_target: Vector2 = game.native_view._native_body_screen(
    game.native_view._body_by_id("earth"), float(inbound["arrival"]),
    game.native_view._orbit_scale()) + game.native_view._flight_offset("freight")
-  _check((incoming["control"][3] as Vector2).distance_to(arrival_target) < 0.01,
-   "return trajectory predicts moving Earth at delivery ETA")
+  var inbound_points: PackedVector2Array = incoming["route"]["points"]
+  _check((game.native_view._flight_screen(
+   inbound_points[inbound_points.size() - 1]) +
+   game.native_view._flight_offset("freight")).distance_to(
+   arrival_target) < 0.01,
+   "return route predicts moving Earth at delivery ETA")
   var ore_before: float = float(game.construction.colony_inventory(
    "earth").get("supply",{}).get("ore",0.0))
   _step_until(float(inbound["arrival"]), "return flight")
