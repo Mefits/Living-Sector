@@ -145,6 +145,11 @@ func _run() -> void:
  _check(_stock("luna", "metals") == 2.0 and
   game.colony_panel.metal.text.contains("2"),
   "two real lunar metals visible without opening catalog")
+ _menu(2)
+ _menu(3)
+ _check(_stock("luna", "metals") == 2.0 and
+  game.construction.expedition.settlers.get("population_count") == 100,
+  "load immediately after landing preserves exact cargo and population")
  _press_button(game.colony_panel, "Строить")
  _check(game.browser.body_id == "luna" and
   game.browser.colony_line.text.contains("металл 2"),
@@ -209,7 +214,10 @@ func _run() -> void:
  _select("luna")
  _press_button(game.colony_panel, "Включить линию")
  _check(game.construction.freight_line().enabled, "line enabled")
- # Worst-case content on Earth: five enterprises and enabled trade line.
+ game._step()
+ _check(game.construction.freight_status().get("location") == "transit",
+  "active line must dispatch a real cargo shipment")
+ # Worst-case content on Earth: five enterprises and an active freight line.
  _select("earth")
  await _layout(1366, 768, "overview-many-buildings-and-line")
  await _layout(1920, 1080, "overview-many-buildings-and-line")
