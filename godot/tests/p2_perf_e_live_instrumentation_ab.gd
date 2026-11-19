@@ -139,7 +139,9 @@ func _step(runner, tick: int, instrumented: bool) -> Dictionary:
     # Full checkpoint is outside timing and only on a periodic parity gate.
     # Intermediate ticks remain real paid ticks with exact SourceClock checks.
     if tick % _active_stride == 0:
+        var checkpoint_began: int = Time.get_ticks_usec()
         sample["checkpoint"] = runner.checkpoint()
+        sample["checkpoint_usec"] = maxi(0, Time.get_ticks_usec() - checkpoint_began)
     return sample
 
 func _exact(a: Dictionary, b: Dictionary) -> bool:
