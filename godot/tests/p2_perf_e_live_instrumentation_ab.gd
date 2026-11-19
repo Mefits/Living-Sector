@@ -8,6 +8,7 @@ const Plain = preload("res://scripts/sim/phase2/n158_production_runtime.gd")
 const Profiled = preload("res://scripts/sim/phase2/n158_timed_phase_probe.gd")
 const AB = preload("res://scripts/sim/phase2/n158_instrumentation_ab_acceptance.gd")
 const Oracle = preload("res://scripts/sim/phase2/n158_checkpoint_parity_oracle.gd")
+const PhaseAcceptance = preload("res://scripts/sim/phase2/n158_live_ab_phase_acceptance.gd")
 const MAX_WALL_MS: int = 480000
 const CHECKPOINT_STRIDE: int = 10
 const CHECKPOINTS: Array[int] = [100, 300, 600, 900]
@@ -105,6 +106,14 @@ func _run() -> void:
             if observed.is_empty() or int(observed.get("observed_paid_ticks", 0)) != 100:
                 _finish(false, "missing real profiled phase window " + str(end_tick))
                 return
+            var distribution: Dictionary = _profiled.paid_phase_distribution(end_tick)
+            var sites: Dictionary = _profiled.paid_callsite_costs(end_tick)
+            var phase_evidence: Dictionary = PhaseAcceptance.accept(
+                result, distribution, sites, end_tick)
+            if not phase_evidence.get("accepted", false):
+                _finish(false, "live phase/callsite accounting rejected " + JSON.stringify(phase_evidence))
+                return
+            print("P2_PERF_E_LIVE_AB_PHASE_CALLS ", JSON.stringify(phase_evidence))
             if not previous.is_empty():
                 var drift: Dictionary = AB.compare_windows(previous, result)
                 if not drift.get("accepted", false):
