@@ -5064,6 +5064,45 @@ func _grant_xp(fac: Dictionary, recipes_run: int) -> void:
         fac["xp"] = int(fac["xp"]) - int(fac["level"]) * 100
         fac["level"] = int(fac["level"]) + 1
 
+## N154 Payroll.pay_shift may mutate both facility rows (including _blocked),
+## and only households in the producer faction/location. Manufacturing later
+## changes the local market history/supply. Detach all possible write targets
+## before calling either routine, even when the wage payment is rejected.
+## Keep the remaining growing registries shared and read-only for Schema.
+static func _n154_owned_shipyard_payroll_stage(source: Dictionary,
+        producer_id: String, owner_id: String, location: String) -> Dictionary:
+    for domain in ["facilities", "populations", "markets"]:
+        if not (source.get(domain) is Dictionary):
+            return {}
+    var facilities: Dictionary = source["facilities"]
+    var populations: Dictionary = source["populations"]
+    var markets: Dictionary = source["markets"]
+    if not facilities.has(producer_id) or not facilities.has(owner_id):
+        return {}
+    if not markets.has(location) or not (markets[location] is Dictionary):
+        return {}
+    if not (facilities[producer_id] is Dictionary) or not (facilities[owner_id] is Dictionary):
+        return {}
+    var producer: Dictionary = facilities[producer_id]
+    if str(producer.get("location", "")) != location:
+        return {}
+    var staged: Dictionary = source.duplicate()
+    staged["facilities"] = facilities.duplicate()
+    staged["populations"] = populations.duplicate()
+    staged["markets"] = markets.duplicate()
+    staged["facilities"][producer_id] = facilities[producer_id].duplicate(true)
+    if owner_id != producer_id:
+        staged["facilities"][owner_id] = facilities[owner_id].duplicate(true)
+    staged["markets"][location] = markets[location].duplicate(true)
+    for pid in populations:
+        if not (populations[pid] is Dictionary):
+            return {}
+        var person: Dictionary = populations[pid]
+        if str(person.get("faction", "")) == str(producer.get("faction", "")) and str(person.get("location", "")) == location:
+            staged["populations"][pid] = person.duplicate(true)
+    return staged
+
+
 ## Native facility/mod.rs: produce exactly one N132 T2/T3 module per
 ## real shipyard per 15×mult cycle. Same physical markets, shifts, and N9.
 ## There are NO shipyards in the clean frozen 0.6.7 starting seed;
@@ -5119,10 +5158,10 @@ func _run_shipyard_modules(tick: int, multiplier: int,
         # and household wealth/employment; manufacturing touches the local
         # market supply/history. Keep every other authoritative domain shared
         # for read-only Schema inspection, never expose mutable aliases to pay_shift.
-        var staged: Dictionary = _copy_world("L4449_owned_root", false)
-        staged["facilities"] = _world["facilities"].duplicate(true)
-        staged["populations"] = _world["populations"].duplicate(true)
-        staged["markets"] = _world["markets"].duplicate(true)
+        var staged: Dictionary = _n154_owned_shipyard_payroll_stage(
+            _world, str(id), owner, location)
+        if staged.is_empty():
+            return {"ok": false, "reason": "n154_invalid_owned_payroll_stage"}
         var ledger_copy: RefCounted = _ledger.fork()
         var shift: Dictionary = Payroll.pay_shift(staged, ledger_copy,
             str(id), owner, tick, external_workers,
