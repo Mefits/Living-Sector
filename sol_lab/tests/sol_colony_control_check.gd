@@ -46,8 +46,12 @@ func click_build(id: String) -> String:
  check(not game.construction.sites.is_empty(), "UI created actual site")
  return str(game.construction.sites.back().get("id", ""))
 
-func run() -> void:
- pass
+func has_facility(id: String, kind: String = "") -> bool:
+ for facility in game.world.get("facilities", []):
+  if str(facility.get("id", "")) == id and (
+      kind.is_empty() or str(facility.get("type", "")) == kind):
+   return true
+ return false
 
 func _run() -> void:
  if FileAccess.file_exists(Lab.USER_SAVE) or FileAccess.file_exists(Lab.USER_CONFIG):
@@ -103,8 +107,7 @@ func _run() -> void:
   "100% refunded to original Earth warehouse")
  check(game.construction.sites.is_empty(),
   "cancel removed site after load")
- check(not game.world["facilities"].any(
-  func(f): return str(f.get("id","")) == refinery_id),
+ check(not has_facility(refinery_id),
   "cancel removed actual construction facility")
  var second: Dictionary = game.construction.cancel_order(refinery_id)
  check(not bool(second.get("ok",false)) and stock("earth") == old_metals,
@@ -123,6 +126,8 @@ func _run() -> void:
   "no moon port yet blocks manual flight")
  game.manual_freight_dialog.hide()
 
+ # Speed up the *test clock*; build duration/ledger remain untouched.
+ game._set_speed(16)
  # Advance to finish; canceled refinery must never reappear.
  var finish: float = float(game.construction.sites[0]["finish_native"])
  for i in range(400):
@@ -131,12 +136,9 @@ func _run() -> void:
   game._step()
  check(game.construction.sites.is_empty(),
   "the following mine completed")
- check(not game.world["facilities"].any(
-  func(f): return str(f.get("id","")) == refinery_id),
+ check(not has_facility(refinery_id),
   "canceled refinery does not materialize later")
- check(game.world["facilities"].any(
-  func(f): return str(f.get("id","")) == mine_id and
-   str(f.get("type","")) == "mining_rig"),
+ check(has_facility(mine_id, "mining_rig"),
   "next building completed")
 
  # Reproduce duplicate shipyard station: separate game facility IDs,
@@ -152,12 +154,8 @@ func _run() -> void:
   if game.native_time >= due:
    break
   game._step()
- check(game.world["facilities"].any(
-  func(f): return f.get("id") == platform_id and
-   f.get("type") == "orbital_platform") and
-  game.world["facilities"].any(
-  func(f): return f.get("id") == yard_id and
-   f.get("type") == "shipyard"),
+ check(has_facility(platform_id, "orbital_platform") and
+  has_facility(yard_id, "shipyard"),
   "platform and shipyard retain separate saved simulation identities")
  game.native_view.focus_body("earth")
  for i in range(55):
