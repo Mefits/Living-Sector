@@ -9,6 +9,7 @@ const Profiled = preload("res://scripts/sim/phase2/n158_timed_phase_probe.gd")
 const AB = preload("res://scripts/sim/phase2/n158_instrumentation_ab_acceptance.gd")
 const Oracle = preload("res://scripts/sim/phase2/n158_checkpoint_parity_oracle.gd")
 const PhaseAcceptance = preload("res://scripts/sim/phase2/n158_live_ab_phase_acceptance.gd")
+const Structure = preload("res://scripts/sim/phase2/n158_checkpoint_structure_growth.gd")
 const MAX_WALL_MS: int = 480000
 const CHECKPOINT_STRIDE: int = 10
 const CHECKPOINTS: Array[int] = [100, 300, 600, 900]
@@ -56,6 +57,7 @@ func _run() -> void:
                 return
         var target: int = 900 if OS.get_environment("LS_E_AB_EXTENDED") == "1" else 300
         var previous: Dictionary = {}
+        var previous_structure: Dictionary = {}
         var reports: Array = []
         for end_tick in CHECKPOINTS:
             if end_tick > target:
@@ -96,10 +98,30 @@ func _run() -> void:
                 _finish(false, "checkpoint clock mismatch " + str(end_tick))
                 return
             # This is a second independent full-state oracle at window boundary.
-            var exact: Dictionary = Oracle.compare(_plain.checkpoint(), _profiled.checkpoint())
+            var plain_checkpoint: Dictionary = _plain.checkpoint()
+            var profiled_checkpoint: Dictionary = _profiled.checkpoint()
+            var exact: Dictionary = Oracle.compare(plain_checkpoint, profiled_checkpoint)
             if not exact.get("equal", false):
                 _finish(false, "boundary divergence " + JSON.stringify(exact))
                 return
+            # Reuse the already detached parity checkpoint: no extra World copy.
+            # Structural counting is outside paid-tick timing and never retained.
+            var structure: Dictionary = Structure.pair(
+                Structure.capture(end_tick, plain_checkpoint),
+                Structure.capture(end_tick, profiled_checkpoint), exact)
+            plain_checkpoint.clear()
+            profiled_checkpoint.clear()
+            if not structure.get("accepted", false):
+                _finish(false, "checkpoint structure rejected " + JSON.stringify(structure))
+                return
+            print("P2_PERF_E_CHECKPOINT_STRUCTURE ", JSON.stringify(structure))
+            if not previous_structure.is_empty():
+                var structure_growth: Dictionary = Structure.growth(previous_structure, structure)
+                if not structure_growth.get("accepted", false):
+                    _finish(false, "checkpoint structure growth rejected")
+                    return
+                print("P2_PERF_E_CHECKPOINT_STRUCTURE_GROWTH ", JSON.stringify(structure_growth))
+            previous_structure = structure
             # Profiler must have observed the actual paid phase calls; this
             # excludes an accidentally uninstrumented profiled runtime.
             var observed: Dictionary = _profiled.paid_phase_totals(end_tick)
