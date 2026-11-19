@@ -15,6 +15,7 @@ const SizePhase = preload("res://scripts/sim/phase2/n158_size_phase_attribution.
 const CheckpointBytes = preload("res://scripts/sim/phase2/n158_checkpoint_byte_probe.gd")
 const ResourceProbe = preload("res://scripts/sim/phase2/n158_paid_window_resource_probe.gd")
 const PairedDrift = preload("res://scripts/sim/phase2/n158_paired_paid_tick_drift.gd")
+const SampleIntegrity = preload("res://scripts/sim/phase2/n158_paid_tick_sample_integrity.gd")
 const RestartContinuation = preload("res://scripts/sim/phase2/n158_post_restart_paid_continuation.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
@@ -77,6 +78,7 @@ func _run() -> void:
     var first_resource_window: Dictionary = {}
     var previous_resource_window: Dictionary = {}
     var first_paired_window: Dictionary = {}
+    var previous_integrity_window: Dictionary = {}
     var previous_paired_window: Dictionary = {}
     var observation_samples: Array = []
     var observation_callsite_samples: Array = []
@@ -156,6 +158,19 @@ func _run() -> void:
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
             if LATE_WINDOWS.has(tick) and tick <= target:
+                var integrity: Dictionary = SampleIntegrity.accept(tick, timings, parity)
+                if not integrity.get("accepted", false):
+                    _finish("paid sample integrity rejected " + JSON.stringify(integrity), false)
+                    return
+                if not previous_integrity_window.is_empty():
+                    var integrity_delta: Dictionary = SampleIntegrity.compare(
+                        previous_integrity_window, integrity)
+                    if not integrity_delta.get("accepted", false):
+                        _finish("paid sample accounting drift rejected " + JSON.stringify(integrity_delta), false)
+                        return
+                    print("P2_PERF_E_SAMPLE_INTEGRITY_GROWTH ", JSON.stringify(integrity_delta))
+                previous_integrity_window = integrity.duplicate(true)
+                print("P2_PERF_E_SAMPLE_INTEGRITY ", JSON.stringify(integrity))
                 var paired: Dictionary = PairedDrift.accept(tick, timings, parity)
                 if not paired.get("accepted", false):
                     _finish("paired paid tick drift rejected " + JSON.stringify(paired), false)
