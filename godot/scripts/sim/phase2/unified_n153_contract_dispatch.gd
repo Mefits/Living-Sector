@@ -242,6 +242,36 @@ static func _bid_system_context(cache: Dictionary, ship_location: String,
     cache[key] = result
     return result
 
+## Proposal-local immutable selector envelopes. N153.select_contract only reads
+## offers/controllers/commerce; keep a separate context shell for each bid.
+## Reusing a shell or quote dictionary would alias bid-specific funding.
+static func _offer_commerce_view(cache: Dictionary, ship_faction: String,
+        base_commerce: Dictionary) -> Dictionary:
+    if cache.has(ship_faction):
+        return cache[ship_faction]
+    var view: Dictionary = base_commerce.duplicate()
+    view[ship_faction] = true
+    cache[ship_faction] = view
+    return view
+
+static func _selector_bid_context(offer_rows: Array, controllers: Dictionary,
+        commerce: Dictionary, ship_id: String, ship_faction: String,
+        here: String, ship: Dictionary, sensor: float,
+        systems: Dictionary, quote: Dictionary, contract_id: String,
+        observations: Dictionary, tick: int) -> Dictionary:
+    # The outer context and nested per-bid quote/memory wrappers are owned.
+    # All shared inputs are read-only for the synchronous selector call.
+    return {
+        "offers": offer_rows, "ship_id": ship_id,
+        "ship_faction": ship_faction, "ship_location": here,
+        "cargo_capacity": int(ship["cargo_capacity"]),
+        "credits": int(ship.get("credits", 0)),
+        "sensor_range_au": sensor, "system_by_location": systems,
+        "controllers": controllers, "commerce_allowed": commerce,
+        "quotes": {contract_id: quote},
+        "memory": {"price_knowledge": observations}, "tick": tick
+    }
+
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
         tick_scale: float, factions: Dictionary = {}) -> Dictionary:
@@ -316,6 +346,8 @@ static func propose(world: Dictionary, graph: RefCounted,
         var route_index: Dictionary = EligibilityIndex.offer_route_index(route_indices, source, dest)
         var fixed_offer: Dictionary = {}
         var fixed_controllers: Dictionary = {}
+        var fixed_offer_rows: Array = []
+        var commerce_view_cache: Dictionary = {} # faction -> read-only offer view
         # The payer, original reserved amount and owning treasury belong to
         # the posted offer, not to each bidding ship. Resolve their proof once
         # per offer; the ship's boosted payment and top-up remain per-bid.
@@ -387,6 +419,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                     "commodity": good, "quantity": qty, "may_accept": true}
                 fixed_controllers[source] = seller_faction
                 fixed_controllers[dest] = buyer_faction
+                fixed_offer_rows = [fixed_offer]
             var bonus: float = float(observation["bonus"])
             if not is_finite(bonus) or bonus < 0.0 or bonus > 0.10:
                 _blocked_ship(ship_blockers, "invalid_native_comms_bonus")
@@ -397,25 +430,16 @@ static func propose(world: Dictionary, graph: RefCounted,
                 continue
             var quoted_payment: int = int(boosted)
             var top_up: int = maxi(0, quoted_payment - reserved_amount)
-            var quotes: Dictionary = {}
-            quotes[str(contract_id)] = {"valid": payer_balance >= top_up and payer_balance >= 0,
+            var quote: Dictionary = {"valid": payer_balance >= top_up and payer_balance >= 0,
                 "quoted_payment": quoted_payment, "top_up": top_up,
                 "payer_balance": payer_balance,
                 "reserved": reserved_amount, "source_purchase_cost": source_purchase}
-            # Per-bid detached outer dictionary: never let a selector's
-            # temporary context mutate the next bidder's commerce roster.
-            var commerce: Dictionary = base_commerce.duplicate()
-            commerce[ship_faction] = true
-            var context: Dictionary = {
-                "offers": [fixed_offer], "ship_id": str(ship_id),
-                "ship_faction": ship_faction, "ship_location": here,
-                "cargo_capacity": int(ship["cargo_capacity"]), "credits": int(ship.get("credits", 0)),
-                "sensor_range_au": float(sensor), "system_by_location": systems,
-                "controllers": fixed_controllers,
-                "commerce_allowed": commerce,
-                "quotes": quotes,
-                "memory": {"price_knowledge": observations},
-                "tick": tick}
+            var commerce: Dictionary = _offer_commerce_view(
+                commerce_view_cache, ship_faction, base_commerce)
+            var context: Dictionary = _selector_bid_context(
+                fixed_offer_rows, fixed_controllers, commerce, ship_id,
+                ship_faction, here, ship, sensor, systems, quote,
+                str(contract_id), observations, tick)
             var choice: Dictionary = N153.select_contract(context)
             if str(choice.get("id", "")) == str(contract_id):
                 # Source winner tie-break is strictly profit > (not >=).
