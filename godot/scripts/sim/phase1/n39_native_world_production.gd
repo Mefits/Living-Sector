@@ -4481,6 +4481,26 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
 ## No new households, ships, contracts, or credits can be fabricated here.
 ## N39 recomputes N151 from its current World; N9 transfers real household
 ## wealth in the SAME validated commit, with N38 persistent receipt.
+static func _n151_owned_migration_stage(world: Dictionary, source_id: String,
+        destination_id: String) -> Dictionary:
+    # Only two household records can change in an N151 migration. Keep the
+    # registry shallow, but detach both nested records before ANY write.
+    # A failed ledger/Schema check discards this stage without touching World.
+    if source_id == destination_id or not (world.get("populations") is Dictionary):
+        return {}
+    var populations: Dictionary = world["populations"]
+    if not populations.has(source_id) or not populations.has(destination_id):
+        return {}
+    if not (populations[source_id] is Dictionary) or not (
+            populations[destination_id] is Dictionary):
+        return {}
+    var stage: Dictionary = world.duplicate()
+    var rows: Dictionary = populations.duplicate()
+    rows[source_id] = populations[source_id].duplicate(true)
+    rows[destination_id] = populations[destination_id].duplicate(true)
+    stage["populations"] = rows
+    return stage
+
 func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick or multiplier < 1 or multiplier > 10000:
         return {"ok": false, "reason": "n151_noncanonical_migration_tick"}
@@ -4506,11 +4526,11 @@ func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary
     var amount: int = int(candidate.get("wealth", -1))
     if amount < 0 or from.is_empty() or to.is_empty() or from == to or not _world["populations"].has(from) or not _world["populations"].has(to):
         return {"ok": false, "fatal": true, "reason": "n151_invalid_migrant_economy"}
-    # N151 only mutates population rows and the migration event. Detach the
-    # entire population domain before touching rows; no live World alias may
-    # be modified on a failed ledger/schema validation.
-    var next_world: Dictionary = _copy_world("n151_migration_root", false)
-    next_world["populations"] = _world["populations"].duplicate(true)
+    # Preserve the authoritative rollback boundary while avoiding a full
+    # deep copy of every household on the 200*mult paid migration cadence.
+    var next_world: Dictionary = _n151_owned_migration_stage(_world, from, to)
+    if next_world.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n151_invalid_owned_migration_stage"}
     var next_ledger = Ledger.new()
     var before_money: Dictionary = _ledger.snapshot()
     if not next_ledger.restore(before_money):
