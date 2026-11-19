@@ -109,14 +109,17 @@ static func _fee(world: Dictionary, fid: String, ship_id: String,
 
 static func _admit(world: Dictionary, ledger: Variant, fid: String,
         sid: String, tick: int, cause: String,
-        occupancy: Dictionary = {}) -> Dictionary:
+        occupancy: Dictionary = {}, quoted_fee: int = -2) -> Dictionary:
     var fac: Dictionary = world["facilities"][fid]
     var ship: Dictionary = world["ships"][sid]
     if int(fac.get("docking_capacity", 0)) <= (int(occupancy[fid]) if occupancy.has(fid) else _occupants(world, fid)) or (
             not str(ship.get("docked_at", "")).is_empty() or
             str(ship.get("location", "")) != str(fac.get("location", ""))):
         return _bad("source_dock_not_really_available")
-    var price: int = _fee(world, fid, sid, occupancy)
+    # The caller has just computed this fee against the same detached stage.
+    # Avoid a second relations/occupancy calculation for every paid FIFO head.
+    # -2 means no quote supplied; -1 remains a genuine invalid quote.
+    var price: int = quoted_fee if quoted_fee != -2 else _fee(world, fid, sid, occupancy)
     if price < 0 or int(ship.get("credits", -1)) < price or (
             int(fac.get("credits", -1)) > MAX_I64 - price):
         return _bad("source_dock_fee_unaffordable")
@@ -147,8 +150,14 @@ static func _admit(world: Dictionary, ledger: Variant, fid: String,
     ship["dock_attempt_start_tick"] = null
     fac["credits"] = int(fac["credits"]) + price
     fac["dirty"] = true
-    var queued: Array = _queue(fac)
-    queued.erase(sid)
+    # _stage_world owns this queue; mutation cannot alias the source World.
+    # FIFO admits the head, while a request fast path may remove any member.
+    # Never duplicate the whole queue for every successful paid admission.
+    var queued: Array = fac.get("dock_queue", [])
+    if not queued.is_empty() and str(queued[0]) == sid:
+        queued.pop_front()
+    else:
+        queued.erase(sid)
     fac["dock_queue"] = queued
     var receipt: Dictionary = {
         "operation_id": op_id, "action": "dock", "ship_id": sid,
@@ -210,7 +219,7 @@ static func request(world: Dictionary, ledger: Variant,
             staged["ships"][ship_id]["dock_attempt_start_tick"] = null
             return {"ok": true, "changed": true, "status": "evicted_insolvent",
                 "world": staged, "ledger_snapshot": ledger}
-        return _admit(staged, ledger, str(fid), ship_id, tick, "request_head", occupancy)
+        return _admit(staged, ledger, str(fid), ship_id, tick, "request_head", occupancy, fee)
     for fid in options:
         var fac: Dictionary = staged["facilities"][fid]
         var q: Array = _queue(fac)
@@ -219,7 +228,7 @@ static func request(world: Dictionary, ledger: Variant,
             continue
         var fee: int = _fee(staged, str(fid), ship_id, occupancy)
         if fee >= 0 and int(staged["ships"][ship_id]["credits"]) >= fee:
-            return _admit(staged, ledger, str(fid), ship_id, tick, "request_fast_path", occupancy)
+            return _admit(staged, ledger, str(fid), ship_id, tick, "request_fast_path", occupancy, fee)
     var shortest: String = ""
     var shortest_count: int = MAX_I64
     for fid in options:
@@ -336,7 +345,7 @@ static func advance(world: Dictionary, ledger: Variant,
                 bank = staged_bank
                 bank_restored = true
             var placed: Dictionary = _admit(
-                staged, bank, str(fid), head, tick, "fifo_tick", occupancy)
+                staged, bank, str(fid), head, tick, "fifo_tick", occupancy, fee)
             if not placed.get("ok", false):
                 return placed
             staged = placed["world"]
