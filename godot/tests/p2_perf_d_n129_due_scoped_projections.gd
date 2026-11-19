@@ -1,6 +1,6 @@
 extends RefCounted
-## N129 due-cadence regression: tax-only must not require household
-## metadata, but must return the same complete wealth and paid transfers.
+## N129 relief producer filtering oracle: preserve all paid transfers,
+## source eligibility, canonical request order and full output projections.
 const Phase = preload("res://scripts/sim/phase2/unified_native_faction_finance_phase.gd")
 const Taxes = preload("res://scripts/sim/faction_tax_n129.gd")
 const Relief = preload("res://scripts/sim/native_faction_relief.gd")
@@ -15,13 +15,19 @@ static func run() -> Dictionary:
         "populations": {},
         "markets": {"earth": {"owner": "f1", "supply": {"food": 8.0, "water": 10.0}},
                     "mars": {"owner": "f2", "supply": {"food": 90.0, "water": 90.0}}}}
+    for i in range(360):
+        var fid: String = "extra_%03d" % i
+        world["facilities"][fid] = {"faction": "a" if i % 2 == 0 else "b",
+            "location": "earth" if i % 2 == 0 else "mars",
+            "type": "farm" if i % 5 == 0 else ("refinery" if i % 5 == 1 else "mine"),
+            "credits": 0 if i % 7 == 0 else (19 if i % 7 == 1 else 3000)}
     for i in range(240):
         world["populations"]["p%03d" % i] = {
             "faction": "a" if i % 2 == 0 else "b",
             "location": "earth" if i % 2 == 0 else "mars",
             "wealth": i, "food_satisfaction": 25 if i % 3 == 0 else 80}
-    # 200: both due, 225: relief only, 400: both, 201: neither.
-    # 200 with multiplier=2 is tax-only; no relief until tick 50 multiples.
+    # Tax is always a subset of relief cadence (200*m vs 25*m).
+    # Cover both-due, relief-only and no-op cases across multipliers.
     for case in [[200, 1], [225, 1], [400, 2], [201, 1], [200, 2], [200, 8]]:
         var tick: int = case[0]
         var multiplier: int = case[1]
@@ -38,7 +44,11 @@ static func run() -> Dictionary:
     world["populations"]["p000"]["wealth"] = 999
     world["populations"].erase("p001")
     world["populations"]["p999"] = {"faction": "b", "location": "mars", "wealth": 5}
+    world["facilities"]["extra_000"]["credits"] = 0
+    world["facilities"]["extra_000"]["type"] = "farm"
     var changed: Dictionary = Phase.propose(world, 200, 2)
+    if changed != _legacy_oracle(world, 200, 2):
+        return {"ok": false, "reason": "changed_producer_oracle"}
     if not changed.get("ok", false) or changed.get("population_wealth", {}).get("p000") != 999 or changed.get("population_wealth", {}).has("p001") or changed.get("population_wealth", {}).get("p999") != 5:
         return {"ok": false, "reason": "stale_population_roster"}
     # Negative: missing registry is rejected even when no household relief.
@@ -47,7 +57,12 @@ static func run() -> Dictionary:
     var rejected: Dictionary = Phase.propose(bad, 200, 2)
     if rejected.get("ok", true) or rejected.get("reason", "") != "n129_missing_source_populations":
         return {"ok": false, "reason": "missing_registry_not_rejected"}
-    return {"ok": true, "cases": 6, "population_rows": 240}
+    var invalid_market: Dictionary = world.duplicate(true)
+    invalid_market["markets"]["earth"]["owner"] = "missing_owner"
+    var invalid: Dictionary = Phase.propose(invalid_market, 225, 1)
+    if invalid.get("ok", true) or invalid.get("reason", "") != "n129_market_without_real_payer":
+        return {"ok": false, "reason": "invalid_market_owner_not_rejected"}
+    return {"ok": true, "cases": 6, "population_rows": 240, "producer_rows": 363}
 
 static func _legacy_oracle(world: Dictionary, tick: int, multiplier: int) -> Dictionary:
     # Original full-household projection path, independently assembled.
