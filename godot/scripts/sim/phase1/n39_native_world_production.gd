@@ -1592,6 +1592,44 @@ func _commit_native_n21(proposal: Dictionary, owned: RefCounted = null) -> Dicti
         _n21_commit_generation += 1
     return outcome
 
+## Called ONLY after the complete N21 Schema, N9 and dock delta oracles.
+## Copy roots and changed rows; retain authoritative unchanged rows rather
+## than cloning the ever-growing fleet, facilities and paid receipt archive.
+## New/changed proposal rows are detached recursively before publication.
+static func _n21_owned_commit_rows(source: Dictionary,
+        proposed: Dictionary) -> Dictionary:
+    for domain in ["ships", "facilities", "dock_receipts"]:
+        if not (source.get(domain) is Dictionary) or not (
+                proposed.get(domain) is Dictionary):
+            return {}
+    if source["ships"].size() != proposed["ships"].size() or (
+            source["facilities"].size() != proposed["facilities"].size()) or (
+            proposed["dock_receipts"].size() < source["dock_receipts"].size()):
+        return {}
+    var committed: Dictionary = source.duplicate()
+    for domain in ["ships", "facilities"]:
+        var rows: Dictionary = source[domain].duplicate()
+        for id in source[domain]:
+            if not proposed[domain].has(id) or not (
+                    source[domain][id] is Dictionary) or not (
+                    proposed[domain][id] is Dictionary):
+                return {}
+            if proposed[domain][id] != source[domain][id]:
+                rows[id] = proposed[domain][id].duplicate(true)
+        committed[domain] = rows
+    var receipts: Dictionary = source["dock_receipts"].duplicate()
+    for id in source["dock_receipts"]:
+        if not proposed["dock_receipts"].has(id) or (
+                proposed["dock_receipts"][id] != source["dock_receipts"][id]):
+            return {}
+    for id in proposed["dock_receipts"]:
+        if not source["dock_receipts"].has(id):
+            if not (proposed["dock_receipts"][id] is Dictionary):
+                return {}
+            receipts[id] = proposed["dock_receipts"][id].duplicate(true)
+    committed["dock_receipts"] = receipts
+    return committed
+
 func _commit_native_n21_unprofiled(proposal: Dictionary, owned: RefCounted = null) -> Dictionary:
     if not proposal.get("ok", false) or not (proposal.get("world") is Dictionary) or (
             (owned == null and not (proposal.get("ledger_snapshot") is Dictionary))):
@@ -1689,9 +1727,9 @@ func _commit_native_n21_unprofiled(proposal: Dictionary, owned: RefCounted = nul
     # FIFO/receipt and N39/N9 guard above. Retain canonical references
     # for unrelated domains, and deep-detach every changed domain from
     # the external proposal before atomic World + Ledger publication.
-    var committed: Dictionary = _copy_world("L1295", false)
-    for domain in ["ships", "facilities", "dock_receipts"]:
-        committed[domain] = future[domain].duplicate(true)
+    var committed: Dictionary = _n21_owned_commit_rows(_world, future)
+    if committed.is_empty():
+        return {"ok": false, "reason": "n21_invalid_owned_publication"}
     _world = committed
     _ledger = checked.fork() if owned != null else checked
     return {"ok": true, "status": str(proposal.get("status", "")),
