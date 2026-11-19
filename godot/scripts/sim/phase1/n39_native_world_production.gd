@@ -729,6 +729,36 @@ func apply_native_shipyard_refit(tick: int, ship_id: String,
         "authority": "one_native_n39_n9_refit_apply"}
 
 
+## N14 owned publication: all mutable rows are detached, unchanged rows
+## are read-only aliases. Validation happens before constructing the stage.
+## The full Schema and N9 account oracles remain in apply_ship_phase.
+static func _n14_owned_ship_phase_stage(world: Dictionary,
+        proposed_ships: Dictionary, next_token: int) -> Dictionary:
+    if not (world.get("ships") is Dictionary):
+        return {}
+    var previous: Dictionary = world["ships"]
+    if proposed_ships.size() != previous.size():
+        return {}
+    var frozen_fields: Array[String] = ["id", "name", "class",
+        "faction_id", "size", "cargo_capacity", "fuel_capacity",
+        "crew_size", "crew_roles", "cargo", "credits", "docked_at"]
+    var owned: Dictionary = previous.duplicate()
+    for ship_id in previous:
+        if not proposed_ships.has(ship_id) or not (previous[ship_id] is Dictionary) or (
+                not (proposed_ships[ship_id] is Dictionary)):
+            return {}
+        var old: Dictionary = previous[ship_id]
+        var candidate: Dictionary = proposed_ships[ship_id]
+        for field in frozen_fields:
+            if candidate.get(field, null) != old.get(field, null):
+                return {}
+        if candidate != old:
+            owned[ship_id] = candidate.duplicate(true)
+    var staged: Dictionary = world.duplicate()
+    staged["ships"] = owned
+    staged["ship_next_token"] = next_token
+    return staged
+
 ## Single authoritative fleet commit. Called by the N158 ships phase
 ## (before facilities), or by a validated explicit departure command between
 ## ticks. No second ship runner and no additional wallet authority.
@@ -747,25 +777,13 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
     var new_ships: Dictionary = proposal["ships"]
     if new_ships.size() != _world["ships"].size() or typeof(proposal.get("next_token", null)) != TYPE_INT:
         return false
-    var previous: Dictionary = _world["ships"]
-    var frozen_fields: Array[String] = ["id", "name", "class",
-        "faction_id", "size", "cargo_capacity", "fuel_capacity",
-        "crew_size", "crew_roles", "cargo", "credits", "docked_at"]
-    for ship_id in previous:
-        if not new_ships.has(ship_id) or not (new_ships[ship_id] is Dictionary):
-            return false
-        var old: Dictionary = previous[ship_id]
-        var candidate: Dictionary = new_ships[ship_id]
-        for field in frozen_fields:
-            if candidate.get(field, null) != old.get(field, null):
-                return false
-    # This authority only replaces ships and a scalar transit cursor.
-    # Stage a detached top-level map plus a deep copied ship domain:
-    # copying all markets, contracts and historical receipts here made
-    # N14 transit cost proportional to unrelated World history.
-    var staged: Dictionary = _copy_world("L472", false)
-    staged["ships"] = new_ships.duplicate(true)
-    staged["ship_next_token"] = int(proposal["next_token"])
+    # N14 may advance only a small subset of ships per paid tick. Preserve
+    # frozen physical fields and detach every changed nested ship row; never
+    # deep-copy the entire fleet or mutate the source proposal in place.
+    var staged: Dictionary = _n14_owned_ship_phase_stage(
+        _world, new_ships, int(proposal["next_token"]))
+    if staged.is_empty():
+        return false
     if _measured_schema_validate("L475", staged) != "":
         return false
     # No fleet transition is allowed to mint or move cash; all 24 source
