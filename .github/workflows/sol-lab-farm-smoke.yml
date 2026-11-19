@@ -100,6 +100,19 @@ jobs:
         run: |
           godot --headless --path sol_lab --check-only --script res://tests/sol_motion_30s.gd
 
+      - name: Assert visual updates follow source ticks (4s scene)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout --signal=TERM --kill-after=5s 20s \
+            godot --headless --path sol_lab --script res://tests/sol_motion_alignment_check.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/motion-alignment.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/motion-alignment.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sol-lab-logs/motion-alignment.log"
+          grep -qF SOL_MOTION_ALIGNMENT_PASS "$RUNNER_TEMP/sol-lab-logs/motion-alignment.log"
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |

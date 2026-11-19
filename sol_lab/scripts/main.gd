@@ -51,7 +51,6 @@ var native_view
 var sidebar: PanelContainer
 var top_bar: HBoxContainer
 var performance_bar: HBoxContainer
-var view_elapsed: float = 0.0
 
 func _ready() -> void:
     var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/sol.json"))
@@ -268,10 +267,6 @@ func _process(delta: float) -> void:
     var ui_started_usec: int = Time.get_ticks_usec()
     if not paused:
         _advance_visual_clock(delta)
-        view_elapsed += delta
-        if view_elapsed >= 0.10:
-            view_elapsed = fmod(view_elapsed, 0.10)
-            _update_native_map()
     _update_calendar_label()
     construction_ui_elapsed += delta
     if construction_ui_elapsed >= 0.5:
@@ -509,6 +504,12 @@ func _advance_visual_clock(delta: float) -> void:
     visual_tick_count += completed
     native_time += float(completed) * visual_clock.tick_scale()
     _advance_construction()
+    # Match source presentation commits to REAL 8 TPS changes. The old
+    # fixed 100ms polling against 125ms clock ticks made 100/200ms source
+    # gaps on a 500ms beat; interpolation expired before each 200ms gap.
+    # Rendering still interpolates on every frame; only the source
+    # snapshot cadence is synchronized here.
+    _update_native_map()
 
 func _update_performance_label() -> void:
     if perf_label == null:
