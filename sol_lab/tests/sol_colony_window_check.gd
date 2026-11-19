@@ -62,17 +62,22 @@ func _stock(body: String, kind: String) -> float:
 
 func _layout(width: int, height: int, context: String) -> void:
  root.size = Vector2i(width, height)
- game.size = Vector2(width, height)
+ # Let Godot canvas_items stretch choose the actual logical canvas size.
+ # Assigning game.size = window pixels double-scales UI on high-res screens.
+ await process_frame
+ await process_frame
  game._layout_right_side()
  await process_frame
+ var logical_width: float = game.size.x
+ var logical_height: float = game.size.y
  var side: Rect2 = game.sidebar.get_global_rect()
  var heading: Rect2 = game.colony_panel.heading.get_global_rect()
  var summary: Rect2 = game.colony_panel.summary.get_global_rect()
  var stock: Rect2 = game.colony_panel.metal.get_global_rect()
  var view: Rect2 = game.colony_panel.scroll.get_global_rect()
  var last_controls: Rect2 = game.freight_line_buttons.get_global_rect()
- _check(side.position.x >= 0 and side.end.x <= width + 1.0 and
-  side.position.y >= 45.0 and side.end.y <= height + 1.0,
+ _check(side.position.x >= 0 and side.end.x <= logical_width + 1.0 and
+  side.position.y >= 45.0 and side.end.y <= logical_height + 1.0,
   context + " side within viewport")
  for pair in [{"name": "title", "rect": heading},
      {"name": "summary", "rect": summary},
@@ -80,7 +85,7 @@ func _layout(width: int, height: int, context: String) -> void:
      {"name": "list", "rect": view},
      {"name": "line actions", "rect": last_controls}]:
   var rect: Rect2 = pair["rect"]
-  _check(rect.position.y >= 45.0 and rect.end.y <= height + 1.0,
+  _check(rect.position.y >= 45.0 and rect.end.y <= logical_height + 1.0,
    context + " " + str(pair["name"]) + " vertically visible")
  _check(game.colony_panel.scroll.size.y > 100.0,
   context + " list has usable scroll area")
@@ -93,8 +98,8 @@ func _layout(width: int, height: int, context: String) -> void:
     continue
    found = true
    var rect: Rect2 = node.get_global_rect()
-   _check(node.is_visible_in_tree() and rect.end.x <= width + 1.0
-    and rect.end.y <= height + 1.0, context + " action " + caption)
+   _check(node.is_visible_in_tree() and rect.end.x <= logical_width + 1.0
+    and rect.end.y <= logical_height + 1.0, context + " action " + caption)
   _check(found, context + " missing action " + caption)
  if OS.get_environment("SOL_CAPTURE_UI") == "1" and DisplayServer.get_name() != "headless":
   # Let the window-manager resize, Control layout and GPU backbuffer agree.
@@ -115,7 +120,8 @@ func _layout(width: int, height: int, context: String) -> void:
   "scroll_height": view.size.y, "actions_bottom": last_controls.end.y,
   "side_visible": game.sidebar.is_visible_in_tree(),
   "topbar_right": game.top_bar.get_global_rect().end.x,
-  "render_window": DisplayServer.window_get_size()
+  "render_window": DisplayServer.window_get_size(),
+  "logical_size": game.size
  }))
 
 func _run() -> void:
@@ -210,14 +216,14 @@ func _run() -> void:
  _press_button(game.colony_panel, "Строить")
  for dimension in [[1366, 768], [1920, 1080]]:
   root.size = Vector2i(dimension[0], dimension[1])
-  game.size = Vector2(dimension[0], dimension[1])
+  await process_frame
   game._layout_right_side()
   await process_frame
   var browser_rect: Rect2 = game.browser.get_global_rect()
   var title_rect: Rect2 = game.browser.title.get_global_rect()
   var scroll_rect: Rect2 = game.browser.scroll.get_global_rect()
   _check(title_rect.position.y >= 45 and title_rect.end.y <= dimension[1] and
-   browser_rect.end.x <= dimension[0] + 1 and scroll_rect.size.y > 120,
+   browser_rect.end.x <= game.size.x + 1 and scroll_rect.size.y > 120,
    "catalog title/actions within %dx%d" % [dimension[0], dimension[1]])
  if FileAccess.file_exists(Lab.USER_SAVE):
   DirAccess.remove_absolute(ProjectSettings.globalize_path(Lab.USER_SAVE))
