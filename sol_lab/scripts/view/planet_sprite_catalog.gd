@@ -74,12 +74,15 @@ static func _vector_texture(key: String, display_diameter_px: float) -> Texture2
     if svg_source.is_empty():
         return null
 
-    # Runtime DPITexture is created only once for each size tier. Unlike
-    # stretching a 512px PNG, the selected tier starts from SVG geometry.
-    var scaled: DPITexture = DPITexture.create_from_string(svg_source)
+    # The SVG viewBox is 256x256. DPITexture.create_from_string() must
+    # receive the REAL rasterization scale: 2/4/8/16 for our pixel tiers.
+    # set_size_override() only changes the DISPLAY size of a texture and
+    # previously stretched the original 256px raster, causing jagged shores.
+    var svg_scale: float = float(resolution) / 256.0
+    var scaled: DPITexture = DPITexture.create_from_string(
+        svg_source, svg_scale)
     if scaled == null:
         return null
-    scaled.set_size_override(Vector2i(resolution, resolution))
 
     _texture_cache[cached_key] = scaled
     _vector_cache_keys.append(cached_key)
