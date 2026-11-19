@@ -141,6 +141,35 @@ jobs:
           cat "$RUNNER_TEMP/sol-lab-logs/colony-window.log"
           grep -qF SOL_COLONY_WINDOW_PASS "$RUNNER_TEMP/sol-lab-logs/colony-window.log"
 
+      - name: Capture colony layout screenshots when graphical runner is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            echo "Xvfb not installed: geometry was checked headlessly, screenshots unavailable."
+          else
+            export XDG_DATA_HOME="$(mktemp -d)"
+            if timeout --signal=TERM --kill-after=5s 55s \
+              xvfb-run -a env LIBGL_ALWAYS_SOFTWARE=1 SOL_CAPTURE_UI=1 \
+              godot --path sol_lab --script res://tests/sol_colony_window_check.gd \
+              > "$RUNNER_TEMP/sol-lab-logs/colony-screenshots.log" 2>&1; then
+              grep -E 'SOL_COLONY_SCREENSHOT|SOL_COLONY_WINDOW_PASS' \
+                "$RUNNER_TEMP/sol-lab-logs/colony-screenshots.log" || true
+            else
+              echo "Graphical screenshot run unavailable on CI; see uploaded diagnostic log."
+              tail -n 20 "$RUNNER_TEMP/sol-lab-logs/colony-screenshots.log"
+            fi
+          fi
+
+      - name: Attach optional colony window screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sol-lab-colony-layout
+          path: sol_lab/sol-colony-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |
