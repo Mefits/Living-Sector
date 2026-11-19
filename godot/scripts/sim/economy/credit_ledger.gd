@@ -543,9 +543,12 @@ func audit_receipt_index() -> bool:
 
 
 func receipt_copy(operation_id: String) -> Dictionary:
-	if operation_id.is_empty() or not _has_receipt_id(operation_id):
+	if operation_id.is_empty():
 		return {}
-	return _receipt_at(operation_id).duplicate(true)
+	var row: Dictionary = _receipt_at(operation_id)
+	if row.is_empty():
+		return {}
+	return row.duplicate(true)
 
 
 ## B-owned bounded provenance lookup for N39 consumers that already know the
@@ -558,9 +561,10 @@ func receipts_for_operations(operation_ids: Array) -> Dictionary:
 	for value in operation_ids:
 		if not (value is String) or value.is_empty() or found.has(value):
 			return {"ok": false, "reason": "invalid_or_duplicate_operation_id"}
-		if not _has_receipt_id(value):
+		var row: Dictionary = _receipt_at(value)
+		if row.is_empty():
 			return {"ok": false, "reason": "missing_operation_id"}
-		found[value] = _receipt_at(value).duplicate(true)
+		found[value] = row.duplicate(true)
 	return {"ok": true, "receipts": found}
 
 
@@ -581,10 +585,12 @@ func verify_operation_provenance(expected_rows: Array) -> bool:
 			return false
 		if not (expected["kind"] is String) or typeof(expected["tick"]) != TYPE_INT:
 			return false
-		if not (expected["legs"] is Array) or not _has_receipt_id(id):
+		if not (expected["legs"] is Array):
+			return false
+		var stored: Dictionary = _receipt_at(id)
+		if stored.is_empty():
 			return false
 		seen[id] = true
-		var stored: Dictionary = _receipt_at(id)
 		if stored.get("id") != id or stored.get("kind") != expected["kind"]:
 			return false
 		if stored.get("tick") != expected["tick"] or stored.get("legs") != expected["legs"]:
@@ -614,10 +620,10 @@ func verify_exact_operation_receipts(expected_rows: Array) -> bool:
 		var id: Variant = row.get("id", null)
 		if not (id is String) or id.is_empty() or seen.has(id):
 			return false
-		seen[id] = true
-		if not _has_receipt_id(id):
-			return false
 		var stored: Dictionary = _receipt_at(id)
+		if stored.is_empty():
+			return false
+		seen[id] = true
 		if row.size() != stored.size():
 			return false
 		for field in stored:
@@ -643,10 +649,10 @@ func paid_leg_totals_for_operations(operation_ids: Array) -> Dictionary:
 	for id_value in operation_ids:
 		if not (id_value is String) or id_value.is_empty() or seen.has(id_value):
 			return {"ok": false, "reason": "invalid_or_duplicate_operation_id"}
-		seen[id_value] = true
-		if not _has_receipt_id(id_value):
-			return {"ok": false, "reason": "missing_operation_id"}
 		var receipt: Dictionary = _receipt_at(id_value)
+		if receipt.is_empty():
+			return {"ok": false, "reason": "missing_operation_id"}
+		seen[id_value] = true
 		if receipt.get("id") != id_value or not (receipt.get("legs") is Array):
 			return {"ok": false, "reason": "invalid_receipt"}
 		var legs: Array = receipt["legs"]
