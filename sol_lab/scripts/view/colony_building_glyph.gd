@@ -1,6 +1,7 @@
 extends Control
-## One lightweight vector glyph renderer for the globe, built list and catalog.
-## No textures, imported fonts or external assets.
+## Same authored building sprite on globe, catalog and completed-building list.
+## Vector symbols remain a fallback for three missing source sprites.
+const Icons = preload("res://scripts/view/sol_icon_atlas.gd")
 var kind: String = "administrative_center"
 var tint: Color = Color("#b6d8de")
 
@@ -14,6 +15,8 @@ func _draw() -> void:
 static func paint(canvas: CanvasItem, name: String, center: Vector2,
         radius: float, color: Color) -> void:
  var r: float = maxf(3.0, radius)
+ if Icons.paint(canvas, name, center, r * 2.0, color.a):
+  return
  var x: float = center.x
  var y: float = center.y
  var stroke: float = maxf(1.3, r * 0.17)
