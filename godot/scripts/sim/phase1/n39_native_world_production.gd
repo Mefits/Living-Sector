@@ -1308,6 +1308,30 @@ func apply_native_n148_ship_lifecycle(tick: int, multiplier: int,
 ## Rust ship/mod.rs::observe_prices (Pass 2, after N14 motion and
 ## before N149 crew). Only the real per-ship ShipMemory may change;
 ## actual markets/price history, N104, N9 wallets and N14 remain frozen.
+## II-B: stage only changed ship rows. A candidate from a source module is
+## not authoritative until Schema and N9 accept it; deep-detach every changed
+## row so nested memory/crew/cargo cannot alias the source proposal or World.
+## Unchanged rows remain read-only shared entries in the unpublished stage.
+static func _owned_fleet_publication_stage(world: Dictionary,
+        proposed_ships: Dictionary, allowed: Dictionary) -> Dictionary:
+    if not (world.get("ships") is Dictionary):
+        return {}
+    var current: Dictionary = world["ships"]
+    if proposed_ships.size() != current.size():
+        return {}
+    var staged: Dictionary = world.duplicate()
+    var owned_ships: Dictionary = current.duplicate()
+    for sid in current:
+        if not proposed_ships.has(sid) or not (current[sid] is Dictionary) or not (proposed_ships[sid] is Dictionary):
+            return {}
+        if proposed_ships[sid] != current[sid]:
+            if not allowed.has(sid):
+                return {}
+            owned_ships[sid] = (proposed_ships[sid] as Dictionary).duplicate(true)
+    staged["ships"] = owned_ships
+    return staged
+
+
 func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
         fired: Dictionary) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick + 1:
@@ -1338,8 +1362,9 @@ func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
             "active_count": int(candidate.get("active_count", 0))}
     # N150 touches only ShipMemory; other domains are read-only and the
     # proposed fleet is detached before the authoritative validation.
-    var next_world: Dictionary = _copy_world("L1047", false)
-    next_world["ships"] = updated_ships.duplicate(true)
+    var next_world: Dictionary = _owned_fleet_publication_stage(_world, updated_ships, fired)
+    if next_world.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n150_invalid_owned_fleet_stage"}
     var invalid: String = _measured_schema_validate("L1049", next_world)
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n150_invalid_native_memory_" + invalid}
@@ -1483,8 +1508,9 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
     # Crew wages settle in a separate staged Ledger, while the World
     # proposal modifies only ships. No unrelated World domain is written
     # before Schema and N9 consistency checks complete.
-    var next_world: Dictionary = before_world.duplicate()
-    next_world["ships"] = after_ships.duplicate(true)
+    var next_world: Dictionary = _owned_fleet_publication_stage(before_world, after_ships, n140_fired)
+    if next_world.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n149_invalid_owned_fleet_stage"}
     var invalid: String = _measured_schema_validate("L1168", next_world)
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n149_schema_" + invalid}
