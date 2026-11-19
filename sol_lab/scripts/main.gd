@@ -251,6 +251,8 @@ func _toggle_admin() -> void:
 func _pause() -> void:
     paused = not paused
     visual_clock.set_paused(paused)
+    if native_view != null:
+        native_view.set_flight_clock_paused(paused)
     pause_button.text = "Продолжить" if paused else "Пауза"
 
 func _step() -> void:
@@ -298,6 +300,7 @@ func _process(delta: float) -> void:
 
 func _colonize_luna() -> void:
     if selected == "luna" and construction.expedition.depart(native_time):
+        _update_native_map()
         _show_selected()
         _notice("Колонизатор отправился к Луне")
 
@@ -621,17 +624,17 @@ func _make_native_map() -> void:
     move_child(native_view, 0)
     native_view.set_world(_native_view_world())
     native_view.select_body(selected)
-    native_view.colonizer_progress = construction.expedition.progress(native_time)
-    native_view.set_freight(construction.freight_status())
     native_view.set_native_station_time(native_time)
+    native_view.set_colonizer(construction.expedition.ship, true)
+    native_view.set_freight(construction.freight_status(), true)
 
 func _update_native_map(snap_freight: bool = false) -> void:
     if native_view == null:
         return
     var begun: int = Time.get_ticks_usec()
     native_view.update_world(_native_view_world())
-    native_view.colonizer_progress = construction.expedition.progress(native_time)
     native_view.set_native_station_time(native_time)
+    native_view.set_colonizer(construction.expedition.ship, snap_freight)
     native_view.set_freight(construction.freight_status(), snap_freight)
     _map_view_last_usec = maxi(0, Time.get_ticks_usec() - begun)
     _map_view_peak_usec = maxi(_map_view_peak_usec, _map_view_last_usec)
@@ -852,6 +855,7 @@ func _load_game() -> void:
     pause_button.text = "Продолжить" if paused else "Пауза"
     var loaded_speed: int = int(value.get("speed", 1))
     _set_speed(loaded_speed if SPEED_PRESETS.has(loaded_speed) else 1)
+    native_view.snap_flight_clock(native_time, paused)
     _update_native_map(true)
     if browser != null and browser.visible:
         browser.configure(world, config, selected,
