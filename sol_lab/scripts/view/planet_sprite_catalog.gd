@@ -1,4 +1,5 @@
 extends RefCounted
+const VectorSources = preload("res://scripts/view/planet_svg_sources.gd")
 ## Visual-only lookup: Sol body IDs override the reusable biome atlas.
 ## Close-up vector pilot uses Godot 4.7 DPITexture with a bounded zoom-tier
 ## cache. The draw loop never rasterizes an SVG anew on each frame.
@@ -67,16 +68,15 @@ static func _vector_texture(key: String, display_diameter_px: float) -> Texture2
     if _texture_cache.has(cached_key):
         return _texture_cache[cached_key] as Texture2D
 
-    var path: String = "res://assets/planets_svg/%s.svg" % key
-    if not ResourceLoader.exists(path, "DPITexture"):
-        return null
-    var source: DPITexture = ResourceLoader.load(path, "DPITexture") as DPITexture
-    if source == null:
+    # Godot defaults to raster SVG imports. Embed the three original SVG
+    # strings as a GDScript resource so exported PCK builds work identically.
+    var svg_source: String = VectorSources.source_for(key)
+    if svg_source.is_empty():
         return null
 
-    # Override actual raster size, not the Control transform. This allows
-    # zoomed-in continents to retain SVG-defined edges at large magnifications.
-    var scaled: DPITexture = source.duplicate() as DPITexture
+    # Runtime DPITexture is created only once for each size tier. Unlike
+    # stretching a 512px PNG, the selected tier starts from SVG geometry.
+    var scaled: DPITexture = DPITexture.create_from_string(svg_source)
     if scaled == null:
         return null
     scaled.set_size_override(Vector2i(resolution, resolution))
