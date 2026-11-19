@@ -1,6 +1,7 @@
 extends PanelContainer
 ## Compact, read-only view of a real colony market (never a second inventory).
 const Model = preload("res://scripts/sol_building_model.gd")
+const Icons = preload("res://scripts/view/sol_icon_atlas.gd")
 const ORDER: Array[String] = [
  "metals", "ore", "water", "food", "fuel", "energy_cells",
  "components", "ice", "gas", "polymers", "electronics", "tools",
@@ -86,6 +87,9 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
   var line := HBoxContainer.new()
   line.add_theme_constant_override("separation", 3)
   side.add_child(line)
+  var resource_icon: TextureRect = Icons.make_icon(resource, false, 20)
+  if resource_icon != null:
+   line.add_child(resource_icon)
   var resource_name := Label.new()
   resource_name.text = str(EXTRA_LABELS.get(resource,
    Model.resource_label(resource)))
