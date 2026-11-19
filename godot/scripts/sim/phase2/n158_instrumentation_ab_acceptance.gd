@@ -7,8 +7,10 @@ const MAX_TICKS: int = 100
 const MAX_USEC: int = 60000000
 
 static func run_pair(first_tick: int, count: int, plain_step: Callable,
-        profiled_step: Callable, exact_checkpoint: Callable) -> Dictionary:
+        profiled_step: Callable, exact_checkpoint: Callable,
+        checkpoint_stride: int = 1) -> Dictionary:
     if first_tick < 1 or count < 1 or count > MAX_TICKS or (
+            checkpoint_stride < 1 or checkpoint_stride > count or (
             not plain_step.is_valid() or not profiled_step.is_valid() or
             not exact_checkpoint.is_valid()):
         return {"accepted": false, "reason": "invalid_configuration"}
@@ -16,6 +18,7 @@ static func run_pair(first_tick: int, count: int, plain_step: Callable,
     var profiled: Array[int] = []
     var deltas: Array[int] = []
     var profile_costs: Array[int] = []
+    var parity_gates: int = 0
     for i in range(count):
         var tick: int = first_tick + i
         # Alternate execution order to avoid systematically privileging an arm.
@@ -36,23 +39,33 @@ static func run_pair(first_tick: int, count: int, plain_step: Callable,
                 if typeof(arm.get(field, null)) != TYPE_INT or (
                         arm[field] < 0 or arm[field] > MAX_USEC):
                     return {"accepted": false, "reason": "invalid_timing", "tick": tick}
-            if not (arm.get("checkpoint") is Dictionary):
+        var is_gate: bool = (i + 1) % checkpoint_stride == 0 or i == count - 1
+        for arm in [p, q]:
+            if is_gate and not (arm.get("checkpoint") is Dictionary):
                 return {"accepted": false, "reason": "missing_checkpoint", "tick": tick}
+            if not is_gate and arm.has("checkpoint"):
+                return {"accepted": false, "reason": "unexpected_checkpoint", "tick": tick}
         if p["instrumentation_usec"] != 0 or (
                 q["instrumentation_usec"] > q["elapsed_usec"]):
             return {"accepted": false, "reason": "instrumentation_accounting",
                 "tick": tick}
         # Comparator must compare complete detached N38/N39/N9/BT/RNG state,
         # not only a digest, tick, count or selected fields.
-        if exact_checkpoint.call(p["checkpoint"], q["checkpoint"]) != true:
-            return {"accepted": false, "reason": "checkpoint_divergence", "tick": tick}
+        if is_gate:
+            if exact_checkpoint.call(p["checkpoint"], q["checkpoint"]) != true:
+                return {"accepted": false, "reason": "checkpoint_divergence", "tick": tick}
+            parity_gates += 1
         var plain_usec: int = p["elapsed_usec"]
         var profiled_usec: int = q["elapsed_usec"]
         plain.append(plain_usec)
         profiled.append(profiled_usec)
         deltas.append(profiled_usec - plain_usec)
         profile_costs.append(q["instrumentation_usec"])
-    return _summary(first_tick, plain, profiled, deltas, profile_costs)
+    var report: Dictionary = _summary(first_tick, plain, profiled, deltas, profile_costs)
+    report["checkpoint_stride"] = checkpoint_stride
+    report["parity_gates"] = parity_gates
+    report["parity_kind"] = "every_paid_tick" if checkpoint_stride == 1 else "periodic_full_state"
+    return report
 
 static func _summary(first_tick: int, plain: Array[int], profiled: Array[int],
         deltas: Array[int], profile_costs: Array[int]) -> Dictionary:
@@ -94,6 +107,13 @@ static func compare_windows(early: Dictionary, late: Dictionary) -> Dictionary:
                 row["paid_ticks"] < 1 or row["paid_ticks"] > MAX_TICKS or
                 row["to_tick"] - row["from_tick"] + 1 != row["paid_ticks"]):
             return {"accepted": false, "reason": "invalid_bounds"}
+        if row.has("checkpoint_stride"):
+            if typeof(row.get("parity_gates", null)) != TYPE_INT or (
+                    typeof(row["checkpoint_stride"]) != TYPE_INT or
+                    row["checkpoint_stride"] < 1 or
+                    row["checkpoint_stride"] > row["paid_ticks"] or
+                    row["parity_gates"] != ceili(float(row["paid_ticks"]) / float(row["checkpoint_stride"])):
+                return {"accepted": false, "reason": "forged_parity_coverage"}
         for key in ["plain_total_usec", "profiled_total_usec",
                 "measured_instrumentation_total_usec", "observed_delta_total_usec"]:
             if typeof(row.get(key, null)) != TYPE_INT:
