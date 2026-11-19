@@ -13,6 +13,10 @@ var _positions: Dictionary = {}
 # paid phase polling. The index is derived; _pending remains authoritative.
 # Rebuilt atomically on restore, never serialized.
 var _due_ids: Dictionary = {}
+# Borrowed, sorted references only. Never expose this array or its rows:
+# snapshot() deep-copies on every call. Every authoritative mutation invalidates.
+var _ordered_refs: Array[Dictionary] = []
+var _ordered_dirty: bool = true
 
 func _add_due(event_id: String, due_tick: int, phase: int) -> void:
     if not _due_ids.has(due_tick):
@@ -48,6 +52,7 @@ func schedule(event_id: String, due_tick: int, phase: int, entity_id: String, ki
         "kind": kind, "payload": payload.duplicate(true)
     }
     _next_sequence += 1
+    _ordered_dirty = true
     _positions[event_id] = _pending.size()
     _pending.append(event)
     _add_due(event_id, due_tick, phase)
@@ -68,6 +73,7 @@ func cancel(event_id: String) -> bool:
         _positions[str(moved["id"])] = index
     _pending.pop_back()
     _positions.erase(event_id)
+    _ordered_dirty = true
     return true
 
 func take_due(tick: int, phase: int) -> Array[Dictionary]:
@@ -97,6 +103,8 @@ func take_due(tick: int, phase: int) -> Array[Dictionary]:
     phases.erase(phase)
     if phases.is_empty():
         _due_ids.erase(tick)
+    if not result.is_empty():
+        _ordered_dirty = true
     if result.size() > 1:
         result.sort_custom(Callable(self, "_less"))
     # All returned records were removed from the sole authoritative store.
@@ -111,10 +119,13 @@ func snapshot() -> Dictionary:
     # Sort borrowed records before copying payloads. The comparator only reads
     # immutable scalar ordering fields; copying the whole growing payload
     # tree before sorting wastes allocation and cache bandwidth.
-    var sorted_refs: Array[Dictionary] = _pending.duplicate(false)
-    sorted_refs.sort_custom(Callable(self, "_less"))
-    # Detach after sorting, before exposing any record to the caller.
-    return {"next_sequence": _next_sequence, "pending": sorted_refs.duplicate(true)}
+    if _ordered_dirty:
+        _ordered_refs = _pending.duplicate(false)
+        _ordered_refs.sort_custom(Callable(self, "_less"))
+        _ordered_dirty = false
+    # Detach after sorting, before exposing any record to the caller. Never
+    # cache a deep-copied public snapshot: consumers may mutate its payload.
+    return {"next_sequence": _next_sequence, "pending": _ordered_refs.duplicate(true)}
 
 func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
     var next: Variant = data.get("next_sequence", null)
@@ -166,6 +177,8 @@ func restore(data: Dictionary, committed_tick: int, phase_count: int) -> bool:
     _positions = staged_positions
     _due_ids = staged_due_ids
     _next_sequence = int(next)
+    _ordered_refs.clear()
+    _ordered_dirty = true
     return true
 
 func _less(a: Dictionary, b: Dictionary) -> bool:
