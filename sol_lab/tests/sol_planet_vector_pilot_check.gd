@@ -1,7 +1,8 @@
 extends SceneTree
 ## godot --headless --path sol_lab -s res://tests/sol_planet_vector_pilot_check.gd
-## Verify the three imported SVG sources, PNG fallback and cached zoom tiers.
+## Verify embedded SVG sources, raster fallbacks and cached zoom tiers.
 const Catalog = preload("res://scripts/view/planet_sprite_catalog.gd")
+const VectorSources = preload("res://scripts/view/planet_svg_sources.gd")
 
 
 func _initialize() -> void:
@@ -17,10 +18,9 @@ func _initialize() -> void:
     for item in cases:
         var body: Dictionary = item["body"]
         var system: String = str(item["system"])
-        var svg_path: String = "res://assets/planets_svg/%s.svg" % str(
-            item["key"])
-        if not ResourceLoader.exists(svg_path, "DPITexture"):
-            issues.append("SVG import missing: %s" % svg_path)
+        var svg_source: String = VectorSources.source_for(str(item["key"]))
+        if not svg_source.contains("<svg") or not svg_source.contains("</svg>"):
+            issues.append("Embedded SVG source missing: %s" % str(item["key"]))
         var far: Texture2D = Catalog.texture_for(body, system, true)
         var near: Texture2D = Catalog.texture_for(body, system, false, 480.0)
         if far == null or far.get_width() != 32:
