@@ -346,7 +346,7 @@ static func _reconcile_parked_backup(absolute_path: String,
 
 
 static func _promote_verified_pending(absolute_path: String,
-        primary_is_valid: bool) -> Error:
+        primary_is_valid: bool, verify_installed: bool = false) -> Error:
     var pending: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
     var previous: String = absolute_path + ".bak.previous"
@@ -390,8 +390,37 @@ static func _promote_verified_pending(absolute_path: String,
             DirAccess.rename_absolute(
                 absolute_path + ".recovery-rejected", absolute_path)
         return promote_error
-    # A crash before this cleanup is safe: primary and backup are valid.
-    # A later save refuses to overwrite the orphan until recovery resolves it.
+    # Only the real save entry point requests this second authenticated
+    # check. A filesystem rename is not proof that the installed primary
+    # remains readable. Keep the previous backup until this gate succeeds.
+    # Legacy helper callers can still exercise rotation with opaque fixture
+    # bytes; they do not authorize a production checkpoint.
+    if verify_installed and not _trusted_for_backup_rotation(
+            _read_checkpoint(absolute_path)):
+        # Preserve the rejected promoted bytes as pending for diagnosis.
+        # If this rename fails, leave all other recovery files untouched.
+        var undo_new: Error = DirAccess.rename_absolute(
+            absolute_path, pending)
+        if undo_new != OK:
+            return undo_new
+        if had_primary and primary_is_valid:
+            var restore_primary: Error = DirAccess.rename_absolute(
+                backup, absolute_path)
+            if restore_primary != OK:
+                return restore_primary
+            if parked_backup:
+                var restore_backup: Error = DirAccess.rename_absolute(
+                    previous, backup)
+                if restore_backup != OK:
+                    return restore_backup
+        elif had_primary:
+            var restore_rejected: Error = DirAccess.rename_absolute(
+                absolute_path + ".recovery-rejected", absolute_path)
+            if restore_rejected != OK:
+                return restore_rejected
+        return ERR_FILE_CORRUPT
+    # An interrupted cleanup is safe: a validated primary and backup
+    # remain available. Never remove the old backup before validation.
     if parked_backup:
         DirAccess.remove_absolute(previous)
     return OK
@@ -501,7 +530,7 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
         if recovery_result != OK:
             return recovery_result
     var promote_result: Error = _promote_verified_pending(
-        absolute_path, primary_is_valid)
+        absolute_path, primary_is_valid, true)
     if promote_result != OK:
         # The verified pending checkpoint remains available for recovery.
         # Never discard it after a failed filesystem rotation.
