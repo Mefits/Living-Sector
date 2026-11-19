@@ -50,6 +50,7 @@ const StationShipProjection = preload("res://scripts/ui_station_ship_projection.
 const Model = preload("res://scripts/sol_building_model.gd")
 const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd")
 const PlanetSurface = preload("res://scripts/view/planet_surface_projection.gd")
+const PlanetSprites = preload("res://scripts/view/planet_sprite_catalog.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
 const ColonyRoads = preload("res://scripts/view/colony_roads_projection.gd")
 const SurfaceBuildingLOD = preload("res://scripts/view/surface_building_lod.gd")
@@ -214,6 +215,7 @@ func _rebuild_ship_index() -> void:
 func _ready() -> void:
     mouse_filter = Control.MOUSE_FILTER_STOP
     clip_contents = true
+    texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 
 
 func _process(delta: float) -> void:
@@ -1060,6 +1062,18 @@ func _draw_system() -> void:
                 continue
         var color: Color = _body_color(body)
         color.a *= moon_fade
+        var sprite: Texture2D = null
+        var sprite_extent: float = visual_radius
+        if kind != "asteroid" and kind != "belt":
+            sprite = PlanetSprites.texture_for(body,
+                str(system.get("id", "")),
+                visual_radius < 16.0 / _ui_viewport_scale)
+            if sprite != null:
+                # Transparent PNG padding; keep Saturn's disc at its normal
+                # radius while allowing its rings to extend outside it.
+                var is_saturn: bool = str(system.get("id", "")) == (
+                    "system-sol") and bid == "saturn"
+                sprite_extent = visual_radius * (1.65 if is_saturn else 1.07)
         if kind == "asteroid" or kind == "belt":
             var vertices: PackedVector2Array = PackedVector2Array([
                 position + Vector2(0.0, -visual_radius),
@@ -1068,6 +1082,11 @@ func _draw_system() -> void:
                 position + Vector2(-visual_radius, 0.0)
             ])
             draw_colored_polygon(vertices, color)
+        elif sprite != null:
+            draw_texture_rect(sprite,
+                Rect2(position - Vector2.ONE * sprite_extent,
+                    Vector2.ONE * sprite_extent * 2.0),
+                false, Color(1.0, 1.0, 1.0, moon_fade))
         else:
             draw_circle(position, visual_radius, color)
             if visual_radius >= DETAIL_RADIUS / _ui_viewport_scale:
@@ -1110,7 +1129,7 @@ func _draw_system() -> void:
                     Color("#fff0b0"), 1.5, true)
             draw_string(font, position + Vector2(-visual_radius - 25.0, 16.0),
                 str(local_ships), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("#7abacb"))
-        var label_offset: Vector2 = Vector2(visual_radius + 8.0, -8.0)
+        var label_offset: Vector2 = Vector2(sprite_extent + 8.0, -8.0)
         var label_color: Color = (
             Color("#f2f7fa") if picked else Color("#a9bbc8"))
         label_color.a *= moon_fade
@@ -1118,7 +1137,7 @@ func _draw_system() -> void:
             HORIZONTAL_ALIGNMENT_LEFT, -1, 13, label_color)
         if moon_fade >= 0.5:
             _body_pins.append({"body": body, "position": position,
-                "hit_radius": maxf(22.0, visual_radius + 9.0)})
+                "hit_radius": maxf(22.0, sprite_extent + 9.0)})
     # Real source-backed stations and surface enterprises are drawn
     # independently. No extra N39/N9 objects are generated in the UI.
     _draw_physical_assets(scale)
