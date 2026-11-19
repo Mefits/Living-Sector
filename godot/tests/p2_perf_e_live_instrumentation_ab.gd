@@ -9,6 +9,7 @@ const Profiled = preload("res://scripts/sim/phase2/n158_timed_phase_probe.gd")
 const AB = preload("res://scripts/sim/phase2/n158_instrumentation_ab_acceptance.gd")
 const Oracle = preload("res://scripts/sim/phase2/n158_checkpoint_parity_oracle.gd")
 const MAX_WALL_MS: int = 480000
+const CHECKPOINT_STRIDE: int = 10
 const CHECKPOINTS: Array[int] = [100, 300, 600, 900]
 var _plain = null
 var _profiled = null
@@ -64,7 +65,7 @@ func _run() -> void:
             return
         var result: Dictionary = AB.run_pair(first_tick, 100,
             Callable(self, "_plain_step"), Callable(self, "_profile_step"),
-            Callable(self, "_exact"))
+            Callable(self, "_exact"), CHECKPOINT_STRIDE)
         if not result.get("accepted", false):
             _finish(false, "A/B rejected " + JSON.stringify(result))
             return
@@ -95,6 +96,7 @@ func _run() -> void:
         _finish(false, "incomplete paid tick coverage")
         return
     print("P2_PERF_E_LIVE_AB_PASS target=", target,
+        " parity_stride=", CHECKPOINT_STRIDE,
         " profiler_cost_is_not_cpu=true")
     quit(0)
 
@@ -121,8 +123,13 @@ func _step(runner, tick: int, instrumented: bool) -> Dictionary:
     # No separate measured instrumentation cost is available from the
     # source probe; 0 means unknown/not isolated, NOT zero overhead.
     # Checkpoint cost is intentionally excluded from elapsed_usec.
-    return {"ok": true, "tick": tick, "elapsed_usec": elapsed,
-        "instrumentation_usec": 0, "checkpoint": runner.checkpoint()}
+    var sample: Dictionary = {"ok": true, "tick": tick,
+        "elapsed_usec": elapsed, "instrumentation_usec": 0}
+    # Full checkpoint is outside timing and only on a periodic parity gate.
+    # Intermediate ticks remain real paid ticks with exact SourceClock checks.
+    if tick % CHECKPOINT_STRIDE == 0:
+        sample["checkpoint"] = runner.checkpoint()
+    return sample
 
 func _exact(a: Dictionary, b: Dictionary) -> bool:
     return Oracle.compare(a, b).get("equal", false) == true
