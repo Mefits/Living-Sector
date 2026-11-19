@@ -51,13 +51,19 @@ func _run() -> void:
  _assert(game.selected == "luna", "selected Luna after landing")
  _assert(int(game.construction.expedition.settlers.get("population_count", -1)) == 100, "population 100")
  _assert(_stock() == 2.0, "real lunar warehouse 2 metals")
- _assert(game.colony_stock_panel.visible, "stock panel visible in overview")
+ _assert(game.colony_stock_panel.visible, "stock panel exists for lunar colony")
+ _assert(game.colony_panel.metal.text.contains("2"), "overview metal count visible")
  _assert(str(game.colony_stock_panel.amount_labels.get("metals", Label.new()).text) == "2",
   "Lunar display shows 2 metals")
- _press(game.sidebar.find_children("*", "Button", true, false).filter(
-  func(b): return b.text == "СТРОИТЕЛЬСТВО")[0])
+ var build_button: Button = null
+ for button in game.colony_panel.find_children("*", "Button", true, false):
+  if button.text == "Строить":
+   build_button = button
+   break
+ _press(build_button)
  _assert(game.browser.body_id == "luna", "catalog is on Luna")
  _assert(not game.browser.build_controls["mining_rig"].button.disabled, "mine button enabled")
+ _assert(not game.browser.build_controls["administrative_center"].card.visible, "AC hidden from catalog")
  _assert(not game.browser.build_controls["spaceport"].button.disabled, "spaceport button enabled")
  print("SOL_COLONY_REPRO_LAND ", JSON.stringify({
   "selected": game.selected,
@@ -65,6 +71,7 @@ func _run() -> void:
   "warehouse_metals": _stock(),
   "panel_metals": game.colony_stock_panel.amount_labels["metals"].text,
   "panel_visible_when_build": game.colony_stock_panel.is_visible_in_tree(),
+  "catalog_summary": game.browser.colony_line.text,
   "catalog_body": game.browser.body_id,
   "mine_enabled": not game.browser.build_controls["mining_rig"].button.disabled,
   "port_enabled": not game.browser.build_controls["spaceport"].button.disabled
@@ -80,6 +87,8 @@ func _run() -> void:
  _assert(game.message_line.text.begins_with("Игра загружена"), "load accepted")
  _assert(_stock() == 0.0, "loading doesn't grant metal")
  _assert(game.construction.sites.size() == 2, "load keeps two sites")
+ _assert(game.browser.colony_line.text.contains("металл 0"),
+  "catalog retains warehouse balance after load")
  print("SOL_COLONY_REPRO_AFTER_ORDERS ", JSON.stringify({
   "selected": game.selected,
   "warehouse_metals": _stock(),
