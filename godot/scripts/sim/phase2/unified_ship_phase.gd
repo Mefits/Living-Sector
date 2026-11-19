@@ -150,37 +150,57 @@ static func depart(world: Dictionary, graph: RefCounted,
         "next_token": motion.next_token(),
         "outcomes": {ship_id: "departed_to_" + destination}}
 
+## The only reusable validation window is a synchronous N84 proposal. External
+## callers ALWAYS rescan, even when passing a populated envelope. N84 owns its
+## shallow fleet map and explicitly invalidates after each BeginTransit.
+static func invalidate_transit_envelope(envelope: Dictionary) -> void:
+    envelope.clear()
+
+static func validate_transit_envelope(world: Dictionary,
+        envelope: Dictionary = {}, proposal_owned: bool = false) -> Dictionary:
+    if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
+        invalidate_transit_envelope(envelope)
+        return {"ok": false, "reason": "missing_canonical_fleet"}
+    var ships: Dictionary = world["ships"]
+    var cursor: int = int(world["ship_next_token"])
+    # The caller is responsible for invalidating on every identity/transit
+    # mutation. This flag is never enabled for arbitrary public callers.
+    if proposal_owned and bool(envelope.get("validated", false)) and (
+            int(envelope.get("token", -1)) == cursor and
+            int(envelope.get("size", -1)) == ships.size()):
+        return {"ok": true, "max_token": int(envelope["max_token"])}
+    var max_token: int = 0
+    for id in ships:
+        var row: Variant = ships[id]
+        if not (row is Dictionary) or str(row.get("id", "")) != str(id):
+            invalidate_transit_envelope(envelope)
+            return {"ok": false, "reason": "invalid_ship_identity"}
+        var trans: Variant = row.get("transit", null)
+        if not (trans is Dictionary):
+            invalidate_transit_envelope(envelope)
+            return {"ok": false, "reason": "invalid_ship_transit"}
+        if not trans.is_empty():
+            max_token = maxi(max_token, int(trans.get("token", -1)))
+    invalidate_transit_envelope(envelope)
+    envelope["validated"] = proposal_owned
+    envelope["token"] = cursor
+    envelope["size"] = ships.size()
+    envelope["max_token"] = max_token
+    return {"ok": true, "max_token": max_token}
+
 ## N84 only needs the arrival receipt for a proposed BeginTransit command.
 ## Validate the entire authoritative fleet/token envelope as _load does, but
 ## deep-copy only the candidate row. The full depart() API remains unchanged.
 static func preview_depart(world: Dictionary, graph: RefCounted,
         positions: Dictionary, tick: int, tick_scale: float,
         ship_id: String, destination: String,
-        envelope: Dictionary = {}) -> Dictionary:
+        envelope: Dictionary = {}, proposal_owned: bool = false) -> Dictionary:
     if ship_id.is_empty() or destination.is_empty() or graph == null:
         return {"ok": false, "reason": "invalid_ship_order"}
-    if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
-        return {"ok": false, "reason": "missing_canonical_fleet"}
-    # N84's proposal scratch must not authorize stale fleet metadata.
-    # Only the selected ship is restored; the fleet envelope is checked live.
-    var max_token: int = 0
-    # Token and cardinality are not sufficient invalidation keys: N84 can
-    # observe an in-place change to another ship's transit or identity.
-    # Always validate the live envelope before consuming a cached maximum.
-    # This is a correctness gate until a real fleet mutation version exists.
-    for id in world["ships"]:
-        var row: Variant = world["ships"][id]
-        if not (row is Dictionary) or str(row.get("id", "")) != str(id):
-            return {"ok": false, "reason": "invalid_ship_identity"}
-        var trans: Variant = row.get("transit", null)
-        if not (trans is Dictionary):
-            return {"ok": false, "reason": "invalid_ship_transit"}
-        if not trans.is_empty():
-            max_token = maxi(max_token, int(trans.get("token", -1)))
-    envelope["ok"] = true
-    envelope["token"] = int(world["ship_next_token"])
-    envelope["size"] = world["ships"].size()
-    envelope["max_token"] = max_token
+    var checked: Dictionary = validate_transit_envelope(world, envelope, proposal_owned)
+    if not checked.get("ok", false):
+        return checked
+    var max_token: int = int(checked["max_token"])
     if not world["ships"].has(ship_id):
         return {"ok": false, "reason": "ship_must_undock_first"}
     var state = ShipState.new()
