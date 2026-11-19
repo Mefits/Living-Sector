@@ -10,7 +10,7 @@ static func run_pair(first_tick: int, count: int, plain_step: Callable,
         profiled_step: Callable, exact_checkpoint: Callable,
         checkpoint_stride: int = 1) -> Dictionary:
     if first_tick < 1 or count < 1 or count > MAX_TICKS or (
-            checkpoint_stride < 1 or checkpoint_stride > count or (
+            checkpoint_stride < 1 or checkpoint_stride > count or
             not plain_step.is_valid() or not profiled_step.is_valid() or
             not exact_checkpoint.is_valid()):
         return {"accepted": false, "reason": "invalid_configuration"}
