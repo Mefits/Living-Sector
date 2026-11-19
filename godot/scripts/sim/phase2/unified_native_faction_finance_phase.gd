@@ -65,14 +65,26 @@ static func propose(world: Dictionary, tick: int, multiplier: int) -> Dictionary
     var population_wealth: Dictionary = {}
     var population_ids: Array = world["populations"].keys()
     population_ids.sort()
+    # Preserve the complete population balance projection for N39, but
+    # Relief.apply only ever requests aid for a live faction with
+    # 0 <= wealth < HOUSEHOLD_MINIMUM. Avoid building and deep-copying
+    # five-field DTOs for all other households in its growing registry.
+    # This roster is capture-local; owner/wealth changes are visible on
+    # the next paid call. Canonical ID order is retained for tie breaks.
     var households: Array = []
     for id in population_ids:
         var p: Dictionary = world["populations"][id]
-        population_wealth[id] = int(p.get("wealth", -1))
+        var wealth: int = int(p.get("wealth", -1))
+        population_wealth[id] = wealth
+        if not relief_due or wealth < 0 or wealth >= Relief.HOUSEHOLD_MINIMUM:
+            continue
+        var faction_id: String = str(p.get("faction", ""))
+        if not factions.has(faction_id):
+            continue
         households.append({"id": str(id),
-            "faction_id": str(p.get("faction", "")),
+            "faction_id": faction_id,
             "location": str(p.get("location", "")),
-            "wealth": int(p.get("wealth", -1)),
+            "wealth": wealth,
             "food_satisfaction": int(p.get("food_satisfaction", 50))})
     if relief_due:
         var market_rows: Array = []
