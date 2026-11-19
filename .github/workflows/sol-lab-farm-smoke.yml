@@ -127,6 +127,20 @@ jobs:
           cat "$RUNNER_TEMP/sol-lab-logs/colony-repro.log"
           grep -qF SOL_COLONY_REPRO_PASS "$RUNNER_TEMP/sol-lab-logs/colony-repro.log"
 
+      - name: Verify colony construction, saved lunar cargo, globe clicks and window layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_DATA_HOME="$(mktemp -d)"
+          if ! timeout --signal=TERM --kill-after=5s 45s \
+            godot --headless --path sol_lab --script res://tests/sol_colony_window_check.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/colony-window.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/colony-window.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sol-lab-logs/colony-window.log"
+          grep -qF SOL_COLONY_WINDOW_PASS "$RUNNER_TEMP/sol-lab-logs/colony-window.log"
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |
