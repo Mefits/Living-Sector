@@ -184,6 +184,19 @@ jobs:
           cat "$RUNNER_TEMP/sol-lab-logs/ship-flight.log"
           grep -qF SOL_SHIP_FLIGHT_PASS "$RUNNER_TEMP/sol-lab-logs/ship-flight.log"
 
+      - name: Verify supplied resource and building sprites at 20 32 64px
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout --signal=TERM --kill-after=5s 25s \
+            godot --headless --path sol_lab --script res://tests/sol_icon_atlas_check.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/icon-atlas.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/icon-atlas.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sol-lab-logs/icon-atlas.log"
+          grep -qF SOL_ICON_ATLAS_PASS "$RUNNER_TEMP/sol-lab-logs/icon-atlas.log"
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |
