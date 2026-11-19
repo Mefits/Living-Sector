@@ -11,6 +11,7 @@ signal new_game_requested
 
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
+const Glyph = preload("res://scripts/view/colony_building_glyph.gd")
 var world: Dictionary = {}
 var active_sites: Array = []
 var now_native: float = 0.0
@@ -35,6 +36,8 @@ var build_controls: Dictionary = {}
 var output_labels: Dictionary = {}
 var time_labels: Dictionary = {}
 var scroll: ScrollContainer
+var colony_line: Label
+var build_detail: Label
 
 func _ready() -> void:
  color = Color("#101e2d")
@@ -57,13 +60,11 @@ func _ready() -> void:
  var navigation := HBoxContainer.new()
  navigation.add_theme_constant_override("separation", 6)
  layout.add_child(navigation)
+ _button(navigation, "Колония", func(): close_requested.emit())
  _button(navigation, "Строительство", _navigate.bind("build"))
- _button(navigation, "Админ-панель", _navigate.bind("admin_buildings"))
- var game_controls := HBoxContainer.new()
- layout.add_child(game_controls)
- _button(game_controls, "Новая", func(): new_game_requested.emit())
- _button(game_controls, "Сохр.", func(): save_game_requested.emit())
- _button(game_controls, "Загруз.", func(): load_game_requested.emit())
+ colony_line = _label(layout, "", 14, Color("#e1d1a4"))
+ colony_line.clip_text = true
+ colony_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
  tabs = HBoxContainer.new()
  tabs.add_theme_constant_override("separation", 4)
@@ -88,6 +89,14 @@ func configure(source_world: Dictionary, settings: Dictionary,
  world = source_world
  config = settings
  body_id = selected_id
+ var residents: int = 0
+ for value in world.get("populations", []):
+  if str(value.get("facility_id", "")) == body_id + "-colony":
+   residents += int(value.get("population_count", 0))
+ var warehouse_present: bool = Model.colony(world, body_id)
+ set_colony_summary(str(Model.PLANET_NAMES.get(body_id, body_id)),
+  residents, {"present": warehouse_present,
+   "supply": {"metals": Model.stock(world, body_id)}})
  _navigate("admin_buildings" if admin else "build")
  show()
 
@@ -116,6 +125,17 @@ func select_planet(new_id: String) -> void:
   return
  body_id = new_id
  _navigate(page)
+
+func set_colony_summary(name_ru: String, residents: int,
+        inventory: Dictionary) -> void:
+ var supply: Dictionary = inventory.get("supply", {})
+ var state: String = ("%s · %d жителей · металл %s" % [
+  name_ru, residents,
+  Model.batch_amount(float(supply.get("metals", 0)))]) if bool(
+  inventory.get("present", false)) else name_ru + " · нет колонии"
+ if colony_line != null:
+  colony_line.text = state
+  colony_line.tooltip_text = state
 
 func set_dock_width(value: float) -> void:
  dock_width = maxf(260.0, value)
@@ -158,9 +178,10 @@ func _navigate(target: String) -> void:
  queue_rows.clear()
  queue_membership.clear()
  queue_mounted = false
+ build_detail = null
  grid = null
  scroll.scroll_vertical = 0
- feedback.text = "Шахта, переработчик и ферма: партия каждые 30 игровых дней."
+ feedback.text = ""
  var planet_name: String = ("Земля" if body_id == "earth"
   else ("Луна" if body_id == "luna" else "Марс"))
  if page == "build":
@@ -186,38 +207,39 @@ func _navigate(target: String) -> void:
   _button(footer, "Сброс", func(): reset_requested.emit())
 
 func _cards(editable: bool) -> void:
- _label(cards_root, "Тестовый баланс: 1 металл на здание · время в игровых днях." +
-  " Производство пока не запускается.", 14, Color("#a3b9c7"))
  if not editable:
   queue_panel = VBoxContainer.new()
   cards_root.add_child(queue_panel)
   _refresh_queue()
+  build_detail = _label(cards_root, "", 14, Color("#afc8d4"))
+  build_detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+  build_detail.hide()
  grid = GridContainer.new()
- grid.columns = 3
+ grid.columns = 3 if editable else 1
  grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
- grid.add_theme_constant_override("h_separation", 8)
- grid.add_theme_constant_override("v_separation", 8)
+ grid.add_theme_constant_override("h_separation", 7)
+ grid.add_theme_constant_override("v_separation", 5)
  cards_root.add_child(grid)
  var buildings: Dictionary = config.get("buildings", {})
  for building in Model.BUILDINGS:
   var id: String = str(building["id"])
   var row: Dictionary = buildings.get(id, {})
   var available: bool = Model.available(building, buildings, world, body_id)
+  var existing: bool = Model.built_or_pending(world, body_id, id)
   var card := PanelContainer.new()
   var style := StyleBoxFlat.new()
-  style.bg_color = Color("#1a3040") if available else Color("#111c29")
-  style.border_color = Color("#3d6374") if available else Color("#27394b")
+  style.bg_color = Color("#1a3040") if available or editable else Color("#111c29")
+  style.border_color = Color("#3d6374") if available or editable else Color("#27394b")
   style.set_border_width_all(1)
-  style.set_content_margin_all(9)
+  style.set_content_margin_all(6)
   card.add_theme_stylebox_override("panel", style)
   grid.add_child(card)
   card_nodes.append(card)
-  var stack := VBoxContainer.new()
-  stack.add_theme_constant_override("separation", 5)
-  card.add_child(stack)
-  var name_label: Label = _label(stack, str(building["name"]), 17,
-   Color("#e7f0f4") if available or editable else Color("#8da3b2"))
   if editable:
+   var stack := VBoxContainer.new()
+   stack.add_theme_constant_override("separation", 5)
+   card.add_child(stack)
+   var name_label: Label = _label(stack, str(building["name"]), 16)
    _spin(stack, "Металлы", float(row.get("metals", 0)),
     _edit_building.bind(id, "metals"), 1, 100000)
    _spin(stack, "Дней", float(row.get("days", 45)),
@@ -229,43 +251,58 @@ func _cards(editable: bool) -> void:
    if str(building["product"]) != "none":
     _spin(stack, "Базовый выпуск", float(row.get("base", 0)),
      _edit_building.bind(id, "base"), 1, 100000)
+   output_labels[id] = _label(stack, _production(building), 15)
+   time_labels[id] = _label(stack, _construction_time(building), 13)
   else:
-   _label(stack, "Стоимость: %d металл." % int(
-    row.get("metals", 1)), 14)
-   var inputs: Array[String] = []
-   for resource in building.get("inputs", {}).keys():
-    inputs.append("%d %s" % [
-     int(row.get("input_" + str(resource), 0)),
-     Model.resource_label(str(resource))])
-   _label(stack, "Расход: " + (
-    " + ".join(inputs) if not inputs.is_empty() else "—"), 13,
-    Color("#a4bdcc"))
-  output_labels[id] = _label(stack, _production(building), 16,
-   Color("#85d79b"))
-  time_labels[id] = _label(stack, _construction_time(building), 14,
-   Color("#e0c18b"))
-  var spacer := Control.new()
-  spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-  stack.add_child(spacer)
-  if id not in ["mining_rig", "refinery"]:
-   _label(stack, "Производство ещё не подключено", 12,
-    Color("#889eae"))
-  if not editable:
-   var action := _button(stack,
-    "Заказать" if available else "Недоступно",
+   card.visible = not existing
+   var line := HBoxContainer.new()
+   line.add_theme_constant_override("separation", 7)
+   card.add_child(line)
+   var symbol := Glyph.new()
+   symbol.kind = id
+   symbol.tint = Color("#c4d5d8")
+   line.add_child(symbol)
+   var label: Label = _label(line, str(building["name"]), 15,
+    Color("#e7f0f4") if available else Color("#8da3b2"))
+   label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+   label.clip_text = true
+   label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+   var price := _label(line, "%d м · %d д" % [
+    int(row.get("metals", 1)),
+    Model.construction_days(building, buildings)], 13,
+    Color("#d5bb8c"))
+   price.custom_minimum_size.x = 88
+   var info := _button(line, "i", _show_building_detail.bind(id))
+   info.custom_minimum_size = Vector2(30, 32)
+   var action := _button(line,
+    "Заказать" if available else "Нет ресурсов",
     _request_build.bind(id))
+   action.custom_minimum_size = Vector2(104, 32)
    action.disabled = not available
-   if not available:
-    card.modulate = Color(0.71, 0.74, 0.79, 1.0)
    build_controls[id] = {
-    "card": card, "title": name_label, "button": action,
-    "available": available
+    "card": card, "title": label, "button": action,
+    "available": available, "hidden": existing
    }
  _fit_cards()
 
+func _show_building_detail(building_id: String) -> void:
+ if build_detail == null:
+  return
+ var item: Dictionary = Model.find_building(building_id)
+ if item.is_empty():
+  return
+ var inputs: Array[String] = []
+ for resource in item.get("inputs", {}).keys():
+  var value: int = int(config["buildings"][building_id].get(
+   "input_" + str(resource), item["inputs"][resource]))
+  inputs.append("%d %s" % [value, Model.batch_unit(str(resource))])
+ var output: String = _production(item) if str(item.get("product", "")) != "none" else "Сервисное здание"
+ build_detail.text = "%s · %s · %s · Расход: %s" % [
+  str(item["name"]), _construction_time(item), output,
+  ", ".join(inputs) if not inputs.is_empty() else "нет"]
+ build_detail.show()
+
 func refresh_build_availability() -> void:
- # A production batch or completed site changes stock/eligibility,
- # not the structure of the card grid. Preserve every scene node.
  if not visible or page != "build":
   return
  var buildings: Dictionary = config.get("buildings", {})
@@ -274,24 +311,31 @@ func refresh_build_availability() -> void:
   var controls: Dictionary = build_controls.get(id, {})
   if controls.is_empty():
    continue
+  var existing: bool = Model.built_or_pending(world, body_id, id)
+  var card: PanelContainer = controls["card"]
+  card.visible = not existing
   var available: bool = Model.available(building, buildings, world, body_id)
   if available == bool(controls["available"]):
    continue
   controls["available"] = available
-  var card: PanelContainer = controls["card"]
-  var box: StyleBoxFlat = card.get_theme_stylebox("panel") as StyleBoxFlat
-  box.bg_color = Color("#1a3040") if available else Color("#111c29")
-  box.border_color = Color("#3d6374") if available else Color("#27394b")
-  card.modulate = Color.WHITE if available else Color(0.71, 0.74, 0.79, 1.0)
+  var style: StyleBoxFlat = card.get_theme_stylebox("panel") as StyleBoxFlat
+  style.bg_color = Color("#1a3040") if available else Color("#111c29")
+  style.border_color = Color("#3d6374") if available else Color("#27394b")
   (controls["title"] as Label).add_theme_color_override("font_color",
    Color("#e7f0f4") if available else Color("#8da3b2"))
   var action: Button = controls["button"]
-  action.text = "Заказать" if available else "Недоступно"
+  action.text = "Заказать" if available else "Нет ресурсов"
   action.disabled = not available
   build_controls[id] = controls
 
 func _fit_cards() -> void:
  if grid == null or not is_instance_valid(grid):
+  return
+ if page != "admin_buildings":
+  grid.columns = 1
+  for card in card_nodes:
+   if is_instance_valid(card):
+    card.custom_minimum_size = Vector2(0, 48)
   return
  var columns: int = 3 if dock_width >= 690.0 else (
   2 if dock_width >= 475.0 else 1)
@@ -300,8 +344,7 @@ func _fit_cards() -> void:
   float(columns - 1) * 8.0) / float(columns))
  for card in card_nodes:
   if is_instance_valid(card):
-   card.custom_minimum_size = Vector2(maxf(145.0, cell_width),
-    385.0 if page == "admin_buildings" else 235.0)
+   card.custom_minimum_size = Vector2(maxf(145.0, cell_width), 385.0)
 
 func _production(building: Dictionary) -> String:
  var resource: String = str(building["product"])
