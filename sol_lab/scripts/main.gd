@@ -24,6 +24,7 @@ var native_time: float = 0.0
 var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
 var colony_button: Button
+var freight_button: Button
 var construction = ConstructionRuntime.new()
 var construction_ui_elapsed: float = 0.0
 var message_line: Label
@@ -159,6 +160,7 @@ func _build_ui() -> void:
     filler.size_flags_vertical = Control.SIZE_EXPAND_FILL
     contents.add_child(filler)
     colony_button = _button(contents, "Колонизировать Луну", _colonize_luna)
+    freight_button = _button(contents, "Доставить 10 металла с Земли", _send_freighter)
     _button(contents, "СТРОИТЕЛЬСТВО", _open_build)
     mode_button = _button(contents, "АДМИН-ПАНЕЛЬ · F9", _toggle_admin)
     var saves := HBoxContainer.new()
@@ -289,6 +291,13 @@ func _colonize_luna() -> void:
         _show_selected()
         _notice("Колонизатор отправился к Луне")
 
+func _send_freighter() -> void:
+    if selected != "luna" or not construction.depart_freighter():
+        return
+    native_view.set_freight(construction.freight_status())
+    _show_selected()
+    _notice("Грузовик отправился на Луну")
+
 func _show_selected() -> void:
     if details == null:
         return
@@ -316,6 +325,21 @@ func _show_selected() -> void:
                 items.insert(1, "Колонизатор у Земли · выберите Луну")
         elif selected == "luna" and not expedition.settlers.is_empty():
             items.insert(1, "Население: %d" % int(expedition.settlers.population_count))
+        freight_button.visible = selected == "luna"
+        if freight_button.visible:
+            var reason: String = construction.freight_block_reason()
+            freight_button.disabled = not reason.is_empty()
+            freight_button.tooltip_text = reason
+        if selected in ["earth", "luna"]:
+            var freight: Dictionary = construction.freight_status()
+            match freight.get("location"):
+                "earth-colony":
+                    items.insert(1, "Грузовик на Земле · трюм пуст")
+                "transit":
+                    items.insert(1, "Грузовик → Луна · %d металла\nПрибытие: %s" % [
+                        int(freight.metals), Calendar.calendar_text(float(freight.arrival))])
+                "luna-colony":
+                    items.insert(1, "Грузовик на Луне · трюм пуст")
         var coeff: Dictionary = config.get("planets",{}).get(selected,{})
         for key in body.get("resources",{}).keys():
             items.append("%s: %.2f" % [Model.resource_label(str(key)),
@@ -461,15 +485,17 @@ func _make_native_map() -> void:
     native_view.set_world(_native_view_world())
     native_view.select_body(selected)
     native_view.colonizer_progress = construction.expedition.progress(native_time)
+    native_view.set_freight(construction.freight_status())
     native_view.set_native_station_time(native_time)
 
-func _update_native_map() -> void:
+func _update_native_map(snap_freight: bool = false) -> void:
     if native_view == null:
         return
     var begun: int = Time.get_ticks_usec()
     native_view.update_world(_native_view_world())
     native_view.colonizer_progress = construction.expedition.progress(native_time)
     native_view.set_native_station_time(native_time)
+    native_view.set_freight(construction.freight_status(), snap_freight)
     _map_view_last_usec = maxi(0, Time.get_ticks_usec() - begun)
     _map_view_peak_usec = maxi(_map_view_peak_usec, _map_view_last_usec)
 
@@ -589,7 +615,6 @@ func _advance_construction() -> void:
                 browser.refresh_build_availability()
                 _refresh_construction_ui()
         return
-    _update_native_map()
     _show_selected()
     if browser.visible and browser.page == "build":
         browser.refresh_build_availability()
@@ -635,13 +660,14 @@ func _save_game() -> void:
     var snapshot: Dictionary = construction.snapshot()
     snapshot["visual_tick_count"] = visual_tick_count
     snapshot["speed"] = speed
+    snapshot["paused"] = paused
     var target: String = ProjectSettings.globalize_path(USER_SAVE)
     var temp: String = target + ".tmp"
     var file := FileAccess.open(temp, FileAccess.WRITE)
     if file == null:
         _notice("Ошибка сохранения игры")
         return
-    file.store_string(JSON.stringify(snapshot, "  ") + "\n")
+    file.store_string(JSON.stringify(snapshot, "  ", true, true) + "\n")
     file.close()
     var result: Error = DirAccess.rename_absolute(temp, target)
     if result == OK:
@@ -664,11 +690,12 @@ func _load_game() -> void:
     native_time = construction.now_native
     visual_tick_count = int(value.get("visual_tick_count", 0))
     visual_clock.reset()
-    paused = false
-    pause_button.text = "Пауза"
+    paused = value.get("paused") == true
+    visual_clock.set_paused(paused)
+    pause_button.text = "Продолжить" if paused else "Пауза"
     var loaded_speed: int = int(value.get("speed", 1))
     _set_speed(loaded_speed if SPEED_PRESETS.has(loaded_speed) else 1)
-    _update_native_map()
+    _update_native_map(true)
     if browser != null and browser.visible:
         browser.configure(world, config, selected,
             browser.page.begins_with("admin"))

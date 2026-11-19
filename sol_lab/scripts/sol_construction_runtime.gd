@@ -5,13 +5,18 @@ extends RefCounted
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 
-const VERSION: int = 1
+const VERSION: int = 2
+const FREIGHT_METALS := 10
+const FREIGHT_DAYS := 12
+const EARTH := "earth-colony"
+const LUNA := "luna-colony"
 var world: Dictionary = {}
 var settings: Dictionary = {}
 var now_native: float = 0.0
 var next_id: int = 1
 var sites: Array = []
 var expedition := preload("res://scripts/sol_lunar_expedition.gd").new()
+var _freighter: Dictionary = {}
 var initial_markets := 0
 var initial_manifest: Dictionary
 const CYCLE_DAYS := 30
@@ -23,6 +28,8 @@ var batch_revision := 0
 func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  world = source_world
  expedition.reset(world)
+ _freighter = _starting_freighter()
+ _ensure_earth_spaceport(world.get("facilities", []))
  initial_markets = world.get("markets", []).size()
  initial_manifest = expedition.snapshot()
  settings = building_settings
@@ -30,6 +37,83 @@ func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  next_id = 1
  sites.clear()
  _index_producers()
+
+func _starting_freighter() -> Dictionary:
+ if world.get("system", {}).get("id") == "system-sol":
+  return {"location": EARTH, "metals": 0}
+ return {}
+
+static func _has_spaceport(facilities: Array, body: String) -> bool:
+ for facility in facilities:
+  if facility.get("body") == body and facility.get("location") == body + "-colony" and (
+      facility.get("type") == "spaceport"):
+   return true
+ return false
+
+static func _ensure_earth_spaceport(facilities: Array) -> void:
+ if Model.built_or_pending({"facilities": facilities}, "earth", "spaceport"):
+  return
+ for facility in facilities:
+  if facility.get("body") == "earth" and facility.get("location") == EARTH and (
+      facility.get("type") == "station"):
+   facilities.append({"id": "facility-earth-spaceport", "name": "Космопорт",
+    "type": "spaceport", "body": "earth", "location": EARTH, "tier": 1,
+    "faction_id": facility.get("faction_id", "")})
+   return
+
+func freight_block_reason() -> String:
+ if _freighter.get("location") != EARTH:
+  return "Грузовик в пути" if _freighter.get("location") == "transit" else "Грузовик на Луне"
+ if not _has_spaceport(world.facilities, "luna"):
+  return "Нужен готовый космопорт на Луне"
+ if not _has_spaceport(world.facilities, "earth"):
+  return "Нужен готовый космопорт на Земле"
+ if _market_for("luna").is_empty():
+  return "Нет лунного склада"
+ if float(_market_for("earth").get("supply", {}).get("metals", 0)) < FREIGHT_METALS:
+  return "На Земле меньше 10 металла"
+ return ""
+
+func depart_freighter() -> bool:
+ if not freight_block_reason().is_empty():
+  return false
+ var stock: Dictionary = _market_for("earth").supply
+ stock.metals = float(stock.metals) - FREIGHT_METALS
+ _freighter = {"location": "transit", "metals": FREIGHT_METALS,
+  "departure": now_native, "arrival": now_native + Calendar.days_to_native(FREIGHT_DAYS)}
+ return true
+
+func freight_status() -> Dictionary:
+ return _freighter.duplicate()
+
+func _land_freighter() -> bool:
+ if _freighter.get("location") != "transit" or now_native < float(_freighter.arrival):
+  return false
+ var stock: Dictionary = _market_for("luna").supply
+ stock.metals = float(stock.metals) + int(_freighter.metals)
+ _freighter = {"location": LUNA, "metals": 0}
+ return true
+
+func _valid_freighter(saved: Variant, facilities: Array, lunar: bool, time: float) -> bool:
+ if not saved is Dictionary:
+  return false
+ if _starting_freighter().is_empty():
+  return saved.is_empty()
+ if saved.get("location") == EARTH:
+  return saved.get("metals") == 0
+ if not lunar or not _has_spaceport(facilities, "luna"):
+  return false
+ if saved.get("location") == LUNA:
+  return saved.get("metals") == 0
+ if saved.get("location") != "transit" or saved.get("metals") != FREIGHT_METALS or (
+     not _has_spaceport(facilities, "earth")):
+  return false
+ var start: Variant = saved.get("departure")
+ var end: Variant = saved.get("arrival")
+ if not (start is int or start is float) or not (end is int or end is float):
+  return false
+ return start >= 0.0 and start <= time and end > time and (
+   is_equal_approx(end - start, Calendar.days_to_native(FREIGHT_DAYS)))
 
 func _market_for(body: String) -> Dictionary:
  var ac_location: String = ""
@@ -139,6 +223,8 @@ func advance_to(new_native: float) -> Array:
    # A missing construction site is not magically converted.
    remaining.append(site)
  sites = remaining
+ if _land_freighter():
+  completed.append("Грузовик доставил на Луну 10 металла")
  _advance_production()
  return completed
 
@@ -165,6 +251,7 @@ func snapshot() -> Dictionary:
  return {
   "version": VERSION,
   "expedition": expedition.snapshot(),
+  "freighter": freight_status(),
   "system_id": str(world.get("system", {}).get("id", "")),
   "native_time": now_native,
   "next_id": next_id,
@@ -174,7 +261,8 @@ func snapshot() -> Dictionary:
  }
 
 func restore(data: Dictionary) -> bool:
- if int(data.get("version", -1)) != VERSION or (
+ var version := int(data.get("version", -1))
+ if version not in [1, VERSION] or (
     str(data.get("system_id", "")) != str(world.get("system", {}).get(
     "id", ""))):
   return false
@@ -252,10 +340,16 @@ func restore(data: Dictionary) -> bool:
    return false
   if int(m["supply"].get("metals", -1)) < 0:
    return false
+ # Older saves have no freight order. Keep any completed or queued ports.
+ var restored_freighter: Variant = _starting_freighter() if version == 1 else data.get("freighter")
+ if not _valid_freighter(restored_freighter, input_facilities, lunar, float(t)):
+  return false
  # Commit all restored domains only after all checks pass.
  expedition.restore(world, manifest)
  world["facilities"] = input_facilities.duplicate(true)
+ _ensure_earth_spaceport(world.facilities)
  world["markets"] = input_markets.duplicate(true)
+ _freighter = restored_freighter.duplicate()
  sites = input_sites.duplicate(true)
  now_native = float(t)
  _index_producers()

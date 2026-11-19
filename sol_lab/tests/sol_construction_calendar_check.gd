@@ -22,8 +22,12 @@ func _initialize() -> void:
  good = good and not first.order("earth", "farm")["ok"]
  good = good and Model.stock(first.world, "earth") == 999
  good = good and not first.order("luna", "farm")["ok"]
- good = good and PhysicalAssets.build(first.world)["surface"].size() == 2
- var raw_site: Dictionary = first.world["facilities"][1]
+ good = good and PhysicalAssets.build(first.world)["surface"].size() == 3
+ var raw_site: Dictionary = {}
+ for facility in first.world["facilities"]:
+  if facility.get("id") == first.sites[0].id:
+   raw_site = facility
+   break
  good = good and str(raw_site.get("type", "")) == "construction_site"
  good = good and is_equal_approx(float(raw_site.get(
   "construction_start_native", -1)), 0.0)

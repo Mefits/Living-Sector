@@ -101,8 +101,10 @@ func _initialize() -> void:
  for kind in ["mining_rig", "refinery", "farm"]:
   ok = ok and bool(visual.order("earth", kind).get("ok", false))
  var pending: Dictionary = _sites(visual.world)
- ok = ok and pending.size() == 4
- var positions: Array = pending.values()
+ ok = ok and pending.size() == 5
+ var fixed_sites := pending.duplicate()
+ fixed_sites.erase("facility-earth-spaceport")
+ var positions: Array = fixed_sites.values()
  for i in range(positions.size()):
   for j in range(i + 1, positions.size()):
    ok = ok and positions[i].distance_to(positions[j]) >= 0.60
@@ -114,7 +116,8 @@ func _initialize() -> void:
  ok = ok and _sites(reloaded.world) == pending
  # A building without a fixed slot must still survive a checkpoint.
  var general = _runtime(defaults)
- ok = ok and bool(general.order("earth", "spaceport").get("ok", false))
+ ok = ok and not bool(general.order("earth", "spaceport").get("ok", false))
+ ok = ok and bool(general.order("earth", "power_plant").get("ok", false))
  var general_save: Variant = JSON.parse_string(JSON.stringify(general.snapshot()))
  var general_reload = _runtime(defaults)
  ok = ok and general_reload.restore(general_save)

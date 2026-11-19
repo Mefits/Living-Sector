@@ -111,6 +111,7 @@ var _station_draw_records: Array = []
 ## At most one ephemeral UI interpolation per actual arrival receipt.
 var _recent_arrivals: Dictionary = {}
 var _native_station_time: float = 0.0
+var _previous_native_time: float = 0.0
 var _station_phase_from_deg: float = 0.0
 var _station_time_started_usec: int = -1
 var _station_time_duration_usec: int = 0
@@ -328,6 +329,7 @@ func set_world(world: Dictionary) -> void:
     _colony_anim_time = 0.0
     _colony_anim_accum = 0.0
     _native_station_time = 0.0
+    _previous_native_time = 0.0
     _station_phase_from_deg = 0.0
     _station_time_started_usec = -1
     _focused_body_id = ""
@@ -524,6 +526,7 @@ func set_native_station_time(native_units: float) -> void:
     if is_equal_approx(_native_station_time, native_units):
         return
     var now: int = Time.get_ticks_usec()
+    _previous_native_time = _display_native_time(now)
     _station_phase_from_deg = _visual_station_time(now)
     _native_station_time = native_units
     _station_time_duration_usec = VisualMotion.sample_duration(
@@ -531,6 +534,11 @@ func set_native_station_time(native_units: float) -> void:
     _station_time_started_usec = now
     _last_station_sample_usec = now
     queue_redraw()
+
+
+func _display_native_time(now: int) -> float:
+    return lerpf(_previous_native_time, _native_station_time, VisualMotion.alpha(
+        _station_time_started_usec, _station_time_duration_usec, now))
 
 
 func _visual_station_time(now: int) -> float:
@@ -939,18 +947,45 @@ func _live_ship_count(body_id: String) -> int:
     return int(_ships_by_body.get(body_id, 0))
 
 var colonizer_progress := -1.0
+var _freight: Dictionary = {}
+
+func set_freight(freight: Dictionary, snap: bool = false) -> void:
+    if snap:
+        _previous_native_time = _native_station_time
+    if snap or freight != _freight:
+        _freight = freight
+        queue_redraw()
+
+func _draw_freighter(earth: Vector2, luna: Vector2) -> void:
+    if _freight.is_empty():
+        return
+    var origin := earth + Vector2(-14, -14)
+    var target := luna + Vector2(-14, -14)
+    var position := target if _freight.location == "luna-colony" else origin
+    var flying: bool = _freight.location == "transit"
+    if flying:
+        var progress := clampf(inverse_lerp(float(_freight.departure), float(_freight.arrival),
+            _display_native_time(_draw_now_usec)), 0.0, 1.0)
+        position = origin.lerp(target, progress)
+    var tint := Color("#f6d38a")
+    draw_rect(Rect2(position - Vector2(5, 4), Vector2(10, 8)), tint)
+    if flying:
+        draw_string(get_theme_default_font(), position + Vector2(9, -7),
+            "Луна · %d металла" % int(_freight.metals), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, tint)
 
 func _draw() -> void:
     var started: int = Time.get_ticks_usec()
     _draw_now_usec = started
     _draw_body_positions.clear()
     _draw_system()
-    if colonizer_progress >= 0 and not _body_by_id("earth").is_empty() and not _body_by_id("luna").is_empty():
+    if not _body_by_id("earth").is_empty() and not _body_by_id("luna").is_empty():
         var scale := _orbit_scale()
-        var origin := _body_position(_body_by_id("earth"), scale) + Vector2(14, -14)
-        var target := _body_position(_body_by_id("luna"), scale)
-        var pos := origin.lerp(target, colonizer_progress)
-        draw_colored_polygon(PackedVector2Array([pos + Vector2(0,-5), pos + Vector2(4,4), pos + Vector2(-4,4)]), Color("#93dfca"))
+        var earth := _body_position(_body_by_id("earth"), scale)
+        var luna := _body_position(_body_by_id("luna"), scale)
+        if colonizer_progress >= 0:
+            var pos := (earth + Vector2(14, -14)).lerp(luna, colonizer_progress)
+            draw_colored_polygon(PackedVector2Array([pos + Vector2(0,-5), pos + Vector2(4,4), pos + Vector2(-4,4)]), Color("#93dfca"))
+        _draw_freighter(earth, luna)
     _last_draw_usec = maxi(0, Time.get_ticks_usec() - started)
     _max_draw_usec = maxi(_max_draw_usec, _last_draw_usec)
     _draw_calls += 1
