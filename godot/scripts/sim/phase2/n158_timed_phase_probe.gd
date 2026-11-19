@@ -4,7 +4,7 @@ extends "res://scripts/sim/phase2/n158_production_runtime.gd"
 const PHASES: Array[String] = ["ships", "dock_queue", "markets", "factions"]
 const WINDOW_LIMIT: int = 100
 const MAX_PHASE_CALLS_PER_TICK: int = 64
-const MAX_RETAINED_CALL_SAMPLES: int = WINDOW_LIMIT * PHASES.size() * MAX_PHASE_CALLS_PER_TICK
+const MAX_RETAINED_CALL_SAMPLES: int = WINDOW_LIMIT * 4 * MAX_PHASE_CALLS_PER_TICK
 var _phase_cost: Dictionary = {}
 var _paid_rows: Array[Dictionary] = []
 var _failed_tick: int = -1
