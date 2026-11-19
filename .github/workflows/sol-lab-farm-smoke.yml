@@ -170,6 +170,20 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Validate curved Sol colonizer and freight flights, pause and reload
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_DATA_HOME="$(mktemp -d)"
+          if ! timeout --signal=TERM --kill-after=5s 50s \
+            godot --headless --path sol_lab --script res://tests/sol_ship_flight_check.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/ship-flight.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/ship-flight.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sol-lab-logs/ship-flight.log"
+          grep -qF SOL_SHIP_FLIGHT_PASS "$RUNNER_TEMP/sol-lab-logs/ship-flight.log"
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |
