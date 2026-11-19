@@ -150,6 +150,8 @@ func _run() -> void:
   game.native_view._orbit_scale()) + game.native_view._flight_offset("colonizer")
  _check((visual["control"][3] as Vector2).distance_to(target) < 0.01,
   "arrival trajectory predicts Moon at actual ETA")
+ var colony_last_draw: Vector2 = _pose("colonizer").get("position",
+  Vector2.ZERO)
  game._pause()
  _step_until(original_arrival, "colonizer arrival")
  _check(game.construction.expedition.ship.is_empty() and
@@ -157,6 +159,11 @@ func _run() -> void:
   "colony receipt is authoritative and exact")
  _check(game.native_view._docking_visuals.has("colonizer"),
   "colonizer has a visual final dock transition")
+ if game.native_view._docking_visuals.has("colonizer"):
+  var colony_from: Vector2 = (game.native_view._docking_visuals[
+   "colonizer"]["from"] as Vector2) + game.native_view._center()
+  _check(colony_from.distance_to(colony_last_draw) < 0.02,
+   "colonizer docking begins at last drawn point (no teleport)")
  game._pause()
  await create_timer(0.28).timeout
  _check(not game.native_view._docking_visuals.has("colonizer"),
@@ -192,7 +199,39 @@ func _run() -> void:
  var freight_x16: Dictionary = await _motion("freight", 0.35)
  _check(int(freight_x16["within_tick_moves"]) > 3,
   "freighter moves between x16 ticks")
+ var freight_last_draw: Vector2 = _pose("freight").get("position",
+  Vector2.ZERO)
  game._pause()
+ var freight_pause_time: float = game.native_view._display_native_time(
+  Time.get_ticks_usec())
+ await create_timer(0.21).timeout
+ _check(absf(game.native_view._display_native_time(
+  Time.get_ticks_usec()) - freight_pause_time) < 0.000001,
+  "freighter remains frozen in pause")
+ var freight_visual_before: Dictionary = game.native_view._flight_pose(
+  "freight", game.construction.freight_status(), Time.get_ticks_usec())
+ var earth_before_load: float = float(game.construction.colony_inventory(
+  "earth").get("supply", {}).get("metals", 0))
+ game._save_game()
+ game._load_game()
+ _check(game.paused and game.construction.freight_status().get(
+  "location") == "transit", "load preserves paused in-flight freighter")
+ _check(absf(float(game.construction.freight_status().get(
+  "arrival", 0.0)) - outbound_arrival) < 0.000001,
+  "load preserves freighter exact real deadline")
+ _check(float(game.construction.colony_inventory(
+  "earth").get("supply", {}).get("metals", 0)) == earth_before_load,
+  "loading freight cannot repeat cargo loading")
+ var freight_visual_after: Dictionary = game.native_view._flight_pose(
+  "freight", game.construction.freight_status(), Time.get_ticks_usec())
+ _check(not freight_visual_after.is_empty(),
+  "freight visual survives mid-route load")
+ if not freight_visual_after.is_empty() and not freight_visual_before.is_empty():
+  var chord: float = (freight_visual_before["control"][3] as Vector2).distance_to(
+   freight_visual_before["control"][0])
+  _check((freight_visual_after["position"] as Vector2).distance_to(
+   freight_visual_before["position"]) < maxf(3.0, chord*0.12),
+   "freight reload does not teleport")
  _step_until(outbound_arrival, "freight to Moon")
  _check(game.construction.freight_status().get("location") == "luna",
   "freighter docked at Moon on simulation deadline")
@@ -201,6 +240,11 @@ func _run() -> void:
   "cargo delivered exactly on simulation docking")
  _check(game.native_view._docking_visuals.has("freight"),
   "freighter has continuous visual docking")
+ if game.native_view._docking_visuals.has("freight"):
+  var freight_from: Vector2 = (game.native_view._docking_visuals[
+   "freight"]["from"] as Vector2) + game.native_view._center()
+  _check(freight_from.distance_to(freight_last_draw) < 0.02,
+   "freighter docking begins at its last drawn point")
  game._pause() # resume interpolation so the final approach can complete
  await create_timer(0.28).timeout
  _check(not game.native_view._docking_visuals.has("freight"),
