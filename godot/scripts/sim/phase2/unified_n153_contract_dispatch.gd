@@ -55,10 +55,24 @@ static func _ship_flight_fitting(ship: Dictionary, ship_id: String,
     cache[ship_id] = fitting
     return fitting
 
+## Shared only inside a synchronous proposal. Directed legs with equal scalar
+## distances and fittings have equal N14 physical tick counts; no World or
+## mutable route rows are retained. Invalid geometry is never memoized.
+static func _physical_leg_ticks(distance: float, speed: float,
+        tick_scale: float, cache: Dictionary) -> int:
+    var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
+    if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
+        return 0
+    var key: Array = [distance, speed, tick_scale]
+    if not cache.has(key):
+        cache[key] = maxi(1, ceili(distance / velocity))
+    return int(cache[key])
+
 static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary,
         graph: RefCounted, positions: Dictionary, resolver: RefCounted,
         tick_scale: float, route_index: Dictionary = {},
-        shared_routes: Dictionary = {}, readiness_cache: Dictionary = {}, fitting_cache: Dictionary = {}) -> Dictionary:
+        shared_routes: Dictionary = {}, readiness_cache: Dictionary = {},
+        fitting_cache: Dictionary = {}, leg_ticks_cache: Dictionary = {}) -> Dictionary:
     var ship: Dictionary = world["ships"][ship_id]
     var static_gate: Dictionary = _ship_static_readiness(world, ship_id, readiness_cache)
     if not static_gate.get("ok", false):
@@ -99,12 +113,12 @@ static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary
             if not bool(leg["present"]):
                 geometry_error = "missing_leg_world_position"
                 break
-            var distance: float = float(leg["distance"])
-            var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
-            if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
+            var edge_ticks: int = _physical_leg_ticks(float(leg["distance"]),
+                speed, tick_scale, leg_ticks_cache)
+            if edge_ticks == 0:
                 geometry_error = "invalid_flight_geometry"
                 break
-            counts.append(maxi(1, ceili(distance / velocity)))
+            counts.append(edge_ticks)
         travel = {"error": geometry_error} if not geometry_error.is_empty() else {"counts": counts}
         travel_cache[travel_key] = travel
         route_index[-2] = travel_cache
@@ -297,6 +311,7 @@ static func propose(world: Dictionary, graph: RefCounted,
     var shared_routes: Dictionary = {} # inbound/endpoint preflight, one proposal
     var readiness_cache: Dictionary = {} # ship -> stable rejection or ok
     var fitting_cache: Dictionary = {} # ship -> speed and fuel rate
+    var leg_ticks_cache: Dictionary = {} # scalar distance/speed/scale -> N14 ticks
     var observation_cache: Dictionary = {} # ship -> sensor and comms observations
     var price_observation_cache: Dictionary = {} # ship/source/good/price -> overlay
     var system_context_cache: Dictionary = {} # here/source/dest -> read-only map
@@ -380,7 +395,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                 continue
             var source_purchase: int = int(quote_result["cost"])
             var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver,
-                tick_scale, route_index, shared_routes, readiness_cache, fitting_cache)
+                tick_scale, route_index, shared_routes, readiness_cache, fitting_cache,
+                leg_ticks_cache)
             if not readiness.get("ok", false):
                 _blocked_ship(ship_blockers, "n14_" + str(
                     readiness.get("reason", "unavailable")))
