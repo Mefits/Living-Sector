@@ -5,6 +5,13 @@ const Saves = preload("res://scripts/sim/save_state.gd")
 const Clock = preload("res://scripts/sim/clock.gd")
 const Calendar = preload("res://scripts/sim/calendar.gd")
 
+class FakeRunner extends RefCounted:
+    var source: Dictionary = {}
+    func is_started() -> bool:
+        return true
+    func checkpoint() -> Dictionary:
+        return source.duplicate(true)
+
 func _frame() -> Dictionary:
     return {
         "format": "living-sector-godot", "schema_version": 1,
@@ -60,6 +67,13 @@ func _initialize() -> void:
     _write(path, "{corrupt")
     assert(Saves._pending_is_only_recoverable_checkpoint(path))
     assert(FileAccess.get_file_as_string(pending) == envelope)
+    # The production save entry point must refuse to truncate the pending
+    # survivor, even when a new coherent live snapshot is available.
+    var runner := FakeRunner.new()
+    runner.source = _frame()
+    assert(Saves.save_runner(runner, path) == ERR_BUSY)
+    assert(FileAccess.get_file_as_string(pending) == envelope)
+    assert(FileAccess.get_file_as_string(path) == "{corrupt")
     # A separately verified backup authorizes a subsequent pending rewrite.
     _write(path + ".bak", envelope)
     assert(not Saves._pending_is_only_recoverable_checkpoint(path))
