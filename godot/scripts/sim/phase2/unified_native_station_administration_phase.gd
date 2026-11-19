@@ -11,7 +11,10 @@ const Payroll = preload("res://scripts/sim/phase1/n39_native_paid_shift.gd")
 # These maps are borrowed for this one synchronous due cycle only. No
 # cross-tick cache: install/remove/move/owner changes are observed immediately.
 static func _live_market_roster_keys(world: Dictionary,
-        sorted_market_locations: Array) -> Dictionary:
+        sorted_market_locations: Array = []) -> Dictionary:
+    if sorted_market_locations.is_empty():
+        sorted_market_locations = world["markets"].keys()
+        sorted_market_locations.sort()
     var keys: Dictionary = {}
     var facilities: Dictionary = world["facilities"]
     for raw_location in sorted_market_locations:
