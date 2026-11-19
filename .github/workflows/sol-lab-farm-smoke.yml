@@ -184,6 +184,20 @@ jobs:
           cat "$RUNNER_TEMP/sol-lab-logs/ship-flight.log"
           grep -qF SOL_SHIP_FLIGHT_PASS "$RUNNER_TEMP/sol-lab-logs/ship-flight.log"
 
+      - name: Accept Sol colony controls, refunds, shipyard grouping and camera
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_DATA_HOME="$(mktemp -d)"
+          if ! timeout --signal=TERM --kill-after=5s 55s \
+            godot --headless --path sol_lab --script res://tests/sol_colony_control_check.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/colony-control.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/colony-control.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sol-lab-logs/colony-control.log"
+          grep -qF SOL_COLONY_CONTROL_PASS "$RUNNER_TEMP/sol-lab-logs/colony-control.log"
+
       - name: Verify supplied resource and building sprites at 20 32 64px
         shell: bash
         run: |
