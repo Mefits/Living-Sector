@@ -181,7 +181,8 @@ func _run() -> void:
  var outbound_arrival: float = float(outbound["arrival"])
  var moon_before: float = float(game.construction.colony_inventory(
   "luna").get("supply",{}).get("metals",0))
- game._pause()
+ # The freighter was launched while paused. Set x1, then unpause
+ # ONCE and keep running across the x1 -> x16 comparison.
  game._set_speed(1)
  game._pause()
  var freight_x1: Dictionary = await _motion("freight", 1.0)
@@ -200,7 +201,7 @@ func _run() -> void:
   "cargo delivered exactly on simulation docking")
  _check(game.native_view._docking_visuals.has("freight"),
   "freighter has continuous visual docking")
- game._pause()
+ game._pause() # resume interpolation so the final approach can complete
  await create_timer(0.28).timeout
  _check(not game.native_view._docking_visuals.has("freight"),
   "freighter dock transitions to parked icon")
