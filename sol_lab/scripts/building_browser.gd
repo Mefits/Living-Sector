@@ -73,7 +73,10 @@ func _ready() -> void:
  if stock_icon != null:
   stock_bar.add_child(stock_icon)
  colony_line = _label(stock_bar, "", 14, Color("#e1d1a4"))
- colony_line.custom_minimum_size.x = 190
+ colony_line.custom_minimum_size = Vector2(190, 24)
+ colony_line.size_flags_vertical = Control.SIZE_EXPAND_FILL
+ colony_line.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+ colony_line.autowrap_mode = TextServer.AUTOWRAP_OFF
  colony_line.clip_text = true
  colony_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
