@@ -201,11 +201,11 @@ func _run() -> void:
  # Build several enterprises on Earth from its real warehouse.
  _select("earth")
  _press_button(game.colony_panel, "Строить")
- for id in ["mining_rig", "farm", "refinery", "factory", "power_plant"]:
+ for id in ["mining_rig", "refinery", "factory", "power_plant"]:
   _build(id)
  _press_button(game.browser, "Колония")
- _check(_stock("earth", "metals") == 995.0,
-  "five paid factories debit exactly five metals")
+ _check(_stock("earth", "metals") == 12.0,
+  "four paid facilities debit exactly four metals")
  for i in range(250):
   if game.construction.sites.is_empty():
    break

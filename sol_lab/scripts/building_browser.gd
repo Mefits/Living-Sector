@@ -11,6 +11,7 @@ signal new_game_requested
 
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
+const Economy = preload("res://scripts/sol_construction_runtime.gd")
 const Glyph = preload("res://scripts/view/colony_building_glyph.gd")
 var world: Dictionary = {}
 var active_sites: Array = []
@@ -481,15 +482,8 @@ func _edit_planet(value: float, key: String) -> void:
  feedback.text = "Коэффициент обновлён; выработка пересчитается."
 
 func _needs() -> void:
- _label(cards_root, "Потребности жителей Земли " +
-  "(только настройки, симуляция ещё не подключена).", 16)
- var needs: Dictionary = config.get("needs", {})
- _spin(cards_root, "Еда", float(needs.get("earth_food", 5)),
-  _edit_need.bind("earth_food"), 1, 100000)
- _spin(cards_root, "Вода", float(needs.get("earth_water", 3)),
-  _edit_need.bind("earth_water"), 1, 100000)
-
-func _edit_need(value: float, key: String) -> void:
- config["needs"][key] = int(roundf(value))
- feedback.text = "Изменено; сохраните настройки и перезапустите."
+ _label(cards_root, "Еда: %s на 100 жителей за %d дней" % [
+  Model.batch_amount(100 * Economy.FOOD_PER_RESIDENT), Economy.CYCLE_DAYS], 16)
+ _label(cards_root, "Источник воды на Земле: +%d за %d дней" % [
+  Economy.EARTH_WATER_PER_CYCLE, Economy.CYCLE_DAYS], 14)
 

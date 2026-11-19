@@ -4,6 +4,8 @@ extends RefCounted
 const OLD_LOCATION: String = "earth-station"
 const AC_LOCATION: String = "earth-colony"
 const AC_ID: String = "facility-earth-administrative-center"
+const EARTH_FARM_ID := "facility-earth-starter-farm"
+const EARTH_STOCK := {"food": 24, "water": 12, "metals": 16, "ore": 30, "fuel": 36}
 const Model = preload("res://scripts/sol_building_model.gd")
 
 static func apply(source: Dictionary) -> Dictionary:
@@ -33,11 +35,12 @@ static func apply(source: Dictionary) -> Dictionary:
     old_station["body"] = "earth"
     old_station["surface_site"] = Model.surface_site("administrative_center")
     remaining.append(old_station)
+    remaining.append({"id": EARTH_FARM_ID, "name": "Ферма", "type": "farm",
+        "body": "earth", "location": AC_LOCATION, "faction_id": old_station.get("faction_id", ""),
+        "surface_site": Model.surface_site("farm")})
     world["facilities"] = remaining
 
-    # No free storage or new resource amounts are invented:
-    # existing seeded inventory, population, ships and routes follow
-    # the new AC location without orphaning 'earth-station' references.
+    # The scenario has its own initial stock, independent of the frozen seed.
     for collection in ["markets", "populations", "ships", "travel_routes"]:
         var updated: Array = []
         for item in world.get(collection, []):
@@ -51,6 +54,7 @@ static func apply(source: Dictionary) -> Dictionary:
             if collection == "markets" and str(entry.get("id", "")) == (
                     "market-earth-station"):
                 entry["id"] = "market-earth-colony"
+                entry["supply"] = EARTH_STOCK.duplicate()
             if collection == "populations" and str(entry.get(
                     "label", "")) == "Residents earth-station":
                 entry["label"] = "Residents earth-colony"

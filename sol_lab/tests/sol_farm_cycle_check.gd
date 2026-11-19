@@ -10,6 +10,9 @@ func _runtime(settings: Dictionary) -> Variant:
  var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(
   "res://data/sol.json"))
  var world: Dictionary = Starter.apply(parsed)
+ # Isolate the recipe from the starter farm and settlement food/water flows.
+ world.facilities = world.facilities.filter(func(f): return f.id != Starter.EARTH_FARM_ID)
+ world.populations = []
  var runtime = Runtime.new()
  runtime.planets = Model.planet_defaults(world)
  runtime.setup(world, settings)

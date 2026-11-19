@@ -1,6 +1,6 @@
 extends SceneTree
 ## Lightweight seed-integrity regression: one stable ground AC, no legacy Earth
-## enterprises or dangling location references. No N158 simulation required.
+## enterprises or dangling location references. The starter farm is local.
 const Start = preload("res://scripts/sol_start_scenario.gd")
 const Assets = preload("res://scripts/view/physical_assets_projection.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
@@ -18,23 +18,17 @@ func _initialize() -> void:
     for facility in start.get("facilities", []):
         if str(facility.get("body", "")) == "earth":
             earth.append(facility)
-    var okay: bool = earth.size() == 1
-    okay = okay and str(earth[0].get("type", "")) == "station" if (
-        earth.size() == 1) else false
-    if earth.size() == 1:
-        okay = okay and str(earth[0].get("id", "")) == Start.AC_ID
-        okay = okay and str(earth[0].get("location", "")) == Start.AC_LOCATION
+    var okay: bool = earth.size() == 2 and earth.all(func(f): return f.location == Start.AC_LOCATION)
+    okay = okay and earth.any(func(f): return f.id == Start.AC_ID and f.type == "station")
+    okay = okay and earth.any(func(f): return f.id == Start.EARTH_FARM_ID and f.type == "farm")
     var projected: Dictionary = Assets.build(start)
     var ground: Array = projected.get("surface", [])
     var orbitals: Array = projected.get("orbital", [])
-    okay = okay and ground.size() == 1 and orbitals.is_empty()
-    if ground.size() == 1:
-        okay = okay and str(ground[0].get("render_type", "")) == (
-            "administrative_center")
-        var expected: Array = Model.surface_site("administrative_center")
-        okay = okay and ground[0].get("site", Vector2.INF) == Vector2(
-            float(expected[0]), float(expected[1]))
-    okay = okay and Model.stock(start, "earth") == 1000
+    okay = okay and ground.size() == 2 and orbitals.is_empty()
+    var expected: Array = Model.surface_site("administrative_center")
+    okay = okay and ground.any(func(asset): return (asset.render_type == "administrative_center"
+        and asset.site == Vector2(float(expected[0]), float(expected[1]))))
+    okay = okay and Model.stock(start, "earth") == Start.EARTH_STOCK.metals
     okay = okay and Model.colony(start, "earth")
     for field in ["markets", "populations", "ships", "travel_routes"]:
         for item in start.get(field, []):

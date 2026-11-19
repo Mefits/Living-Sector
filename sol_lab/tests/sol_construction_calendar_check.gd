@@ -7,7 +7,12 @@ const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd
 
 func new_world() -> Dictionary:
  var file: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/sol.json"))
- return Starter.apply(file) if file is Dictionary else {}
+ if not file is Dictionary:
+  return {}
+ var world := Starter.apply(file)
+ # Exercise placing a farm in a colony that does not already have one.
+ world.facilities = world.facilities.filter(func(f): return f.id != Starter.EARTH_FARM_ID)
+ return world
 
 func _initialize() -> void:
  var good: bool = true
@@ -18,9 +23,9 @@ func _initialize() -> void:
  var first = Building.new()
  first.setup(new_world(), settings)
  good = good and first.order("earth", "farm")["ok"]
- good = good and Model.stock(first.world, "earth") == 999
+ good = good and Model.stock(first.world, "earth") == Starter.EARTH_STOCK.metals - 1
  good = good and not first.order("earth", "farm")["ok"]
- good = good and Model.stock(first.world, "earth") == 999
+ good = good and Model.stock(first.world, "earth") == Starter.EARTH_STOCK.metals - 1
  good = good and not first.order("luna", "farm")["ok"]
  good = good and PhysicalAssets.build(first.world)["surface"].size() == 3
  var raw_site: Dictionary = {}
@@ -41,7 +46,7 @@ func _initialize() -> void:
  var second = Building.new()
  second.setup(new_world(), settings)
  good = good and second.restore(json_state)
- good = good and Model.stock(second.world, "earth") == 999
+ good = good and Model.stock(second.world, "earth") == Starter.EARTH_STOCK.metals - 1
  var duration: float = Calendar.days_to_native(45.0)
  good = good and is_equal_approx(duration, 700.0 * 45.0 / 365.0)
  good = good and second.advance_to(duration - 0.001).is_empty()
@@ -55,13 +60,13 @@ func _initialize() -> void:
  good = good and completed
  good = good and second.advance_to(duration + 10).is_empty()
  good = good and not second.order("earth", "farm")["ok"]
- good = good and Model.stock(second.world, "earth") == 999
+ good = good and Model.stock(second.world, "earth") == Starter.EARTH_STOCK.metals - 1
  good = good and Calendar.calendar_text(0.0) == "Год 1 · день 001/365"
  good = good and Calendar.calendar_text(700.0) == "Год 2 · день 001/365"
  var bad: Dictionary = second.snapshot()
  bad["markets"][0]["supply"]["metals"] = -1
  good = good and not second.restore(bad)
- good = good and Model.stock(second.world, "earth") == 999
+ good = good and Model.stock(second.world, "earth") == Starter.EARTH_STOCK.metals - 1
  if good:
   print("SOL_CONSTRUCTION_CALENDAR_PASS")
   quit(0)

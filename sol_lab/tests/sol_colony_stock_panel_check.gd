@@ -27,7 +27,7 @@ func _initialize() -> void:
  # Earth starts with its own real inventory.
  panel.show_inventory("Земля", runtime.colony_inventory("earth"))
  ok = ok and panel.visible and panel.heading.text == "Склад колонии · Земля"
- ok = ok and _amount(panel, "metals") == "1000"
+ ok = ok and _amount(panel, "metals") == str(Starter.EARTH_STOCK.metals)
  var earth_label: Label = panel.amount_labels["metals"]
  panel.show_inventory("Земля", runtime.colony_inventory("earth"))
  ok = ok and earth_label == panel.amount_labels["metals"]
@@ -51,7 +51,7 @@ func _initialize() -> void:
  ok = ok and panel.amount_labels["metals"] == luna_label
  # Switching back never leaks Lunar inventory into Earth.
  panel.show_inventory("Земля", runtime.colony_inventory("earth"))
- ok = ok and panel.visible and _amount(panel, "metals") == "1000"
+ ok = ok and panel.visible and _amount(panel, "metals") == str(Starter.EARTH_STOCK.metals)
  # Restore preserves that same local store and UI projection.
  var saved: Variant = JSON.parse_string(JSON.stringify(runtime.snapshot()))
  var resumed = _make_runtime()

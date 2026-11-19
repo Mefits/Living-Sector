@@ -6,6 +6,7 @@ const PORT := "luna-colony"
 const FLIGHT_DAYS := 12
 const PASSENGERS := 100
 const METALS := 2
+const STARTER_FOOD := 10
 var ship: Dictionary = {}
 var settlers: Dictionary = {}
 
@@ -14,7 +15,7 @@ func reset(world: Dictionary) -> void:
  ship = {}
  if world.get("system", {}).get("id", "") == "system-sol":
   ship = {"id":"sol-colonizer-1", "location":"earth-colony",
-   "population":PASSENGERS, "metals":METALS}
+   "population":PASSENGERS, "metals":METALS, "food":STARTER_FOOD}
 
 func depart(now: float) -> bool:
  if ship.get("location", "") != "earth-colony":
@@ -38,7 +39,7 @@ func land_if_due(world: Dictionary, now: float, owner: String) -> bool:
   "type":"station", "body":"luna", "location":PORT, "faction_id":owner,
   "surface_site":Model.surface_site("administrative_center"), "services":[], "docking_capacity":0})
  world.markets.append({"id":"market-luna-colony", "facility_id":PORT,
-  "supply":{"metals":ship.metals}})
+  "supply":{"metals":ship.metals, "food":ship.food}})
  settlers = {"label":"Residents luna-colony", "facility_id":PORT,
   "demographic":"workers", "population_count":ship.population, "faction_id":owner}
  world.populations.append(settlers)

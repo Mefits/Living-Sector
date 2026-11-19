@@ -5,6 +5,7 @@ signal line_requested
 signal facility_requested(facility_id: String)
 
 const Model = preload("res://scripts/sol_building_model.gd")
+const Calendar = preload("res://scripts/sol_calendar.gd")
 const Glyph = preload("res://scripts/view/colony_building_glyph.gd")
 const Stock = preload("res://scripts/view/colony_stock_panel.gd")
 
@@ -12,6 +13,7 @@ var heading: Label
 var population: Label
 var summary: Label
 var metal: Label
+var food_status: Label
 var details: Label
 var message: Label
 var stock_panel: PanelContainer
@@ -48,6 +50,8 @@ func _ready() -> void:
  summary.clip_text = true
  summary.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
  metal = _label(layout, "", 15, Color("#e6d59d"))
+ food_status = _label(layout, "", 13, Color("#bfd0d9"))
+ food_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
  var navigation := HBoxContainer.new()
  navigation.add_theme_constant_override("separation", 5)
@@ -119,6 +123,18 @@ func _switch_page(next_page: String) -> void:
  overview.visible = page == "overview"
  stock_view.visible = page == "stock"
  scroll.scroll_vertical = 0
+
+func show_food(food: Dictionary) -> void:
+ food_status.visible = not food.is_empty()
+ if food.is_empty():
+  return
+ var text := "Еда: %s · расход %s / 30 дн. · запас ≈ %d дн." % [
+  Model.batch_amount(food.stock), Model.batch_amount(food.rate), food.days]
+ if not food.covered:
+  text += "\nДефицит еды в текущем цикле"
+ if food.has("incoming"):
+  text += "\nВ пути: +%d еды · %s" % [food.incoming, Calendar.calendar_text(food.arrival)]
+ food_status.text = text
 
 func show_colony(next_body: String, name_ru: String,
         residents: int, warehouse: Dictionary, constructed: Array,

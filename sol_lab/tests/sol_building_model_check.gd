@@ -21,9 +21,9 @@ func _initialize() -> void:
  valid = valid and Model.stock(seed,"earth")==1000
  # Frozen source already contains a farm: no duplicate construction.
  valid = valid and not Model.available(Model.BUILDINGS[2],buildings,seed,"earth")
- # Sol Lab starter removes the legacy farm; a new one is buildable.
+ # Sol Lab starts with its own working farm.
  var start: Dictionary = Starter.apply(seed)
- valid = valid and Model.available(Model.BUILDINGS[2],buildings,start,"earth")
+ valid = valid and not Model.available(Model.BUILDINGS[2],buildings,start,"earth")
  valid = valid and not Model.available(Model.BUILDINGS[2],buildings,start,"mars")
  if valid:
   print("SOL_LAB_MODEL_PASS")

@@ -23,6 +23,8 @@ var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
 var colony_button: Button
 var freight_button: Button
+var food_freight_button: Button
+var return_freight_button: Button
 var freight_line_buttons: HBoxContainer
 var freight_line_toggle: Button
 var freight_line_dialog: AcceptDialog
@@ -160,6 +162,10 @@ func _build_ui() -> void:
     colony_panel.line_requested.connect(_open_freight_line)
     colony_panel.facility_requested.connect(_colony_facility_selected)
     _build_freight_line_controls(colony_panel.line_holder)
+    food_freight_button = _button(colony_panel.line_holder,
+        "Доставить 10 еды с Земли", _send_freighter.bind(true))
+    return_freight_button = _button(colony_panel.line_holder, "", _return_freighter)
+    return_freight_button.tooltip_text = "После отправки линия отключится. С Земли можно привезти еду вручную."
 
 
 func _on_game_menu(id: int) -> void:
@@ -295,12 +301,19 @@ func _colonize_luna() -> void:
         _show_selected()
         _notice("Колонизатор отправился к Луне")
 
-func _send_freighter() -> void:
-    if not construction.depart_freighter(selected):
+func _send_freighter(food: bool = false) -> void:
+    if not construction.depart_freighter(selected, food):
         return
     native_view.set_freight(construction.freight_status())
     _show_selected()
     _notice("Грузовик отправлен")
+
+func _return_freighter() -> void:
+    if selected != "luna" or not construction.return_freighter():
+        return
+    native_view.set_freight(construction.freight_status())
+    _show_selected()
+    _notice("Грузовик возвращается на Землю · линия отключена")
 
 func _build_freight_line_controls(parent: Control) -> void:
     freight_line_buttons = HBoxContainer.new()
@@ -382,8 +395,7 @@ func _show_selected() -> void:
         var name_ru: String = str(Model.PLANET_NAMES.get(
             selected, body.get("name", selected)))
         planet_name_label.text = name_ru
-        colony_stock_panel.show_inventory(
-            name_ru, construction.colony_inventory(selected))
+        var warehouse: Dictionary = construction.colony_inventory(selected)
         var items: Array[String] = [
             "Тип: "+str(body.get("type", "—")),
             "Биом: "+str(body.get("biome", "—")),
@@ -403,6 +415,16 @@ func _show_selected() -> void:
         var order: Dictionary = construction.freight_order(selected)
         freight_button.visible = not order.is_empty()
         freight_line_buttons.visible = freight_button.visible
+        food_freight_button.visible = selected == "luna"
+        var food_reason: String = construction.freight_block_reason("luna", true)
+        food_freight_button.disabled = not food_reason.is_empty()
+        food_freight_button.tooltip_text = food_reason
+        var freight: Dictionary = construction.freight_status()
+        return_freight_button.visible = selected == "luna" and freight.get("location") == "luna"
+        if return_freight_button.visible:
+            var recovered: Dictionary = construction.return_order()
+            return_freight_button.text = ("Вернуть на Землю · %d руды" % recovered.amount
+                if recovered.amount > 0 else "Вернуть на Землю пустым")
         if freight_button.visible:
             var line: Dictionary = construction.freight_line()
             freight_line_toggle.text = "Отключить линию" if line.enabled else "Включить линию"
@@ -412,15 +434,15 @@ func _show_selected() -> void:
             var reason: String = construction.freight_block_reason(selected)
             freight_button.disabled = not reason.is_empty()
             freight_button.tooltip_text = reason
-            var freight: Dictionary = construction.freight_status()
             match freight.get("location"):
                 "earth":
                     items.insert(1, "Грузовик на Земле · трюм пуст")
                 "transit":
                     var cargo: Dictionary = freight.order
-                    items.insert(1, "Грузовик → %s · %d %s\nПрибытие: %s" % [
-                        Model.PLANET_NAMES[cargo.destination], cargo.amount,
-                        Model.batch_unit(cargo.resource), Calendar.calendar_text(freight.arrival)])
+                    var payload := "%d %s" % [cargo.amount, Model.batch_unit(cargo.resource)] if (
+                        cargo.amount > 0) else "трюм пуст"
+                    items.insert(1, "Грузовик → %s · %s\nПрибытие: %s" % [
+                        Model.PLANET_NAMES[cargo.destination], payload, Calendar.calendar_text(freight.arrival)])
                 "luna":
                     items.insert(1, "Грузовик на Луне · трюм пуст")
             if line.enabled:
@@ -434,10 +456,7 @@ func _show_selected() -> void:
             items.append("%s: %.2f" % [Model.resource_label(str(key)),
                 float(coeff.get(key,0.0))])
         details.text = "\n".join(items)
-        var population_count: int = 0
-        for citizen in world.get("populations", []):
-            if str(citizen.get("facility_id", "")) == selected + "-colony":
-                population_count += int(citizen.get("population_count", 0))
+        var population_count: int = construction.colony_population(selected)
         var built: Array = []
         var idle: String = ""
         for facility in world.get("facilities", []):
@@ -458,12 +477,11 @@ func _show_selected() -> void:
             var line_wait: String = construction.freight_line_wait()
             if not line_wait.is_empty():
                 line_status = line_wait
-        colony_panel.show_colony(selected, name_ru, population_count,
-            construction.colony_inventory(selected), built,
+        colony_panel.show_colony(selected, name_ru, population_count, warehouse, built,
             construction.sites, idle, line_status, native_time)
+        colony_panel.show_food(construction.colony_food(selected))
         if browser != null and browser.visible:
-            browser.set_colony_summary(name_ru, population_count,
-                construction.colony_inventory(selected))
+            browser.set_colony_summary(name_ru, population_count, warehouse)
         return
 
 func _input(event: InputEvent) -> void:

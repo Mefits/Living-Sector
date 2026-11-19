@@ -5,9 +5,5 @@
     "smelt_ore_in": 10,
     "smelt_fuel_in": 1,
     "smelt_metals_out": 8
-  },
-  "needs": {
-    "earth_food": 5,
-    "earth_water": 3
   }
 }

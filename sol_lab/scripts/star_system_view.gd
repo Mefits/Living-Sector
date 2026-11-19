@@ -976,8 +976,9 @@ func _draw_freighter(earth: Vector2, luna: Vector2) -> void:
     var tint := Color("#f6d38a")
     draw_rect(Rect2(position - Vector2(5, 4), Vector2(10, 8)), tint)
     if flying:
-        var label := "%s · %d %s" % [
-            Model.PLANET_NAMES[cargo.destination], cargo.amount, Model.batch_unit(cargo.resource)]
+        var payload := "%d %s" % [cargo.amount, Model.batch_unit(cargo.resource)] if (
+            cargo.amount > 0) else "трюм пуст"
+        var label := "%s · %s" % [Model.PLANET_NAMES[cargo.destination], payload]
         draw_string(get_theme_default_font(), position + Vector2(9, -7),
             label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, tint)
 

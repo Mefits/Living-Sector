@@ -2,6 +2,7 @@ extends SceneTree
 ## From sol_lab: XDG_DATA_HOME="$(mktemp -d)" godot --headless --path . --script tests/sol_freight_round_trip_check.gd
 const Scene = preload("res://scenes/main.tscn")
 const Lab = preload("res://scripts/main.gd")
+const Calendar = preload("res://scripts/sol_calendar.gd")
 
 var game: Control
 var failed := false
@@ -20,6 +21,10 @@ func fresh_scene() -> void:
  game = current_scene
 
 func press(label: String) -> void:
+ if label in ["Сохранить", "Загрузить"]:
+  for menu in game.top_bar.find_children("*", "MenuButton", true, false):
+   menu.get_popup().id_pressed.emit(2 if label == "Сохранить" else 3)
+   return
  for control in game.find_children("*", "Button", true, false):
   if control.text == label and control.is_visible_in_tree():
    check(not control.disabled, "Disabled button: " + label)
@@ -57,7 +62,7 @@ func load_checkpoint(data: Dictionary) -> void:
  var file := FileAccess.open(Lab.USER_SAVE, FileAccess.WRITE)
  file.store_string(JSON.stringify(data, "", true, true))
  file.close()
- press("Загруз.")
+ press("Загрузить")
  check(game.message_line.text.begins_with("Игра загружена"), "Checkpoint rejected")
 
 func load_v2_freight(old_state: Dictionary) -> void:
@@ -79,7 +84,7 @@ func run() -> void:
  select_body("luna")
  press("Колонизировать Луну")
  advance_to(game.construction.expedition.ship.arrival)
- press("СТРОИТЕЛЬСТВО")
+ press("Строить")
  build("mining_rig")
  build("spaceport")
  game.browser.close_requested.emit()
@@ -89,6 +94,8 @@ func run() -> void:
   return
  advance_to(game.construction.sites[0].finish_native)
 
+ # The legacy freight scenario covers two metal shipments from an accumulated stock.
+ game.world.markets[0].supply.metals = 30
  var starting_line_checkpoint: Dictionary = game.construction.snapshot()
  var earth_metal := stock("earth", "metals")
  var moon_metal := stock("luna", "metals")
@@ -137,10 +144,10 @@ func run() -> void:
   "Return loading changed the warehouses incorrectly")
  game._step()
  var saved_time: float = game.native_time
- press("Сохр.")
+ press("Сохранить")
  await fresh_scene()
- press("Загруз.")
- press("Загруз.")
+ press("Загрузить")
+ press("Загрузить")
  check(game.paused and game.native_time == saved_time and freight().get("arrival") == inbound.get("arrival")
   and freight().get("order", {}).get("amount") == 10, "Loading must preserve the flight and ETA")
  check(stock("luna", "ore") == moon_ore - 10 and stock("earth", "ore") == earth_ore,
@@ -151,8 +158,8 @@ func run() -> void:
  game._step()
  check(freight() == {"location": "earth"} and stock("earth", "ore") == earth_ore + 10 and
   stock("luna", "ore") == moon_ore - 10, "Return landing must empty the hold and unload once")
- press("Сохр.")
- press("Загруз.")
+ press("Сохранить")
+ press("Загрузить")
  game._step()
  check(stock("earth", "ore") == earth_ore + 10, "Reload after landing credited ore twice")
 
@@ -193,9 +200,15 @@ func configure_line(food_reserve: float) -> void:
  check(game.construction.freight_line().legs.luna ==
   {"resource": "food", "amount": 6, "reserve": food_reserve}, "Line settings must apply")
 
+func meals_since(body: String, previous_deadline: float) -> int:
+ var deadline: float = game.construction.meal_cycles[body].facility.next_meal_native
+ return roundi(Calendar.native_to_days(deadline - previous_deadline) / 30.0)
+
 func check_line() -> void:
  var initial_food := stock("earth", "food")
  var initial_moon_food := stock("luna", "food")
+ var earth_deadline: float = game.construction.meal_cycles.earth.facility.next_meal_native
+ var moon_deadline: float = game.construction.meal_cycles.luna.facility.next_meal_native
  var initial_earth_ore := stock("earth", "ore")
  var defaults: Dictionary = game.construction.freight_line()
  check(not defaults.enabled and defaults.legs.luna ==
@@ -205,17 +218,19 @@ func check_line() -> void:
  press("Включить линию")
  game.freight_button.pressed.emit()
  game._step()
- check(stock("earth", "food") == initial_food and freight() == {"location": "earth"},
+ check(stock("earth", "food") == initial_food + meals_since("earth", earth_deadline) * 6 and
+  freight() == {"location": "earth"},
   "Line must respect the reserve and a manual order must not bypass it")
  configure_line(initial_food - 18)
  game._step()
  var outbound := freight()
  check(outbound.get("order", {}).get("resource") == "food" and outbound.order.amount == 6 and
-  stock("earth", "food") == initial_food - 6, "Configured food cargo must depart without a manual order")
+  stock("earth", "food") == initial_food - 6 + meals_since("earth", earth_deadline) * 6,
+  "Configured food cargo must depart without a manual order")
  if failed:
   return
  advance_to(outbound.arrival)
- check(freight() == {"location": "luna"} and stock("luna", "food") == initial_moon_food + 6 and
+ check(freight() == {"location": "luna"} and stock("luna", "food") == initial_moon_food + 6 - meals_since("luna", moon_deadline) * 2 and
   game.details.text.contains("Луна") and game.details.text.contains("требуется 15"),
   "The freighter must unload and show the ore requirement while waiting")
  for round_number in [1, 2]:
@@ -235,9 +250,9 @@ func check_line() -> void:
   var ore_after_loading := stock("luna", "ore")
   if round_number == 1:
    var line: Dictionary = game.construction.freight_line()
-   press("Сохр.")
+   press("Сохранить")
    await fresh_scene()
-   press("Загруз.")
+   press("Загрузить")
    check(game.construction.freight_line() == line and freight() == inbound and
     stock("luna", "ore") == ore_after_loading, "Reload must preserve the line and cargo without reloading")
   else:
@@ -248,16 +263,16 @@ func check_line() -> void:
    stock("luna", "ore") == ore_after_loading, "Each circle must deliver exactly ten ore")
   if round_number == 1:
    outbound = freight()
-   check(outbound.get("order", {}).get("resource") == "food" and stock("earth", "food") == initial_food - 12,
+   check(outbound.get("order", {}).get("resource") == "food" and stock("earth", "food") == initial_food - 12 + meals_since("earth", earth_deadline) * 6,
     "Unloading at Earth must start the next outbound trip automatically")
    if failed:
     return
    advance_to(outbound.arrival)
-   check(freight() == {"location": "luna"} and stock("luna", "food") == initial_moon_food + 12,
+   check(freight() == {"location": "luna"} and stock("luna", "food") == initial_moon_food + 12 - meals_since("luna", moon_deadline) * 2,
     "The second outbound trip must deliver another six food")
  game._step()
  check(freight() == {"location": "earth"} and not game.construction.freight_line().enabled and
-  stock("earth", "food") == initial_food - 12, "Disabling in flight must leave the emptied ship at Earth")
+  stock("earth", "food") == initial_food - 12 + meals_since("earth", earth_deadline) * 6, "Disabling in flight must leave the emptied ship at Earth")
  select_body("luna")
  press("Доставить 10 металла с Земли")
  check(freight().get("order", {}).get("resource") == "metals", "Manual dispatch must work again")
