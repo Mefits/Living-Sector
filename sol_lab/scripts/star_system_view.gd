@@ -53,6 +53,7 @@ const PlanetSurface = preload("res://scripts/view/planet_surface_projection.gd")
 const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
 const ColonyRoads = preload("res://scripts/view/colony_roads_projection.gd")
 const SurfaceBuildingLOD = preload("res://scripts/view/surface_building_lod.gd")
+const BuildingGlyph = preload("res://scripts/view/colony_building_glyph.gd")
 const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const SolOrbits = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
@@ -1290,20 +1291,15 @@ func _draw_physical_assets(scale: float) -> void:
             tone = Color(0.54, 0.82, 0.94, alpha)
         var icon_size: float = SurfaceBuildingLOD.icon_half_size(
             body_radius, _ui_viewport_scale)
-        draw_rect(Rect2(pos - Vector2(icon_size, icon_size * 0.65),
-            Vector2(icon_size * 2.0, icon_size * 1.3)),
-            tone, true)
-        if kind == "administrative_center":
-            draw_rect(Rect2(pos + Vector2(-icon_size * 0.25,
-                -icon_size * 1.3), Vector2(icon_size * 0.5,
-                icon_size * 0.65)), tone, true)
-        elif kind == "colony_construction_dock":
-            draw_line(pos + Vector2(-icon_size, -icon_size),
-                pos + Vector2(icon_size, icon_size),
-                tone, 1.4)
-        draw_line(pos + Vector2(icon_size * 0.5, -icon_size * 0.65),
-            pos + Vector2(icon_size * 0.5, -icon_size * 1.5),
-            tone, 2.0)
+        # Render the SAME vector symbol as the list and build catalog.
+        # A building site advertises its eventual type, not a generic box.
+        var symbol_kind: String = (
+            str(facility.get("construction_building_id", ""))
+            if kind == "construction_site" else kind)
+        if symbol_kind.is_empty():
+            symbol_kind = kind
+        BuildingGlyph.paint(self, symbol_kind, pos,
+            maxf(3.0, icon_size), tone)
         if kind == "construction_site":
             # Existing unique site progress, backed by calendar timestamps.
             var begin: float = float(facility.get("construction_start_native", 0.0))
