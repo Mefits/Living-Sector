@@ -797,6 +797,55 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
 
 
 
+## II-B N108: stage publication with owned rows, not copied historical World.
+## Called only after the complete proposal Schema/N9 validation. Recheck
+## equality with the proposal so a changed/unexpected domain cannot vanish.
+static func _n108_owned_gate_publication(source: Dictionary,
+        proposed: Dictionary, changed_facilities: Array,
+        changed_ship: String, receipt_domain: String,
+        receipt_id: String) -> Dictionary:
+    if receipt_id.is_empty() or not (source.get("facilities") is Dictionary) or (
+            not (proposed.get("facilities") is Dictionary)) or (
+            not (proposed.get(receipt_domain) is Dictionary)) or (
+            not (source.get(receipt_domain, {}) is Dictionary)):
+        return {}
+    if proposed.size() != source.size() + (0 if source.has(receipt_domain) else 1):
+        return {}
+    var old_receipts: Dictionary = source.get(receipt_domain, {})
+    var new_receipts: Dictionary = proposed[receipt_domain]
+    if old_receipts.has(receipt_id) or not new_receipts.has(receipt_id) or (
+            new_receipts.size() != old_receipts.size() + 1) or (
+            not (new_receipts[receipt_id] is Dictionary)):
+        return {}
+    var owned: Dictionary = source.duplicate()
+    var facilities: Dictionary = source["facilities"].duplicate()
+    var selected: Dictionary = {}
+    for fid in changed_facilities:
+        if selected.has(fid) or not source["facilities"].has(fid) or (
+                not proposed["facilities"].has(fid)) or (
+                not (proposed["facilities"][fid] is Dictionary)):
+            return {}
+        selected[fid] = true
+        facilities[fid] = proposed["facilities"][fid].duplicate(true)
+    owned["facilities"] = facilities
+    if not changed_ship.is_empty():
+        if not (source.get("ships") is Dictionary) or (
+                not (proposed.get("ships") is Dictionary)) or (
+                not source["ships"].has(changed_ship)) or (
+                not proposed["ships"].has(changed_ship)) or (
+                not (proposed["ships"][changed_ship] is Dictionary)):
+            return {}
+        var ships: Dictionary = source["ships"].duplicate()
+        ships[changed_ship] = proposed["ships"][changed_ship].duplicate(true)
+        owned["ships"] = ships
+    var receipts: Dictionary = old_receipts.duplicate()
+    receipts[receipt_id] = new_receipts[receipt_id].duplicate(true)
+    owned[receipt_domain] = receipts
+    if owned != proposed:
+        return {}
+    return owned
+
+
 ## Explicit native admin pairing of two ALREADY REAL N154/seed gates.
 ## Rust spawner reads paired_gate_id from existing facilities; it never
 ## chooses the destination system or creates a gate for the player.
@@ -862,7 +911,16 @@ func apply_native_n108_gate_pair(tick: int, gate_a: String,
             _ledger.snapshot() != previous_money):
         return {"ok": false, "fatal": true,
             "reason": "n108_pair_minted_or_moved_real_n9_money"}
-    _world = future
+    var owned_pair: Dictionary = _n108_owned_gate_publication(_world,
+        future, ids, "", "native_gate_pair_receipts", id)
+    if owned_pair.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_owned_publication_rejected"}
+    var owned_pair_error: String = _measured_schema_validate("L545", owned_pair)
+    if not owned_pair_error.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_owned_schema_" + owned_pair_error}
+    _world = owned_pair
     return {"ok": true, "status": "N108_REAL_EXPLICIT_GATE_PAIR",
         "pair_id": id, "receipt": proposal.get("receipt", {}).duplicate(true),
         "tick": tick}
@@ -979,7 +1037,17 @@ func apply_native_n108_gate_jump(tick: int, ship_id: String,
     for account in accounts:
         if money["balances"].get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true, "reason": "n108_wallet_not_backed_by_real_n9"}
-    _world = future
+    var owned_jump: Dictionary = _n108_owned_gate_publication(_world,
+        future, [source_gate], ship_id, "native_gate_jump_receipts", op)
+    if owned_jump.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n108_jump_owned_publication_rejected"}
+    var owned_jump_error: String = _measured_schema_validate("L661", owned_jump)
+    if not owned_jump_error.is_empty() or (
+            _measured_schema_accounts("L664", owned_jump) != accounts):
+        return {"ok": false, "fatal": true,
+            "reason": "n108_jump_owned_schema_or_accounts_" + owned_jump_error}
+    _world = owned_jump
     _ledger = original_bank
     return {"ok": true, "tick": tick, "ship_id": ship_id,
         "source": from_loc, "destination": to_loc, "fee": fee,
