@@ -30,6 +30,13 @@ func _initialize() -> void:
         if near != null and not (near is DPITexture):
             issues.append("Not using live SVG-backed DPITexture: %s" % str(
                 item["key"]))
+        elif near is DPITexture:
+            # get_width() alone is misleading: set_size_override() can
+            # report 512 while its underlying raster is only 256px.
+            var actual_image: Image = near.get_image()
+            if actual_image == null or actual_image.get_width() != 512:
+                issues.append("SVG is stretched instead of rasterized at 512: %s"
+                    % str(item["key"]))
 
     var earth: Dictionary = {
         "id": "earth", "type": "planet", "biome": "terrestrial"}
@@ -39,6 +46,12 @@ func _initialize() -> void:
             earth, "system-sol", false, span)
         if actual == null or actual.get_width() != expected:
             issues.append("Wrong zoom tier at %s px: %d" % [span, expected])
+        elif actual is DPITexture and span <= 800.0:
+            # Check actual image pixels, not just Texture2D logical width.
+            var pixels: Image = actual.get_image()
+            if pixels == null or pixels.get_width() != expected:
+                issues.append("Raster not regenerated at %s px: %d" % [
+                    span, expected])
         var again: Texture2D = Catalog.texture_for(
             earth, "system-sol", false, span)
         if actual != again:
