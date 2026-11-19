@@ -31,6 +31,23 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
             continue
         supplier_rows.append({"location": source, "market": source_market,
             "owner_id": source_owner_id})
+    # One proposal-local commodity index, built in canonical source order.
+    # Keep negative and nonfinite numeric values: the old supplier loop
+    # rejects them when a real deficit reaches that source. Missing,
+    # nonnumeric and zero stock never contribute a supplier candidate.
+    # No cross-tick cache: market moves, ownership and supply are reread.
+    var suppliers_by_commodity: Dictionary = {}
+    for supplier in supplier_rows:
+        var source_supply: Dictionary = supplier["market"]["supply"]
+        for good in source_supply:
+            var amount = source_supply[good]
+            if not (amount is int or amount is float):
+                continue
+            if float(amount) == 0.0:
+                continue
+            if not suppliers_by_commodity.has(good):
+                suppliers_by_commodity[good] = []
+            suppliers_by_commodity[good].append(supplier)
     for location in locations:
         var raw = markets[location]
         if not (raw is Dictionary):
@@ -89,7 +106,7 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
             # A proposal cannot reserve stock twice, and the destination may
             # not promise more money than its actual current station credits.
             var remaining: int = quantity
-            for supplier in supplier_rows:
+            for supplier in suppliers_by_commodity.get(commodity, []):
                 if remaining <= 0:
                     break
                 var source = supplier["location"]
