@@ -4501,12 +4501,45 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         var expected_balance: int = before_balance - top_up if str(account) == payer else (before_balance + top_up if str(account) == escrow else before_balance)
         if int(after_money["balances"][account]) != expected_balance:
             return {"ok": false, "fatal": true, "reason": "n104_unrelated_balance_changed"}
+## N104 acceptance changes exactly one ship, one escrow scalar and one
+## payer wallet. The other rows are shared READ-ONLY until the atomic commit.
+## Never mutate nested authoritative rows before Schema and N9 agree.
+func _n104_owned_accept_stage(source: Dictionary, escrow: String,
+        faction_id: String, facility_id: String, ship_id: String,
+        faction_payer: bool) -> Dictionary:
+    for domain in ["escrow_balances", "faction_treasuries", "facilities", "ships"]:
+        if not (source.get(domain) is Dictionary):
+            return {}
+    if not source["escrow_balances"].has(escrow) or (
+            not source["ships"].has(ship_id)) or (
+            not (source["ships"][ship_id] is Dictionary)):
+        return {}
+    if faction_payer:
+        if not source["faction_treasuries"].has(faction_id):
+            return {}
+    elif not source["facilities"].has(facility_id) or (
+            not (source["facilities"][facility_id] is Dictionary)):
+        return {}
+    var stage: Dictionary = source.duplicate()
+    stage["escrow_balances"] = source["escrow_balances"].duplicate()
+    stage["faction_treasuries"] = source["faction_treasuries"].duplicate()
+    stage["facilities"] = source["facilities"].duplicate()
+    stage["ships"] = source["ships"].duplicate()
+    stage["ships"][ship_id] = source["ships"][ship_id].duplicate(true)
+    if not faction_payer:
+        stage["facilities"][facility_id] = source["facilities"][facility_id].duplicate(true)
+    return stage
+
+
     # N104 accept owns only these domains. Detach each mutable write-set
     # before editing; all other World domains remain untouched. Keep the
     # full Schema and N9 account oracles below before the atomic publish.
-    var staged: Dictionary = _copy_world("n104_accept_root", false)
-    for domain in ["escrow_balances", "faction_treasuries", "facilities", "ships"]:
-        staged[domain] = _world[domain].duplicate(true)
+    var staged: Dictionary = _n104_owned_accept_stage(
+        _world, escrow, buyer_faction, str(buyer_market["owner"]),
+        sid, native_site_contract)
+    if staged.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n104_accept_invalid_owned_write_set"}
     staged["contract_board"] = board.snapshot()
     staged["escrow_balances"][escrow] = staged_ledger.balance(escrow)
     if native_site_contract:
