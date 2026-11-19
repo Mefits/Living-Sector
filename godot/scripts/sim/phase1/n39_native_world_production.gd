@@ -3856,17 +3856,13 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
     # ships/markets/facilities and growing history read-only; publishing a
     # whole deep World here scales with unrelated accumulated state.
     # Each writable registry is detached recursively before the first write.
-    var after: Dictionary = _copy_world("L3351_owned_root", false)
-    for domain in ["construction_sites", "construction_contracts",
-            "faction_treasuries", "contract_board", "escrow_balances",
-            "construction_receipts"]:
-        after[domain] = _world[domain].duplicate(true)
-    if new_site:
-        after["construction_sites"][id] = site.duplicate(true)
-    after["construction_contracts"][contract_id] = id
-    after["faction_treasuries"][faction] = next_money.balance(payer)
-    after["contract_board"] = board.snapshot()
-    after["escrow_balances"][escrow] = next_money.balance(escrow)
+    var after: Dictionary = _n154_owned_commission_stage(
+        _world, id, site, new_site, contract_id, faction, escrow,
+        next_money.balance(payer), next_money.balance(escrow),
+        board.snapshot())
+    if after.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "construction_owned_commission_stage_invalid"}
     var receipt_id: String = "native_site_commission:" + contract_id
     after["construction_receipts"][receipt_id] = {
         "id": receipt_id, "tick": tick, "kind": "commission",
@@ -3889,6 +3885,49 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
         "site_id": id, "contract_id": contract_id, "tick": tick,
         "n9_receipt_id": "contract:" + contract_id + ":post",
         "payer": payer, "payment": 10000}
+
+
+# N154 commission is append-only for sites/contracts/receipts and changes
+# scalar balances in treasuries/escrows. Existing nested rows are read-only.
+# Own only the six registry roots, and detach the replacement board snapshot
+# because ContractBoard's snapshot may contain mutable nested contract rows.
+# A rejected stage never mutates source; Schema/N9 oracle stays at the caller.
+static func _n154_owned_commission_stage(source: Dictionary,
+        site_id: String, site: Dictionary, new_site: bool,
+        contract_id: String, faction: String, escrow: String,
+        treasury_after: int, escrow_after: int,
+        board_after: Dictionary) -> Dictionary:
+    var domains: Array = ["construction_sites", "construction_contracts",
+        "faction_treasuries", "contract_board", "escrow_balances",
+        "construction_receipts"]
+    if site_id.is_empty() or contract_id.is_empty() or faction.is_empty() or escrow.is_empty():
+        return {}
+    if not (board_after.get("contracts") is Dictionary):
+        return {}
+    if not board_after["contracts"].has(contract_id):
+        return {}
+    for domain in domains:
+        if not (source.get(domain) is Dictionary):
+            return {}
+    if source["construction_contracts"].has(contract_id) or source["construction_receipts"].has("native_site_commission:" + contract_id) or source["escrow_balances"].has(escrow):
+        return {}
+    if not source["faction_treasuries"].has(faction):
+        return {}
+    if new_site:
+        if source["construction_sites"].has(site_id) or site.is_empty():
+            return {}
+    elif not source["construction_sites"].has(site_id) or source["construction_sites"][site_id] != site:
+        return {}
+    var staged: Dictionary = source.duplicate()
+    for domain in domains:
+        staged[domain] = source[domain].duplicate()
+    if new_site:
+        staged["construction_sites"][site_id] = site.duplicate(true)
+    staged["construction_contracts"][contract_id] = site_id
+    staged["faction_treasuries"][faction] = treasury_after
+    staged["contract_board"] = board_after.duplicate(true)
+    staged["escrow_balances"][escrow] = escrow_after
+    return staged
 
 
 ## P2 Gate 3: atomic N135 live need -> N104 prepaid delivery.
