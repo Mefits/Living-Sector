@@ -36,6 +36,13 @@ func _report(label: String, samples: Array[Dictionary]) -> void:
    panel_times.append(float(row["panel_ms"]))
   if row["dock"]:
    dock_times.append(float(row["dock_ms"]))
+ var spikes_20: int = 0
+ var spikes_25: int = 0
+ for ms in frame_ms:
+  if ms > 20.0:
+   spikes_20 += 1
+  if ms > 25.0:
+   spikes_25 += 1
  var biggest_dt: Array[Dictionary] = samples.duplicate()
  biggest_dt.sort_custom(func(a: Dictionary, b: Dictionary)->bool:
   return float(a["dt_ms"]) > float(b["dt_ms"]))
@@ -44,6 +51,8 @@ func _report(label: String, samples: Array[Dictionary]) -> void:
   return float(a["process_ms"]) > float(b["process_ms"]))
  print("SOL_HITCH_MODE ", label, " ", JSON.stringify({
   "frames":samples.size(),
+  "frames_over_20ms":spikes_20,
+  "frames_over_25ms":spikes_25,
   "frame_median_ms":_median(frame_ms),
   "frame_p95_ms":_p95(frame_ms),
   "frame_max_ms":biggest_dt[0]["dt_ms"] if not biggest_dt.is_empty() else 0,
@@ -89,6 +98,27 @@ func _run_probe() -> void:
    await create_timer(CAPTURE_SECONDS).timeout
    scene.measuring = false
    _report(scenario + "/" + mode, scene.samples)
+ # One more controlled A/B run on Windows: same active construction
+ # scene, paired x1/x16/pause, VSync ON vs OFF. On CI/headless the
+ # display server cannot change presentation mode, so skip the A/B.
+ if DisplayServer.get_name() != "headless":
+  var original_vsync: DisplayServer.VSyncMode = DisplayServer.window_get_vsync_mode()
+  print("SOL_HITCH_VSYNC_BASELINE ", original_vsync)
+  for mode in ["x1", "x16", "pause"]:
+   scene.paused = mode == "pause"
+   scene.visual_clock.set_paused(scene.paused)
+   scene._set_speed(16 if mode == "x16" else 1)
+   for vsync in [DisplayServer.VSYNC_ENABLED, DisplayServer.VSYNC_DISABLED]:
+    scene.measuring = false
+    scene.samples.clear()
+    DisplayServer.window_set_vsync_mode(vsync)
+    await create_timer(0.5).timeout
+    scene.measuring = true
+    await create_timer(3.0).timeout
+    scene.measuring = false
+    _report("vsync/" + ("on/" if vsync == DisplayServer.VSYNC_ENABLED else "off/") + mode, scene.samples)
+  DisplayServer.window_set_vsync_mode(original_vsync)
+  print("SOL_HITCH_VSYNC_RESTORED ", DisplayServer.window_get_vsync_mode())
  scene.queue_free()
  Engine.max_fps = 0
  print("SOL_HITCH_PROBE_PASS")
