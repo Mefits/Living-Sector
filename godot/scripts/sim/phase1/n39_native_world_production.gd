@@ -3996,6 +3996,27 @@ func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
 ## N15 receipts and N121 dispatch keys remain stored for reconciliation.
 ## A detached quote is published ONLY if every wallet, Board and World
 ## invariant succeeds together; no second ledger and no magic refund.
+# N152 refund wallets are scalar fields inside mutable facility/household rows.
+# Detach the registry roots once, then only each actually credited payer row.
+# All original rows remain read-only until the full Schema/N9 publication gate.
+static func _n152_owned_refund_wallet_stage(world: Dictionary) -> Dictionary:
+    var staged: Dictionary = world.duplicate()
+    for domain in ["escrow_balances", "facilities", "populations"]:
+        staged[domain] = world[domain].duplicate()
+    staged["faction_treasuries"] = world.get("faction_treasuries", {}).duplicate()
+    return staged
+
+
+static func _n152_detach_refund_wallet_row(staged: Dictionary,
+        original: Dictionary, domain: String, row_id: String,
+        detached: Dictionary) -> void:
+    var key: String = domain + "/" + row_id
+    if detached.has(key):
+        return
+    staged[domain][row_id] = original[domain][row_id].duplicate(true)
+    detached[key] = true
+
+
 func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick:
         return {"ok": false, "reason": "n152_not_the_canonical_post_facility_tick"}
@@ -4123,11 +4144,9 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
     # Detach wallet domains before any writes, including rejected refunds.
     var staged: Dictionary = _copy_world("L3596_owned_root", false)
     staged["contract_board"] = next_board.duplicate(true)
+    var detached_refund_payers: Dictionary = {}
     if not proposal["refunded"].is_empty():
-        staged["escrow_balances"] = _world["escrow_balances"].duplicate(true)
-        staged["facilities"] = _world["facilities"].duplicate(true)
-        staged["populations"] = _world["populations"].duplicate(true)
-        staged["faction_treasuries"] = _world.get("faction_treasuries", {}).duplicate(true)
+        staged = _n152_owned_refund_wallet_stage(staged)
     for item in proposal["refunded"]:
         var id: String = str(item["contract_id"])
         var escrow: String = str(item["escrow"])
@@ -4138,11 +4157,13 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
             var facility_id: String = payer.substr(9)
             if not staged["facilities"].has(facility_id):
                 return {"ok": false, "fatal": true, "reason": "n152_refund_missing_facility"}
+            _n152_detach_refund_wallet_row(staged, _world, "facilities", facility_id, detached_refund_payers)
             staged["facilities"][facility_id]["credits"] = payer_balance
         elif payer.begins_with("population/"):
             var population_id: String = payer.substr(11)
             if not staged["populations"].has(population_id):
                 return {"ok": false, "fatal": true, "reason": "n152_refund_missing_household"}
+            _n152_detach_refund_wallet_row(staged, _world, "populations", population_id, detached_refund_payers)
             staged["populations"][population_id]["wealth"] = payer_balance
         elif payer.begins_with("faction/"):
             var faction_id: String = payer.substr(8)
