@@ -96,7 +96,11 @@ static func _derived_matches_slots(saved: Dictionary,
 			return false
 	return true
 
-func restore(records: Array) -> bool:
+## A read-only validated preflight can borrow rows until the N140 gate
+## produces its detached fleet. All normal restores remain deep-owned.
+## Callers using detach=false MUST NOT mutate ships or escape the borrowed
+## roster to any write stage.
+func restore(records: Array, detach: bool = true) -> bool:
 	var restored := {}
 	for record in records:
 		if not record is Dictionary:
@@ -170,6 +174,6 @@ func restore(records: Array) -> bool:
 			return false
 		if int(record["crew_size"]) != (record["crew_roles"] as Array).size():
 			return false
-		restored[id] = record.duplicate(true)
+		restored[id] = record.duplicate(true) if detach else record
 	ships = restored
 	return true

@@ -14,12 +14,20 @@ const N104Resume = preload("res://scripts/sim/phase2/unified_n104_contract_resum
 ## Original colony contract targets a temporary physical dock, not a
 ## market warehouse. All IDs come from the one N39 source receipt.
 static func _real_contract_dock(world: Dictionary,
-        contract: Dictionary, location: String) -> Dictionary:
-    var market: Dictionary = world.get("markets", {}).get(location, {})
-    if not market.is_empty():
-        var owner_id: String = str(market.get("owner", ""))
-        if world.get("facilities", {}).has(owner_id) and str(world["facilities"][owner_id].get("type", "")) == "station":
-            return {"id": owner_id, "type": "station"}
+        contract: Dictionary, location: String,
+        scratch: Dictionary = {}) -> Dictionary:
+    # Market ownership is stable during one synchronous N84 proposal.
+    # Cache only the market's station candidate; validate the live facility
+    # on each lookup so a changed/removed facility cannot be authorized.
+    var station_candidates: Dictionary = scratch.get("_n84_station_candidates", {})
+    if not station_candidates.has(location):
+        var market: Dictionary = world.get("markets", {}).get(location, {})
+        station_candidates[location] = str(market.get("owner", ""))
+        scratch["_n84_station_candidates"] = station_candidates
+    var owner_id: String = str(station_candidates[location])
+    if not owner_id.is_empty() and world.get("facilities", {}).has(owner_id) and (
+            str(world["facilities"][owner_id].get("type", "")) == "station"):
+        return {"id": owner_id, "type": "station"}
     # The Rust ContractType::Construction uses the SAME prepared site
     # dock as founding passengers, but deposits into N154 rather than a
     # non-existent Market warehouse.
@@ -27,7 +35,36 @@ static func _real_contract_dock(world: Dictionary,
             str(contract.get("mission_category", "")) != "strategy.colony.v1" or
             str(contract.get("destination_location", "")) != location):
         return {}
-    for site_id in world.get("construction_sites", {}):
+    # Construction contracts name exactly one authoritative site. Avoid a
+    # full scan of the growing colony-site history on every N84 dock leaf.
+    # Passenger contracts retain the original ordered scan/tie-break.
+    var site_ids: Array = []
+    if str(contract.get("contract_type", "")) == "construction":
+        var required_site: String = str(contract.get("colony_site_id", ""))
+        if not world.get("construction_sites", {}).has(required_site):
+            return {}
+        site_ids = [required_site]
+    else:
+        # Build a proposal-local ordered roster once, rather than scanning
+        # every historical colony site for each passenger Dock/Deliver leaf.
+        # Only stable site location/faction fields are indexed. Receipts,
+        # facility type, abandonment and labor are checked LIVE below.
+        if not scratch.has("_n84_passenger_site_roster"):
+            var roster: Dictionary = {}
+            for candidate_id in world.get("construction_sites", {}):
+                var candidate: Dictionary = world["construction_sites"][candidate_id]
+                var candidate_location: String = str(candidate.get("location_name", ""))
+                var candidate_faction: String = str(candidate.get("faction_id", ""))
+                if not roster.has(candidate_location):
+                    roster[candidate_location] = {}
+                var by_faction: Dictionary = roster[candidate_location]
+                if not by_faction.has(candidate_faction):
+                    by_faction[candidate_faction] = []
+                by_faction[candidate_faction].append(candidate_id)
+            scratch["_n84_passenger_site_roster"] = roster
+        var location_roster: Dictionary = scratch["_n84_passenger_site_roster"].get(location, {})
+        site_ids = location_roster.get(str(contract.get("faction_id", "")), [])
+    for site_id in site_ids:
         var site: Dictionary = world["construction_sites"][site_id]
         if str(site.get("location_name", "")) != location or (
                 str(site.get("faction_id", "")) != str(contract.get("faction_id", "")) or
@@ -46,6 +83,38 @@ static func _real_contract_dock(world: Dictionary,
                 not bool(fac.get("abandoned", false))):
             return {"id": fid, "type": "construction_dock"}
     return {}
+
+## N21 receipts are append-only within a synchronous N84 proposal. Build
+## one detached latest-dock-tick index; never store it in World/N38.
+## A separate namespace prevents a real ship ID from colliding with
+## scratch control keys such as "_ready" or "_n84_gate_roster".
+static func _latest_dock_ticks(world: Dictionary, scratch: Dictionary) -> Dictionary:
+    if scratch.has("_n84_latest_dock_ticks"):
+        return scratch["_n84_latest_dock_ticks"]
+    # DockDwell can only read this index for a ship currently occupying a
+    # physical dock. Historic N21 receipts can grow indefinitely, including
+    # removed ships and ships now in transit. Keep only relevant IDs while
+    # preserving the original max-tick rule and receipt iteration semantics.
+    # This filter is built once per synchronous N84 proposal; N84 never
+    # applies N21 dock mutations until N39 commits the proposal.
+    var docked_ids: Dictionary = {}
+    for ship_id in world.get("ships", {}):
+        var row: Variant = world["ships"][ship_id]
+        if row is Dictionary and not str(row.get("docked_at", "")).is_empty():
+            docked_ids[str(ship_id)] = true
+    var latest: Dictionary = {}
+    if not docked_ids.is_empty():
+        for receipt_id in world.get("dock_receipts", {}):
+            var receipt: Dictionary = world["dock_receipts"][receipt_id]
+            if str(receipt.get("action", "")) != "dock":
+                continue
+            var receipt_ship: String = str(receipt.get("ship_id", ""))
+            if not docked_ids.has(receipt_ship):
+                continue
+            latest[receipt_ship] = maxi(int(latest.get(receipt_ship, -1)),
+                int(receipt.get("tick", -1)))
+    scratch["_n84_latest_dock_ticks"] = latest
+    return latest
 
 ## Frozen Rust ShipAction::Dock / DockAtShipyard: ShipEconomy
 ## wait starts on the FIRST N84 attempt, not when N21 FIFO grants a slot.
@@ -89,7 +158,8 @@ static func _native_dock_wait(ship: Dictionary, tick: int,
 static func _dispatch(action: Dictionary, _bb: Dictionary,
         world: Dictionary, graph: RefCounted, positions: Dictionary,
         ship_id: String, tick: int, scale: float,
-        multiplier: int = 1) -> Dictionary:
+        multiplier: int = 1, dock_ticks: Dictionary = {},
+        shipyard_locations: Dictionary = {}) -> Dictionary:
     var kind: String = str(action.get("kind", ""))
     var ship: Dictionary = world["ships"][ship_id]
     var location: String = str(ship.get("location", ""))
@@ -112,13 +182,32 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.RUNNING, "reason": "n108_source_gate_arrival_pending"}
         if not str(ship.get("docked_at", "")).is_empty():
             return {"status": Bt.RUNNING, "reason": "n108_actual_n21_gate_undock_needed"}
+        # N84 may evaluate many GateJump leaves in the same paid tick.
+        # Build the gate roster once per proposal, retaining the original
+        # facilities iteration order and ambiguous-gate rejection. N84 only
+        # mutates ship rows; N39 applies gate/facility changes after proposal.
+        # dock_ticks is call-scoped scratch, never stored in World/N38.
+        if not dock_ticks.has("_n84_gate_roster"):
+            var gate_roster: Dictionary = {}
+            for fid in world.get("facilities", {}):
+                var fac: Dictionary = world["facilities"][fid]
+                if str(fac.get("type", "")) == "gate" and fac.get(
+                        "gate_link", null) is Dictionary:
+                    var gate_location: String = str(fac.get("location", ""))
+                    if not gate_roster.has(gate_location):
+                        gate_roster[gate_location] = []
+                    gate_roster[gate_location].append(str(fid))
+            dock_ticks["_n84_gate_roster"] = gate_roster
+        # A cached roster is only a candidate index. A previous BT leaf may
+        # have staged a command, but never treat stale candidates as authority.
+        # Revalidate type, location and link against the live proposal World.
         var gates: Array = []
-        for fid in world.get("facilities", {}):
-            var fac: Dictionary = world["facilities"][fid]
-            if str(fac.get("type", "")) == "gate" and str(
-                    fac.get("location", "")) == location and fac.get(
-                    "gate_link", null) is Dictionary:
-                gates.append(str(fid))
+        for candidate_id in dock_ticks["_n84_gate_roster"].get(location, []):
+            var candidate: Dictionary = world.get("facilities", {}).get(candidate_id, {})
+            if str(candidate.get("type", "")) == "gate" and (
+                    str(candidate.get("location", "")) == location and
+                    candidate.get("gate_link", null) is Dictionary):
+                gates.append(candidate_id)
         if gates.size() != 1:
             return {"status": Bt.RUNNING, "reason": "n108_unbuilt_or_ambiguous_source_gate"}
         var origin: Dictionary = world["facilities"][gates[0]]
@@ -155,8 +244,11 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.SUCCESS}
         if not (ship.get("transit", {}) as Dictionary).is_empty():
             return {"status": Bt.RUNNING, "reason": "physical_n14_transit_active"}
-        var proposed: Dictionary = ShipPhase.depart(world, graph,
-            positions, tick, scale, ship_id, to)
+        if not dock_ticks.has("_n84_transit_envelope"):
+            dock_ticks["_n84_transit_envelope"] = {}
+        var proposed: Dictionary = ShipPhase.preview_depart(world, graph,
+            positions, tick, scale, ship_id, to,
+            dock_ticks["_n84_transit_envelope"], true)
         if not proposed.get("ok", false):
             return {"status": Bt.RUNNING,
                 "reason": str(proposed.get("reason", "n14_departure_not_ready"))}
@@ -169,6 +261,11 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
         })
         if cmd.is_empty():
             return {"status": Bt.FAILURE, "reason": "n146_invalid_transit_command"}
+        # A single BT leaf already computed and validated this preview. N84
+        # consumes it after Bt.tick instead of scanning the growing fleet and
+        # restoring the same candidate a second time. Scratch is proposal-local.
+        dock_ticks["_n84_pending_departure"] = {"ship": ship_id, "to": to,
+            "token": int(world.get("ship_next_token", -1)), "preview": proposed}
         return {"status": Bt.RUNNING, "commands": [cmd],
             "reason": "issued_n146_begin_transit"}
     # N91 construction is a noncommercial real engineering task, NOT
@@ -283,7 +380,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     if kind == "Dock":
         if stage not in ["accepted", "picked_up"] or location != at:
             return {"status": Bt.RUNNING, "reason": "n21_contract_location_not_ready"}
-        var assigned_dock: Dictionary = _real_contract_dock(world, c, at)
+        var assigned_dock: Dictionary = _real_contract_dock(world, c, at, dock_ticks)
         var facility: String = str(assigned_dock.get("id", ""))
         if facility.is_empty():
             return {"status": Bt.RUNNING, "reason": "n151_original_contract_dock_not_prepared"}
@@ -310,10 +407,12 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
     if kind == "DockDwell":
         if str(ship.get("docked_at", "")).is_empty():
             return {"status": Bt.RUNNING, "reason": "n21_dwell_requires_actual_dock"}
-        var dock_tick: int = -1
-        for receipt in world.get("dock_receipts", {}).values():
-            if str(receipt.get("ship_id", "")) == ship_id and str(receipt.get("action", "")) == "dock":
-                dock_tick = maxi(dock_tick, int(receipt.get("tick", -1)))
+        # The N84 pass may evaluate DockDwell for many ships. Build the
+        # latest authoritative N21 dock receipt cursor only on first use,
+        # then reuse it for this read-only proposal pass. Never persist it
+        # across ticks: N21 may undock/redock between paid ticks.
+        var latest_dock_ticks: Dictionary = _latest_dock_ticks(world, dock_ticks)
+        var dock_tick: int = int(latest_dock_ticks.get(ship_id, -1))
         if dock_tick < 0:
             return {"status": Bt.RUNNING, "reason": "no_verified_n21_dock_time"}
         var dwell_seconds: int = maxi(0, int(action.get("seconds", 0)))
@@ -380,7 +479,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.FAILURE, "reason": "n104_passenger_leaf_wrong_kind"}
         if stage != "picked_up" or location != str(c.get("destination_location", "")):
             return {"status": Bt.RUNNING, "reason": "n104_delivery_location_unavailable"}
-        var destination: Dictionary = _real_contract_dock(world, c, location)
+        var destination: Dictionary = _real_contract_dock(world, c, location, dock_ticks)
         var destination_owner: String = str(destination.get("id", ""))
         if destination_owner.is_empty():
             return {"status": Bt.RUNNING, "reason": "n104_real_destination_dock_not_ready"}
@@ -412,13 +511,29 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             return {"status": Bt.SUCCESS}
         if not ship.get("transit", {}).is_empty():
             return {"status": Bt.RUNNING, "reason": "n108_wait_native_arrival"}
-        var found: bool = false
-        for id in world.get("facilities", {}):
-            var fac: Dictionary = world["facilities"][id]
-            if str(fac.get("type", "")) == "shipyard" and not fac.get("abandoned", false) and str(fac.get("location", "")) == location:
-                found = true
+        # Build the call-scoped roster only if an N108 leaf actually asks.
+        # N84 proposals never mutate facilities; N39 applies commands later.
+        if not shipyard_locations.has("_n84_shipyard_roster"):
+            var yard_roster: Dictionary = {}
+            for id in world.get("facilities", {}):
+                var fac: Dictionary = world["facilities"][id]
+                if str(fac.get("type", "")) == "shipyard" and not bool(fac.get("abandoned", false)):
+                    var yard_location: String = str(fac.get("location", ""))
+                    if not yard_roster.has(yard_location):
+                        yard_roster[yard_location] = []
+                    yard_roster[yard_location].append(id)
+            shipyard_locations["_n84_shipyard_roster"] = yard_roster
+        # A location key can equal any scratch sentinel. Keep metadata
+        # separate and validate live facilities before issuing N21 commands.
+        var live_yard: bool = false
+        for yard_candidate_id in shipyard_locations["_n84_shipyard_roster"].get(location, []):
+            var candidate_yard: Dictionary = world.get("facilities", {}).get(yard_candidate_id, {})
+            if str(candidate_yard.get("type", "")) == "shipyard" and (
+                    str(candidate_yard.get("location", "")) == location and
+                    not bool(candidate_yard.get("abandoned", false))):
+                live_yard = true
                 break
-        if not found:
+        if not live_yard:
             return {"status": Bt.RUNNING, "reason": "n108_no_built_shipyard_here"}
         var dock_cmd: Dictionary = Commands.make_command(
             "RequestDock" if old_dock.is_empty() else "ReleaseDock", {
@@ -459,6 +574,29 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
 ## All fleet commands are proposed in stable source ship-id order. N14
 ## transit and N21/N90/N97/N108 commands pass one N146 queue; N39/N9
 ## remain the only physical/financial Apply authority.
+## N84 reads all fleet rows, but only BT-active ships can be written here.
+## The shallow roster is private; rows still alias World until explicitly owned.
+## Seal the result before returning so no untouched World cargo/BT/memory
+## dictionaries can escape to N39's later write stages.
+static func _owned_fleet_begin(world_ships: Dictionary) -> Dictionary:
+    return world_ships.duplicate()
+
+static func _owned_fleet_row(staged_ships: Dictionary, ship_id: String,
+        owned: Dictionary) -> Dictionary:
+    if not owned.has(ship_id):
+        staged_ships[ship_id] = (staged_ships[ship_id] as Dictionary).duplicate(true)
+        owned[ship_id] = true
+    return staged_ships[ship_id]
+
+static func _owned_fleet_seal(staged_ships: Dictionary,
+        owned: Dictionary) -> Dictionary:
+    # Keep active rows and BT trees already owned by this proposal. Copy
+    # inactive rows exactly once; caller receives a fully independent fleet.
+    for ship_id in staged_ships:
+        if not owned.has(ship_id):
+            staged_ships[ship_id] = (staged_ships[ship_id] as Dictionary).duplicate(true)
+    return staged_ships
+
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, tick: int, scale: float,
         multiplier: int = 1) -> Dictionary:
@@ -471,7 +609,8 @@ static func propose(world: Dictionary, graph: RefCounted,
     # source state read-only; detach the fleet before the first BT write.
     # N39/N146 remains the sole authoritative mutation/commit path.
     var staged: Dictionary = world.duplicate()
-    staged["ships"] = (world["ships"] as Dictionary).duplicate(true)
+    staged["ships"] = _owned_fleet_begin(world["ships"])
+    var owned_ship_rows: Dictionary = {}
     var cmd_buffer = Commands.new()
     if not cmd_buffer.begin_phase(tick, "ships"):
         return {"ok": false, "reason": "n146_phase_cannot_begin"}
@@ -479,6 +618,9 @@ static func propose(world: Dictionary, graph: RefCounted,
     var ids: Array = staged["ships"].keys()
     ids.sort()
     var changed: bool = false
+    # Per-proposal scratch only; no World or N38 state is added.
+    var dock_ticks: Dictionary = {}
+    var shipyard_locations: Dictionary = {}
     for ship_id in ids:
         var ship: Dictionary = staged["ships"][ship_id]
         var contract_id: String = str(ship.get("active_contract_id", ""))
@@ -487,6 +629,9 @@ static func propose(world: Dictionary, graph: RefCounted,
             if own_goal not in ["construct", "retrofit", "refit", "trade_route",
                     "mine", "mine_ice", "deliver_mined_ice", "explore", "refuel"]:
                 continue
+        # Read-only N104 and BT gates precede the costly nested copy.
+        # Acquire ownership immediately before the first possible write.
+        if contract_id.is_empty():
             var assigned_bt: Variant = ship.get("current_bt", null)
             if not (assigned_bt is Dictionary) or not Bt.validate(assigned_bt):
                 return {"ok": false, "reason": "n84_invalid_active_source_plan",
@@ -499,6 +644,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                 if not staged.get("construction_sites", {}).has(target_site):
                     # Native N154 has materialized the construction site:
                     # release only its N91 plan, never its physical dock.
+                    ship = _owned_fleet_row(staged["ships"], str(ship_id),
+                        owned_ship_rows)
                     ship["current_goal"] = "idle"
                     ship["current_bt"] = null
                     ship["current_goal_score"] = 0.0
@@ -514,6 +661,9 @@ static func propose(world: Dictionary, graph: RefCounted,
         if not contract_id.is_empty() and (held.is_empty() or str(held.get("status", "")) not in ["accepted", "picked_up"] or str(held.get("fulfiller_id", "")) != str(ship_id)):
             return {"ok": false, "reason": "n84_missing_actual_n104_obligation",
                 "ship_id": str(ship_id)}
+        # The N104 proof has passed. Keep this row read-only while testing
+        # the saved BT or attempting a missing-plan resume. A failed resume
+        # emits only a trace and must not clone the nested cargo/BT/transaction.
         var bt: Variant = ship.get("current_bt", null)
         if bt == null:
             var recovered: Dictionary = {}
@@ -522,6 +672,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                 # from the current ship, cargo and held N104 contract.
                 recovered = N104Resume.propose(ship, held, graph, staged)
                 if recovered.get("ok", false):
+                    ship = _owned_fleet_row(staged["ships"], str(ship_id),
+                        owned_ship_rows)
                     ship["current_bt"] = recovered["tree"].duplicate(true)
                     ship["current_goal"] = str(recovered["goal"])
                     ship["last_plan_tick"] = tick
@@ -540,16 +692,23 @@ static func propose(world: Dictionary, graph: RefCounted,
                 "contract_id": contract_id, "leaf": "",
                 "status": Bt.RUNNING, "reason": missing_plan_reason})
             continue
-        if not (bt is Dictionary) or not Bt.validate(bt):
+        # Validate the original read-only contract BT before acquiring
+        # ownership. Autonomous goals were already validated above.
+        if not (bt is Dictionary) or (contract_id != "" and not Bt.validate(bt)):
             return {"ok": false, "reason": "n84_invalid_saved_plan",
                 "ship_id": str(ship_id)}
+        # From this point BT.tick/_dispatch may write ship fields or nested
+        # state. The detached row must be installed in staged before dispatch.
+        ship = _owned_fleet_row(staged["ships"], str(ship_id), owned_ship_rows)
+        bt = ship.get("current_bt", null)
         var current_leaf: String = Bt.current_action(bt)
         # One leaf tick per ship per tick; action may return Running for many
         # physical flight ticks without advancing its saved Sequence.index.
         var detail: Dictionary = {"reason": ""}
         var executor: Callable = func(action: Dictionary, bb: Dictionary) -> Dictionary:
             var result: Dictionary = _dispatch(action, bb, staged, graph,
-                positions, str(ship_id), tick, scale, multiplier)
+                positions, str(ship_id), tick, scale, multiplier, dock_ticks,
+                shipyard_locations)
             detail["reason"] = str(result.get("reason", ""))
             return result
         var next: Dictionary = Bt.tick(bt, executor, {})
@@ -670,8 +829,22 @@ static func propose(world: Dictionary, graph: RefCounted,
             if str(command.get("kind", "")) != "BeginTransit":
                 return {"ok": false, "reason": "n146_command_not_yet_integrated",
                     "ship_id": str(ship_id)}
-            var native_move: Dictionary = ShipPhase.depart(staged, graph,
-                positions, tick, scale, str(ship_id), str(command["to"]))
+            # The proposal only needs the candidate's transit receipt.
+            # N146/N39 remains authoritative for the eventual departure.
+            # Do not restore and deep-copy every unrelated ship per BT leaf.
+            var pending_departure: Dictionary = dock_ticks.get("_n84_pending_departure", {})
+            dock_ticks.erase("_n84_pending_departure")
+            var native_move: Dictionary = {}
+            if str(pending_departure.get("ship", "")) == str(ship_id) and (
+                    str(pending_departure.get("to", "")) == str(command["to"]) and
+                    int(pending_departure.get("token", -1)) == int(staged.get("ship_next_token", -2))):
+                native_move = pending_departure.get("preview", {})
+            else:
+                # Defensive fallback for commands not originating in this
+                # leaf, or for a changed token; never trust stale previews.
+                native_move = ShipPhase.preview_depart(staged, graph,
+                    positions, tick, scale, str(ship_id), str(command["to"]),
+                    dock_ticks.get("_n84_transit_envelope", {}), true)
             if not native_move.get("ok", false):
                 return {"ok": false, "reason": "n14_authoritative_departure_rejected",
                     "ship_id": str(ship_id)}
@@ -679,8 +852,15 @@ static func propose(world: Dictionary, graph: RefCounted,
             if int(actual.get("arrival_tick", -1)) != int(command["arrival_tick"]) or str(actual.get("from", "")) != str(command["from"]):
                 return {"ok": false, "reason": "n146_n14_receipt_mismatch",
                     "ship_id": str(ship_id)}
-            staged["ships"] = native_move["ships"]
+            # Keep the already-detached N84 fleet and replace only this
+            # candidate. Replacing the whole fleet would discard other BT
+            # cursor updates made earlier in this same ordered proposal.
+            staged["ships"][ship_id] = native_move["ships"][ship_id]
             staged["ship_next_token"] = int(native_move["next_token"])
+            # Any committed transit changes the maximum-token envelope.
+            # Invalidate before the next BT leaf, including fallback paths.
+            if dock_ticks.has("_n84_transit_envelope"):
+                ShipPhase.invalidate_transit_envelope(dock_ticks["_n84_transit_envelope"])
             ship = staged["ships"][ship_id]
         if next["tree"] != bt:
             changed = true
@@ -688,7 +868,12 @@ static func propose(world: Dictionary, graph: RefCounted,
             # An N90 poll may clear a paid acknowledgment without a new
             # command; that single-owner cursor must still be committed.
             changed = true
-        ship["current_bt"] = next["tree"].duplicate(true)
+        # Bt.tick->_tick_node deep-detaches the complete BT before any
+        # cursor mutation. N84 already owns its deep-detached staged fleet.
+        # Keep that exclusively owned result: another recursive clone per
+        # active ship/tick duplicates the same nested Sequence/Selector tree.
+        # Do not alias the original World BT or reuse this result for another ship.
+        ship["current_bt"] = next["tree"]
         if next["status"] == Bt.SUCCESS and contract_id.is_empty() and (
                 str(ship.get("current_goal", "")) in [
                     "trade_route", "mine", "mine_ice",
@@ -704,6 +889,7 @@ static func propose(world: Dictionary, graph: RefCounted,
             "site_id": N91.target(next["tree"]) if contract_id.is_empty() else "",
             "leaf": current_leaf, "status": str(next["status"]),
             "reason": detail["reason"]})
-    return {"ok": true, "changed": changed, "ships": staged["ships"],
+    return {"ok": true, "changed": changed,
+        "ships": _owned_fleet_seal(staged["ships"], owned_ship_rows),
         "next_token": int(staged.get("ship_next_token", 0)),
         "commands": cmd_buffer.drain(), "trace": records}

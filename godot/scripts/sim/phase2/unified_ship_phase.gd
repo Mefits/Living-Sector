@@ -7,7 +7,7 @@ const ShipTransit = preload("res://scripts/sim/ship_transit.gd")
 const N140Gate = preload("res://scripts/sim/phase2/unified_n140_ship_lod_phase.gd")
 const NativeShipMemory = preload("res://scripts/sim/phase2/unified_native_ship_price_observation.gd")
 
-static func _load(world: Dictionary) -> Dictionary:
+static func _load(world: Dictionary, detach: bool = true) -> Dictionary:
     if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
         return {"ok": false, "reason": "missing_canonical_fleet"}
     var fleet = ShipState.new()
@@ -24,8 +24,11 @@ static func _load(world: Dictionary) -> Dictionary:
             return {"ok": false, "reason": "invalid_ship_transit"}
         if not trans.is_empty():
             max_token = maxi(max_token, int(trans.get("token", -1)))
-        rows.append(ship.duplicate(true))
-    if not fleet.restore(rows):
+        # ShipState.restore validates and deep-copies each record into its own
+        # fleet. Passing the read-only source row avoids a redundant full
+        # copy before N14/N84 without exposing World to transit mutations.
+        rows.append(ship)
+    if not fleet.restore(rows, detach):
         return {"ok": false, "reason": "invalid_ship_state"}
     var transit = ShipTransit.new()
     if not transit.restore_next_token(int(world["ship_next_token"]), max_token):
@@ -39,7 +42,11 @@ static func advance(world: Dictionary, positions: Dictionary,
         tick_multiplier: int = 1, observers: Array = []) -> Dictionary:
     if tick < 1 or not is_finite(tick_scale) or tick_scale <= 0.0:
         return {"ok": false, "reason": "invalid_fleet_clock"}
-    var opened: Dictionary = _load(world)
+    ## N140.stage validates cursors and returns a fully detached fleet before
+    ## any motion. Do not deep-copy every cargo/BT/memory twice per paid tick:
+    ## ShipState.restore still validates the full original roster, but borrows
+    ## rows only for this read-only preflight. Depart() keeps owned restore.
+    var opened: Dictionary = _load(world, false)
     if not opened.get("ok", false):
         return opened
     var state: RefCounted = opened["fleet"]
@@ -51,7 +58,11 @@ static func advance(world: Dictionary, positions: Dictionary,
         world, positions, tick, tick_multiplier, observers)
     if not gate.get("ok", false):
         return gate
-    state.ships = gate["ships"].duplicate(true)
+    # N140.stage already returns a deep-detached fleet (its out copy).
+    # This stage exclusively owns the returned rows until the final N39
+    # publication copy. A second full-fleet deep copy here is redundant.
+    # Never assign world["ships"] directly: motion mutates these rows.
+    state.ships = gate["ships"]
     var fired: Dictionary = gate["fired"]
     var ids: Array = state.ships.keys()
     ids.sort()
@@ -102,10 +113,12 @@ static func advance(world: Dictionary, positions: Dictionary,
             "n140_skipped_count": int(gate["skipped_count"]),
             "n140_stats": gate.get("stats", {}).duplicate(true),
             "n140_recomputed": bool(gate["recomputed"])}
-    var updated: Dictionary = {}
-    for id in ids:
-        updated[str(id)] = (state.ships[id] as Dictionary).duplicate(true)
-    return {"ok": true, "changed": true, "ships": updated,
+    # N140.stage() deep-detaches the entire fleet before motion.advance().
+    # No other writer sees state.ships during this phase, and the N39 caller
+    # owns the returned preview. Re-copying every nested cargo/BT/memory row
+    # here adds a second O(fleet bytes) pass on each moving paid tick.
+    # Never return world["ships"]: only the already detached N140 fleet.
+    return {"ok": true, "changed": true, "ships": state.ships,
         "next_token": motion.next_token(), "outcomes": outcomes,
         "fired": fired.duplicate(true),
         "n140_fired_count": int(gate["fired_count"]),
@@ -132,9 +145,78 @@ static func depart(world: Dictionary, graph: RefCounted,
     if not motion.depart(state, graph, ship_id, destination,
             positions, tick, tick_scale):
         return {"ok": false, "reason": "native_departure_rejected"}
-    var updated: Dictionary = {}
-    for id in state.ships:
-        updated[str(id)] = (state.ships[id] as Dictionary).duplicate(true)
-    return {"ok": true, "changed": true, "ships": updated,
+    # ShipState.restore() already deep-detached every fleet row from World.
+    # motion.depart() mutates only this exclusively owned fleet; copying
+    # every row again for a BT travel preview costs O(all ship cargo/BT)
+    # per departure proposal, even though N146 will revalidate the command.
+    # Return the owned snapshot, never world["ships"] or a shallow alias.
+    return {"ok": true, "changed": true, "ships": state.ships,
+        "next_token": motion.next_token(),
+        "outcomes": {ship_id: "departed_to_" + destination}}
+
+## The only reusable validation window is a synchronous N84 proposal. External
+## callers ALWAYS rescan, even when passing a populated envelope. N84 owns its
+## shallow fleet map and explicitly invalidates after each BeginTransit.
+static func invalidate_transit_envelope(envelope: Dictionary) -> void:
+    envelope.clear()
+
+static func validate_transit_envelope(world: Dictionary,
+        envelope: Dictionary = {}, proposal_owned: bool = false) -> Dictionary:
+    if not (world.get("ships") is Dictionary) or typeof(world.get("ship_next_token", null)) != TYPE_INT:
+        invalidate_transit_envelope(envelope)
+        return {"ok": false, "reason": "missing_canonical_fleet"}
+    var ships: Dictionary = world["ships"]
+    var cursor: int = int(world["ship_next_token"])
+    # The caller is responsible for invalidating on every identity/transit
+    # mutation. This flag is never enabled for arbitrary public callers.
+    if proposal_owned and bool(envelope.get("validated", false)) and (
+            int(envelope.get("token", -1)) == cursor and
+            int(envelope.get("size", -1)) == ships.size()):
+        return {"ok": true, "max_token": int(envelope["max_token"])}
+    var max_token: int = 0
+    for id in ships:
+        var row: Variant = ships[id]
+        if not (row is Dictionary) or str(row.get("id", "")) != str(id):
+            invalidate_transit_envelope(envelope)
+            return {"ok": false, "reason": "invalid_ship_identity"}
+        var trans: Variant = row.get("transit", null)
+        if not (trans is Dictionary):
+            invalidate_transit_envelope(envelope)
+            return {"ok": false, "reason": "invalid_ship_transit"}
+        if not trans.is_empty():
+            max_token = maxi(max_token, int(trans.get("token", -1)))
+    invalidate_transit_envelope(envelope)
+    envelope["validated"] = proposal_owned
+    envelope["token"] = cursor
+    envelope["size"] = ships.size()
+    envelope["max_token"] = max_token
+    return {"ok": true, "max_token": max_token}
+
+## N84 only needs the arrival receipt for a proposed BeginTransit command.
+## Validate the entire authoritative fleet/token envelope as _load does, but
+## deep-copy only the candidate row. The full depart() API remains unchanged.
+static func preview_depart(world: Dictionary, graph: RefCounted,
+        positions: Dictionary, tick: int, tick_scale: float,
+        ship_id: String, destination: String,
+        envelope: Dictionary = {}, proposal_owned: bool = false) -> Dictionary:
+    if ship_id.is_empty() or destination.is_empty() or graph == null:
+        return {"ok": false, "reason": "invalid_ship_order"}
+    var checked: Dictionary = validate_transit_envelope(world, envelope, proposal_owned)
+    if not checked.get("ok", false):
+        return checked
+    var max_token: int = int(checked["max_token"])
+    if not world["ships"].has(ship_id):
+        return {"ok": false, "reason": "ship_must_undock_first"}
+    var state = ShipState.new()
+    if not state.restore([world["ships"][ship_id]]):
+        return {"ok": false, "reason": "invalid_ship_state"}
+    var motion = ShipTransit.new()
+    if not motion.restore_next_token(int(world["ship_next_token"]), max_token):
+        return {"ok": false, "reason": "invalid_ship_token_cursor"}
+    if not str(state.ships[ship_id].get("docked_at", "")).is_empty():
+        return {"ok": false, "reason": "ship_must_undock_first"}
+    if not motion.depart(state, graph, ship_id, destination, positions, tick, tick_scale):
+        return {"ok": false, "reason": "native_departure_rejected"}
+    return {"ok": true, "changed": true, "ships": state.ships,
         "next_token": motion.next_token(),
         "outcomes": {ship_id: "departed_to_" + destination}}

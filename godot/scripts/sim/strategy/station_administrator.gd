@@ -40,7 +40,10 @@ func plan(tick: int, station: Dictionary, ledger: RefCounted, executing: bool = 
     var decisions: Array[Dictionary] = []
     var candidates: Array[Dictionary] = []
     var budgets: Dictionary = {}
-    var ordered: Array = facilities.duplicate(true)
+    # Sorting only reorders the local array; individual facility DTOs are
+    # never mutated by planning. Deep-copying every nested body resource map
+    # here duplicates the whole station view on every staffing cycle.
+    var ordered: Array = facilities.duplicate()
     ordered.sort_custom(func(a, b): return str(a.get("id", "")) < str(b.get("id", "")))
     for f in ordered:
         var id: String = str(f.get("id", ""))

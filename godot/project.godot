@@ -5,6 +5,10 @@ config/name="Living Sector — Godot P2 Integration"
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 
+# Experimental F5 backend is selected in scripts/main.gd for this
+# performance PR only. Force the original runner with
+# LS_N158_WORKER_GUI=0 or --p2-default-gui.
+
 [display]
 window/size/viewport_width=1366
 window/size/viewport_height=768

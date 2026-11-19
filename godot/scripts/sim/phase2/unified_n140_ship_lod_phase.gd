@@ -24,63 +24,98 @@ static func stage(world: Dictionary, location_positions: Dictionary,
             return {"ok": false, "reason": "n140_invalid_observer_radius"}
     var ids: Array = world["ships"].keys()
     ids.sort()
-    var agents: Dictionary = {}
+    var recomputed: bool = SourceLod.should_recompute(tick, multiplier)
+    var positions_by_ship: Dictionary = {}
+    var has_lod: bool = false
+    # Preflight is read-only. Geometry is needed only on recompute ticks;
+    # most paid ticks must not rebuild a full ship-position projection.
     for sid in ids:
         var ship: Variant = world["ships"][sid]
         if not (ship is Dictionary):
             return {"ok": false, "reason": "n140_invalid_ship_row"}
         var real_ship: Dictionary = ship
-        var entry: Dictionary = {}
-        # Rust ships without AgentLod tick every single native tick.
-        # Older P2 checkpoints must not invent an absent component.
         if real_ship.has("lod"):
+            has_lod = true
             if not (real_ship["lod"] is Dictionary):
                 return {"ok": false, "reason": "n140_invalid_lod_component",
                     "ship_id": str(sid)}
             if not SourceLod._cursor_ok(real_ship["lod"]):
                 return {"ok": false, "reason": "n140_bad_persisted_cursor",
                     "ship_id": str(sid)}
-            entry["lod"] = real_ship["lod"].duplicate(true)
         var transit: Variant = real_ship.get("transit", null)
         if not (transit is Dictionary):
             return {"ok": false, "reason": "n140_invalid_real_transit",
                 "ship_id": str(sid)}
+        if not recomputed or not real_ship.has("lod"):
+            continue
         if not transit.is_empty():
             var p: Variant = transit.get("position", null)
             if p is Array and p.size() == 2 and (p[0] is int or p[0] is float) and (
                     p[1] is int or p[1] is float) and is_finite(float(p[0])) and is_finite(float(p[1])):
-                entry["position"] = Vector2(float(p[0]), float(p[1]))
+                positions_by_ship[str(sid)] = Vector2(float(p[0]), float(p[1]))
         else:
             var location: String = str(real_ship.get("location", ""))
             var location_pos: Variant = location_positions.get(location, null)
             if location_pos is Vector2 and is_finite(location_pos.x) and is_finite(location_pos.y):
-                entry["position"] = location_pos
-        agents[str(sid)] = entry
-    var recomputed: bool = SourceLod.should_recompute(tick, multiplier)
+                positions_by_ship[str(sid)] = location_pos
+    if not has_lod:
+        var every_ship: Dictionary = {}
+        for sid in ids:
+            every_ship[str(sid)] = 1
+        var empty_stats: Dictionary = {}
+        if recomputed:
+            empty_stats = SourceLod.stats_for_agents({})
+        return {"ok": true, "ships": world["ships"].duplicate(true),
+            "changed": false, "fired": every_ship,
+            "fired_count": every_ship.size(), "skipped_count": 0,
+            "recomputed": recomputed, "stats": empty_stats, "tick": tick}
+
+    # SourceLod's set_divisor and try_fire already return detached cursor
+    # dictionaries. Stage ONLY these small cursor results before cloning the
+    # fleet; invalid ticks/cursors cannot trigger a deep cargo/BT copy.
+    # This is a local overlay, never a second authoritative ship store.
+    var cursors: Dictionary = {}
     var stats: Dictionary = {}
     if recomputed:
-        var updated: Dictionary = SourceLod.recompute(agents, observers, tick)
-        if not updated.get("ok", false):
-            return {"ok": false, "reason": "n140_source_recompute_" +
-                str(updated.get("reason", "rejected"))}
-        agents = updated["agents"]
-        stats = updated["stats"].duplicate(true)
-    var gated: Dictionary = SourceLod.ship_gate(agents, ids, tick)
-    if not gated.get("ok", false):
-        return {"ok": false, "reason": "n140_ship_gate_" +
-            str(gated.get("reason", "rejected"))}
-    var out: Dictionary = world["ships"].duplicate(true)
+        stats = SourceLod.stats_for_agents({})
+    var stat_keys: Dictionary = {1: "d1", 2: "d2", 5: "d5",
+        10: "d10", 20: "d20", 50: "d50"}
+    var fired: Dictionary = {}
     var changed: bool = false
     for sid in ids:
-        if out[sid].has("lod"):
-            var old_lod: Dictionary = out[sid]["lod"]
-            var new_lod: Dictionary = gated["agents"][str(sid)]["lod"]
-            if old_lod != new_lod:
-                changed = true
-            out[sid]["lod"] = new_lod.duplicate(true)
+        var key: String = str(sid)
+        var original: Dictionary = world["ships"][sid]
+        if not original.has("lod"):
+            fired[key] = 1
+            continue
+        var cursor: Dictionary = original["lod"]
+        if recomputed and positions_by_ship.has(key):
+            var new_divisor: int = SourceLod.divisor_for_position(
+                positions_by_ship[key], observers)
+            var staged: Dictionary = SourceLod.set_divisor(
+                cursor, new_divisor, tick)
+            if not staged.get("ok", false):
+                return {"ok": false, "reason": "n140_source_recompute_set_divisor_failed:" + key}
+            cursor = staged["cursor"]
+            var stat_key: String = stat_keys.get(new_divisor, "other")
+            stats[stat_key] += 1
+            stats["total"] += 1
+        var gate: Dictionary = SourceLod.try_fire(cursor, tick)
+        if not gate.get("ok", false):
+            return {"ok": false, "reason": "n140_ship_gate_" +
+                str(gate.get("reason", "invalid_cursor_or_tick")) + ":" + key}
+        cursors[sid] = gate["cursor"]
+        if original["lod"] != gate["cursor"]:
+            changed = true
+        if gate.get("fired", false):
+            fired[key] = int(gate["skipped_ticks"])
+    # One deep detachment after every read-only validation and cursor gate.
+    # All original cargo, BT and memory rows remain untouched on failure;
+    # on success the caller owns the entire detached fleet, including sleepers.
+    var out: Dictionary = world["ships"].duplicate(true)
+    for sid in cursors:
+        out[sid]["lod"] = cursors[sid]
     return {"ok": true, "ships": out, "changed": changed,
-        "fired": gated["fires"].duplicate(true),
-        "fired_count": gated["fires"].size(),
-        "skipped_count": ids.size() - gated["fires"].size(),
+        "fired": fired, "fired_count": fired.size(),
+        "skipped_count": ids.size() - fired.size(),
         "recomputed": recomputed, "stats": stats, "tick": tick}
-

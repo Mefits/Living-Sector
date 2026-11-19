@@ -17,7 +17,7 @@ static func _fail(reason: String) -> Dictionary:
 ## committed by the EXISTING N39 market apply, not by this helper.
 ## Old P2 seeds did not expose crisis_notified; {} is the Rust serde default.
 static func stage_market_history(market_id: String, location: String,
-        history: Dictionary) -> Dictionary:
+        history: Dictionary, already_owned: bool = false) -> Dictionary:
     if market_id.is_empty() or location.is_empty():
         return _fail("missing_real_market_identity")
     if not (history.get("shortage_ticks") is Dictionary):
@@ -25,7 +25,7 @@ static func stage_market_history(market_id: String, location: String,
     var raw_flags: Variant = history.get("crisis_notified", {})
     if not (raw_flags is Dictionary):
         return _fail("invalid_market_crisis_flags")
-    var next_flags: Dictionary = raw_flags.duplicate(true)
+    var next_flags: Dictionary = raw_flags if already_owned else raw_flags.duplicate(true)
     for commodity in next_flags:
         if not (commodity is String) or typeof(next_flags[commodity]) != TYPE_BOOL:
             return _fail("invalid_market_crisis_flag")
@@ -50,7 +50,7 @@ static func stage_market_history(market_id: String, location: String,
             events.append({"kind": "market_recovered", "market_id": market_id,
                 "location": location, "commodity": commodity})
             next_flags[commodity] = false
-    var next_history: Dictionary = history.duplicate(true)
+    var next_history: Dictionary = history if already_owned else history.duplicate(true)
     next_history["crisis_notified"] = next_flags
     return {"ok": true, "history": next_history, "events": events}
 

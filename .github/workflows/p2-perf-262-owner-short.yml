@@ -1,0 +1,78 @@
+name: P2 PERF E real-owner N158 parity short gate
+
+on:
+  push:
+    branches:
+      - integration/perf-astra-5-workers-20261116
+    paths:
+      - .github/workflows/p2-perf-262-owner-short.yml
+      - godot/tests/p2_perf_e_real_owner_n158_parity_check.gd
+      - godot/scripts/sim/phase2/n158_real_owner_thread_probe.gd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-262-owner-short
+  cancel-in-progress: true
+
+jobs:
+  real-owner-direct-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install exact project Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/perf-owner-godot"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 150 \
+            --silent --show-error \
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/perf-owner-godot"
+          mv "$RUNNER_TEMP/perf-owner-godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/perf-owner-godot/godot"
+          chmod +x "$RUNNER_TEMP/perf-owner-godot/godot"
+          echo "$RUNNER_TEMP/perf-owner-godot" >> "$GITHUB_PATH"
+      - name: Import script classes and check parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/p2-perf-owner
+          if ! timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot --editor --import --quit \
+            >godot/logs/p2-perf-owner/import.log 2>&1; then
+            tail -n 100 godot/logs/p2-perf-owner/import.log
+            exit 1
+          fi
+          if ! timeout --signal=TERM --kill-after=5s 75s godot --headless --path godot \
+            --script res://tests/p2_unified_script_compile_check.gd \
+            >godot/logs/p2-perf-owner/compile.log 2>&1; then
+            tail -n 160 godot/logs/p2-perf-owner/compile.log
+            exit 1
+          fi
+      - name: Real N158 worker vs direct paid ticks, N38 save-load and corrupt restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout --signal=TERM --kill-after=5s 120s godot --headless --path godot \
+            --script res://tests/p2_perf_e_real_owner_n158_parity_check.gd \
+            >godot/logs/p2-perf-owner/real-owner-parity.log 2>&1; then
+            tail -n 140 godot/logs/p2-perf-owner/real-owner-parity.log
+            exit 1
+          fi
+          grep -q P2_PERF_E_REAL_OWNER_N158_PARITY_PASS godot/logs/p2-perf-owner/real-owner-parity.log || {
+            echo MISSING_PARITY_MARKER
+            tail -n 140 godot/logs/p2-perf-owner/real-owner-parity.log
+            exit 1
+          }
+          tail -n 40 godot/logs/p2-perf-owner/real-owner-parity.log
+      - name: Upload diagnostics even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-perf-real-owner-short-logs
+          path: godot/logs/p2-perf-owner/
+          if-no-files-found: warn
+          retention-days: 7

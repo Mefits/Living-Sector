@@ -1,0 +1,93 @@
+name: P2 PERF E visual interpolation short gate
+
+on:
+  push:
+    branches:
+      - integration/perf-astra-5-workers-20261116
+    paths:
+      - .github/workflows/p2-perf-e-visual-motion-short.yml
+      - godot/scripts/ui_source_motion_interpolator.gd
+      - godot/tests/p2_perf_e_visual_interpolation_check.gd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p2-perf-e-visual-motion-short
+  cancel-in-progress: true
+
+jobs:
+  ui-source-motion:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 150 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot"
+          mv "$RUNNER_TEMP/godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/godot"
+          chmod +x "$RUNNER_TEMP/godot/godot"
+          echo "$RUNNER_TEMP/godot" >> "$GITHUB_PATH"
+      - name: Import and parse complete source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/perf-e-motion
+          timeout --signal=TERM --kill-after=5s 90s godot --headless --path godot --editor --import --quit \
+            >godot/logs/perf-e-motion/import.log 2>&1 || {
+              tail -n 130 godot/logs/perf-e-motion/import.log; exit 1;
+            }
+          timeout --signal=TERM --kill-after=5s 90s godot --headless --path godot \
+            --script res://tests/p2_unified_script_compile_check.gd \
+            >godot/logs/perf-e-motion/parser.log 2>&1 || {
+              tail -n 130 godot/logs/perf-e-motion/parser.log; exit 1;
+            }
+      - name: Actual UI visual-only interpolation and negative regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 35s godot --headless --path godot \
+            --script res://tests/p2_perf_e_visual_interpolation_check.gd \
+            >godot/logs/perf-e-motion/interpolation.log 2>&1 || {
+              tail -n 130 godot/logs/perf-e-motion/interpolation.log; exit 1;
+            }
+          grep -q P2_PERF_E_VISUAL_INTERPOLATION_PASS godot/logs/perf-e-motion/interpolation.log || {
+            tail -n 130 godot/logs/perf-e-motion/interpolation.log; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/perf-e-motion/interpolation.log; then
+            tail -n 130 godot/logs/perf-e-motion/interpolation.log; exit 1;
+          fi
+          grep P2_PERF_E_VISUAL_INTERPOLATION_PASS godot/logs/perf-e-motion/interpolation.log
+      - name: Real threaded GUI keeps moving for 32 source ticks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/perf-e-motion-user"
+          timeout --signal=TERM --kill-after=5s 65s env \
+            XDG_DATA_HOME="$RUNNER_TEMP/perf-e-motion-user" \
+            godot --headless --path godot -- --p2-worker-gui-run-check \
+            >godot/logs/perf-e-motion/worker32.log 2>&1 || {
+              tail -n 130 godot/logs/perf-e-motion/worker32.log; exit 1;
+            }
+          grep -q P2_WORKER_GUI_32_TICK_LIVE_PASS godot/logs/perf-e-motion/worker32.log || {
+            tail -n 130 godot/logs/perf-e-motion/worker32.log; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/perf-e-motion/worker32.log; then
+            tail -n 130 godot/logs/perf-e-motion/worker32.log; exit 1;
+          fi
+          grep P2_WORKER_GUI_32_TICK_LIVE_PASS godot/logs/perf-e-motion/worker32.log
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-perf-e-visual-motion-logs
+          path: godot/logs/perf-e-motion/
+          if-no-files-found: warn
+          retention-days: 7

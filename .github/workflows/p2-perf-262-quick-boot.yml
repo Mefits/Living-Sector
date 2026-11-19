@@ -1,0 +1,143 @@
+name: P2 PERF 262 quick Godot boot smoke
+
+# Explicit one-shot checkpoint: not triggered by ordinary A-E code commits.
+on:
+  push:
+    branches:
+      - integration/perf-astra-5-workers-20261116
+    paths:
+      - .github/workflows/p2-perf-262-quick-boot.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-262-quick-boot
+  cancel-in-progress: true
+
+jobs:
+  parser-and-real-boot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned project Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p2-godot"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 150 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/p2-godot.zip"
+          unzip -q -j "$RUNNER_TEMP/p2-godot.zip" -d "$RUNNER_TEMP/p2-godot"
+          mv "$RUNNER_TEMP/p2-godot/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/p2-godot/godot"
+          chmod +x "$RUNNER_TEMP/p2-godot/godot"
+          echo "$RUNNER_TEMP/p2-godot" >> "$GITHUB_PATH"
+
+      - name: Validate source preloads and import project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/perf-262-quick
+          python3 - <<'PY'
+          from pathlib import Path
+          import re, sys
+          root = Path("godot")
+          missing = []
+          scripts = list(root.rglob("*.gd"))
+          for source in scripts:
+              text = source.read_text(encoding="utf-8-sig")
+              for ref in re.findall(r'preload\("res://([^"]+)"\)', text):
+                  if not (root / ref).is_file():
+                      missing.append(f"{source}: {ref}")
+          print(f"Checked {len(scripts)} GDScript sources; missing preloads: {len(missing)}")
+          for item in missing:
+              print("MISSING_PRELOAD", item)
+          sys.exit(bool(missing))
+          PY
+          godot --version
+          if ! timeout --signal=TERM --kill-after=5s 80s \
+            godot --headless --path godot --editor --import --quit \
+            > godot/logs/perf-262-quick/import.log 2>&1; then
+            tail -n 100 godot/logs/perf-262-quick/import.log
+            exit 1
+          fi
+
+      - name: Parse complete unified Godot source
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! timeout --signal=TERM --kill-after=5s 80s \
+            godot --headless --path godot \
+            --script res://tests/p2_unified_script_compile_check.gd \
+            > godot/logs/perf-262-quick/compile.log 2>&1; then
+            tail -n 150 godot/logs/perf-262-quick/compile.log
+            exit 1
+          fi
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/perf-262-quick/compile.log; then
+            tail -n 150 godot/logs/perf-262-quick/compile.log
+            exit 1
+          fi
+          tail -n 20 godot/logs/perf-262-quick/compile.log
+
+      - name: Boot actual main scene, two real paid ticks and N38 save-load
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/perf-262-user"
+          if ! timeout --signal=TERM --kill-after=5s 80s \
+            env XDG_DATA_HOME="$RUNNER_TEMP/perf-262-user" \
+            godot --headless --path godot -- --p2-boot-check \
+            > godot/logs/perf-262-quick/boot.log 2>&1; then
+            tail -n 150 godot/logs/perf-262-quick/boot.log
+            exit 1
+          fi
+          if ! grep -q 'P2_BOOT_CHECK_PASS' godot/logs/perf-262-quick/boot.log; then
+            echo 'MISSING P2_BOOT_CHECK_PASS'
+            tail -n 150 godot/logs/perf-262-quick/boot.log
+            exit 1
+          fi
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/perf-262-quick/boot.log; then
+            tail -n 150 godot/logs/perf-262-quick/boot.log
+            exit 1
+          fi
+          tail -n 40 godot/logs/perf-262-quick/boot.log
+
+      - name: Small A-E regression sample (no 420/900-tick soak)
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts=(
+            p2_perf_a_market_owned_write_guard_check.gd
+            p2_perf_b_receipt_index_audit_check.gd
+            p2_perf_c_route_relaxation_oracle.gd
+            p2_perf_d_due_index_check.gd
+            p2_perf_e_frame_view_boundary.gd
+          )
+          for script in "${scripts[@]}"; do
+            echo "CHECK $script"
+            log="godot/logs/perf-262-quick/${script%.gd}.log"
+            if ! timeout --signal=TERM --kill-after=5s 35s \
+              godot --headless --path godot --script "res://tests/$script" \
+              > "$log" 2>&1; then
+              echo "FAILED: $script"
+              tail -n 120 "$log"
+              exit 1
+            fi
+            if grep -Eq 'SCRIPT ERROR:|Parse Error:' "$log"; then
+              tail -n 120 "$log"
+              exit 1
+            fi
+            tail -n 8 "$log"
+          done
+
+      - name: Upload small diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-262-quick-boot-logs
+          path: godot/logs/perf-262-quick/
+          if-no-files-found: warn
+          retention-days: 7
