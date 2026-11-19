@@ -253,6 +253,32 @@ func _run() -> void:
  check(stock("earth") == metal_before_key and
   game.construction.sites.size() == orders_before_key,
   "Space does not repeat the last UI command")
+ # Exercise the real Godot input propagation with a focused order button,
+ # not just a direct call to _input(). Space must not order another factory.
+ var order_button: Button = game.browser.build_controls.get(
+  "factory",{}).get("button")
+ if order_button != null and not order_button.disabled:
+  order_button.grab_focus()
+  var orders_before_event: int = game.construction.sites.size()
+  var metals_before_event: float = stock("earth")
+  var key_event := InputEventKey.new()
+  key_event.keycode = KEY_SPACE
+  key_event.pressed = true
+  Input.parse_input_event(key_event)
+  await process_frame
+  check(game.paused and game.speed == 16,
+   "real Space input routed as pause before GUI")
+  check(game.construction.sites.size() == orders_before_event and
+   stock("earth") == metals_before_event,
+   "focused order button not activated by Space")
+  key_event.pressed = false
+  Input.parse_input_event(key_event)
+  await process_frame
+  key_event.pressed = true
+  Input.parse_input_event(key_event)
+  await process_frame
+  check(not game.paused and game.speed == 16,
+   "second actual Space event resumes x16")
 
  game._pause()
  game._close_browser()
@@ -266,6 +292,17 @@ func _run() -> void:
   await process_frame
   check(absf(game.browser.size.x-game.sidebar.size.x) < 2,
    "catalog same width at %dx%d" % [dimension[0],dimension[1]])
+  print("SOL_CATALOG_STOCK ",JSON.stringify({
+   "resolution":str(dimension[0])+"x"+str(dimension[1]),
+   "value":game.browser.colony_line.text,
+   "visible":game.browser.colony_line.is_visible_in_tree(),
+   "rect":game.browser.colony_line.get_global_rect(),
+   "parent_rect":game.browser.colony_line.get_parent().get_global_rect()
+  }))
+  check(not game.browser.colony_line.text.is_empty() and
+   game.browser.colony_line.is_visible_in_tree() and
+   game.browser.colony_line.size.x >= 100,
+   "warehouse summary rendered in build dock")
   check(game.browser.scroll.size.y > 120,
    "catalog list scroll fits %dx%d" % [dimension[0],dimension[1]])
   for id in ["refinery","factory","orbital_platform"]:
