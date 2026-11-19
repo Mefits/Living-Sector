@@ -17,6 +17,20 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
     var proposed_station_spend: Dictionary = {}
     var locations: Array = markets.keys()
     locations.sort()
+    # Capture-local ordered source roster: ownership and location cannot
+    # change during this pure proposal. Reservations remain live per deficit.
+    var supplier_rows: Array[Dictionary] = []
+    for source in locations:
+        var source_market = markets[source]
+        if not (source_market is Dictionary) or not (source_market.get("supply") is Dictionary):
+            continue
+        var source_owner_id: String = str(source_market.get("owner", ""))
+        if not (facilities.get(source_owner_id) is Dictionary):
+            continue
+        if str(facilities[source_owner_id].get("location", "")) != str(source):
+            continue
+        supplier_rows.append({"location": source, "market": source_market,
+            "owner_id": source_owner_id})
     for location in locations:
         var raw = markets[location]
         if not (raw is Dictionary):
@@ -75,21 +89,14 @@ static func propose(world: Dictionary, tick: int) -> Dictionary:
             # A proposal cannot reserve stock twice, and the destination may
             # not promise more money than its actual current station credits.
             var remaining: int = quantity
-            var sources: Array = markets.keys()
-            sources.sort()
-            for source in sources:
+            for supplier in supplier_rows:
                 if remaining <= 0:
                     break
+                var source = supplier["location"]
                 if str(source) == str(location):
                     continue
-                var source_market = markets[source]
-                if not (source_market is Dictionary) or not (source_market.get("supply") is Dictionary):
-                    continue
-                var source_owner_id: String = str(source_market.get("owner", ""))
-                if not (facilities.get(source_owner_id) is Dictionary):
-                    continue
-                if str(facilities[source_owner_id].get("location", "")) != str(source):
-                    continue
+                var source_market: Dictionary = supplier["market"]
+                var source_owner_id: String = supplier["owner_id"]
                 var raw_available = source_market["supply"].get(commodity, 0.0)
                 if not (raw_available is int or raw_available is float):
                     continue
