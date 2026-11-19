@@ -1356,15 +1356,23 @@ func _draw_system() -> void:
         var sprite: Texture2D = null
         var sprite_extent: float = visual_radius
         if kind != "asteroid" and kind != "belt":
+            # Use the actual sprite bounds, including Saturn's rings. Screen
+            # pixels, not camera zoom alone, decide the rasterized SVG tier.
+            var is_saturn: bool = str(system.get("id", "")) == (
+                "system-sol") and bid == "saturn"
+            sprite_extent = visual_radius * (1.65 if is_saturn else 1.07)
+            var bounds := Rect2(
+                position - Vector2.ONE * sprite_extent,
+                Vector2.ONE * sprite_extent * 2.0)
+            var visible_pixels: float = (
+                sprite_extent * 2.0 * _ui_viewport_scale
+                if bounds.intersects(Rect2(Vector2.ZERO, size)) else 0.0)
             sprite = PlanetSprites.texture_for(body,
                 str(system.get("id", "")),
-                visual_radius < 16.0 / _ui_viewport_scale)
-            if sprite != null:
-                # Transparent PNG padding; keep Saturn's disc at its normal
-                # radius while allowing its rings to extend outside it.
-                var is_saturn: bool = str(system.get("id", "")) == (
-                    "system-sol") and bid == "saturn"
-                sprite_extent = visual_radius * (1.65 if is_saturn else 1.07)
+                visual_radius < 16.0 / _ui_viewport_scale,
+                visible_pixels)
+            if sprite == null:
+                sprite_extent = visual_radius
         if kind == "asteroid" or kind == "belt":
             var vertices: PackedVector2Array = PackedVector2Array([
                 position + Vector2(0.0, -visual_radius),
