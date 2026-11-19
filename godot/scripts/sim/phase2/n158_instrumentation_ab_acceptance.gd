@@ -132,3 +132,66 @@ static func compare_windows(early: Dictionary, late: Dictionary) -> Dictionary:
         "instrumentation_drift_usec": late["measured_instrumentation_total_usec"] -
             early["measured_instrumentation_total_usec"],
         "performance_claim": false}
+
+## Compares independently seeded, fully completed strict and periodic experiments.
+## Neither report's wall-time delta is called CPU cost; this is observation
+## contamination evidence, not a speedup claim. Each arm still pays every tick.
+static func compare_checkpoint_modes(strict: Array, periodic: Array) -> Dictionary:
+    if strict.is_empty() or strict.size() != periodic.size():
+        return {"accepted": false, "reason": "incomplete_mode_windows"}
+    var rows: Array = []
+    var strict_total: int = 0
+    var periodic_total: int = 0
+    for i in range(strict.size()):
+        var a: Dictionary = strict[i]
+        var b: Dictionary = periodic[i]
+        for report in [a, b]:
+            if report.get("accepted", false) != true or (
+                    report.get("order", "") != "alternating" or
+                    report.get("time_kind", "") != "elapsed_wall_not_cpu"):
+                return {"accepted": false, "reason": "unverified_mode", "window": i}
+            if typeof(report.get("from_tick", null)) != TYPE_INT or (
+                    typeof(report.get("to_tick", null)) != TYPE_INT or
+                    typeof(report.get("paid_ticks", null)) != TYPE_INT or
+                    report["paid_ticks"] < 1 or report["paid_ticks"] > MAX_TICKS or
+                    report["to_tick"] - report["from_tick"] + 1 != report["paid_ticks"]):
+                return {"accepted": false, "reason": "invalid_window", "window": i}
+            for key in ["plain_total_usec", "profiled_total_usec",
+                    "observed_delta_total_usec", "measured_instrumentation_total_usec",
+                    "checkpoint_stride", "parity_gates"]:
+                if typeof(report.get(key, null)) != TYPE_INT:
+                    return {"accepted": false, "reason": "missing_metric", "window": i}
+            if report["plain_total_usec"] < 0 or report["profiled_total_usec"] < 0 or (
+                    report["measured_instrumentation_total_usec"] < 0 or
+                    report["observed_delta_total_usec"] !=
+                    report["profiled_total_usec"] - report["plain_total_usec"]):
+                return {"accepted": false, "reason": "forged_totals", "window": i}
+            var stride: int = report["checkpoint_stride"]
+            if stride < 1 or stride > report["paid_ticks"] or (
+                    report["parity_gates"] != ceili(float(report["paid_ticks"]) / float(stride))):
+                return {"accepted": false, "reason": "forged_gates", "window": i}
+        if a["checkpoint_stride"] != 1 or b["checkpoint_stride"] <= 1:
+            return {"accepted": false, "reason": "wrong_mode", "window": i}
+        if a["from_tick"] != b["from_tick"] or a["to_tick"] != b["to_tick"] or (
+                a["paid_ticks"] != b["paid_ticks"]):
+            return {"accepted": false, "reason": "different_paid_ticks", "window": i}
+        if i > 0 and (strict[i - 1]["to_tick"] >= a["from_tick"] or
+                periodic[i - 1]["to_tick"] >= b["from_tick"]):
+            return {"accepted": false, "reason": "overlap", "window": i}
+        var strict_cost: int = a["plain_total_usec"] + a["profiled_total_usec"]
+        var periodic_cost: int = b["plain_total_usec"] + b["profiled_total_usec"]
+        strict_total += strict_cost
+        periodic_total += periodic_cost
+        rows.append({"from_tick": a["from_tick"], "to_tick": a["to_tick"],
+            "strict_gates": a["parity_gates"], "periodic_gates": b["parity_gates"],
+            "strict_paid_wall_usec": strict_cost,
+            "periodic_paid_wall_usec": periodic_cost,
+            "paid_wall_difference_usec": strict_cost - periodic_cost,
+            "strict_profiler_delta_usec": a["observed_delta_total_usec"],
+            "periodic_profiler_delta_usec": b["observed_delta_total_usec"]})
+    return {"accepted": true, "windows": rows,
+        "strict_paid_wall_usec": strict_total,
+        "periodic_paid_wall_usec": periodic_total,
+        "paid_wall_difference_usec": strict_total - periodic_total,
+        "observation_kind": "independent_sequential_runs_not_cpu",
+        "checkpoint_time_excluded": true, "performance_claim": false}
