@@ -19,6 +19,8 @@ static func run_pair(first_tick: int, count: int, plain_step: Callable,
     var deltas: Array[int] = []
     var profile_costs: Array[int] = []
     var parity_gates: int = 0
+    var checkpoint_cost_plain: int = 0
+    var checkpoint_cost_profiled: int = 0
     for i in range(count):
         var tick: int = first_tick + i
         # Alternate execution order to avoid systematically privileging an arm.
@@ -45,6 +47,16 @@ static func run_pair(first_tick: int, count: int, plain_step: Callable,
                 return {"accepted": false, "reason": "missing_checkpoint", "tick": tick}
             if not is_gate and arm.has("checkpoint"):
                 return {"accepted": false, "reason": "unexpected_checkpoint", "tick": tick}
+        if is_gate:
+            for arm in [p, q]:
+                if typeof(arm.get("checkpoint_usec", null)) != TYPE_INT or (
+                        arm["checkpoint_usec"] < 0 or arm["checkpoint_usec"] > MAX_USEC):
+                    return {"accepted": false, "reason": "invalid_checkpoint_cost", "tick": tick}
+            checkpoint_cost_plain += p["checkpoint_usec"]
+            checkpoint_cost_profiled += q["checkpoint_usec"]
+        else:
+            if p.has("checkpoint_usec") or q.has("checkpoint_usec"):
+                return {"accepted": false, "reason": "unexpected_checkpoint_cost", "tick": tick}
         if p["instrumentation_usec"] != 0 or (
                 q["instrumentation_usec"] > q["elapsed_usec"]):
             return {"accepted": false, "reason": "instrumentation_accounting",
@@ -64,6 +76,10 @@ static func run_pair(first_tick: int, count: int, plain_step: Callable,
     var report: Dictionary = _summary(first_tick, plain, profiled, deltas, profile_costs)
     report["checkpoint_stride"] = checkpoint_stride
     report["parity_gates"] = parity_gates
+    report["checkpoint_plain_total_usec"] = checkpoint_cost_plain
+    report["checkpoint_profiled_total_usec"] = checkpoint_cost_profiled
+    report["checkpoint_total_usec"] = checkpoint_cost_plain + checkpoint_cost_profiled
+    report["checkpoint_time_excluded"] = true
     report["parity_kind"] = "every_paid_tick" if checkpoint_stride == 1 else "periodic_full_state"
     return report
 
@@ -115,9 +131,17 @@ static func compare_windows(early: Dictionary, late: Dictionary) -> Dictionary:
                     row["parity_gates"] != ceili(float(row["paid_ticks"]) / float(row["checkpoint_stride"])):
                 return {"accepted": false, "reason": "forged_parity_coverage"}
         for key in ["plain_total_usec", "profiled_total_usec",
-                "measured_instrumentation_total_usec", "observed_delta_total_usec"]:
+                "measured_instrumentation_total_usec", "observed_delta_total_usec",
+                "checkpoint_plain_total_usec", "checkpoint_profiled_total_usec",
+                "checkpoint_total_usec"]:
             if typeof(row.get(key, null)) != TYPE_INT:
                 return {"accepted": false, "reason": "invalid_totals"}
+        if row.get("checkpoint_time_excluded", false) != true or (
+                row["checkpoint_plain_total_usec"] < 0 or
+                row["checkpoint_profiled_total_usec"] < 0 or
+                row["checkpoint_total_usec"] != row["checkpoint_plain_total_usec"] +
+                row["checkpoint_profiled_total_usec"]):
+            return {"accepted": false, "reason": "forged_checkpoint_accounting"}
         if row["plain_total_usec"] < 0 or row["profiled_total_usec"] < 0 or (
                 row["measured_instrumentation_total_usec"] < 0 or
                 row["observed_delta_total_usec"] !=
@@ -158,9 +182,17 @@ static func compare_checkpoint_modes(strict: Array, periodic: Array) -> Dictiona
                 return {"accepted": false, "reason": "invalid_window", "window": i}
             for key in ["plain_total_usec", "profiled_total_usec",
                     "observed_delta_total_usec", "measured_instrumentation_total_usec",
-                    "checkpoint_stride", "parity_gates"]:
+                    "checkpoint_stride", "parity_gates",
+                    "checkpoint_plain_total_usec", "checkpoint_profiled_total_usec",
+                    "checkpoint_total_usec"]:
                 if typeof(report.get(key, null)) != TYPE_INT:
                     return {"accepted": false, "reason": "missing_metric", "window": i}
+            if report.get("checkpoint_time_excluded", false) != true or (
+                    report["checkpoint_plain_total_usec"] < 0 or
+                    report["checkpoint_profiled_total_usec"] < 0 or
+                    report["checkpoint_total_usec"] != report["checkpoint_plain_total_usec"] +
+                    report["checkpoint_profiled_total_usec"]):
+                return {"accepted": false, "reason": "forged_checkpoint_cost", "window": i}
             if report["plain_total_usec"] < 0 or report["profiled_total_usec"] < 0 or (
                     report["measured_instrumentation_total_usec"] < 0 or
                     report["observed_delta_total_usec"] !=
@@ -188,8 +220,19 @@ static func compare_checkpoint_modes(strict: Array, periodic: Array) -> Dictiona
             "periodic_paid_wall_usec": periodic_cost,
             "paid_wall_difference_usec": strict_cost - periodic_cost,
             "strict_profiler_delta_usec": a["observed_delta_total_usec"],
-            "periodic_profiler_delta_usec": b["observed_delta_total_usec"]})
+            "periodic_profiler_delta_usec": b["observed_delta_total_usec"],
+            "strict_checkpoint_wall_usec": a["checkpoint_total_usec"],
+            "periodic_checkpoint_wall_usec": b["checkpoint_total_usec"],
+            "checkpoint_wall_difference_usec": a["checkpoint_total_usec"] - b["checkpoint_total_usec"]})
+    var strict_checkpoint_total: int = 0
+    var periodic_checkpoint_total: int = 0
+    for i in range(strict.size()):
+        strict_checkpoint_total += strict[i]["checkpoint_total_usec"]
+        periodic_checkpoint_total += periodic[i]["checkpoint_total_usec"]
     return {"accepted": true, "windows": rows,
+        "strict_checkpoint_wall_usec": strict_checkpoint_total,
+        "periodic_checkpoint_wall_usec": periodic_checkpoint_total,
+        "checkpoint_wall_difference_usec": strict_checkpoint_total - periodic_checkpoint_total,
         "strict_paid_wall_usec": strict_total,
         "periodic_paid_wall_usec": periodic_total,
         "paid_wall_difference_usec": strict_total - periodic_total,
