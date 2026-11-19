@@ -13,6 +13,7 @@ const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 const Economy = preload("res://scripts/sol_construction_runtime.gd")
 const Glyph = preload("res://scripts/view/colony_building_glyph.gd")
+const Icons = preload("res://scripts/view/sol_icon_atlas.gd")
 var world: Dictionary = {}
 var active_sites: Array = []
 var now_native: float = 0.0
@@ -63,7 +64,13 @@ func _ready() -> void:
  layout.add_child(navigation)
  _button(navigation, "Колония", func(): close_requested.emit())
  _button(navigation, "Строительство", _navigate.bind("build"))
- colony_line = _label(layout, "", 14, Color("#e1d1a4"))
+ var stock_bar := HBoxContainer.new()
+ stock_bar.add_theme_constant_override("separation", 5)
+ layout.add_child(stock_bar)
+ var stock_icon: TextureRect = Icons.make_icon("metals", false, 20)
+ if stock_icon != null:
+  stock_bar.add_child(stock_icon)
+ colony_line = _label(stock_bar, "", 14, Color("#e1d1a4"))
  colony_line.clip_text = true
  colony_line.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
@@ -242,13 +249,14 @@ func _cards(editable: bool) -> void:
    card.add_child(stack)
    var name_label: Label = _label(stack, str(building["name"]), 16)
    _spin(stack, "Металлы", float(row.get("metals", 0)),
-    _edit_building.bind(id, "metals"), 1, 100000)
+    _edit_building.bind(id, "metals"), 1, 100000, "metals")
    _spin(stack, "Дней", float(row.get("days", 45)),
     _edit_building.bind(id, "days"), 1, 100000)
    for resource in building.get("inputs", {}).keys():
     var key: String = "input_" + str(resource)
     _spin(stack, "Расход " + Model.resource_label(str(resource)),
-     float(row.get(key, 0)), _edit_building.bind(id, key), 1, 100000)
+     float(row.get(key, 0)), _edit_building.bind(id, key), 1, 100000,
+     str(resource))
    if str(building["product"]) != "none":
     _spin(stack, "Базовый выпуск", float(row.get("base", 0)),
      _edit_building.bind(id, "base"), 1, 100000)
@@ -268,7 +276,10 @@ func _cards(editable: bool) -> void:
    label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
    label.clip_text = true
    label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-   var price := _label(line, "%d м · %d д" % [
+   var metal_icon: TextureRect = Icons.make_icon("metals", false, 20)
+   if metal_icon != null:
+    line.add_child(metal_icon)
+   var price := _label(line, "%d · %d д" % [
     int(row.get("metals", 1)),
     Model.construction_days(building, buildings)], 13,
     Color("#d5bb8c"))
@@ -427,10 +438,14 @@ func _refresh_queue() -> void:
    bar.value = next_percent
 
 func _spin(parent: Node, caption: String, value: float, changed: Callable,
-        step_value: float, maximum: float) -> void:
+        step_value: float, maximum: float, resource_id: String = "") -> void:
  var row := HBoxContainer.new()
  row.add_theme_constant_override("separation", 4)
  parent.add_child(row)
+ if not resource_id.is_empty():
+  var resource_icon: TextureRect = Icons.make_icon(resource_id, false, 20)
+  if resource_icon != null:
+   row.add_child(resource_icon)
  var name := _label(row, caption, 13)
  name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  var field := SpinBox.new()
@@ -472,7 +487,8 @@ func _planet() -> void:
  keys.sort()
  for key in keys:
   _spin(cards_root, Model.resource_label(str(key)),
-   float(values[key]), _edit_planet.bind(str(key)), 0.05, 10)
+   float(values[key]), _edit_planet.bind(str(key)), 0.05, 10,
+   str(key))
 
 func _edit_planet(value: float, key: String) -> void:
  var values: Dictionary = config["planets"][body_id]
