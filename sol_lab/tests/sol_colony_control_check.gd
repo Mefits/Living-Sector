@@ -301,7 +301,8 @@ func _run() -> void:
   }))
   check(not game.browser.colony_line.text.is_empty() and
    game.browser.colony_line.is_visible_in_tree() and
-   game.browser.colony_line.size.x >= 100,
+   game.browser.colony_line.size.x >= 100 and
+   game.browser.colony_line.size.y >= 18,
    "warehouse summary rendered in build dock")
   check(game.browser.scroll.size.y > 120,
    "catalog list scroll fits %dx%d" % [dimension[0],dimension[1]])
