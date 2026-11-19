@@ -13,6 +13,7 @@ const CallsiteCosts = preload("res://scripts/sim/phase2/n158_callsite_cost_accep
 const ObservationCosts = preload("res://scripts/sim/phase2/n158_observation_cost_acceptance.gd")
 const SizePhase = preload("res://scripts/sim/phase2/n158_size_phase_attribution.gd")
 const CheckpointBytes = preload("res://scripts/sim/phase2/n158_checkpoint_byte_probe.gd")
+const ResourceProbe = preload("res://scripts/sim/phase2/n158_paid_window_resource_probe.gd")
 const DEFAULT_TARGET: int = 100
 const LATE_TARGET: int = 300
 const EXTENDED_TARGET: int = 900
@@ -71,6 +72,8 @@ func _run() -> void:
     var previous_sizes: Dictionary = {}
     var previous_source_counts: Dictionary = {}
     var previous_window: Dictionary = {}
+    var first_resource_window: Dictionary = {}
+    var previous_resource_window: Dictionary = {}
     var observation_samples: Array = []
     var observation_callsite_samples: Array = []
     var checkpoint_byte_samples: Array = []
@@ -146,6 +149,27 @@ func _run() -> void:
                 _finish("exact checkpoint divergence tick " + str(tick) +
                     " " + JSON.stringify(parity.get("difference", {})), false)
                 return
+            if LATE_WINDOWS.has(tick) and tick <= target:
+                # Same process hosts both owners: allocator bytes are combined,
+                # never attributed to one worker or reported as OS RSS.
+                var resource_window: Dictionary = ResourceProbe.measure(
+                    tick, timings, parity,
+                    int(Performance.get_monitor(Performance.MEMORY_STATIC)),
+                    int(Performance.get_monitor(Performance.MEMORY_STATIC_MAX)))
+                if not resource_window.get("accepted", false):
+                    _finish("paid resource window rejected " + JSON.stringify(resource_window), false)
+                    return
+                if tick == 100:
+                    first_resource_window = resource_window.duplicate(true)
+                if not previous_resource_window.is_empty():
+                    var resource_delta: Dictionary = ResourceProbe.compare(
+                        previous_resource_window, resource_window)
+                    if not resource_delta.get("accepted", false):
+                        _finish("paid resource growth rejected " + JSON.stringify(resource_delta), false)
+                        return
+                    print("P2_PERF_E_RESOURCE_ADJACENT ", JSON.stringify(resource_delta))
+                previous_resource_window = resource_window.duplicate(true)
+                print("P2_PERF_E_RESOURCE_WINDOW ", JSON.stringify(resource_window))
             # Encode only already-detached, exact-parity-approved boundaries.
             # This diagnostic is outside both paid tick timing windows.
             var encoded: Dictionary = CheckpointBytes.measure(
@@ -333,6 +357,13 @@ func _run() -> void:
         return
     print("P2_PERF_E_OBSERVATION_CALLSITES ", JSON.stringify(observation_calls))
     print("P2_PERF_E_PHASE_WINDOW_COVERAGE ", JSON.stringify(phase_reports))
+    if target >= LATE_TARGET:
+        var resource_growth: Dictionary = ResourceProbe.compare(
+            first_resource_window, previous_resource_window)
+        if not resource_growth.get("accepted", false):
+            _finish("late resource growth rejected " + JSON.stringify(resource_growth), false)
+            return
+        print("P2_PERF_E_RESOURCE_LATE ", JSON.stringify(resource_growth))
     if target >= LATE_TARGET:
         var late_phase_growth: Dictionary = PhaseGrowth.compare(
             first_phase_window, previous_phase_window)
