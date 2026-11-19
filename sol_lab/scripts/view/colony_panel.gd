@@ -69,12 +69,14 @@ func _ready() -> void:
  overview.add_theme_constant_override("separation", 6)
  content.add_child(overview)
  _label(overview, "ПОСТРОЕНО", 14, Color("#d4bc84"))
- built_list = VBoxContainer.new()
- built_list.add_theme_constant_override("separation", 3)
- overview.add_child(built_list)
+ # The selected card comes before the potentially long, scrollable list.
+ # _switch_page resets scroll to top on selection from list or globe.
  detail_title = _label(overview, "", 16, Color("#f0dfae"))
  detail_description = _label(overview, "", 13, Color("#bfd0d9"))
  detail_description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+ built_list = VBoxContainer.new()
+ built_list.add_theme_constant_override("separation", 3)
+ overview.add_child(built_list)
  stock_view = VBoxContainer.new()
  content.add_child(stock_view)
  stock_panel = Stock.new()
@@ -213,6 +215,8 @@ func _show_selected_detail() -> void:
   if kind in ["mining_rig", "refinery", "farm"]:
    var produced: String = str(facility.get("production_status", ""))
    state = produced if not produced.is_empty() else "Ожидание первой партии (30 дней)"
+  elif kind in ["factory", "power_plant"]:
+   state = "Цикл производства не подключён в Sol Lab"
   detail_title.text = str(facility.get("name", kind))
   detail_description.text = "%s\nСостояние: %s" % [purpose, state]
   detail_title.show()
