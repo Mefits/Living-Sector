@@ -50,6 +50,10 @@ func _row(first: int, last: int, stride: int) -> Dictionary:
         "plain_total_usec": 1000, "profiled_total_usec": 1200,
         "observed_delta_total_usec": 200,
         "measured_instrumentation_total_usec": 0,
+        "checkpoint_plain_total_usec": 2 * ceili(float(last - first + 1) / float(stride)),
+        "checkpoint_profiled_total_usec": 3 * ceili(float(last - first + 1) / float(stride)),
+        "checkpoint_total_usec": 5 * ceili(float(last - first + 1) / float(stride)),
+        "checkpoint_time_excluded": true,
         "order": "alternating", "time_kind": "elapsed_wall_not_cpu"}
 
 func _fail(message: String) -> void:
