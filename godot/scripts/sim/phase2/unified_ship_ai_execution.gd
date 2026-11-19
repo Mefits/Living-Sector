@@ -234,7 +234,7 @@ static func _dispatch(action: Dictionary, _bb: Dictionary,
             dock_ticks["_n84_transit_envelope"] = {}
         var proposed: Dictionary = ShipPhase.preview_depart(world, graph,
             positions, tick, scale, ship_id, to,
-            dock_ticks["_n84_transit_envelope"])
+            dock_ticks["_n84_transit_envelope"], true)
         if not proposed.get("ok", false):
             return {"status": Bt.RUNNING,
                 "reason": str(proposed.get("reason", "n14_departure_not_ready"))}
@@ -830,7 +830,7 @@ static func propose(world: Dictionary, graph: RefCounted,
                 # leaf, or for a changed token; never trust stale previews.
                 native_move = ShipPhase.preview_depart(staged, graph,
                     positions, tick, scale, str(ship_id), str(command["to"]),
-                    dock_ticks.get("_n84_transit_envelope", {}))
+                    dock_ticks.get("_n84_transit_envelope", {}), true)
             if not native_move.get("ok", false):
                 return {"ok": false, "reason": "n14_authoritative_departure_rejected",
                     "ship_id": str(ship_id)}
@@ -843,6 +843,10 @@ static func propose(world: Dictionary, graph: RefCounted,
             # cursor updates made earlier in this same ordered proposal.
             staged["ships"][ship_id] = native_move["ships"][ship_id]
             staged["ship_next_token"] = int(native_move["next_token"])
+            # Any committed transit changes the maximum-token envelope.
+            # Invalidate before the next BT leaf, including fallback paths.
+            if dock_ticks.has("_n84_transit_envelope"):
+                ShipPhase.invalidate_transit_envelope(dock_ticks["_n84_transit_envelope"])
             ship = staged["ships"][ship_id]
         if next["tree"] != bt:
             changed = true
