@@ -419,7 +419,7 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     # A previously interrupted load promotion must not indefinitely block
     # later verified pending saves. Only a trusted primary can authorize
     # discarding its displaced predecessor.
-    var displaced_result: Error = _reconcile_recovery_displaced(absolute_path)
+    var displaced_result: Error = _reconcile_recovery_displaced(absolute_path, false)
     if displaced_result != OK:
         return displaced_result
     var tmp: String = absolute_path + ".pending"
@@ -490,17 +490,21 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
 ## Recover an interrupted recovery promotion without losing the only good
 ## checkpoint. A displaced original is retained until the promoted primary
 ## has been accepted by the actual runner, not merely by its SHA envelope.
-static func _reconcile_recovery_displaced(absolute_path: String) -> Error:
+static func _reconcile_recovery_displaced(absolute_path: String,
+        primary_accepted_by_runner: bool) -> Error:
     var displaced: String = absolute_path + ".recovery-displaced"
     if not FileAccess.file_exists(displaced):
         return OK
+    # Structural/envelope validation is insufficient: a checksum-correct
+    # checkpoint may still be rejected by the real runner. During save, do
+    # not rotate any checkpoint while an interrupted recovery is unresolved.
+    # A successful load of the primary is the only cleanup authorization.
+    if not primary_accepted_by_runner:
+        return ERR_BUSY
     if not FileAccess.file_exists(absolute_path):
-        # Never destroy the only surviving checkpoint. load_runner will
-        # restore and promote this candidate after full Runner validation.
-        return OK
+        return ERR_FILE_NOT_FOUND
     if not _trusted_for_backup_rotation(_read_checkpoint(absolute_path)):
-        # An invalid primary must not authorize deleting the displaced copy.
-        return OK
+        return ERR_FILE_CORRUPT
     return DirAccess.remove_absolute(displaced)
 
 
@@ -585,7 +589,7 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
             elif candidate == absolute_path:
                 # A successful live restore is stronger than envelope-only
                 # validation; an orphaned prior primary is no longer needed.
-                _reconcile_recovery_displaced(absolute_path)
+                _reconcile_recovery_displaced(absolute_path, true)
             return {
                 "ok": true,
                 "source": candidate,
