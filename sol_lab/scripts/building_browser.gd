@@ -408,6 +408,10 @@ func _number(value: float) -> String:
 func _request_build(building_id: String) -> void:
  build_requested.emit(body_id, building_id)
 
+func _request_cancel(site_id: String) -> void:
+ cancel_requested.emit(site_id)
+
+
 func _refresh_queue() -> void:
  if queue_panel == null or not is_instance_valid(queue_panel):
   return
@@ -442,7 +446,7 @@ func _refresh_queue() -> void:
     bar.min_value = 0.0
     bar.max_value = 100.0
     panel.add_child(bar)
-    var cancel := _button(panel, "Отменить", func(): cancel_requested.emit(site_id))
+    var cancel := _button(panel, "Отменить", _request_cancel.bind(site_id))
     cancel.custom_minimum_size = Vector2(0, 28)
     queue_rows[site_id] = {"line": line, "bar": bar, "cancel": cancel}
  # Every 0.5 seconds update just values, not the Godot scene tree.

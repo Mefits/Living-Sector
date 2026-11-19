@@ -110,6 +110,9 @@ func _run() -> void:
  check(not has_facility(refinery_id),
   "cancel removed actual construction facility")
  var second: Dictionary = game.construction.cancel_order(refinery_id)
+ if not queued.is_empty():
+  # A second signal before Godot's deferred queue_free is also harmless.
+  (queued["cancel"] as Button).pressed.emit()
  check(not bool(second.get("ok",false)) and stock("earth") == old_metals,
   "double-click cannot refund twice")
  var mine_id: String = click_build("mining_rig")
@@ -268,6 +271,78 @@ func _run() -> void:
    check((row["button"] as Button).get_global_rect().end.x <=
     game.size.x+1, "visible action within window "+id)
   game._close_browser()
+
+ # Real positive one-off shipment: land colonizer, build Moon port,
+ # send five FOOD (not default ten metal) and restore mid-flight.
+ select("luna")
+ game._colonize_luna()
+ check(game.construction.expedition.ship.get("location") == "transit",
+  "colonizer actually launched for manual-freight acceptance")
+ var landing_time: float = float(game.construction.expedition.ship.get(
+  "arrival", 0))
+ for i in range(200):
+  if game.native_time >= landing_time:
+   break
+  game._step()
+ check(stock("luna") == 2.0 and
+  game.construction.colony_population("luna") == 100,
+  "lunar landing has exact starting cargo and colonists")
+ game._open_build()
+ var port_id: String = click_build("spaceport")
+ check(stock("luna") == 1.0, "lunar port paid by lunar stock")
+ var port_due: float = float(game.construction.sites.back().get(
+  "finish_native", 0))
+ for i in range(250):
+  if game.native_time >= port_due:
+   break
+  game._step()
+ check(has_facility(port_id,"spaceport"),
+  "lunar port completed before manual freight")
+ game._close_browser()
+ var source_food: float = float(game.construction.colony_inventory(
+  "earth").get("supply",{}).get("food",0))
+ var destination_food: float = float(game.construction.colony_inventory(
+  "luna").get("supply",{}).get("food",0))
+ game._open_manual_freight()
+ check(game.manual_freight_dialog.visible,
+  "one-off order opens after port built")
+ game.manual_resource.select(1) # "food" follows "metals" on lunar legs
+ game.manual_amount.value = 5
+ game._preview_manual_freight()
+ check(game.manual_preview.text.contains("5") and
+  game.manual_preview.text.contains("Еда") and
+  not game.manual_freight_dialog.get_ok_button().disabled,
+  "shows exact manual food shipment and it is available")
+ game._submit_manual_freight()
+ game.manual_freight_dialog.hide()
+ var manual_status: Dictionary = game.construction.freight_status()
+ check(manual_status.get("location") == "transit" and
+  manual_status.get("order",{}).get("resource") == "food" and
+  int(manual_status.get("order",{}).get("amount",0)) == 5,
+  "exact manually selected cargo dispatched")
+ check(absf(float(game.construction.colony_inventory(
+  "earth").get("supply",{}).get("food",0))-(source_food-5)) < 0.001,
+  "manual shipment debits exactly five units once")
+ game._save_game()
+ game._load_game()
+ check(game.construction.freight_status().get("location") == "transit",
+  "manual shipment survives mid-flight load")
+ var manual_due: float = float(manual_status.get("arrival", 0))
+ for i in range(200):
+  if game.native_time >= manual_due:
+   break
+  game._step()
+ check(game.construction.freight_status().get("location") == "luna" and
+  absf(float(game.construction.colony_inventory(
+   "luna").get("supply",{}).get("food",0))-(
+   destination_food+5)) < 0.001,
+  "manual delivery credits exactly five units on actual ETA")
+ game._toggle_freight_line()
+ check(game.construction.freight_line().enabled,
+  "scheduled line controls remain operational")
+ game._toggle_freight_line()
+ check(not game.construction.freight_line().enabled,
+  "scheduled line can be disabled again")
 
  if FileAccess.file_exists(Lab.USER_SAVE):
   DirAccess.remove_absolute(ProjectSettings.globalize_path(Lab.USER_SAVE))
