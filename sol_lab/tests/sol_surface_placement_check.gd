@@ -226,6 +226,14 @@ func _run() -> void:
  for facility in legacy["facilities"]:
   if str(facility.get("body","")) == "earth":
    facility.erase("surface_site_id")
+   var kind: String = str(facility.get("type", ""))
+   if kind == "station":
+    kind = "administrative_center"
+   elif kind == "construction_site":
+    kind = str(facility.get("construction_building_id", ""))
+   var earlier: Array = Model.surface_site(kind)
+   if earlier.size() == 2:
+    facility["surface_site"] = earlier.duplicate()
  for order in legacy["sites"]:
   order.erase("surface_site_id")
  check(game.construction.restore(legacy),
