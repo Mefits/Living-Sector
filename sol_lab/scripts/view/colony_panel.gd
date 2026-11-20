@@ -214,7 +214,7 @@ func show_colony(next_body: String, name_ru: String,
 ## One shared colony logistics surface for map-clicked ports and the
 ## "Линия" quick entry. Buttons below remain the original game commands.
 func show_logistics(line: Dictionary, freight: Dictionary,
-        waiting_reason: String = "") -> void:
+        waiting_reason: String = "", second: Dictionary = {}) -> void:
  var destination_names: Dictionary = Model.PLANET_NAMES
  var enabled: bool = bool(line.get("enabled", false))
  logistics_title.text = "КОСМОПОРТ · " + str(
@@ -253,6 +253,15 @@ func show_logistics(line: Dictionary, freight: Dictionary,
    "Луны" if location == "luna" else "нет корабля")))
  if enabled and not waiting_reason.is_empty():
   sentences.append(waiting_reason)
+ if not second.is_empty():
+  if second.location == "transit":
+   var cargo: Dictionary = second.order
+   sentences.append("Грузовик 2 · %s → %s · %d %s" % [
+    destination_names[cargo.source], destination_names[cargo.destination],
+    cargo.amount, Model.batch_unit(cargo.resource)])
+   sentences.append("Прибытие: " + Calendar.calendar_text(second.arrival))
+  else:
+   sentences.append("Грузовик 2 · %s · свободен" % destination_names[second.location])
  logistics_status.text = "\n".join(sentences)
 
 

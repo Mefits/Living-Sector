@@ -326,7 +326,8 @@ func _process(delta: float) -> void:
     if camera_changed or (
             not _flight_paused and (not _ending_flights.is_empty() or
             _colonizer.get("location", "") == "transit" or
-            _freight.get("location", "") == "transit")) or (
+            _freight.get("location", "") == "transit" or
+            _second_freight.get("location", "") == "transit")) or (
             not _recent_arrivals.is_empty()) or (
             _station_time_started_usec >= 0 and (
             VisualMotion.alpha(_station_time_started_usec,
@@ -1113,6 +1114,7 @@ func _live_ship_count(body_id: String) -> int:
 
 var colonizer_progress := -1.0 # legacy readout, no longer drives a ship draw
 var _freight: Dictionary = {}
+var _second_freight: Dictionary = {}
 
 
 func _flight_frame(kind: String) -> Dictionary:
@@ -1132,7 +1134,7 @@ func _flight_frame(kind: String) -> Dictionary:
     return {"center": center, "axis": separation.normalized(),
         "separation": separation.length(), "earth_gate": earth_clearance,
         "gap": maxf(0.0, gap), "glyph": glyph, "opacity": clampf(gap / 8.0, 0.0, 1.0),
-        "berth": (6.0 if kind == "colonizer" else -6.0) * glyph}
+        "berth": (6.0 if kind == "colonizer" else (-17.0 if kind == "freight2" else -6.0)) * glyph}
 
 
 func _project_flight(point: Vector2, orbit: Dictionary, time: float,
@@ -1152,7 +1154,7 @@ func _flight_pose(kind: String, ship: Dictionary, when_usec: int) -> Dictionary:
     var lateral := Vector2(-screen_axis.y, screen_axis.x)
     var path: Dictionary = ship.get("trajectory", {})
     if ship.get("location") != "transit":
-        var dock_id: String = ship.location if kind == "freight" else "earth"
+        var dock_id: String = ship.location if kind != "colonizer" else "earth"
         var distance: float = frame.earth_gate + (frame.gap if dock_id == "luna" else 0.0)
         var offset: Vector2 = screen_axis * distance + lateral * frame.berth
         return {"moving": false, "position": frame.center + offset,
@@ -1194,6 +1196,13 @@ func set_freight(freight: Dictionary, snap: bool = false) -> void:
     if freight != _freight or snap:
         _remember_arrival("freight", _freight, freight, snap)
         _freight = freight.duplicate(true)
+        queue_redraw()
+
+
+func set_second_freight(ship: Dictionary, snap: bool = false) -> void:
+    if ship != _second_freight or snap:
+        _remember_arrival("freight2", _second_freight, ship, snap)
+        _second_freight = ship.duplicate(true)
         queue_redraw()
 
 
@@ -1251,9 +1260,10 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
         if kind == _selected_flight_kind:
             draw_arc(position, 11.0, 0.0, TAU, 18,
                 Color("#fff0b0", 0.9), 1.3, true)
-    if bool(pose["moving"]) and kind == "freight":
+    if bool(pose["moving"]) and kind != "colonizer":
         var cargo: Dictionary = ship.get("order", {})
-        var label: String = "%s · %d %s" % [
+        var label: String = "%s · %s · %d %s" % [
+            "2" if kind == "freight2" else "1",
             Model.PLANET_NAMES.get(str(cargo.get("destination", "")), "?"),
             int(cargo.get("amount", 0)),
             Model.batch_unit(str(cargo.get("resource", "")))]
@@ -1270,6 +1280,7 @@ func _draw() -> void:
     if not _body_by_id("earth").is_empty() and not _body_by_id("luna").is_empty():
         _draw_flight("colonizer", _colonizer)
         _draw_flight("freight", _freight)
+        _draw_flight("freight2", _second_freight)
     _last_draw_usec = maxi(0, Time.get_ticks_usec() - started)
     _max_draw_usec = maxi(_max_draw_usec, _last_draw_usec)
     _draw_calls += 1

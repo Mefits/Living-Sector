@@ -25,6 +25,11 @@ var visual_clock = NativeClock.new()
 var colony_button: Button
 var freight_button: Button
 var manual_freight_dialog: AcceptDialog
+var manual_ship: OptionButton
+var yard_controls: VBoxContainer
+var yard_status: Label
+var yard_order: Button
+var yard_cancel: Button
 var manual_destination: OptionButton
 var manual_resource: OptionButton
 var manual_amount: SpinBox
@@ -165,6 +170,14 @@ func _build_ui() -> void:
     colony_panel.build_requested.connect(_open_build)
     colony_panel.line_requested.connect(_open_colony_logistics)
     colony_panel.facility_requested.connect(_colony_facility_selected)
+    yard_controls = VBoxContainer.new()
+    colony_panel.overview.add_child(yard_controls)
+    colony_panel.overview.move_child(yard_controls, colony_panel.built_list.get_index())
+    yard_status = Label.new()
+    yard_controls.add_child(yard_status)
+    yard_order = _button(yard_controls, "Заказать грузовик 2", _order_second_ship)
+    yard_cancel = _button(yard_controls, "Отменить заказ", _cancel_second_ship)
+    yard_controls.hide()
     _build_freight_line_controls(colony_panel.line_holder)
 
 
@@ -285,6 +298,7 @@ func _process(delta: float) -> void:
     construction_ui_elapsed += delta
     if construction_ui_elapsed >= 0.5:
         construction_ui_elapsed = fmod(construction_ui_elapsed, 0.5)
+        _refresh_yard()
         # No construction rows = nothing to animate. Open/close/order/
         # completion paths still refresh immediately as needed.
         if browser != null and browser.visible and (
@@ -338,6 +352,9 @@ func _build_freight_line_controls(parent: Control) -> void:
     var manual_form := VBoxContainer.new()
     manual_form.custom_minimum_size.x = 340.0
     manual_freight_dialog.add_child(manual_form)
+    manual_ship = OptionButton.new()
+    manual_form.add_child(manual_ship)
+    manual_ship.item_selected.connect(func(_index: int): _manual_ship_changed())
     var direction_label := Label.new()
     direction_label.text = "Маршрут"
     manual_form.add_child(direction_label)
@@ -409,15 +426,36 @@ func _build_freight_line_controls(parent: Control) -> void:
         freight_line_fields[destination] = {"resource": resource, "amount": amount, "reserve": reserve}
 
 func _open_manual_freight() -> void:
-    var location: String = str(construction.freight_status().get(
-        "location", "earth"))
+    var previous := _manual_ship_slot()
+    manual_ship.clear()
+    for slot in [1, 2]:
+        var ship: Dictionary = construction.freight_status(slot)
+        if ship.is_empty():
+            continue
+        var location: String = ship.location
+        var status: String = "В пути" if location == "transit" else Model.PLANET_NAMES[location]
+        var busy: bool = location == "transit" or (slot == 1 and construction.freight_line().enabled)
+        manual_ship.add_item("Грузовик %d · %s%s" % [slot, status, " · линия" if slot == 1 and construction.freight_line().enabled else ""], slot)
+        var index := manual_ship.item_count - 1
+        manual_ship.set_item_disabled(index, busy)
+        if not busy and (manual_ship.selected < 0 or manual_ship.is_item_disabled(manual_ship.selected) or slot == previous):
+            manual_ship.select(index)
+    _manual_ship_changed()
+    manual_freight_dialog.popup_centered()
+
+
+func _manual_ship_slot() -> int:
+    return manual_ship.get_selected_id() if manual_ship.selected >= 0 else 1
+
+
+func _manual_ship_changed() -> void:
+    var location: String = construction.freight_status(_manual_ship_slot()).get("location", "earth")
     var wanted: String = "earth" if location == "luna" else "luna"
     for index in manual_destination.item_count:
         if str(manual_destination.get_item_metadata(index)) == wanted:
             manual_destination.select(index)
             break
     _manual_route_changed(manual_destination.selected)
-    manual_freight_dialog.popup_centered()
 
 
 func _manual_route_changed(_index: int) -> void:
@@ -442,7 +480,7 @@ func _preview_manual_freight() -> void:
     var amount: int = int(manual_amount.value)
     var shipment: Dictionary = construction.freight_order(destination)
     var reason: String = construction.manual_freight_reason(
-        destination, resource, amount)
+        destination, resource, amount, _manual_ship_slot())
     manual_preview.text = "%s → %s\nГруз: %d %s%s" % [
         Model.PLANET_NAMES[shipment.source],
         Model.PLANET_NAMES[shipment.destination],
@@ -455,13 +493,13 @@ func _submit_manual_freight() -> void:
     var destination: String = str(manual_destination.get_selected_metadata())
     var resource: String = str(manual_resource.get_selected_metadata())
     var amount: int = int(manual_amount.value)
-    if not construction.depart_manual_freight(destination, resource, amount):
+    if not construction.depart_manual_freight(destination, resource, amount, _manual_ship_slot()):
         _notice(construction.manual_freight_reason(
-            destination, resource, amount))
+            destination, resource, amount, _manual_ship_slot()))
         return
-    native_view.set_freight(construction.freight_status())
+    _update_native_map()
     _show_selected()
-    _notice("Разовый рейс отправлен")
+    _notice("Грузовик %d отправлен" % _manual_ship_slot())
 
 
 ## The quick "Линия" entry and clicking a spaceport open the SAME
@@ -584,9 +622,10 @@ func _show_selected() -> void:
             batches[facility_id] = construction.production_details(facility_id)
         colony_panel.show_colony(selected, name_ru, population_count, warehouse, built,
             construction.sites, idle, line_status, native_time, batches)
+        _refresh_yard()
         colony_panel.show_food(construction.colony_food(selected))
         colony_panel.show_logistics(construction.freight_line(),
-            freight, construction.freight_line_wait())
+            freight, construction.freight_line_wait(), construction.freight_status(2))
         if browser != null and browser.visible:
             browser.set_colony_summary(name_ru, population_count, warehouse)
         return
@@ -753,6 +792,7 @@ func _make_native_map() -> void:
     native_view.set_native_station_time(native_time)
     native_view.set_colonizer(construction.expedition.ship, true)
     native_view.set_freight(construction.freight_status(), true)
+    native_view.set_second_freight(construction.freight_status(2), true)
 
 func _update_native_map(snap_freight: bool = false) -> void:
     if native_view == null:
@@ -762,6 +802,7 @@ func _update_native_map(snap_freight: bool = false) -> void:
     native_view.set_native_station_time(native_time)
     native_view.set_colonizer(construction.expedition.ship, snap_freight)
     native_view.set_freight(construction.freight_status(), snap_freight)
+    native_view.set_second_freight(construction.freight_status(2), snap_freight)
     _map_view_last_usec = maxi(0, Time.get_ticks_usec() - begun)
     _map_view_peak_usec = maxi(_map_view_peak_usec, _map_view_last_usec)
 
@@ -800,6 +841,7 @@ func _activate_facility(facility_id: String) -> void:
             _close_browser()
         _show_selected()
         colony_panel.select_facility(facility_id)
+        _refresh_yard()
         native_view.select_facility(facility_id)
         var kind: String = str(item.get("type", ""))
         if kind == "station" and str(item.get(
@@ -808,9 +850,42 @@ func _activate_facility(facility_id: String) -> void:
         elif kind == "spaceport":
             colony_panel.show_logistics(construction.freight_line(),
                 construction.freight_status(),
-                construction.freight_line_wait())
+                construction.freight_line_wait(), construction.freight_status(2))
             colony_panel.open_logistics()
         return
+
+
+func _refresh_yard() -> void:
+    var yard: String = colony_panel.selected_facility
+    yard_controls.visible = selected == "earth" and construction._earth_yard(world.facilities, yard)
+    if not yard_controls.visible:
+        return
+    var available: float = construction.colony_inventory("earth").supply.get("metals", 0)
+    var order: Dictionary = construction.ship_order
+    var active: bool = order.get("yard") == yard
+    var built: bool = not construction.freight_status(2).is_empty()
+    yard_status.text = "%d металла · %d дней\nНа складе %s металла" % [
+        ConstructionRuntime.SHIP_METALS, ConstructionRuntime.SHIP_DAYS, Model.batch_amount(available)]
+    if active:
+        yard_status.text += "\nГотовность %d%% · осталось %d дн." % [
+            int(construction.progress(order) * 100), Calendar.days_remaining(native_time, order.finish_native)]
+    elif built:
+        yard_status.text += "\nГрузовик 2 построен"
+    yard_order.visible = not built and order.is_empty()
+    yard_order.disabled = available < ConstructionRuntime.SHIP_METALS
+    yard_cancel.visible = active
+
+
+func _order_second_ship() -> void:
+    if construction.order_second_freighter(colony_panel.selected_facility):
+        _show_selected()
+        _notice("Грузовик 2 заложен")
+
+
+func _cancel_second_ship() -> void:
+    if construction.cancel_second_freighter(colony_panel.selected_facility):
+        _show_selected()
+        _notice("Заказ отменён · металл возвращён")
 
 
 func _set_speed(multiplier: int) -> void:
