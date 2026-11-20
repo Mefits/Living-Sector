@@ -35,7 +35,11 @@ static func _index(kind: String, building: bool) -> int:
 static func _texture(px: int) -> Texture2D:
  if _atlas_cache.has(px):
   return _atlas_cache[px] as Texture2D
- var path: String = "res://assets/icons/sol_icons_%d.png" % px
+ # Use pre-rendered images traced from the original SVG silhouettes,
+ # retaining the existing PNG atlas if these are not available.
+ var path: String = "res://assets/icons/sol_icons_vector_%d.png" % px
+ if not ResourceLoader.exists(path, "Texture2D"):
+  path = "res://assets/icons/sol_icons_%d.png" % px
  var texture: Texture2D = null
  if ResourceLoader.exists(path, "Texture2D"):
   texture = ResourceLoader.load(path, "Texture2D") as Texture2D
@@ -77,11 +81,46 @@ static func make_icon(kind: String, building: bool = false,
 
 ## Draws from one real atlas on the globe. Returns false for unchanged
 ## fallback vector glyphs, never replacing a missing sprite with another type.
+## Larger globe buildings use pre-rendered 256px exports, never SVG
+## rasterization on the draw loop.
+const BUILDING_VECTOR_FILES: Dictionary = {
+ "administrative_center":"administrative_center",
+ "station":"administrative_center", "colony_construction_dock":"administrative_center",
+ "mining_rig":"mining_complex", "mining_complex":"mining_complex",
+ "farm":"farm", "power_plant":"power_plant",
+ "refinery":"processing_complex", "processing_complex":"processing_complex",
+ "factory":"factory", "spaceport":"spaceport"
+}
+static var _large_vector_cache: Dictionary = {}
+
+static func _large_building(kind: String) -> Texture2D:
+ if not BUILDING_VECTOR_FILES.has(kind):
+  return null
+ var filename: String = str(BUILDING_VECTOR_FILES[kind])
+ if _large_vector_cache.has(filename):
+  return _large_vector_cache[filename] as Texture2D
+ var path: String = "res://assets/icons/vector_large/buildings/%s.png" % filename
+ var result: Texture2D = null
+ if ResourceLoader.exists(path, "Texture2D"):
+  result = ResourceLoader.load(path, "Texture2D") as Texture2D
+ _large_vector_cache[filename] = result
+ return result
+
+
 static func paint(canvas: CanvasItem, kind: String,
         center: Vector2, diameter: float, alpha: float = 1.0) -> bool:
  var index: int = _index(kind, true)
  if index < 0:
   return false
+ # Never enlarge tiny atlas cells over 64px on the zoomed-in globe.
+ if diameter > 64.0:
+  var large: Texture2D = _large_building(kind)
+  if large != null:
+   var large_rect: Rect2 = Rect2(
+    center - Vector2.ONE * diameter * 0.5, Vector2.ONE * diameter)
+   canvas.draw_texture_rect(large, large_rect, false,
+    Color(1.0, 1.0, 1.0, clampf(alpha, 0.0, 1.0)))
+   return true
  var px: int = _px(roundi(diameter))
  var atlas: Texture2D = _texture(px)
  if atlas == null:
