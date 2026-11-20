@@ -8,7 +8,8 @@ const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 
 const Flight = preload("res://scripts/sol_local_flight.gd")
 
-const VERSION: int = 7
+const Roads = preload("res://scripts/view/sol_district_roads.gd")
+const VERSION: int = 8
 const SHIP_METALS := 80
 const SHIP_DAYS := 30
 const EPSILON_NATIVE := 0.000001
@@ -17,7 +18,7 @@ const FREIGHT_ORDERS := {
  "luna": {"source": "earth", "destination": "luna", "resource": "metals", "amount": 10},
  "earth": {"source": "luna", "destination": "earth", "resource": "ore", "amount": 10}
 }
-const FREIGHT_RESOURCES := {"luna": ["metals", "food"], "earth": ["ore"]}
+const FREIGHT_RESOURCES := {"luna": ["metals", "food", "ore"], "earth": ["ore"]}
 var world: Dictionary = {}
 var settings: Dictionary = {}
 var now_native: float = 0.0
@@ -27,6 +28,8 @@ var expedition := preload("res://scripts/sol_lunar_expedition.gd").new()
 var _freighter: Dictionary = {}
 var _second: Dictionary = {}
 # Latest completed Earth arrival per slot, for the local port view.
+var ground_ore: Array = []
+var stock_history: Array = []
 var _earth_arrivals: Dictionary = {}
 var ship_order: Dictionary = {}
 var _line_enabled := false
@@ -48,6 +51,8 @@ func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  _freighter = _starting_freighter()
  _second = {}
  _earth_arrivals.clear()
+ ground_ore.clear()
+ stock_history.clear()
  ship_order = {}
  _line_enabled = false
  _line_legs = _default_line_legs()
@@ -108,6 +113,8 @@ func _shipment_block_reason(shipment: Dictionary, reserve: float = 0.0, slot: in
  var ship := _second if slot == 2 else _freighter
  if shipment.is_empty() or ship.is_empty():
   return "Рейс недоступен"
+ if ship.location == "loading":
+  return "Грузовик загружается"
  if ship.location == "transit":
   return "Грузовик в пути"
  if ship.location != shipment.source:
@@ -121,7 +128,7 @@ func _shipment_block_reason(shipment: Dictionary, reserve: float = 0.0, slot: in
   return "Склады должны принадлежать одной фракции"
  var available := float(_market_for(shipment.source).supply.get(shipment.resource, 0))
  var required: float = shipment.amount + reserve
- if available < required:
+ if available + EPSILON_NATIVE < required:
   return "На складе %s %s · требуется %s" % [
    Model.batch_amount(available), Model.batch_unit(shipment.resource), Model.batch_amount(required)]
  return ""
@@ -135,7 +142,7 @@ func depart_freighter(destination: String, food: bool = false) -> bool:
 ## A manual flight is configured once, independently of scheduled legs.
 ## The old one-button APIs below remain for legacy test/save compatibility.
 func manual_freight_reason(destination: String,
-        resource: String, amount: int, slot: int = 1) -> String:
+        resource: String, amount: float, slot: int = 1) -> String:
  if slot not in [1, 2]:
   return "Грузовик недоступен"
  if slot == 1 and _line_enabled:
@@ -143,16 +150,17 @@ func manual_freight_reason(destination: String,
  if not FREIGHT_ORDERS.has(destination) or (
      resource not in FREIGHT_RESOURCES.get(destination, [])):
   return "Недопустимый маршрут или груз"
- if amount < 0 or amount > FREIGHT_CAPACITY or (
+ if not is_finite(amount) or not is_equal_approx(amount, snappedf(amount, 0.01)) or (
+     amount < 0 or amount > FREIGHT_CAPACITY) or (
      amount == 0 and destination != "earth"):
-  return "Количество должно быть от 1 до %d" % FREIGHT_CAPACITY
+  return "Количество должно быть больше 0 и не больше %d" % FREIGHT_CAPACITY
  var shipment: Dictionary = freight_order(destination)
  shipment["resource"] = resource
  shipment["amount"] = amount
  return _shipment_block_reason(shipment, 0, slot)
 
 func depart_manual_freight(destination: String,
-        resource: String, amount: int, slot: int = 1) -> bool:
+        resource: String, amount: float, slot: int = 1) -> bool:
  if not manual_freight_reason(destination, resource, amount, slot).is_empty():
   return false
  var shipment: Dictionary = freight_order(destination)
@@ -177,12 +185,20 @@ func return_freighter() -> bool:
  return true
 
 func _launch_freighter(shipment: Dictionary, slot: int = 1) -> void:
- var stock: Dictionary = _market_for(shipment.source).supply
  if shipment.amount > 0:
-  stock[shipment.resource] = float(stock[shipment.resource]) - shipment.amount
- var path := Flight.make(world, "freight", shipment.source, now_native)
- var flight := {"location": "transit", "order": shipment, "trajectory": path,
-  "departure": now_native, "arrival": path.arrival}
+  _change_stock(shipment.source, shipment.resource, -float(shipment.amount), now_native)
+ if shipment.source == "earth" and shipment.resource == "ore":
+  _set_ship(slot, {"location": "loading", "order": shipment,
+   "load_started": now_native, "load_due": now_native + 3.25})
+ else:
+  _takeoff(shipment, slot, now_native)
+
+func _takeoff(shipment: Dictionary, slot: int, departure: float) -> void:
+ var path := Flight.make(world, "freight", shipment.source, departure)
+ _set_ship(slot, {"location": "transit", "order": shipment, "trajectory": path,
+  "departure": departure, "arrival": path.arrival})
+
+func _set_ship(slot: int, flight: Dictionary) -> void:
  if slot == 2:
   _second = flight
  else:
@@ -215,7 +231,7 @@ static func _valid_line_legs(legs: Variant) -> bool:
   return false
  for destination in FREIGHT_ORDERS:
   var leg: Variant = legs.get(destination)
-  if not leg is Dictionary or not _valid_cargo(leg, destination):
+  if not leg is Dictionary or not _valid_cargo(leg, destination) or not _whole_number(leg.get("amount")):
    return false
   if not _whole_number(leg.get("reserve")) or leg.reserve < 0:
    return false
@@ -224,7 +240,10 @@ static func _valid_line_legs(legs: Variant) -> bool:
 static func _valid_cargo(cargo: Dictionary, destination: String) -> bool:
  var amount: Variant = cargo.get("amount")
  return cargo.get("resource") in FREIGHT_RESOURCES.get(destination, []) and (
-  _whole_number(amount) and amount >= 1 and amount <= FREIGHT_CAPACITY)
+  _finite_number(amount) and amount > 0 and amount <= FREIGHT_CAPACITY)
+
+static func _finite_number(value: Variant) -> bool:
+ return (value is float or value is int) and is_finite(value)
 
 static func _whole_number(value: Variant) -> bool:
  return (value is float or value is int) and is_finite(value) and floorf(value) == value
@@ -238,7 +257,7 @@ func _next_line_order() -> Dictionary:
  return shipment
 
 func freight_line_wait() -> String:
- if not _line_enabled or _freighter.location == "transit":
+ if not _line_enabled or _freighter.location in ["transit", "loading"]:
   return ""
  var shipment := _next_line_order()
  var reason := _shipment_block_reason(shipment, _line_legs[shipment.destination].reserve)
@@ -247,7 +266,7 @@ func freight_line_wait() -> String:
  return "Ждёт (%s) · %s" % [Model.PLANET_NAMES[shipment.source], reason]
 
 func _dispatch_line() -> bool:
- if not _line_enabled or _freighter.location == "transit":
+ if not _line_enabled or _freighter.location in ["transit", "loading"]:
   return false
  var shipment := _next_line_order()
  if not _shipment_block_reason(shipment, _line_legs[shipment.destination].reserve).is_empty():
@@ -268,6 +287,8 @@ func earth_port_state() -> Dictionary:
    "order": ship.get("order", {}).duplicate(),
    "departure": ship.get("departure", 0.0),
    "arrival": ship.get("arrival", 0.0),
+   "load_started": ship.get("load_started", 0.0),
+   "load_due": ship.get("load_due", 0.0),
    "last_arrival": _earth_arrivals.get(slot, {}).duplicate(),
   })
  return {"time": now_native, "bays": bays}
@@ -275,9 +296,8 @@ func earth_port_state() -> Dictionary:
 func _land_freighter(slot: int) -> void:
  var ship := _second if slot == 2 else _freighter
  var shipment: Dictionary = ship.order
- var stock: Dictionary = _market_for(shipment.destination).supply
  if shipment.amount > 0:
-  stock[shipment.resource] = float(stock.get(shipment.resource, 0)) + int(shipment.amount)
+  _change_stock(shipment.destination, shipment.resource, shipment.amount, ship.arrival)
  if shipment.destination == "earth":
   _earth_arrivals[slot] = {"time": ship.arrival, "resource": shipment.resource,
    "amount": shipment.amount}
@@ -292,7 +312,7 @@ func order_second_freighter(yard: String) -> bool:
  var stock: Dictionary = _market_for("earth").get("supply", {})
  if float(stock.get("metals", 0)) < SHIP_METALS:
   return false
- stock.metals = float(stock.metals) - SHIP_METALS
+ _change_stock("earth", "metals", -SHIP_METALS, now_native)
  ship_order = {"yard": yard, "start_native": now_native,
   "finish_native": now_native + Calendar.days_to_native(SHIP_DAYS)}
  return true
@@ -300,8 +320,7 @@ func order_second_freighter(yard: String) -> bool:
 func cancel_second_freighter(yard: String) -> bool:
  if ship_order.get("yard") != yard:
   return false
- var stock: Dictionary = _market_for("earth").supply
- stock.metals = float(stock.metals) + SHIP_METALS
+ _change_stock("earth", "metals", SHIP_METALS, now_native)
  ship_order = {}
  return true
 
@@ -310,8 +329,7 @@ func _earth_yard(facilities: Array, yard: String) -> bool:
 
 func _restore_flight(ship: Dictionary) -> Dictionary:
  var restored := ship.duplicate(true)
- if restored.has("order"):
-  restored.order.amount = int(restored.order.amount)
+ if restored.get("location") == "transit":
   restored.trajectory = Flight.make(world, "freight", restored.order.source,
    restored.departure, restored.arrival)
  return restored
@@ -343,6 +361,14 @@ func _valid_freighter(saved: Variant, facilities: Array, lunar: bool, time: floa
   return false
  if saved.get("location") == "luna":
   return not saved.has("order")
+ if saved.get("location") == "loading":
+  var cargo: Variant = saved.get("order")
+  return cargo is Dictionary and cargo.get("source") == "earth" and (
+   cargo.get("destination") == "luna" and cargo.get("resource") == "ore" and
+   _valid_cargo(cargo, "luna") and _has_spaceport(facilities, "earth") and
+   _finite_number(saved.get("load_started")) and _finite_number(saved.get("load_due")) and
+   saved.load_started <= time and saved.load_due > time and
+   is_equal_approx(saved.load_due - saved.load_started, 3.25))
  if saved.get("location") != "transit" or not _has_spaceport(facilities, "earth"):
   return false
  var shipment: Variant = saved.get("order")
@@ -451,8 +477,7 @@ func order(body: String, building_id: String,
    facility["surface_site"] = mapped_site
  # Commit once, after every validation: stock and the unique site appear
  # together. There is no synthetic material refund or repeat debit.
- supply["metals"] = float(supply["metals"]) - cost
- market["supply"] = supply
+ _change_stock(body, "metals", -cost, now_native)
  world["facilities"].append(facility)
  sites.append(new_site)
  next_id += 1
@@ -498,10 +523,8 @@ func cancel_order(site_id: String) -> Dictionary:
       float(amount)) or float(amount) < 0:
    return {"ok": false, "reason": "Неверная запись списанных материалов"}
  # Validated all receipt fields before any inventory mutation.
- var supply: Dictionary = market["supply"]
  for resource in paid:
-  supply[str(resource)] = float(supply.get(resource, 0.0)) + float(
-   paid[resource])
+  _change_stock(body, resource, paid[resource], now_native)
  facilities.remove_at(facility_index)
  sites.remove_at(site_index)
  return {"ok": true, "id": site_id, "body": body,
@@ -519,7 +542,10 @@ func advance_to(new_native: float) -> Array:
  var completed: Array = []
  if not is_finite(new_native) or new_native < now_native:
   return completed
+ var previous_time := now_native
  now_native = new_native
+ if ground_ore.any(func(job): return job.pickup > previous_time and job.pickup <= now_native):
+  batch_revision += 1
  if expedition.ship.get("location", "") == "transit" and now_native >= float(expedition.ship.arrival):
   var landed_at := float(expedition.ship.arrival)
   if expedition.land_if_due(world, now_native, _colony_owner("earth")):
@@ -541,6 +567,11 @@ func advance_to(new_native: float) -> Array:
   _second = {"location": "earth"}
   completed.append("Грузовик 2 готов")
  _advance_production(completed)
+ var history_size := stock_history.size()
+ stock_history = stock_history.filter(func(entry): return (
+  entry.time > now_native - Calendar.days_to_native(30)))
+ if stock_history.size() != history_size:
+  batch_revision += 1
  if _dispatch_line():
   completed.append("Погрузка грузовика")
  return completed
@@ -571,6 +602,8 @@ func snapshot() -> Dictionary:
  saved_second.erase("trajectory")
  return {
   "version": VERSION,
+  "ground_ore": ground_ore.duplicate(true),
+  "stock_history": stock_history.duplicate(true),
   "expedition": expedition.snapshot(),
   "freighter": saved_freighter,
   "second_freighter": saved_second,
@@ -702,6 +735,25 @@ func restore(data: Dictionary) -> bool:
    return false
   if start < 0 or start > t or finish <= t or not is_equal_approx(finish - start, Calendar.days_to_native(SHIP_DAYS)):
    return false
+ var road_jobs: Variant = data.get("ground_ore", [])
+ var history: Variant = data.get("stock_history", [])
+ if not road_jobs is Array or not history is Array:
+  return false
+ for job in road_jobs:
+  if not job is Dictionary or not all_ids.has(job.get("mine")):
+   return false
+  if all_ids[job.mine].get("type") != "mining_rig" or all_ids[job.mine].get("body") != "earth":
+   return false
+  if job.get("resource") != "ore" or not _finite_number(job.get("amount")) or job.amount <= 0:
+   return false
+  if not _finite_number(job.get("pickup")) or not _finite_number(job.get("due")) or (
+    job.due <= t or job.due <= job.pickup):
+   return false
+ for entry in history:
+  if not entry is Dictionary or entry.get("body") not in ["earth", "luna"] or (
+    not entry.get("resource") is String or not _finite_number(entry.get("time")) or
+    not _finite_number(entry.get("delta")) or entry.time > t):
+   return false
  # Commit all restored domains only after all checks pass.
  expedition.restore(world, manifest)
  if version < 5 and not expedition.ship.is_empty():
@@ -721,6 +773,8 @@ func restore(data: Dictionary) -> bool:
  sites = input_sites.duplicate(true)
  _earth_arrivals.clear()
  now_native = float(t)
+ ground_ore = road_jobs.duplicate(true)
+ stock_history = history.duplicate(true)
  _index_producers()
  next_id = int(seq)
  return true
@@ -756,15 +810,15 @@ func _register_meals(facility: Dictionary, start: float) -> void:
  meal_cycles[body] = {"facility": facility, "stock": supply}
  next_batch = minf(next_batch, facility.next_meal_native)
 
-func _feed_colony(body: String, meal: Dictionary) -> void:
+func _feed_colony(body: String, meal: Dictionary, due: float) -> void:
  var rate := _food_rate(body)
  var stock: Dictionary = meal.stock
  var available := float(stock.get("food", 0))
  meal.facility.fed = available + EPSILON_NATIVE >= rate
- stock.food = snappedf(maxf(0.0, available - rate), 0.01)
+ _change_stock(body, "food", -minf(available, rate), due)
  # Local Earth water supply feeds the starter farm's existing recipe.
  if body == "earth":
-  stock.water = float(stock.get("water", 0)) + EARTH_WATER_PER_CYCLE
+  _change_stock(body, "water", EARTH_WATER_PER_CYCLE, due)
 
 func _register_producer(facility: Dictionary, start: float) -> void:
  var kind: String = str(facility.get("type", ""))
@@ -786,6 +840,25 @@ func _advance_production(completed: Array) -> void:
   var first_eta := float(_freighter.get("arrival", INF))
   var second_eta := float(_second.get("arrival", INF))
   var arrival := minf(first_eta, second_eta)
+  var ground_due := INF
+  var ground_index := -1
+  for index in ground_ore.size():
+   if ground_ore[index].due < ground_due:
+    ground_due = ground_ore[index].due
+    ground_index = index
+  var load_one := float(_freighter.get("load_due", INF))
+  var load_two := float(_second.get("load_due", INF))
+  var load_due := minf(load_one, load_two)
+  if ground_due <= now_native and ground_due <= minf(next_batch, minf(arrival, load_due)):
+   var delivery: Dictionary = ground_ore.pop_at(ground_index)
+   _change_stock("earth", delivery.resource, delivery.amount, ground_due)
+   completed.append("Руда доставлена на земной склад")
+   continue
+  if load_due <= now_native and load_due <= minf(next_batch, arrival):
+   var slot := 1 if load_one <= load_two else 2
+   _takeoff((_freighter if slot == 1 else _second).order, slot, load_due)
+   completed.append("Грузовик %d вылетел" % slot)
+   continue
   if arrival <= now_native and arrival <= next_batch + EPSILON_NATIVE:
    var slot := 1 if first_eta <= second_eta else 2
    _land_freighter(slot)
@@ -799,7 +872,7 @@ func _advance_production(completed: Array) -> void:
    var meal: Dictionary = meal_cycles[body]
    var due := float(meal.facility.next_meal_native)
    if due <= deadline + EPSILON_NATIVE:
-    _feed_colony(body, meal)
+    _feed_colony(body, meal, due)
     due += interval
     meal.facility.next_meal_native = due
    next_batch = minf(next_batch, due)
@@ -842,12 +915,19 @@ func _run_batch(facility: Dictionary, supply: Dictionary,
  var changes := PackedStringArray()
  for key in recipe.inputs:
   var consumed: int = int(row.get("input_" + key, recipe.inputs[key]))
-  supply[key] = snappedf(float(supply.get(key, 0)) - consumed, 0.01)
+  _change_stock(facility.body, key, -consumed, attempt_time)
   if consumed > 0:
    changes.append("−%s %s" % [
     Model.batch_amount(float(consumed)), Model.batch_unit(key)])
- supply[recipe.product] = snappedf(
-  float(supply.get(recipe.product, 0)) + output, 0.01)
+ if facility.body == "earth" and recipe.id == "mining_rig":
+  var pickup := attempt_time + 0.75
+  for job in ground_ore:
+   pickup = maxf(pickup, job.due + 0.75)
+  var route := Roads.ore_route(Roads.mine_plot(world.facilities, facility.id))
+  ground_ore.append({"mine": facility.id, "resource": "ore", "amount": output,
+   "pickup": pickup, "due": pickup + Roads.length(route) / 180.0})
+ else:
+  _change_stock(facility.body, recipe.product, output, attempt_time)
  changes.append("+%s %s" % [
   Model.batch_amount(output), Model.batch_unit(str(recipe.product))])
  facility["production_status"] = ", ".join(changes)
@@ -883,6 +963,12 @@ func production_details(facility_id: String) -> Dictionary:
    facility.has("last_batch_amount")) and facility.has(
    "last_batch_resource")
   if bool(result["last_present"]):
+   for job in ground_ore:
+    if job.mine == facility_id:
+     result["delivery"] = "У шахты, ждёт машину" if now_native < job.pickup else "В пути к земному складу"
+     break
+   if not result.has("delivery") and facility.body == "earth" and kind == "mining_rig":
+    result["delivery"] = "Последняя партия принята складом"
    result["last_native"] = float(facility["last_batch_native"])
    result["last_amount"] = float(facility["last_batch_amount"])
    result["last_resource"] = str(facility["last_batch_resource"])
@@ -897,7 +983,27 @@ func colony_inventory(body: String) -> Dictionary:
  var market: Dictionary = _market_for(body)
  if market.is_empty() or not (market.get("supply", null) is Dictionary):
   return {"present": false, "supply": {}}
- return {"present": true, "supply": (market["supply"] as Dictionary).duplicate()}
+ var movement: Dictionary = {}
+ for entry in stock_history:
+  if entry.body != body or entry.time <= now_native - Calendar.days_to_native(30):
+   continue
+  var row: Dictionary = movement.get_or_add(entry.resource, {"in": 0.0, "out": 0.0, "reserved": 0.0})
+  if entry.delta > 0:
+   row["in"] += entry.delta
+  else:
+   row["out"] -= entry.delta
+ for ship in [_freighter, _second]:
+  if ship.get("location") == "loading" and ship.order.source == body:
+   var row: Dictionary = movement.get_or_add(ship.order.resource, {"in": 0.0, "out": 0.0, "reserved": 0.0})
+   row.reserved += ship.order.amount
+ return {"present": true, "supply": (market["supply"] as Dictionary).duplicate(), "movement": movement}
+
+func _change_stock(body: String, resource: String, delta: float, when: float) -> void:
+ if delta == 0:
+  return
+ var stock: Dictionary = _market_for(body).supply
+ stock[resource] = snappedf(float(stock.get(resource, 0)) + delta, 0.01)
+ stock_history.append({"body": body, "resource": resource, "delta": delta, "time": when})
 
 func colony_food(body: String) -> Dictionary:
  if not meal_cycles.has(body):

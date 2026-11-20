@@ -1,5 +1,8 @@
 extends SceneTree
 
+var frame_index := 0
+var capture_folder := OS.get_environment("SOL_ROAD_FRAMES")
+
 const MAIN = preload("res://scenes/main.tscn")
 const Model = preload("res://scripts/sol_building_model.gd")
 const Sites = preload("res://scripts/view/sol_surface_sites.gd")
@@ -31,6 +34,7 @@ func run() -> void:
  var map = game.native_view
  var district = game.district
  var stock: Control = game.colony_stock_panel
+ await capture(12)
  check(map.focus_body("earth"), "Earth exists on the ordinary globe")
  map._zoom = map._focus_zoom_target
  for step in range(6):
@@ -39,8 +43,10 @@ func run() -> void:
   var wheel := InputEventMouseButton.new()
   wheel.button_index = MOUSE_BUTTON_WHEEL_UP
   wheel.pressed = true
-  wheel.position = map.size * 0.5
+  var earth: Dictionary = map._body_by_id("earth")
+  wheel.position = map._district_footprint(map._body_position(earth, map._orbit_scale()), map._body_size(earth)).get_center()
   map._gui_input(wheel)
+ await capture(12)
  check(district.visible and not map.visible, "Approaching the focused Earth opens the district")
  check(stock.get_parent() == game.colony_panel.dock_layout, "Stock is visible in the district")
  check(district._facilities.has("earth-ac-01") and district._facilities.has("earth-farm-01"),
@@ -115,6 +121,7 @@ func run() -> void:
   "Return restores the Earth globe")
  game._open_district()
  plot_click(district, "earth-industry-01")
+ await ore_chain(game)
  await unload_in_district(game)
  print("SOL_EARTH_DISTRICT_PASS")
  if "--capture" in OS.get_cmdline_user_args() and DisplayServer.get_name() != "headless":
@@ -146,11 +153,48 @@ func unload_in_district(game: Control) -> void:
  advance(game, sim.sites.back().finish_native)
  game._close_browser()
  game._open_manual_freight()
- game.manual_amount.value = 1
+ for index in game.manual_resource.item_count:
+  if game.manual_resource.get_item_metadata(index) == "ore":
+   game.manual_resource.select(index)
+ game.manual_amount.value = float(game.district._facilities.get("earth-mine-02", {}).get("last_batch_amount", 0))
+ var outbound_amount: float = game.manual_amount.value
+ var earth_before: float = sim.colony_inventory("earth").supply.ore
+ var luna_before: float = sim.colony_inventory("luna").supply.get("ore", 0)
  check(not game.manual_freight_dialog.get_ok_button().disabled, "Outbound order is ready")
  game.manual_freight_dialog.get_ok_button().pressed.emit()
  game.manual_freight_dialog.hide()
+ check(sim.freight_status().location == "loading", "Reserved ore is loading before takeoff")
+ check(is_equal_approx(sim.colony_inventory("earth").supply.ore, earth_before - outbound_amount),
+  "Reservation removes the batch from available inventory")
+ game._save_game()
+ game._load_game()
+ check(sim.freight_status().location == "loading" and sim.freight_status().order.amount == outbound_amount,
+  "Reload retains the reserved amount without a second debit")
+ if not capture_folder.is_empty():
+  game._open_district()
+  var port_edge: Vector2 = game.district._origin + Vector2(900, 510) * game.district._scale
+  var target_point: Vector2 = (port_edge - game.district._origin) / game.district._scale
+  var turn := InputEventMouseButton.new()
+  turn.pressed = true
+  turn.position = port_edge
+  turn.button_index = MOUSE_BUTTON_WHEEL_UP
+  game.district._gui_input(turn)
+  check(((port_edge - game.district._origin) / game.district._scale).distance_to(target_point) < 0.01,
+   "Zoom keeps the port edge under the cursor")
+  var start: float = sim.now_native
+  var load_end: float = sim.freight_status().load_due
+  for index in range(67):
+   advance(game, lerpf(start, load_end - 0.01, index / 66.0))
+   await capture()
+ advance(game, sim.freight_status().load_due)
+ await capture(12)
+ check(sim.freight_status().location == "transit" and sim.freight_status().order.amount == outbound_amount,
+  "After the loader finishes, the ship departs with the same amount")
+ game._save_game()
+ game._load_game()
  advance(game, sim.freight_status().arrival)
+ check(is_equal_approx(sim.colony_inventory("luna").supply.ore, luna_before + outbound_amount),
+  "Moon warehouse receives the precise cargo once")
  # Use mined ore from the real lunar production cycle.
  game._set_speed(16)
  for tick in range(500):
@@ -186,3 +230,46 @@ func unload_in_district(game: Control) -> void:
  plot_click(district, "earth-port-01")
  check(game.colony_panel.page == "logistics", "Port plot opens its normal controls")
  print("SOL_EARTH_DISTRICT_LIVE_UNLOAD_PASS")
+
+func ore_chain(game: Control) -> void:
+ var sim = game.construction
+ var mine: Dictionary = game.district._facilities["earth-mine-02"]
+ var due: float = mine.next_batch_native
+ # The refinery can consume ore during the same production cycle. Read
+ # immediately after production to isolate the arrival from those receipts.
+ advance(game, due)
+ check(sim.ground_ore.size() == 1, "Mine generated one physical batch")
+ var job: Dictionary = sim.ground_ore[0]
+ var amount: float = job.amount
+ var stored: float = sim.colony_inventory("earth").supply.ore
+ check(job.pickup > due and job.due > job.pickup, "A visible batch waits before collection")
+ if not capture_folder.is_empty():
+  for index in range(38):
+   advance(game, lerpf(due, lerpf(job.pickup, job.due, 0.5), index / 37.0))
+   await capture()
+ advance(game, lerpf(job.pickup, job.due, 0.5))
+ game._save_game()
+ game._close_district()
+ game._load_game()
+ game._open_district()
+ check(sim.ground_ore.size() == 1 and sim.ground_ore[0].amount == amount,
+  "Save/load preserves the exact road shipment")
+ check(sim.colony_inventory("earth").supply.ore == stored, "Road goods are not yet spendable")
+ if not capture_folder.is_empty():
+  for index in range(38):
+   advance(game, lerpf(sim.now_native, job.due - 0.005, 0.14))
+   await capture()
+ advance(game, job.due)
+ check(is_equal_approx(sim.colony_inventory("earth").supply.ore, stored + amount),
+  "Warehouse receives the fractional batch once at the gate")
+ print("SOL_EARTH_ROAD_BATCH ", amount)
+
+func capture(count := 1) -> void:
+ if capture_folder.is_empty() or DisplayServer.get_name() == "headless":
+  return
+ for index in count:
+  await process_frame
+  await RenderingServer.frame_post_draw
+  var frame := root.get_texture().get_image()
+  check(frame.save_png(capture_folder.path_join("%04d.png" % frame_index)) == OK, "Video frame saved")
+  frame_index += 1

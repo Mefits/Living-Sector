@@ -249,6 +249,70 @@
         "shipyard"
       ],
       "kind": "orbit"
+    },
+    {
+      "id": "earth-expansion-01",
+      "label": "Расширение · 01",
+      "at": [
+        0.15,
+        0.1
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-expansion-02",
+      "label": "Расширение · 02",
+      "at": [
+        0.52,
+        0.11
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-expansion-03",
+      "label": "Расширение · 03",
+      "at": [
+        0.16,
+        0.33
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-expansion-04",
+      "label": "Расширение · 04",
+      "at": [
+        0.37,
+        0.41
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
     }
   ],
   "luna": [

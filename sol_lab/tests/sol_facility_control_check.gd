@@ -297,7 +297,7 @@ func _run() -> void:
  if stock_button != null:
   stock_button.pressed.emit()
  verify(not game.browser.visible and
-  game.colony_panel.stock_view.visible,
+  game.colony_stock_panel.is_visible_in_tree(),
   "AC stock opens same existing colony stock panel")
  # Quick entry returns to SAME logistics panel used by port click.
  game._open_colony_logistics()

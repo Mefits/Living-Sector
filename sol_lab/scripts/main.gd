@@ -88,6 +88,7 @@ func _ready() -> void:
     _build_ui()
     _make_native_map()
     _make_browser()
+    _dock_colony_stock()
     resized.connect(_layout_right_side)
     _layout_right_side()
     _show_selected()
@@ -386,6 +387,7 @@ func _build_freight_line_controls(parent: Control) -> void:
     manual_form.add_child(amount_label)
     manual_amount = SpinBox.new()
     manual_amount.min_value = 0
+    manual_amount.step = 0.01
     manual_amount.max_value = ConstructionRuntime.FREIGHT_CAPACITY
     manual_amount.value = ConstructionRuntime.FREIGHT_CAPACITY
     manual_form.add_child(manual_amount)
@@ -439,8 +441,9 @@ func _open_manual_freight() -> void:
         if ship.is_empty():
             continue
         var location: String = ship.location
-        var status: String = "В пути" if location == "transit" else Model.PLANET_NAMES[location]
-        var busy: bool = location == "transit" or (slot == 1 and construction.freight_line().enabled)
+        var status: String = {"transit": "В пути", "loading": "Погрузка"}.get(
+            location, Model.PLANET_NAMES.get(location, location))
+        var busy: bool = location in ["transit", "loading"] or (slot == 1 and construction.freight_line().enabled)
         manual_ship.add_item("Грузовик %d · %s%s" % [slot, status, " · линия" if slot == 1 and construction.freight_line().enabled else ""], slot)
         var index := manual_ship.item_count - 1
         manual_ship.set_item_disabled(index, busy)
@@ -471,7 +474,7 @@ func _manual_route_changed(_index: int) -> void:
         manual_resource.add_item(Model.resource_label(resource))
         manual_resource.set_item_metadata(
             manual_resource.item_count - 1, resource)
-    manual_amount.min_value = 0 if destination == "earth" else 1
+    manual_amount.min_value = 0 if destination == "earth" else 0.01
     manual_amount.value = clampf(manual_amount.value,
         manual_amount.min_value, manual_amount.max_value)
     _preview_manual_freight()
@@ -483,14 +486,14 @@ func _preview_manual_freight() -> void:
         return
     var destination: String = str(manual_destination.get_selected_metadata())
     var resource: String = str(manual_resource.get_selected_metadata())
-    var amount: int = int(manual_amount.value)
+    var amount: float = manual_amount.value
     var shipment: Dictionary = construction.freight_order(destination)
     var reason: String = construction.manual_freight_reason(
         destination, resource, amount, _manual_ship_slot())
-    manual_preview.text = "%s → %s\nГруз: %d %s%s" % [
+    manual_preview.text = "%s → %s\nГруз: %s %s%s" % [
         Model.PLANET_NAMES[shipment.source],
         Model.PLANET_NAMES[shipment.destination],
-        amount, Model.resource_label(resource),
+        Model.batch_amount(amount), Model.resource_label(resource),
         "" if reason.is_empty() else "\n" + reason]
     manual_freight_dialog.get_ok_button().disabled = not reason.is_empty()
 
@@ -498,14 +501,14 @@ func _preview_manual_freight() -> void:
 func _submit_manual_freight() -> void:
     var destination: String = str(manual_destination.get_selected_metadata())
     var resource: String = str(manual_resource.get_selected_metadata())
-    var amount: int = int(manual_amount.value)
+    var amount: float = manual_amount.value
     if not construction.depart_manual_freight(destination, resource, amount, _manual_ship_slot()):
         _notice(construction.manual_freight_reason(
             destination, resource, amount, _manual_ship_slot()))
         return
     _update_native_map()
     _show_selected()
-    _notice("Грузовик %d отправлен" % _manual_ship_slot())
+    _notice("Рейс принят · грузовик %d" % _manual_ship_slot())
 
 
 ## The quick "Линия" entry and clicking a spaceport open the SAME
@@ -584,8 +587,8 @@ func _show_selected() -> void:
                     items.insert(1, "Грузовик на Земле · трюм пуст")
                 "transit":
                     var cargo: Dictionary = freight.order
-                    var payload := "%d %s" % [
-                        cargo.amount, Model.batch_unit(cargo.resource)] if (
+                    var payload := "%s %s" % [
+                        Model.batch_amount(cargo.amount), Model.batch_unit(cargo.resource)] if (
                         cargo.amount > 0) else "трюм пуст"
                     items.insert(1, "Грузовик → %s · %s\nПрибытие: %s" % [
                         Model.PLANET_NAMES[cargo.destination], payload,
@@ -717,14 +720,14 @@ func _open_browser(admin: bool) -> void:
     browser.configure(world, config, selected, admin)
     browser.set_construction_state(world, construction.sites, native_time)
     sidebar.hide()
-    _dock_district_stock()
+    _dock_colony_stock()
     _layout_right_side()
 
 func _close_browser() -> void:
     _cancel_placement()
     browser.hide()
     sidebar.show()
-    _dock_district_stock()
+    _dock_colony_stock()
     _layout_right_side()
 
 func _layout_right_side() -> void:
@@ -814,6 +817,9 @@ func _make_native_map() -> void:
     district.hide()
     district.bind_runtime(construction)
     district.return_requested.connect(_close_district)
+    district.zoom_out_requested.connect(func(pointer: Vector2, fraction: Vector2):
+        _close_district()
+        native_view.return_to_earth_point(pointer, fraction))
     district.facility_selected.connect(_native_facility_selected)
     district.site_selected.connect(_placement_chosen)
     district.selection_invalid.connect(func(reason: String):
@@ -822,21 +828,21 @@ func _make_native_map() -> void:
     native_view.earth_district_requested.connect(_open_district)
 
 
-func _open_district() -> void:
+func _open_district(pointer := Vector2(-1, -1), fraction := Vector2.ZERO) -> void:
     if district.visible or not Model.colony(world, "earth"):
         return
     if selected != "earth":
         _native_body_selected({"id": "earth"})
     native_view.hide()
-    district.show_district()
-    _dock_district_stock()
+    district.show_district(pointer, fraction)
+    _dock_colony_stock()
     _refresh_district()
 
 
 func _close_district() -> void:
     _cancel_placement()
     district.hide()
-    _dock_district_stock()
+    _dock_colony_stock()
     native_view.show()
     native_view.focus_body("earth")
 
@@ -846,16 +852,14 @@ func _refresh_district() -> void:
         district.update_colony(world.get("facilities", []))
 
 
-func _dock_district_stock() -> void:
+func _dock_colony_stock() -> void:
     if district == null or browser == null:
         return
-    var parent: Control = colony_panel.stock_view
-    if district.visible:
-        parent = browser.dock_layout if browser.visible else colony_panel.dock_layout
+    var parent: Control = browser.dock_layout if browser.visible else colony_panel.dock_layout
     if colony_stock_panel.get_parent() == parent:
         return
     colony_stock_panel.reparent(parent, false)
-    parent.move_child(colony_stock_panel, 1 if district.visible else 0)
+    parent.move_child(colony_stock_panel, 1)
     if district.visible and not browser.visible:
         colony_panel.select_overview()
 

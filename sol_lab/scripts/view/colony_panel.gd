@@ -241,13 +241,15 @@ func show_logistics(line: Dictionary, freight: Dictionary,
    Model.resource_label(str(leg.get("resource", ""))),
    Model.batch_amount(float(leg.get("reserve", 0)))])
  var location: String = str(freight.get("location", ""))
- if location == "transit":
+ if location == "loading":
+  sentences.append("Грузовик: погрузка · %s руды → Луна" % Model.batch_amount(freight.order.amount))
+ elif location == "transit":
   var order: Dictionary = freight.get("order", {})
   var source: String = str(order.get("source", ""))
   var target: String = str(order.get("destination", ""))
-  var amount: int = int(order.get("amount", 0))
-  var manifest: String = ("%d %s" % [
-   amount, Model.resource_label(str(order.get("resource", "")))]) if (
+  var amount: float = float(order.get("amount", 0))
+  var manifest: String = ("%s %s" % [
+   Model.batch_amount(amount), Model.resource_label(str(order.get("resource", "")))]) if (
    amount > 0) else "пустой трюм"
   sentences.append("Грузовик: в пути · %s → %s" % [
    destination_names.get(source, source), destination_names.get(target, target)])
@@ -263,10 +265,12 @@ func show_logistics(line: Dictionary, freight: Dictionary,
  if not second.is_empty():
   if second.location == "transit":
    var cargo: Dictionary = second.order
-   sentences.append("Грузовик 2 · %s → %s · %d %s" % [
+   sentences.append("Грузовик 2 · %s → %s · %s %s" % [
     destination_names[cargo.source], destination_names[cargo.destination],
-    cargo.amount, Model.batch_unit(cargo.resource)])
+    Model.batch_amount(cargo.amount), Model.batch_unit(cargo.resource)])
    sentences.append("Прибытие: " + Calendar.calendar_text(second.arrival))
+  elif second.location == "loading":
+   sentences.append("Грузовик 2: погрузка · %s руды → Луна" % Model.batch_amount(second.order.amount))
   else:
    sentences.append("Грузовик 2 · %s · свободен" % destination_names[second.location])
  logistics_status.text = "\n".join(sentences)
@@ -365,6 +369,8 @@ func _show_selected_detail() -> void:
      Model.resource_label(str(data.get("last_resource", "")))])
     lines.append("Выпущено: " + Calendar.calendar_text(
      float(data.get("last_native", 0))))
+    if data.has("delivery"):
+     lines.append(str(data.delivery))
     var changes: String = str(data.get("last_changes", ""))
     if not changes.is_empty():
      lines.append("Фактическая партия: " + changes)

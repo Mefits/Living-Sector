@@ -4,7 +4,7 @@ extends Control
 ## camera zoom. Native N14/N39 positions and orbital angles are untouched.
 ## Facility markers remain attached to real source body identities.
 
-signal earth_district_requested
+signal earth_district_requested(pointer: Vector2, fraction: Vector2)
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
 signal ship_selected(ship_id: String)
@@ -75,6 +75,7 @@ const KNOWN_VISUAL_MOON_PARENTS: Dictionary = {
 var _world: Dictionary = {}
 var _live_fleet: Dictionary = {}
 var _selected_body_id: String = ""
+var _earth_follow_offset := Vector2.ZERO
 var _zoom: float = 1.0
 ## Compensates the logical viewport shrink introduced by the *global UI*
 ## content_scale_factor at close-up only. Native physical world untouched.
@@ -268,6 +269,11 @@ func _process(delta: float) -> void:
         # Follow mode anchors the real body; free zoom anchors the pointer.
         if _focused_body_id.is_empty():
             _pan += (_wheel_anchor - _center()) * (1.0 - ratio)
+        elif _focused_body_id == "earth":
+            var earth := _body_by_id("earth")
+            var radius_ratio := _body_size_at_zoom(earth, next_zoom_wheel) / _body_size(earth)
+            var relative := _wheel_anchor - size * 0.5
+            _earth_follow_offset = relative + (_earth_follow_offset - relative) * radius_ratio
         _zoom = next_zoom_wheel
         camera_changed = true
         if absf(_zoom - _wheel_target_zoom) < 0.005:
@@ -302,6 +308,8 @@ func _process(delta: float) -> void:
             _follow_orbit_offset = orbit_offset
             _follow_orbit_valid = true
             var desired_pan: Vector2 = -orbit_offset
+            if _focused_body_id == "earth":
+                desired_pan += _earth_follow_offset
             var remaining: Vector2 = desired_pan - _pan
             if remaining.length() < 1.5:
                 _pan = desired_pan
@@ -815,6 +823,7 @@ func focus_body(body_id: String) -> bool:
     var body: Dictionary = _body_by_id(body_id)
     if body.is_empty():
         return false
+    _earth_follow_offset = Vector2.ZERO
     _selected_body_id = body_id
     _focused_body_id = body_id
     _return_camera = false
@@ -1157,6 +1166,8 @@ func _flight_pose(kind: String, ship: Dictionary, when_usec: int) -> Dictionary:
     var path: Dictionary = ship.get("trajectory", {})
     if ship.get("location") != "transit":
         var dock_id: String = ship.location if kind != "colonizer" else "earth"
+        if dock_id == "loading":
+            dock_id = "earth"
         var distance: float = frame.earth_gate + (frame.gap if dock_id == "luna" else 0.0)
         var offset: Vector2 = screen_axis * distance + lateral * frame.berth
         return {"moving": false, "position": frame.center + offset,
@@ -1239,7 +1250,7 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
             var axis: Vector2 = frame.axis.rotated(path.orbit.omega * (at - pose.time))
             line.append(_project_flight(LocalFlight.position(path, at), path.orbit, at, frame, axis))
         draw_polyline(line, Color("#8cbbce", 0.65), 1.5, true)
-    var loaded: bool = int(ship.get("order", {}).get("amount", 0)) > 0
+    var loaded: bool = float(ship.get("order", {}).get("amount", 0)) > 0
     _paint_flight_ship(kind, position, pose["direction"], pose.opacity, pose.glyph, loaded)
     if bool(pose["moving"]):
         _flight_pins.append({"kind": kind, "position": position})
@@ -1248,10 +1259,10 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
                 Color("#fff0b0", 0.9), 1.3, true)
     if bool(pose["moving"]) and kind != "colonizer":
         var cargo: Dictionary = ship.get("order", {})
-        var label: String = "%s · %s · %d %s" % [
+        var label: String = "%s · %s · %s %s" % [
             "2" if kind == "freight2" else "1",
             Model.PLANET_NAMES.get(str(cargo.get("destination", "")), "?"),
-            int(cargo.get("amount", 0)),
+            Model.batch_amount(float(cargo.get("amount", 0))),
             Model.batch_unit(str(cargo.get("resource", "")))]
         draw_string(get_theme_default_font(), position + Vector2(9.0, -7.0),
             label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#f6d38a"))
@@ -1379,6 +1390,13 @@ func _draw_system() -> void:
             var settlement := position + Vector2(-0.17, -0.20) * sprite_extent
             draw_circle(settlement, 5.0, Color("#1e3433"), true, -1.0, true)
             draw_circle(settlement, 3.2, Color("#e9cf91"), true, -1.0, true)
+            if visual_radius >= 105.0:
+                var footprint := _district_footprint(position, visual_radius)
+                draw_rect(footprint, Color("#52664eaa"))
+                draw_rect(footprint, Color("#c5c49f"), false, 1)
+                for y in [0.24, 0.55, 0.81]:
+                    var start := footprint.position + Vector2(2, footprint.size.y * y)
+                    draw_line(start, start + Vector2(footprint.size.x - 4, 0), Color("#a7ac82"), 1)
             if visual_radius >= 85.0:
                 var callout := settlement + Vector2(27, -26)
                 draw_line(settlement, callout, Color("#e9cf91"), 1.2, true)
@@ -1969,6 +1987,24 @@ func _follow_threshold_reached(current_zoom: float) -> bool:
     return current_zoom >= FOLLOW_START_ZOOM
 
 
+func _district_footprint(center: Vector2, radius: float) -> Rect2:
+    var extent := Vector2(0.44, 0.35) * radius
+    return Rect2(center + Vector2(-0.18, -0.21) * radius - extent * 0.5, extent)
+
+func return_to_earth_point(pointer: Vector2, fraction: Vector2) -> void:
+    _focused_body_id = "earth"
+    _focus_zoom_target = -1.0
+    _wheel_target_zoom = -1.0
+    var earth := _body_by_id("earth")
+    var radius := _body_size(earth)
+    _draw_body_positions.clear()
+    var center := _body_position(earth, _orbit_scale())
+    var footprint := _district_footprint(center, radius)
+    _pan += pointer - (footprint.position + footprint.size * fraction)
+    _earth_follow_offset = center + pointer - (footprint.position + footprint.size * fraction) - size * 0.5
+    _follow_orbit_valid = false
+    queue_redraw()
+
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     _return_camera = false
     _focus_zoom_target = -1.0
@@ -1979,8 +2015,14 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
             _body_ids_by_location.has("earth-colony") and
             _body_size_at_zoom(_body_by_id("earth"), prior_target) >=
             DISTRICT_ENTRY_RADIUS / _ui_viewport_scale):
-        _wheel_target_zoom = -1.0
-        earth_district_requested.emit()
+        var earth := _body_by_id("earth")
+        var footprint := _district_footprint(_body_position(earth, _orbit_scale()), _body_size(earth))
+        if footprint.grow(10).has_point(pointer):
+            _wheel_target_zoom = -1.0
+            earth_district_requested.emit(pointer,
+                ((pointer - footprint.position) / footprint.size).clamp(Vector2.ZERO, Vector2.ONE))
+        else:
+            _wheel_target_zoom = minf(_wheel_target_zoom, prior_target)
         return
     if multiplier > 1.0:
         # Identify by existing screen hit-test. Acquire focus at x3.1,

@@ -45,6 +45,7 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
   return
  heading.text = "Склад колонии · " + planet
  var supply: Dictionary = warehouse.get("supply", {})
+ var movement: Dictionary = warehouse.get("movement", {})
  var keys: Array[String] = []
  for resource in ORDER:
   if supply.has(resource):
@@ -60,9 +61,7 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
   # Keep the existing nodes when only amounts change.
   for resource in keys:
    var label: Label = amount_labels[resource]
-   var next_value: String = Model.batch_amount(float(supply[resource]))
-   if label.text != next_value:
-    label.text = next_value
+   _display_amount(label, supply[resource], movement.get(resource, {}))
   return
  _visible_keys = keys
  for child in columns.get_children():
@@ -98,10 +97,23 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
   resource_name.add_theme_color_override("font_color", Color("#c4d0d5"))
   line.add_child(resource_name)
   var amount := Label.new()
-  amount.text = Model.batch_amount(float(supply[resource]))
+  _display_amount(amount, supply[resource], movement.get(resource, {}))
   amount.custom_minimum_size.x = 36.0
   amount.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
   amount.add_theme_font_size_override("font_size", 13)
   amount.add_theme_color_override("font_color", Color("#f0dfae"))
   line.add_child(amount)
   amount_labels[resource] = amount
+
+func _display_amount(label: Label, value: float, row: Dictionary) -> void:
+ var incoming: float = row.get("in", 0.0)
+ var spent: float = row.get("out", 0.0)
+ var balance := incoming - spent
+ label.text = "%s  %s%s" % [Model.batch_amount(value),
+  "+" if balance > 0 else "", Model.batch_amount(balance)]
+ label.mouse_filter = Control.MOUSE_FILTER_STOP
+ label.tooltip_text = "Доступно: %s
+30 дней · приход: %s · расход: %s
+В резерве: %s" % [
+  Model.batch_amount(value), Model.batch_amount(incoming), Model.batch_amount(spent),
+  Model.batch_amount(row.get("reserved", 0.0))]

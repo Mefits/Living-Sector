@@ -187,9 +187,9 @@ func _run() -> void:
    _check(game.colony_panel.selected_facility == fid and
     game.colony_panel.detail_title.visible, "built list opens " + fid)
  _press_button(game.colony_panel, "Склад")
- _check(game.colony_panel.stock_view.visible and
-  game.colony_stock_panel.amount_labels["metals"].text == "0",
-  "full warehouse one click")
+ _check(game.colony_stock_panel.is_visible_in_tree() and
+  game.colony_stock_panel.amount_labels["metals"].text.begins_with("0"),
+  "full warehouse always visible")
  _press_button(game.colony_panel, "Построено")
  _press_button(game.colony_panel, "Линия")
  _check(game.colony_panel.logistics_view.visible,

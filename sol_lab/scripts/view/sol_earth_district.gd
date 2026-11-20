@@ -1,6 +1,7 @@
 extends Control
 ## Earth district presentation. Named site IDs remain the construction authority.
 signal return_requested
+signal zoom_out_requested(pointer: Vector2, fraction: Vector2)
 signal facility_selected(id: String)
 signal site_selected(id: String)
 signal selection_invalid(reason: String)
@@ -12,26 +13,10 @@ const Art = preload("res://scripts/view/sol_earth_district_art.gd")
 const SHIP_PATH = "res://assets/district/freighter.png"
 const PORT_PATHS = ["res://earth_port/EarthPort.tscn",
  "res://sol_lab/earth_port/EarthPort.tscn"]
-const AREA = Vector2(980, 670)
+const AREA = Vector2(980, 782)
 const EARTH = "earth"
-const PLOTS = {
- "earth-ac-01": Rect2(419, 282, 108, 79),
- "earth-farm-01": Rect2(54, 400, 176, 104),
- "earth-farm-02": Rect2(244, 400, 162, 104),
- "earth-farm-03": Rect2(54, 522, 176, 96),
- "earth-mine-01": Rect2(56, 82, 116, 92),
- "earth-mine-02": Rect2(195, 82, 116, 92),
- "earth-mine-03": Rect2(56, 189, 116, 84),
- "earth-mine-04": Rect2(195, 189, 116, 84),
- "earth-industry-01": Rect2(393, 82, 148, 99),
- "earth-industry-02": Rect2(560, 82, 138, 99),
- "earth-industry-03": Rect2(714, 82, 147, 99),
- "earth-industry-04": Rect2(573, 198, 134, 79),
- "earth-port-01": Rect2(548, 382, 354, 203),
- "earth-common-01": Rect2(244, 522, 162, 96),
- "earth-common-02": Rect2(726, 198, 135, 79),
- "earth-common-03": Rect2(429, 400, 105, 104),
-}
+const Roads = preload("res://scripts/view/sol_district_roads.gd")
+const PLOTS = Roads.PLOTS
 var _plots: Dictionary = {}
 var _facilities: Dictionary = {}
 var _kind := ""
@@ -49,6 +34,7 @@ var _runtime: RefCounted
 var _ship: Texture2D
 var _layer := Node2D.new()
 var _hint: Label
+var _traffic := Node2D.new()
 
 func _ready() -> void:
  clip_contents = true
@@ -78,11 +64,14 @@ func _ready() -> void:
  resized.connect(_redraw_layout)
  _set_hint()
 
-func show_district() -> void:
+func show_district(pointer := Vector2(-1, -1), fraction := Vector2.ZERO) -> void:
  _zoom = 1.0
  _pan = Vector2.ZERO
  show()
  _redraw_layout()
+ if pointer.x >= 0:
+  _pan += pointer - (_origin + _world_size * fraction * _scale)
+  _redraw_layout()
 
 func bind_runtime(construction: RefCounted) -> void:
  _runtime = construction
@@ -102,6 +91,35 @@ func bind_runtime(construction: RefCounted) -> void:
   _layer.add_child(_port)
   _port.call("bind_runtime", _runtime, EARTH)
   break
+ _layer.add_child(_traffic)
+ _traffic.draw.connect(_draw_ground_freight)
+
+func _draw_ground_freight() -> void:
+ for job in _runtime.ground_ore:
+  var plot := Roads.mine_plot(_facilities.values(), job.mine)
+  var route := Roads.ore_route(plot)
+  var moving: bool = _runtime.now_native >= job.pickup
+  var pose := Roads.pose(route, inverse_lerp(job.pickup, job.due, _runtime.now_native))
+  if moving and _scale < 0.58:
+   continue
+  Art.ground_cargo(_traffic, pose, moving, _zoom)
+
+func _select_cargo(point: Vector2) -> bool:
+ if _port != null and _port.visible and _port.has_method("cargo_at"):
+  var cargo: Dictionary = _port.cargo_at(point - _port.position)
+  if not cargo.is_empty():
+   _set_hint("%s %s → %s" % [Model.batch_amount(cargo.amount),
+    Model.batch_unit(cargo.resource), "Луна" if cargo.get("destination") == "luna" else "Земной склад"])
+   return true
+ for job in _runtime.ground_ore:
+  var route := Roads.ore_route(Roads.mine_plot(_facilities.values(), job.mine))
+  var pose := Roads.pose(route, inverse_lerp(job.pickup, job.due, _runtime.now_native))
+  if pose.origin.distance_to(point) <= 13:
+   _set_hint("%s %s → Земной склад · %s" % [
+    Model.batch_amount(job.amount), Model.batch_unit(job.resource),
+    "в пути" if _runtime.now_native >= job.pickup else "ждёт машину"])
+   return true
+ return false
 
 func update_colony(facilities: Array) -> void:
  _plots = PLOTS.duplicate()
@@ -117,8 +135,7 @@ func update_colony(facilities: Array) -> void:
   if not _plots.has(site) or _facilities.has(site):
    # Preserve legacy objects beyond the named-site catalogue.
    site = str(facility["id"])
-   _plots[site] = Rect2(58 + (overflow % 6) * 140,
-    685 + floori(float(overflow) / 6.0) * 112, 116, 92)
+   _plots[site] = Roads.overflow_plot(overflow)
    overflow += 1
   _facilities[site] = facility
  _world_size = AREA + Vector2(0, ceili(float(overflow) / 6.0) * 112)
@@ -140,7 +157,7 @@ func plot_name(site: String) -> String:
  var plot: Rect2 = PLOTS.get(site, Rect2())
  var zone := "Производственный двор"
  if plot.position.y >= 400:
-  zone = "Южные поля"
+  zone = "Расширение" if plot.position.y >= 661 else "Южные поля"
  elif plot.position.x < 350:
   zone = "Горный участок"
  return "%s · %s" % [zone, site.get_slice("-", 2)]
@@ -193,13 +210,16 @@ func _gui_input(event: InputEvent) -> void:
   match event.button_index:
    MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN:
     var world_point: Vector2 = (event.position - _origin) / _scale
+    if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and is_equal_approx(_zoom, 1.0) and not is_placing():
+     zoom_out_requested.emit(event.position, (world_point / _world_size).clamp(Vector2.ZERO, Vector2.ONE))
+     accept_event()
+     return
     var old_zoom := _zoom
     _zoom = clampf(_zoom * (1.16 if event.button_index == MOUSE_BUTTON_WHEEL_UP else
      1.0 / 1.16), 1.0, 2.7)
     var ratio := _zoom / old_zoom
-    _pan += (event.position - size * 0.5) * (1.0 - ratio)
-    if _zoom == 1.0:
-     _pan = Vector2.ZERO
+    var center := size * 0.5 + Vector2(0, 6)
+    _pan = (event.position - center) * (1.0 - ratio) + _pan * ratio
     _hover = _plot_at(world_point)
    MOUSE_BUTTON_RIGHT:
     if _kind.is_empty():
@@ -216,7 +236,8 @@ func _gui_input(event: InputEvent) -> void:
       site_selected.emit(site)
      else:
       selection_invalid.emit(reason)
-    elif _facilities.has(site) and _facilities[site].get("type") != "construction_site":
+    elif not _select_cargo((event.position - _origin) / _scale) and (
+      _facilities.has(site) and _facilities[site].get("type") != "construction_site"):
      facility_selected.emit(str(_facilities[site]["id"]))
   _redraw_layout()
  accept_event()
@@ -230,6 +251,7 @@ func _redraw_layout() -> void:
  _origin = (size - _world_size * _scale) * 0.5 + _pan + Vector2(0, 6)
  _layer.position = _origin
  _layer.scale = Vector2.ONE * _scale
+ _traffic.queue_redraw()
  queue_redraw()
 
 func _draw() -> void:
@@ -239,6 +261,8 @@ func _draw() -> void:
  for site in _plots:
   var plot: Rect2 = _plots[site]
   var facility: Dictionary = _facilities.get(site, {})
+  if not facility.is_empty() and plot != Roads.PORT:
+   draw_polyline(Roads.driveway(plot), Color("#777a67"), 8.0, true)
   if facility.is_empty():
    Art.empty_plot(self, plot, site)
   else:
@@ -261,3 +285,4 @@ func _draw() -> void:
     draw_rect(plot.grow(2), color, false, 2.5 if site == _chosen else 1.3)
    if valid and (site == _hover or site == _chosen):
     Art.preview(self, plot, _kind, null)
+    draw_polyline(Roads.driveway(plot), Color("#b7d99b"), 6.0, true)

@@ -36,15 +36,10 @@ static func terrain(c: CanvasItem, area: Vector2) -> void:
  for x in [36, 917]:
   road(c, Vector2(x, 63), Vector2(x, area.y - 21))
  road(c, Vector2(353, 63), Vector2(353, 371))
- road(c, Vector2(538, 371), Vector2(538, 640))
- road(c, Vector2(538, 449), Vector2(548, 449))
- # Gravel approaches, kept outside the buildable footprints.
- for x in [112, 251, 468, 624, 789]:
-  c.draw_line(Vector2(x, 72), Vector2(x, 82), Color("#898774"), 16)
- for x in [136, 318, 502]:
-  c.draw_line(Vector2(x, 380), Vector2(x, 400), Color("#898774"), 11)
- if area.y > 670:
-  road(c, Vector2(36, 672), Vector2(917, 672))
+ road(c, Vector2(538, 371), Vector2(538, area.y - 10))
+ road(c, Vector2(538, 509), Vector2(548, 509))
+ for y in range(772, int(area.y) - 20, 112):
+  road(c, Vector2(36, y), Vector2(917, y))
 
 static func road(c: CanvasItem, a: Vector2, b: Vector2) -> void:
  c.draw_line(a, b, Color("#8a8975"), 22)
@@ -193,3 +188,19 @@ static func construction(c: CanvasItem, r: Rect2, kind: String) -> void:
 static func preview(c: CanvasItem, r: Rect2, kind: String, ship: Texture2D) -> void:
  building(c, r.grow(-3), kind, ship, true)
  c.draw_rect(r, Color("#a8c88a38"))
+
+static func ground_cargo(c: CanvasItem, pose: Transform2D, moving: bool, zoom: float) -> void:
+ c.draw_set_transform(pose.origin, pose.get_rotation())
+ if moving:
+  c.draw_rect(Rect2(-10, -4, 23, 10), Color("#282e2899"))
+  c.draw_rect(Rect2(-11, -5, 22, 9), DARK)
+  c.draw_rect(Rect2(4, -4, 7, 7), PAPER)
+  c.draw_rect(Rect2(8, -3, 2, 5), Color("#425c62"))
+  c.draw_rect(Rect2(-10, -4, 14, 7), STEEL)
+ var crate := Rect2(-9, -3.3, 12, 6.6) if moving else Rect2(-5, -4, 10, 8)
+ c.draw_rect(crate, OCHRE)
+ c.draw_line(crate.position + Vector2(1, 1), Vector2(crate.end.x - 1, crate.position.y + 1),
+  Color("#f0c985"), 1)
+ if zoom >= 1.16:
+  c.draw_line(crate.position + Vector2(3, 2), crate.end - Vector2(5, 1), OCHRE.darkened(0.2), 1)
+ c.draw_set_transform(Vector2.ZERO)

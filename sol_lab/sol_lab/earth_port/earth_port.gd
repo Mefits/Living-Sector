@@ -2,6 +2,7 @@ extends Node2D
 ## One physical pad and one local service lane per ship slot.
 ## Native time drives every pose, including when the view is recreated.
 
+const Roads = preload("res://scripts/view/sol_district_roads.gd")
 const Art = preload("res://sol_lab/earth_port/ship_art.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const APPROACH := 1.25
@@ -12,6 +13,7 @@ const PAD_B := Vector2(167, 0)
 var _runtime: RefCounted
 var _roads: Array[Curve2D] = []
 var _state: Dictionary = {}
+var _cargo_hits: Array = []
 
 func bind_runtime(runtime: RefCounted, body_id: String) -> void:
 	_runtime = runtime if body_id == "earth" else null
@@ -43,7 +45,30 @@ func _road(points: Array[Vector2]) -> Curve2D:
 		road.add_point(point)
 	return road
 
+func cargo_at(local: Vector2) -> Dictionary:
+	for hit in _cargo_hits:
+		if local.distance_to(hit.point) <= 10:
+			return hit.cargo
+	return {}
+
 func _draw() -> void:
+	_cargo_hits.clear()
+	var gate := Roads.GATE - Roads.PAD
+	var lane_y := Roads.PORT_LANE - Roads.PAD.y
+	var entrance := PackedVector2Array([Vector2(Roads.PORT.position.x - Roads.PAD.x, lane_y),
+		Vector2(gate.x, lane_y), gate])
+	draw_polyline(entrance, Color("#444c48"), 9.0, true)
+	draw_polyline(entrance, Color("#999278"), 1.0, true)
+	# Dark opening under the roof lip and contrasting dock posts.
+	draw_rect(Rect2(gate + Vector2(-7, -1), Vector2(14, 6)), Color("#242e2b"))
+	draw_line(gate + Vector2(-8, 1), gate + Vector2(8, 1), Color("#cbc6a2"), 1)
+	for x in [-7, 6]:
+		draw_rect(Rect2(gate + Vector2(x, -1), Vector2(1.5, 5)), Color("#c99a56"))
+	if global_scale.x >= 0.85:
+		var worker := gate + Vector2(-12, -6)
+		draw_circle(worker + Vector2(1, 2), 2.2, Color("#28322aaa"))
+		draw_rect(Rect2(worker + Vector2(-1.5, -0.5), Vector2(3, 4)), Color("#b87f41"))
+		draw_circle(worker + Vector2(0, -1), 1.2, Color("#efce8c"))
 	if _roads.is_empty():
 		return
 	for index in 2:
@@ -84,7 +109,16 @@ func _draw_bay(index: int, pad: Vector2, road: Curve2D, bay: Dictionary, now: fl
 		cargo = landed
 		transfer = landed_age / SERVICE
 		show_ship = true
-	elif outbound and outgoing_age >= 0.0 and outgoing_age < SERVICE + TAKEOFF:
+	elif bay.location == "loading":
+		cargo = order
+		transfer = 1.0 - inverse_lerp(float(bay.load_started), float(bay.load_due), now)
+		show_ship = true
+	elif outbound and order.get("resource") == "ore" and outgoing_age >= 0.0 and outgoing_age < TAKEOFF:
+		cargo = order
+		flight_height = smoothstep(0.0, TAKEOFF, outgoing_age)
+		ship_position -= Vector2(0, 100) * flight_height
+		show_ship = true
+	elif outbound and order.get("resource") != "ore" and outgoing_age >= 0.0 and outgoing_age < SERVICE + TAKEOFF:
 		cargo = order
 		if outgoing_age <= SERVICE:
 			transfer = 1.0 - outgoing_age / SERVICE
@@ -92,7 +126,7 @@ func _draw_bay(index: int, pad: Vector2, road: Curve2D, bay: Dictionary, now: fl
 		ship_position -= Vector2(0, 100) * flight_height
 		show_ship = true
 
-	var loaded := int(cargo.get("amount", 0)) > 0
+	var loaded := float(cargo.get("amount", 0)) > 0
 	var mount := ship_position
 	var cargo_position := mount
 	var cargo_angle := 0.0
@@ -129,7 +163,8 @@ func _draw_bay(index: int, pad: Vector2, road: Curve2D, bay: Dictionary, now: fl
 		draw_texture(Art.CONTAINER, -Art.CONTAINER.get_size() / 2.0)
 		draw_set_transform(Vector2.ZERO)
 	if loaded:
-		var caption := "%d %s" % [cargo.amount, Model.batch_unit(cargo.resource)]
+		_cargo_hits.append({"point": cargo_position, "cargo": cargo})
+		var caption := "%s %s" % [Model.batch_amount(cargo.amount), Model.batch_unit(cargo.resource)]
 		var label_at := cargo_position + Vector2(8, -7)
 		draw_string_outline(ThemeDB.fallback_font, label_at, caption,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 11, 3, Color("#252d26"))
