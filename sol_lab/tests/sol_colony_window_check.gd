@@ -182,7 +182,11 @@ func _run() -> void:
   "full warehouse one click")
  _press_button(game.colony_panel, "Построено")
  _press_button(game.colony_panel, "Линия")
- _check(game.freight_line_dialog.visible, "line settings one click")
+ _check(game.colony_panel.logistics_view.visible,
+  "colony logistics opens from quick action")
+ _press_button(game.colony_panel, "Настройка линии")
+ _check(game.freight_line_dialog.visible,
+  "regular line settings share the logistics panel")
  game.freight_line_dialog.hide()
  # Zoom to the real globe and click actual rendered facility pins.
  game.native_view.focus_body("luna")
@@ -212,6 +216,7 @@ func _run() -> void:
   game._step()
  _check(game.construction.sites.is_empty(), "Earth facilities completed")
  _select("luna")
+ _press_button(game.colony_panel, "Линия")
  _press_button(game.colony_panel, "Включить линию")
  _check(game.construction.freight_line().enabled, "line enabled")
  game._step()

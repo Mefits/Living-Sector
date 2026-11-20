@@ -794,6 +794,9 @@ func _activate_facility(facility_id: String) -> void:
                 "location", "")) == body + "-colony":
             _open_build()
         elif kind == "spaceport":
+            colony_panel.show_logistics(construction.freight_line(),
+                construction.freight_status(),
+                construction.freight_line_wait())
             colony_panel.open_logistics()
         return
 
