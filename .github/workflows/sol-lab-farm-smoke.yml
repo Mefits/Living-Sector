@@ -254,6 +254,47 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Verify surface plots, late billing, legacy saved slots and lunar port pads
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_DATA_HOME="$(mktemp -d)"
+          if ! timeout --signal=TERM --kill-after=5s 55s \
+            godot --headless --path sol_lab --script res://tests/sol_surface_placement_check.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/surface-placement.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/surface-placement.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sol-lab-logs/surface-placement.log"
+          grep -qF SOL_PLACEMENT_PASS "$RUNNER_TEMP/sol-lab-logs/surface-placement.log"
+
+      - name: Capture Earth plot selection and built lunar port at 1366x768
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v xvfb-run >/dev/null 2>&1; then
+            export XDG_DATA_HOME="$(mktemp -d)"
+            if ! timeout --signal=TERM --kill-after=5s 65s \
+              xvfb-run -a -s "-screen 0 2560x1440x24" \
+              env LIBGL_ALWAYS_SOFTWARE=1 SOL_CAPTURE_PLACEMENT=1 \
+              godot --path sol_lab --script res://tests/sol_surface_placement_check.gd \
+              > "$RUNNER_TEMP/sol-lab-logs/placement-screenshots.log" 2>&1; then
+              cat "$RUNNER_TEMP/sol-lab-logs/placement-screenshots.log"
+              exit 1
+            fi
+            cat "$RUNNER_TEMP/sol-lab-logs/placement-screenshots.log"
+            grep -qF SOL_PLACEMENT_SCREENSHOT "$RUNNER_TEMP/sol-lab-logs/placement-screenshots.log"
+          fi
+
+      - name: Upload Earth/Luna placement acceptance images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sol-lab-placement-screenshots
+          path: sol_lab/sol-placement-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |
