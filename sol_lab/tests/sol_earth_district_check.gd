@@ -234,6 +234,18 @@ func unload_in_district(game: Control) -> void:
   "The loader pose does not credit the warehouse a second time")
  plot_click(district, "earth-port-01")
  check(game.colony_panel.page == "logistics", "Port plot opens its normal controls")
+ for destination in ["luna", "earth"]:
+  game._open_manual_freight()
+  game.manual_empty.button_pressed = true
+  check(not game.manual_freight_dialog.get_ok_button().disabled, "Empty reposition is available")
+  game.manual_freight_dialog.get_ok_button().pressed.emit()
+  game.manual_freight_dialog.hide()
+  game._save_game()
+  game._load_game()
+  var flight: Dictionary = sim.freight_status()
+  check(flight.location == "transit" and flight.order.amount == 0, "Empty ship stays empty across reload")
+  advance(game, flight.arrival)
+  check(sim.freight_status().location == destination, "Empty ship reaches the requested port")
  print("SOL_EARTH_DISTRICT_LIVE_UNLOAD_PASS")
 
 func ore_chain(game: Control) -> void:
@@ -278,3 +290,4 @@ func capture(count := 1) -> void:
   var frame := root.get_texture().get_image()
   check(frame.save_png(capture_folder.path_join("%04d.png" % frame_index)) == OK, "Video frame saved")
   frame_index += 1
+

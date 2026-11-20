@@ -151,9 +151,8 @@ func manual_freight_reason(destination: String,
      resource not in FREIGHT_RESOURCES.get(destination, [])):
   return "Недопустимый маршрут или груз"
  if not is_finite(amount) or not is_equal_approx(amount, snappedf(amount, 0.01)) or (
-     amount < 0 or amount > FREIGHT_CAPACITY) or (
-     amount == 0 and destination != "earth"):
-  return "Количество должно быть больше 0 и не больше %d" % FREIGHT_CAPACITY
+     amount < 0 or amount > FREIGHT_CAPACITY):
+  return "Количество должно быть от 0 до %d" % FREIGHT_CAPACITY
  var shipment: Dictionary = freight_order(destination)
  shipment["resource"] = resource
  shipment["amount"] = amount
@@ -187,7 +186,7 @@ func return_freighter() -> bool:
 func _launch_freighter(shipment: Dictionary, slot: int = 1) -> void:
  if shipment.amount > 0:
   _change_stock(shipment.source, shipment.resource, -float(shipment.amount), now_native)
- if shipment.source == "earth" and shipment.resource == "ore":
+ if shipment.amount > 0 and shipment.source == "earth" and shipment.resource == "ore":
   _set_ship(slot, {"location": "loading", "order": shipment,
    "load_started": now_native, "load_due": now_native + 3.25})
  else:
@@ -375,10 +374,9 @@ func _valid_freighter(saved: Variant, facilities: Array, lunar: bool, time: floa
  if not shipment is Dictionary:
   return false
  var expected: Dictionary = FREIGHT_ORDERS.get(shipment.get("destination"), {})
- var empty_return: bool = shipment.get("destination") == "earth" and (
-  shipment.get("resource") == "ore" and shipment.get("amount") == 0)
+ var empty_trip: bool = shipment.get("resource") in FREIGHT_RESOURCES.get(shipment.get("destination"), []) and shipment.get("amount") == 0
  if expected.is_empty() or shipment.get("source") != expected.source or (
-     not empty_return and not _valid_cargo(shipment, expected.destination)):
+     not empty_trip and not _valid_cargo(shipment, expected.destination)):
   return false
  return Flight.valid_times(saved, time)
 
@@ -1063,4 +1061,5 @@ func inventory_summary(body: String) -> String:
    str(entry.recipe.name),
    str(entry.facility.get("production_status", "Ожидается первый выпуск"))])
  return "\n".join(lines)
+
 

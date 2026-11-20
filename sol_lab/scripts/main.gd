@@ -35,6 +35,7 @@ var yard_order: Button
 var yard_cancel: Button
 var manual_destination: OptionButton
 var manual_resource: OptionButton
+var manual_empty: CheckButton
 var manual_amount: SpinBox
 var manual_preview: Label
 var freight_line_buttons: HBoxContainer
@@ -393,6 +394,13 @@ func _build_freight_line_controls(parent: Control) -> void:
     manual_amount.max_value = ConstructionRuntime.FREIGHT_CAPACITY
     manual_amount.value = ConstructionRuntime.FREIGHT_CAPACITY
     manual_form.add_child(manual_amount)
+    manual_empty = CheckButton.new()
+    manual_empty.text = "Лететь без груза"
+    manual_form.add_child(manual_empty)
+    manual_empty.toggled.connect(func(empty: bool):
+        manual_resource.disabled = empty
+        manual_amount.editable = not empty
+        _preview_manual_freight())
     manual_amount.value_changed.connect(
         func(_value: float): _preview_manual_freight())
     manual_preview = Label.new()
@@ -436,6 +444,7 @@ func _build_freight_line_controls(parent: Control) -> void:
         freight_line_fields[destination] = {"resource": resource, "amount": amount, "reserve": reserve}
 
 func _open_manual_freight() -> void:
+    manual_empty.button_pressed = false
     var previous := _manual_ship_slot()
     manual_ship.clear()
     for slot in [1, 2]:
@@ -488,14 +497,15 @@ func _preview_manual_freight() -> void:
         return
     var destination: String = str(manual_destination.get_selected_metadata())
     var resource: String = str(manual_resource.get_selected_metadata())
-    var amount: float = manual_amount.value
+    var amount: float = 0.0 if manual_empty.button_pressed else manual_amount.value
     var shipment: Dictionary = construction.freight_order(destination)
     var reason: String = construction.manual_freight_reason(
         destination, resource, amount, _manual_ship_slot())
-    manual_preview.text = "%s → %s\nГруз: %s %s%s" % [
+    var cargo := "Без груза" if amount == 0 else "%s %s" % [Model.batch_amount(amount), Model.resource_label(resource)]
+    manual_preview.text = "%s → %s\n%s%s" % [
         Model.PLANET_NAMES[shipment.source],
         Model.PLANET_NAMES[shipment.destination],
-        Model.batch_amount(amount), Model.resource_label(resource),
+        cargo,
         "" if reason.is_empty() else "\n" + reason]
     manual_freight_dialog.get_ok_button().disabled = not reason.is_empty()
 
@@ -503,7 +513,7 @@ func _preview_manual_freight() -> void:
 func _submit_manual_freight() -> void:
     var destination: String = str(manual_destination.get_selected_metadata())
     var resource: String = str(manual_resource.get_selected_metadata())
-    var amount: float = manual_amount.value
+    var amount: float = 0.0 if manual_empty.button_pressed else manual_amount.value
     if not construction.depart_manual_freight(destination, resource, amount, _manual_ship_slot()):
         _notice(construction.manual_freight_reason(
             destination, resource, amount, _manual_ship_slot()))
@@ -1226,5 +1236,6 @@ func _load_game() -> void:
     _refresh_construction_ui()
     _show_selected()
     _notice("Игра загружена: " + Calendar.calendar_text(native_time))
+
 
 
