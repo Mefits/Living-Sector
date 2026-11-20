@@ -1,5 +1,6 @@
 extends RefCounted
 ## UI-only catalog; original Rust-port seed is unchanged.
+const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 const VISIBLE: Array = ["earth", "luna", "mars"]
 const PLANET_NAMES := {"earth": "Земля", "luna": "Луна", "mars": "Марс"}
 const BUILDINGS: Array = [
@@ -156,7 +157,12 @@ static func available(b: Dictionary, settings: Dictionary,
  if built_or_pending(world, body, id):
   return false
  var cost: int = int(settings.get(id, {}).get("metals", 1))
- return cost >= 1 and stock(world, body) >= cost
+ if cost < 1 or stock(world, body) < cost:
+  return false
+ if body in ["earth", "luna"]:
+  return not SurfaceSites.free(body, id, world.get(
+   "facilities", [])).is_empty()
+ return true
 
 static func construction_days(building: Dictionary,
         settings: Dictionary) -> int:

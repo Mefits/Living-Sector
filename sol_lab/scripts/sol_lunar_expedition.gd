@@ -2,6 +2,7 @@ extends RefCounted
 ## A single pre-equipped scenario ship. The landing consumes its manifest.
 const Flight = preload("res://scripts/sol_local_flight.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
+const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 const PORT := "luna-colony"
 const PASSENGERS := 100
 const METALS := 2
@@ -30,9 +31,11 @@ func depart(now: float) -> bool:
 func land_if_due(world: Dictionary, now: float, owner: String) -> bool:
  if ship.get("location", "") != "transit" or now < float(ship.arrival):
   return false
- world.facilities.append({"id":"facility-luna-ac", "name":"Административный центр",
+ var ac: Dictionary = {"id":"facility-luna-ac", "name":"Административный центр",
   "type":"station", "body":"luna", "location":PORT, "faction_id":owner,
-  "surface_site":Model.surface_site("administrative_center"), "services":[], "docking_capacity":0})
+  "services":[], "docking_capacity":0}
+ SurfaceSites.attach(ac, SurfaceSites.get_site("luna", "luna-ac-01"))
+ world.facilities.append(ac)
  world.markets.append({"id":"market-luna-colony", "facility_id":PORT,
   "supply":{"metals":ship.metals, "food":ship.food}})
  settlers = {"label":"Residents luna-colony", "facility_id":PORT,

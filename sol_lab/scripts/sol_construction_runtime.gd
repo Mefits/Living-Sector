@@ -4,6 +4,7 @@ extends RefCounted
 ## No second N39 simulation, no free facility, no paid labor or paid shifts.
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
+const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 
 const Flight = preload("res://scripts/sol_local_flight.gd")
 
@@ -42,6 +43,7 @@ func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  _line_enabled = false
  _line_legs = _default_line_legs()
  _ensure_earth_spaceport(world.get("facilities", []))
+ SurfaceSites.reconcile(world.get("facilities", []))
  initial_markets = world.get("markets", []).size()
  initial_manifest = expedition.snapshot()
  settings = building_settings
@@ -68,9 +70,13 @@ static func _ensure_earth_spaceport(facilities: Array) -> void:
  for facility in facilities:
   if facility.get("body") == "earth" and facility.get("location") == "earth-colony" and (
       facility.get("type") == "station"):
-   facilities.append({"id": "facility-earth-spaceport", "name": "Космопорт",
-    "type": "spaceport", "body": "earth", "location": "earth-colony", "tier": 1,
-    "faction_id": facility.get("faction_id", "")})
+   var port: Dictionary = {"id": "facility-earth-spaceport",
+    "name": "Космопорт", "type": "spaceport", "body": "earth",
+    "location": "earth-colony", "tier": 1,
+    "faction_id": facility.get("faction_id", "")}
+   SurfaceSites.attach(port, SurfaceSites.get_site(
+    "earth", "earth-port-01"))
+   facilities.append(port)
    return
 
 func freight_order(destination: String) -> Dictionary:
@@ -309,7 +315,8 @@ func _colony_owner(body: String) -> String:
    return str(f.get("faction_id", ""))
  return ""
 
-func order(body: String, building_id: String) -> Dictionary:
+func order(body: String, building_id: String,
+        requested_site_id: String = "") -> Dictionary:
  var building: Dictionary = Model.find_building(building_id)
  if building.is_empty():
   return {"ok": false, "reason": "Неизвестное здание"}
@@ -319,6 +326,21 @@ func order(body: String, building_id: String) -> Dictionary:
   if Model.built_or_pending(world, body, building_id):
    return {"ok": false, "reason": "Здание уже построено или строится"}
   return {"ok": false, "reason": "Недостаточно ресурсов или нет колонии"}
+ # Determine and reserve a FREE compatible place BEFORE touching stock.
+ # A missing explicit site is supported for older tests and AI commands;
+ # the human catalog ALWAYS supplies a confirmed named site ID.
+ var chosen: Dictionary = {}
+ if body in ["earth", "luna"]:
+  var available_sites: Array = SurfaceSites.free(body, building_id,
+   world.get("facilities", []))
+  if requested_site_id.is_empty():
+   if not available_sites.is_empty():
+    chosen = available_sites[0]
+  else:
+   chosen = SurfaceSites.reservable(body, building_id,
+    requested_site_id, world.get("facilities", []))
+  if chosen.is_empty():
+   return {"ok": false, "reason": "Площадка занята или не подходит"}
  var market: Dictionary = _market_for(body)
  if market.is_empty():
   return {"ok": false, "reason": "Нет местного склада административного центра"}
@@ -341,6 +363,8 @@ func order(body: String, building_id: String) -> Dictionary:
   "metals_spent": cost,
   "paid_resources": {"metals": cost}
  }
+ if not chosen.is_empty():
+  new_site["surface_site_id"] = str(chosen["id"])
  var facility: Dictionary = {
   "id": id,
   "name": str(building["name"]) + " · строится",
@@ -354,20 +378,13 @@ func order(body: String, building_id: String) -> Dictionary:
   "services": [],
   "docking_capacity": 0
  }
- # Only the four defined Sol preview buildings own fixed slots.
- # Other catalog entries stay procedural and must not save an empty site.
- var instance: int = 0
- for item in world.get("facilities", []):
-  if str(item.get("body", "")) != body:
-   continue
-  if str(item.get("type", "")) == building_id or (
-      str(item.get("type", "")) == "construction_site" and
-      str(item.get("construction_building_id", "")) == building_id):
-   instance += 1
- var mapped_site: Array = Model.surface_site_instance(
-  building_id, instance)
- if mapped_site.size() == 2:
-  facility["surface_site"] = mapped_site
+ if not chosen.is_empty():
+  SurfaceSites.attach(facility, chosen)
+ else:
+  # Legacy non-Sol systems retain their existing deterministic sites.
+  var mapped_site: Array = Model.surface_site(building_id)
+  if mapped_site.size() == 2:
+   facility["surface_site"] = mapped_site
  # Commit once, after every validation: stock and the unique site appear
  # together. There is no synthetic material refund or repeat debit.
  supply["metals"] = float(supply["metals"]) - cost
@@ -376,7 +393,8 @@ func order(body: String, building_id: String) -> Dictionary:
  sites.append(new_site)
  next_id += 1
  return {"ok": true, "id": id, "finish_native": finish,
-  "days": duration_days, "spent": cost}
+  "days": duration_days, "spent": cost,
+  "surface_site_id": str(chosen.get("id", ""))}
 
 ## Refund only the exact resources previously debited by a still-pending
 ## order. Atomic with removal of its construction_site, including on restore.
@@ -603,6 +621,7 @@ func restore(data: Dictionary) -> bool:
   expedition.ship.food = expedition.STARTER_FOOD
  world["facilities"] = input_facilities.duplicate(true)
  _ensure_earth_spaceport(world.facilities)
+ SurfaceSites.reconcile(world["facilities"], input_sites)
  world["markets"] = input_markets.duplicate(true)
  if version < 5 and lunar:
   var supply: Dictionary = _market_for("luna").supply

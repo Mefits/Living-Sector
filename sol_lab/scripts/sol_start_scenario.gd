@@ -7,6 +7,7 @@ const AC_ID: String = "facility-earth-administrative-center"
 const EARTH_FARM_ID := "facility-earth-starter-farm"
 const EARTH_STOCK := {"food": 24, "water": 12, "metals": 16, "ore": 30, "fuel": 36}
 const Model = preload("res://scripts/sol_building_model.gd")
+const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 
 static func apply(source: Dictionary) -> Dictionary:
     var world: Dictionary = source.duplicate(true)
@@ -33,11 +34,15 @@ static func apply(source: Dictionary) -> Dictionary:
     old_station["name"] = "Административный центр"
     old_station["location"] = AC_LOCATION
     old_station["body"] = "earth"
-    old_station["surface_site"] = Model.surface_site("administrative_center")
+    SurfaceSites.attach(old_station, SurfaceSites.get_site(
+        "earth", "earth-ac-01"))
     remaining.append(old_station)
-    remaining.append({"id": EARTH_FARM_ID, "name": "Ферма", "type": "farm",
-        "body": "earth", "location": AC_LOCATION, "faction_id": old_station.get("faction_id", ""),
-        "surface_site": Model.surface_site("farm")})
+    var farm: Dictionary = {"id": EARTH_FARM_ID, "name": "Ферма",
+        "type": "farm", "body": "earth", "location": AC_LOCATION,
+        "faction_id": old_station.get("faction_id", "")}
+    SurfaceSites.attach(farm, SurfaceSites.get_site(
+        "earth", "earth-farm-01"))
+    remaining.append(farm)
     world["facilities"] = remaining
 
     # The scenario has its own initial stock, independent of the frozen seed.
