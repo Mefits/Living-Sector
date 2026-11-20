@@ -162,7 +162,7 @@ func _build_ui() -> void:
     freight_button = colony_panel.freight_button
     freight_button.hide()
     colony_panel.build_requested.connect(_open_build)
-    colony_panel.line_requested.connect(_open_freight_line)
+    colony_panel.line_requested.connect(_open_colony_logistics)
     colony_panel.facility_requested.connect(_colony_facility_selected)
     _build_freight_line_controls(colony_panel.line_holder)
 
@@ -463,6 +463,15 @@ func _submit_manual_freight() -> void:
     _notice("Разовый рейс отправлен")
 
 
+## The quick "Линия" entry and clicking a spaceport open the SAME
+## colony logistics surface. Existing dialog actions live inside it.
+func _open_colony_logistics() -> void:
+    if browser != null and browser.visible:
+        _close_browser()
+    _show_selected()
+    colony_panel.open_logistics()
+
+
 func _open_freight_line() -> void:
     var line: Dictionary = construction.freight_line()
     for destination in freight_line_fields:
@@ -568,9 +577,15 @@ func _show_selected() -> void:
             var line_wait: String = construction.freight_line_wait()
             if not line_wait.is_empty():
                 line_status = line_wait
+        var batches: Dictionary = {}
+        for facility in built:
+            var facility_id: String = str(facility.get("id", ""))
+            batches[facility_id] = construction.production_details(facility_id)
         colony_panel.show_colony(selected, name_ru, population_count, warehouse, built,
-            construction.sites, idle, line_status, native_time)
+            construction.sites, idle, line_status, native_time, batches)
         colony_panel.show_food(construction.colony_food(selected))
+        colony_panel.show_logistics(construction.freight_line(),
+            freight, construction.freight_line_wait())
         if browser != null and browser.visible:
             browser.set_colony_summary(name_ru, population_count, warehouse)
         return
@@ -627,6 +642,7 @@ func _make_browser() -> void:
     browser.close_requested.connect(_close_browser)
     browser.build_requested.connect(_order_build)
     browser.cancel_requested.connect(_cancel_build)
+    browser.stock_requested.connect(_open_stock_from_browser)
     browser.save_game_requested.connect(_save_game)
     browser.load_game_requested.connect(_load_game)
     browser.new_game_requested.connect(_new_game)
@@ -635,6 +651,11 @@ func _make_browser() -> void:
 
 func _open_build() -> void:
     _open_browser(false)
+
+func _open_stock_from_browser() -> void:
+    _close_browser()
+    _show_selected()
+    colony_panel.open_stock()
 
 func _open_browser(admin: bool) -> void:
     browser.configure(world, config, selected, admin)
@@ -743,8 +764,19 @@ func _native_body_selected(body: Dictionary) -> void:
     if browser.visible:
         browser.select_planet(id)
     _show_selected()
+    colony_panel.clear_facility_selection()
 
 func _native_facility_selected(facility_id: String) -> void:
+    _activate_facility(facility_id)
+
+
+func _colony_facility_selected(facility_id: String) -> void:
+    _activate_facility(facility_id)
+
+
+## One selection path for the globe and the "Построено" list: never
+## select by recipe type, since two miners are two different facilities.
+func _activate_facility(facility_id: String) -> void:
     for item in world.get("facilities", []):
         if str(item.get("id", "")) != facility_id:
             continue
@@ -752,16 +784,18 @@ func _native_facility_selected(facility_id: String) -> void:
         if not Model.VISIBLE.has(body):
             return
         selected = body
-        if browser.visible:
+        if browser != null and browser.visible:
             _close_browser()
         _show_selected()
         colony_panel.select_facility(facility_id)
         native_view.select_facility(facility_id)
+        var kind: String = str(item.get("type", ""))
+        if kind == "station" and str(item.get(
+                "location", "")) == body + "-colony":
+            _open_build()
+        elif kind == "spaceport":
+            colony_panel.open_logistics()
         return
-
-
-func _colony_facility_selected(facility_id: String) -> void:
-    native_view.select_facility(facility_id)
 
 
 func _set_speed(multiplier: int) -> void:

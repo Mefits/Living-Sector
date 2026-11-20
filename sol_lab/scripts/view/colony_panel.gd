@@ -156,6 +156,11 @@ func _switch_page(next_page: String) -> void:
  logistics_view.visible = page == "logistics"
  scroll.scroll_vertical = 0
 
+func clear_facility_selection() -> void:
+ selected_facility = ""
+ _switch_page("overview")
+ _show_selected_detail()
+
 func open_stock() -> void:
  _switch_page("stock")
 

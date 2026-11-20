@@ -6,6 +6,7 @@ signal values_changed
 signal close_requested
 signal build_requested(body_id: String, building_id: String)
 signal cancel_requested(site_id: String)
+signal stock_requested
 signal save_game_requested
 signal load_game_requested
 signal new_game_requested
@@ -65,6 +66,7 @@ func _ready() -> void:
  layout.add_child(navigation)
  _button(navigation, "Колония", func(): close_requested.emit())
  _button(navigation, "Строительство", _navigate.bind("build"))
+ _button(navigation, "Склад", func(): stock_requested.emit())
  var stock_bar := HBoxContainer.new()
  stock_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  stock_bar.add_theme_constant_override("separation", 5)
