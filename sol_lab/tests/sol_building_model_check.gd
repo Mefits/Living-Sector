@@ -19,11 +19,12 @@ func _initialize() -> void:
  planets["earth"] = earth
  valid = valid and absf(Model.calculated(mine,buildings,planets,"earth")-4.0)<0.001
  valid = valid and Model.stock(seed,"earth")==1000
- # Frozen source already contains a farm: no duplicate construction.
- valid = valid and not Model.available(Model.BUILDINGS[2],buildings,seed,"earth")
- # Sol Lab starts with its own working farm.
+ # Enterprise duplicates are real separate facilities; one farm must not
+ # disable the next. Unique infrastructure still remains unique.
+ valid = valid and Model.available(Model.BUILDINGS[2],buildings,seed,"earth")
  var start: Dictionary = Starter.apply(seed)
- valid = valid and not Model.available(Model.BUILDINGS[2],buildings,start,"earth")
+ valid = valid and Model.available(Model.BUILDINGS[2],buildings,start,"earth")
+ valid = valid and not Model.available(Model.BUILDINGS[0],buildings,start,"earth")
  valid = valid and not Model.available(Model.BUILDINGS[2],buildings,start,"mars")
  if valid:
   print("SOL_LAB_MODEL_PASS")

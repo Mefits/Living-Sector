@@ -78,13 +78,14 @@ func _run() -> void:
  okay = okay and browser.build_controls["mining_rig"]["card"] == original_card
  okay = okay and browser.build_controls["mining_rig"]["button"] == original_button
  okay = okay and browser.grid == original_grid
- okay = okay and original_button.disabled
+ # Repeatable enterprises stay available while their first site builds.
+ okay = okay and not original_button.disabled
  runtime.advance_to(Calendar.days_to_native(45.0))
  browser.refresh_build_availability()
  browser.set_construction_state(world, runtime.sites,
   Calendar.days_to_native(45.0))
  okay = okay and browser.build_controls["mining_rig"]["card"] == original_card
- okay = okay and original_button.disabled
+ okay = okay and not original_button.disabled
  print("SOL_UI_REUSE_BENCH rebuild_ms=", float(full_rebuild_us) / 1000.0,
   " refresh_ms=", float(refresh_us) / 1000.0)
  var main = Main.new()

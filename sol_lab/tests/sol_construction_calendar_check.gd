@@ -24,7 +24,10 @@ func _initialize() -> void:
  first.setup(new_world(), settings)
  good = good and first.order("earth", "farm")["ok"]
  good = good and Model.stock(first.world, "earth") == Starter.EARTH_STOCK.metals - 1
- good = good and not first.order("earth", "farm")["ok"]
+ # Additional farms are independently buildable, but do not place a
+ # second order in this one-site construction timing fixture.
+ good = good and Model.available(Model.find_building("farm"),
+  settings, first.world, "earth")
  good = good and Model.stock(first.world, "earth") == Starter.EARTH_STOCK.metals - 1
  good = good and not first.order("luna", "farm")["ok"]
  good = good and PhysicalAssets.build(first.world)["surface"].size() == 3
@@ -59,7 +62,8 @@ func _initialize() -> void:
    completed = str(f.get("type", "")) == "farm"
  good = good and completed
  good = good and second.advance_to(duration + 10).is_empty()
- good = good and not second.order("earth", "farm")["ok"]
+ good = good and Model.available(Model.find_building("farm"),
+  settings, second.world, "earth")
  good = good and Model.stock(second.world, "earth") == Starter.EARTH_STOCK.metals - 1
  good = good and Calendar.calendar_text(0.0) == "Год 1 · день 001/365"
  good = good and Calendar.calendar_text(700.0) == "Год 2 · день 001/365"
