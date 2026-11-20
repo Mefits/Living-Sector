@@ -851,6 +851,11 @@ func _advance_production(completed: Array) -> void:
   var load_due := minf(load_one, load_two)
   if ground_due <= now_native and ground_due <= minf(next_batch, minf(arrival, load_due)):
    var delivery: Dictionary = ground_ore.pop_at(ground_index)
+   for facility in world.facilities:
+    if facility.get("id") == delivery.mine:
+     facility["truck_unloaded"] = ground_due
+     facility["truck_home"] = ground_due + (ground_due - float(delivery.pickup))
+     break
    _change_stock("earth", delivery.resource, delivery.amount, ground_due)
    completed.append("Руда доставлена на земной склад")
    continue
@@ -920,12 +925,13 @@ func _run_batch(facility: Dictionary, supply: Dictionary,
    changes.append("−%s %s" % [
     Model.batch_amount(float(consumed)), Model.batch_unit(key)])
  if facility.body == "earth" and recipe.id == "mining_rig":
-  var pickup := attempt_time + 0.75
+  var pickup := maxf(attempt_time, float(facility.get("truck_home", 0.0))) + 0.75
   for job in ground_ore:
-   pickup = maxf(pickup, job.due + 0.75)
+   if job.mine == facility.id:
+    pickup = maxf(pickup, float(job.due) * 2.0 - float(job.pickup) + 0.75)
   var route := Roads.ore_route(Roads.mine_plot(world.facilities, facility.id))
   ground_ore.append({"mine": facility.id, "resource": "ore", "amount": output,
-   "pickup": pickup, "due": pickup + Roads.length(route) / 180.0})
+   "pickup": pickup, "due": pickup + Roads.length(route) / 65.0})
  else:
   _change_stock(facility.body, recipe.product, output, attempt_time)
  changes.append("+%s %s" % [

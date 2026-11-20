@@ -301,6 +301,8 @@ func _process(delta: float) -> void:
     var ui_started_usec: int = Time.get_ticks_usec()
     if not paused:
         _advance_visual_clock(delta)
+    if district != null and district.visible:
+        district.set_traffic_time(native_time + visual_clock.render_offset())
     _update_calendar_label()
     construction_ui_elapsed += delta
     if construction_ui_elapsed >= 0.5:

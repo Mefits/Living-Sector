@@ -94,12 +94,30 @@ func bind_runtime(construction: RefCounted) -> void:
  _layer.add_child(_traffic)
  _traffic.draw.connect(_draw_ground_freight)
 
+var _traffic_time := 0.0
+
+func set_traffic_time(value: float) -> void:
+ if value != _traffic_time:
+  _traffic_time = value
+  _traffic.queue_redraw()
+
 func _draw_ground_freight() -> void:
+ for site in _facilities:
+  var mine: Dictionary = _facilities[site]
+  if mine.get("type") != "mining_rig" or not mine.has("truck_home"):
+   continue
+  var start := float(mine.truck_unloaded)
+  var finish := float(mine.truck_home)
+  if _traffic_time >= start and _traffic_time < finish and _scale >= 0.58:
+   var route := Roads.ore_route(_plots[site])
+   route.reverse()
+   var progress := inverse_lerp(start, finish, _traffic_time)
+   Art.ground_cargo(_traffic, Roads.pose(route, progress), true, _zoom, false)
  for job in _runtime.ground_ore:
   var plot := Roads.mine_plot(_facilities.values(), job.mine)
   var route := Roads.ore_route(plot)
-  var moving: bool = _runtime.now_native >= job.pickup
-  var pose := Roads.pose(route, inverse_lerp(job.pickup, job.due, _runtime.now_native))
+  var moving: bool = _traffic_time >= job.pickup
+  var pose := Roads.pose(route, inverse_lerp(job.pickup, job.due, _traffic_time))
   if moving and _scale < 0.58:
    continue
   Art.ground_cargo(_traffic, pose, moving, _zoom)
@@ -113,11 +131,11 @@ func _select_cargo(point: Vector2) -> bool:
    return true
  for job in _runtime.ground_ore:
   var route := Roads.ore_route(Roads.mine_plot(_facilities.values(), job.mine))
-  var pose := Roads.pose(route, inverse_lerp(job.pickup, job.due, _runtime.now_native))
+  var pose := Roads.pose(route, inverse_lerp(job.pickup, job.due, _traffic_time))
   if pose.origin.distance_to(point) <= 13:
    _set_hint("%s %s → Земной склад · %s" % [
     Model.batch_amount(job.amount), Model.batch_unit(job.resource),
-    "в пути" if _runtime.now_native >= job.pickup else "ждёт машину"])
+    "в пути" if _traffic_time >= job.pickup else "ждёт машину"])
    return true
  return false
 

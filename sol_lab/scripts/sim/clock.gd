@@ -104,3 +104,8 @@ func restore(saved: Dictionary) -> bool:
     _step_queue = int(steps)
     _accumulator = 0.0
     return true
+
+func render_offset() -> float:
+    if paused:
+        return 0.0
+    return minf(_accumulator * world_speed, tick_scale())

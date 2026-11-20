@@ -53,9 +53,13 @@ static func ore_route(plot: Rect2) -> PackedVector2Array:
  var points := PackedVector2Array([access[0], road])
  if road.y > 600:
   points.append(Vector2(CONNECTOR, road.y))
+ elif road.y == 62:
+  points.append(Vector2(353, road.y))
+  points.append(Vector2(353, CROSS))
  elif road.y > 62 and road.y < CROSS:
   points.append(Vector2(road.x, CROSS))
- points.append(Vector2(CONNECTOR, CROSS))
+ if road.y <= CROSS:
+  points.append(Vector2(CONNECTOR, CROSS))
  points.append(Vector2(CONNECTOR, PORT_LANE))
  points.append(Vector2(GATE.x, PORT_LANE))
  points.append(GATE)

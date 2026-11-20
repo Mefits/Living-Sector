@@ -189,7 +189,7 @@ static func preview(c: CanvasItem, r: Rect2, kind: String, ship: Texture2D) -> v
  building(c, r.grow(-3), kind, ship, true)
  c.draw_rect(r, Color("#a8c88a38"))
 
-static func ground_cargo(c: CanvasItem, pose: Transform2D, moving: bool, zoom: float) -> void:
+static func ground_cargo(c: CanvasItem, pose: Transform2D, moving: bool, zoom: float, loaded := true) -> void:
  c.draw_set_transform(pose.origin, pose.get_rotation())
  if moving:
   c.draw_rect(Rect2(-10, -4, 23, 10), Color("#282e2899"))
@@ -197,6 +197,9 @@ static func ground_cargo(c: CanvasItem, pose: Transform2D, moving: bool, zoom: f
   c.draw_rect(Rect2(4, -4, 7, 7), PAPER)
   c.draw_rect(Rect2(8, -3, 2, 5), Color("#425c62"))
   c.draw_rect(Rect2(-10, -4, 14, 7), STEEL)
+ if not loaded:
+  c.draw_set_transform(Vector2.ZERO)
+  return
  var crate := Rect2(-9, -3.3, 12, 6.6) if moving else Rect2(-5, -4, 10, 8)
  c.draw_rect(crate, OCHRE)
  c.draw_line(crate.position + Vector2(1, 1), Vector2(crate.end.x - 1, crate.position.y + 1),
