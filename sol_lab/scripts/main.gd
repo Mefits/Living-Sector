@@ -931,6 +931,7 @@ func _save_game() -> void:
     snapshot["visual_tick_count"] = visual_tick_count
     snapshot["speed"] = speed
     snapshot["paused"] = paused
+    snapshot["flight_display_time"] = native_view.flight_checkpoint_time()
     var target: String = ProjectSettings.globalize_path(USER_SAVE)
     var temp: String = target + ".tmp"
     var file := FileAccess.open(temp, FileAccess.WRITE)
@@ -965,7 +966,10 @@ func _load_game() -> void:
     pause_button.text = "Продолжить" if paused else "Пауза"
     var loaded_speed: int = int(value.get("speed", 1))
     _set_speed(loaded_speed if SPEED_PRESETS.has(loaded_speed) else 1)
-    native_view.snap_flight_clock(native_time, paused)
+    var displayed: Variant = value.get("flight_display_time", native_time)
+    if not (displayed is float or displayed is int) or not is_finite(float(displayed)):
+        displayed = native_time
+    native_view.snap_flight_clock(native_time, paused, float(displayed))
     _update_native_map(true)
     if browser != null and browser.visible:
         browser.configure(world, config, selected,

@@ -2,7 +2,6 @@ extends SceneTree
 ## Verify actual local inventories, not display fixture numbers.
 const Starter = preload("res://scripts/sol_start_scenario.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
-const Calendar = preload("res://scripts/sol_calendar.gd")
 const Runtime = preload("res://scripts/sol_construction_runtime.gd")
 const StockPanel = preload("res://scripts/view/colony_stock_panel.gd")
 
@@ -38,7 +37,7 @@ func _initialize() -> void:
  ok = ok and not panel.visible
  # A real landing creates Luna's own store of two metals.
  ok = ok and runtime.expedition.depart(0.0)
- var landing: float = Calendar.days_to_native(12.0)
+ var landing: float = runtime.expedition.ship.arrival
  runtime.advance_to(landing)
  panel.show_inventory("Луна", runtime.colony_inventory("luna"))
  ok = ok and panel.visible and panel.heading.text == "Склад колонии · Луна"

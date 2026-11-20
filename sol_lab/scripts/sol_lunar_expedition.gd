@@ -1,16 +1,17 @@
 extends RefCounted
 ## A single pre-equipped scenario ship. The landing consumes its manifest.
-const Calendar = preload("res://scripts/sol_calendar.gd")
+const Flight = preload("res://scripts/sol_local_flight.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const PORT := "luna-colony"
-const FLIGHT_DAYS := 12
 const PASSENGERS := 100
 const METALS := 2
 const STARTER_FOOD := 10
 var ship: Dictionary = {}
 var settlers: Dictionary = {}
+var _world: Dictionary = {}
 
 func reset(world: Dictionary) -> void:
+ _world = world
  settlers = {}
  ship = {}
  if world.get("system", {}).get("id", "") == "system-sol":
@@ -22,15 +23,9 @@ func depart(now: float) -> bool:
   return false
  ship.location = "transit"
  ship["departure"] = now
- ship["arrival"] = now + Calendar.days_to_native(FLIGHT_DAYS)
+ ship["trajectory"] = Flight.make(_world, "colonizer", "earth", now)
+ ship["arrival"] = ship.trajectory.arrival
  return true
-
-func progress(now: float) -> float:
- if ship.is_empty():
-  return -1.0
- if ship.location != "transit":
-  return 0.0
- return clampf((now - float(ship.departure)) / (float(ship.arrival) - float(ship.departure)), 0.0, 1.0)
 
 func land_if_due(world: Dictionary, now: float, owner: String) -> bool:
  if ship.get("location", "") != "transit" or now < float(ship.arrival):
@@ -47,7 +42,9 @@ func land_if_due(world: Dictionary, now: float, owner: String) -> bool:
  return true
 
 func snapshot() -> Dictionary:
- return {"ship":ship.duplicate(), "settlers":settlers.duplicate()}
+ var saved := ship.duplicate()
+ saved.erase("trajectory")
+ return {"ship":saved, "settlers":settlers.duplicate()}
 
 func validate(data: Variant, lunar_market: bool, now: float) -> bool:
  if not data is Dictionary or not data.get("ship") is Dictionary or not data.get("settlers") is Dictionary:
@@ -63,9 +60,7 @@ func validate(data: Variant, lunar_market: bool, now: float) -> bool:
   return true
  if saved.get("location") != "transit":
   return false
- var start := float(saved.get("departure", -1))
- var end := float(saved.get("arrival", -1))
- return start >= 0 and start <= now and end > now and is_equal_approx(end-start, Calendar.days_to_native(FLIGHT_DAYS))
+ return Flight.valid_times(saved, now)
 
 func restore(world: Dictionary, data: Dictionary) -> void:
  var residents: Array = world.get("populations", [])
@@ -73,6 +68,8 @@ func restore(world: Dictionary, data: Dictionary) -> void:
   if residents[i].get("facility_id") == PORT:
    residents.remove_at(i)
  ship = data.ship.duplicate()
+ if ship.get("location") == "transit":
+  ship.trajectory = Flight.make(world, "colonizer", "earth", ship.departure, ship.arrival)
  settlers = data.settlers.duplicate()
  if not settlers.is_empty():
   residents.append(settlers)

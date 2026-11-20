@@ -5,9 +5,10 @@ extends RefCounted
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
 
-const VERSION: int = 5
+const Flight = preload("res://scripts/sol_local_flight.gd")
+
+const VERSION: int = 6
 const EPSILON_NATIVE := 0.000001
-const FREIGHT_DAYS := 12
 const FREIGHT_CAPACITY := 10
 const FREIGHT_ORDERS := {
  "luna": {"source": "earth", "destination": "luna", "resource": "metals", "amount": 10},
@@ -161,8 +162,9 @@ func _launch_freighter(shipment: Dictionary) -> void:
  var stock: Dictionary = _market_for(shipment.source).supply
  if shipment.amount > 0:
   stock[shipment.resource] = float(stock[shipment.resource]) - shipment.amount
- _freighter = {"location": "transit", "order": shipment,
-  "departure": now_native, "arrival": now_native + Calendar.days_to_native(FREIGHT_DAYS)}
+ var path := Flight.make(world, "freight", shipment.source, now_native)
+ _freighter = {"location": "transit", "order": shipment, "trajectory": path,
+  "departure": now_native, "arrival": path.arrival}
 
 static func _default_line_legs() -> Dictionary:
  var legs := {}
@@ -282,12 +284,7 @@ func _valid_freighter(saved: Variant, facilities: Array, lunar: bool, time: floa
  if expected.is_empty() or shipment.get("source") != expected.source or (
      not empty_return and not _valid_cargo(shipment, expected.destination)):
   return false
- var start: Variant = saved.get("departure")
- var end: Variant = saved.get("arrival")
- if not (start is int or start is float) or not (end is int or end is float):
-  return false
- return start >= 0.0 and start <= time and end > time and (
-   is_equal_approx(end - start, Calendar.days_to_native(FREIGHT_DAYS)))
+ return Flight.valid_times(saved, time)
 
 func _market_for(body: String) -> Dictionary:
  var ac_location: String = ""
@@ -473,10 +470,12 @@ func _finish(site: Dictionary) -> bool:
  return false
 
 func snapshot() -> Dictionary:
+ var saved_freighter := freight_status()
+ saved_freighter.erase("trajectory")
  return {
   "version": VERSION,
   "expedition": expedition.snapshot(),
-  "freighter": freight_status(),
+  "freighter": saved_freighter,
   "freight_line": freight_line(),
   "system_id": str(world.get("system", {}).get("id", "")),
   "native_time": now_native,
@@ -602,6 +601,8 @@ func restore(data: Dictionary) -> bool:
  _freighter = restored_freighter.duplicate(true)
  if _freighter.has("order"):
   _freighter.order.amount = int(_freighter.order.amount)
+  _freighter.trajectory = Flight.make(world, "freight", _freighter.order.source,
+   _freighter.departure, _freighter.arrival)
  configure_freight_line(restored_line.legs)
  set_freight_line_enabled(restored_line.enabled)
  sites = input_sites.duplicate(true)

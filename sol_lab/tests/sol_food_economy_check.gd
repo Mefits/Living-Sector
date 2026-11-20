@@ -62,6 +62,18 @@ func configure_line(ore_reserve: int) -> void:
  inbound.reserve.get_line_edit().text = str(ore_reserve)
  game.freight_line_dialog.get_ok_button().pressed.emit()
 
+func manual_shipment(resource: String, amount: int) -> void:
+ if game.construction.freight_line().enabled:
+  press(game.freight_line_toggle)
+ game._open_manual_freight()
+ for index in game.manual_resource.item_count:
+  if game.manual_resource.get_item_metadata(index) == resource:
+   game.manual_resource.select(index)
+   break
+ game.manual_amount.value = amount
+ game._preview_manual_freight()
+ press(game.manual_freight_dialog.get_ok_button())
+
 func load_checkpoint(data: Dictionary) -> void:
  data.paused = true
  data.speed = 16
@@ -142,9 +154,9 @@ func run() -> void:
  var working_line_checkpoint: Dictionary = game.construction.snapshot()
  advance(outbound.arrival)
  var before_empty_return := stock("earth", "ore")
- check(stock("luna", "ore") == 0 and game.return_freight_button.text.contains("пустым"),
+ check(stock("luna", "ore") == 0,
   "The colony can recall an empty freighter before the first ore batch")
- press(game.return_freight_button)
+ manual_shipment("ore", 0)
  game._save_game()
  game._load_game()
  check(freight().get("order", {}).get("amount") == 0, "An empty return must survive loading")
@@ -183,11 +195,11 @@ func run() -> void:
  check(stock("luna", "ore") == stalled_ore and game.colony_panel.food_status.text.contains("Дефицит еды"),
   "The colony panel must explain the stoppage and the mine must stay idle")
  check(freight() == {"location": "luna"}, "The freighter should be waiting on Luna")
- press(game.return_freight_button)
+ manual_shipment("ore", 10)
  check(not game.construction.freight_line().enabled and freight().order.amount == 10,
   "The manual return must break the wait and carry available ore")
  advance(freight().arrival)
- press(game.food_freight_button)
+ manual_shipment("food", 10)
  check(food("luna").stock == 0 and food("luna").incoming == 10, "Food must not be credited in flight")
  advance(freight().arrival)
  var ore_after_return := stock("luna", "ore")

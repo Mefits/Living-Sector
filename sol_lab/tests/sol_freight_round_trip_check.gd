@@ -88,7 +88,7 @@ func run() -> void:
  build("mining_rig")
  build("spaceport")
  game.browser.close_requested.emit()
- check(game.freight_button.disabled, "A port under construction must block shipping")
+ check(not game.construction.freight_block_reason(game.selected).is_empty(), "A port under construction must block shipping")
  if failed:
   quit(1)
   return
@@ -99,8 +99,8 @@ func run() -> void:
  var starting_line_checkpoint: Dictionary = game.construction.snapshot()
  var earth_metal := stock("earth", "metals")
  var moon_metal := stock("luna", "metals")
- press("Доставить 10 металла с Земли")
- game.freight_button.pressed.emit()
+ game._send_freighter()
+ game._send_freighter()
  var outbound := freight()
  check(outbound.get("order", {}).get("resource") == "metals", "Missing outbound cargo")
  check(stock("earth", "metals") == earth_metal - 10 and stock("luna", "metals") == moon_metal,
@@ -109,10 +109,12 @@ func run() -> void:
   quit(1)
   return
  game._step()
+ var legacy_eta: float = outbound.departure + Calendar.days_to_native(12.0)
  load_v2_freight({"location": "transit", "metals": 10,
-  "departure": outbound.departure, "arrival": outbound.arrival})
- check(freight() == outbound, "Migration changed outbound cargo or timing")
- advance_to(outbound.arrival)
+  "departure": outbound.departure, "arrival": legacy_eta})
+ check(freight().order == outbound.order and absf(freight().arrival - legacy_eta) < 0.000001
+  and freight().trajectory.legacy, "Migration changed outbound cargo or timing")
+ advance_to(legacy_eta)
  check(freight() == {"location": "luna"} and stock("luna", "metals") == moon_metal + 10,
   "Outbound unloading must credit ten metals once")
  load_v2_freight({"location": "luna-colony", "metals": 0})
@@ -120,21 +122,23 @@ func run() -> void:
   "Migration repeated a completed delivery")
 
  select_body("earth")
- check(stock("luna", "ore") == 0 and game.freight_button.disabled and
-  game.details.text.contains("0 руды · требуется 10"), "Shortage must show available and required ore")
+ game._open_manual_freight()
+ check(stock("luna", "ore") == 0 and not game.construction.freight_block_reason(game.selected).is_empty() and
+  game.manual_preview.text.contains("0 руды · требуется 10"), "Shortage must show available and required ore")
+ game.manual_freight_dialog.hide()
  for i in range(200):
   if stock("luna", "ore") >= 10:
    break
   game._step()
  var moon_ore := stock("luna", "ore")
  var earth_ore := stock("earth", "ore")
- check(moon_ore >= 10 and not game.freight_button.disabled, "Lunar mine must supply the return flight")
+ check(moon_ore >= 10 and game.construction.freight_block_reason(game.selected).is_empty(), "Lunar mine must supply the return flight")
  if failed:
   DirAccess.remove_absolute(Lab.USER_SAVE)
   quit(1)
   return
- press("Доставить 10 руды с Луны")
- game.freight_button.pressed.emit()
+ game._send_freighter()
+ game._send_freighter()
  var inbound := freight()
  check(inbound.get("order", {}) ==
   {"source": "luna", "destination": "earth", "resource": "ore", "amount": 10}, "Wrong return cargo")
@@ -152,7 +156,7 @@ func run() -> void:
   and freight().get("order", {}).get("amount") == 10, "Loading must preserve the flight and ETA")
  check(stock("luna", "ore") == moon_ore - 10 and stock("earth", "ore") == earth_ore,
   "Reloading duplicated or lost ore")
- check(game.freight_button.disabled and game.native_view._freight == freight(),
+ check(not game.construction.freight_block_reason(game.selected).is_empty() and game.native_view._freight == freight(),
   "Loaded return flight must remain in flight on the map and block dispatch")
  advance_to(inbound.arrival)
  game._step()
@@ -164,7 +168,7 @@ func run() -> void:
  check(stock("earth", "ore") == earth_ore + 10, "Reload after landing credited ore twice")
 
  select_body("luna")
- press("Доставить 10 металла с Земли")
+ game._send_freighter()
  check(freight().get("order", {}).get("resource") == "metals" and
   stock("earth", "metals") == earth_metal - 20 and stock("luna", "metals") == moon_metal + 10,
   "The same freighter must be ready for another outbound order")
@@ -174,7 +178,7 @@ func run() -> void:
   legacy.erase("freight_line")
   press("Включить линию")
   load_checkpoint(legacy)
-  check(not game.construction.freight_line().enabled and freight() == legacy.freighter,
+  check(not game.construction.freight_line().enabled and absf(freight().arrival - legacy.freighter.arrival) < 0.000001,
    "Version 3 must keep the active trip and disable the line")
   load_checkpoint(starting_line_checkpoint)
   await check_line()
@@ -216,7 +220,7 @@ func check_line() -> void:
   {"resource": "ore", "amount": 10, "reserve": 0.0}, "Default line must match the manual round trip")
  configure_line(initial_food - 5)
  press("Включить линию")
- game.freight_button.pressed.emit()
+ game._send_freighter()
  game._step()
  check(stock("earth", "food") == initial_food + meals_since("earth", earth_deadline) * 6 and
   freight() == {"location": "earth"},
@@ -253,7 +257,8 @@ func check_line() -> void:
    press("Сохранить")
    await fresh_scene()
    press("Загрузить")
-   check(game.construction.freight_line() == line and freight() == inbound and
+   check(game.construction.freight_line() == line and freight().order == inbound.order and
+    absf(freight().arrival - inbound.arrival) < 0.000001 and
     stock("luna", "ore") == ore_after_loading, "Reload must preserve the line and cargo without reloading")
   else:
    press("Отключить линию")
@@ -274,5 +279,5 @@ func check_line() -> void:
  check(freight() == {"location": "earth"} and not game.construction.freight_line().enabled and
   stock("earth", "food") == initial_food - 12 + meals_since("earth", earth_deadline) * 6, "Disabling in flight must leave the emptied ship at Earth")
  select_body("luna")
- press("Доставить 10 металла с Земли")
+ game._send_freighter()
  check(freight().get("order", {}).get("resource") == "metals", "Manual dispatch must work again")

@@ -46,7 +46,7 @@ const ORBIT_LINE_OPACITY: float = 0.30
 const SATELLITE_ORBIT_LINE_OPACITY: float = 0.25
 const ORBIT_FADE_BEGIN_ZOOM: float = 8.0
 const VisualMotion = preload("res://scripts/ui_source_motion_interpolator.gd")
-const FlightVisual = preload("res://scripts/view/sol_flight_visual.gd")
+const LocalFlight = preload("res://scripts/sol_local_flight.gd")
 const StationShipProjection = preload("res://scripts/ui_station_ship_projection.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const PhysicalAssets = preload("res://scripts/view/physical_assets_projection.gd")
@@ -141,9 +141,8 @@ var _draw_now_usec: int = 0
 ## Sol-only flight presentation. Ship and market snapshots remain authoritative.
 var _colonizer: Dictionary = {}
 var _flight_draw_states: Dictionary = {}
-var _docking_visuals: Dictionary = {}
-## Cached once per flight receipt in stable map-space, never screen pixels.
-var _flight_routes: Dictionary = {}
+## Keep the last receipt only until the interpolated calendar reaches its ETA.
+var _ending_flights: Dictionary = {}
 var _selected_flight_kind: String = ""
 var _flight_pins: Array = []
 var _flight_paused: bool = false
@@ -309,20 +308,13 @@ func _process(delta: float) -> void:
             _colony_anim_accum = 0.0
             camera_changed = true
     var now_usec: int = Time.get_ticks_usec()
-    if not _flight_paused:
-        for kind in _docking_visuals.keys():
-            var docking: Dictionary = _docking_visuals[kind]
-            if now_usec - int(docking["started_usec"]) >= int(docking["duration_usec"]):
-                _docking_visuals.erase(kind)
-                camera_changed = true
     for sid in _recent_arrivals.keys():
         var row: Dictionary = _recent_arrivals[sid]
         if VisualMotion.alpha(int(row["started_usec"]),
                 int(row["duration_usec"]), now_usec) >= 1.0:
             _recent_arrivals.erase(sid)
     if camera_changed or (
-            not _flight_paused and not _docking_visuals.is_empty()) or (
-            not _flight_paused and (
+            not _flight_paused and (not _ending_flights.is_empty() or
             _colonizer.get("location", "") == "transit" or
             _freight.get("location", "") == "transit")) or (
             not _recent_arrivals.is_empty()) or (
@@ -567,30 +559,40 @@ func set_flight_clock_paused(value: bool) -> void:
             _body_motion_started_usec += elapsed
         if _last_body_commit_usec >= 0:
             _last_body_commit_usec += elapsed
-        for kind in _docking_visuals:
-            _docking_visuals[kind]["started_usec"] += elapsed
         _flight_paused = false
         _flight_pause_started_usec = -1
     queue_redraw()
 
 
-func snap_flight_clock(native_units: float, paused_now: bool) -> void:
+func flight_checkpoint_time() -> float:
+    if not _ending_flights.is_empty():
+        return _native_station_time
+    return _display_native_time(Time.get_ticks_usec())
+
+
+func snap_flight_clock(native_units: float, paused_now: bool,
+        displayed: float = -1.0) -> void:
     # Save/load must not interpolate from the OLD game's calendar.
     _native_station_time = native_units
-    _previous_native_time = native_units
-    _station_time_started_usec = -1
+    _station_phase_from_deg = fposmod(native_units * 360.0 /
+        SolOrbits.STATION_ORBIT_PERIOD_NATIVE, 360.0)
+    var now := Time.get_ticks_usec()
+    _previous_native_time = clampf(displayed, 0.0, native_units) if displayed >= 0.0 else native_units
+    _station_time_started_usec = now
+    _station_time_duration_usec = 125000
     _last_station_sample_usec = -1
-    _flight_frozen_native = native_units
+    _flight_frozen_native = _previous_native_time
     _flight_paused = paused_now
-    _flight_pause_started_usec = Time.get_ticks_usec() if paused_now else -1
-    _docking_visuals.clear()
+    _flight_pause_started_usec = now if paused_now else -1
+    _ending_flights.clear()
+    _body_motion_from.clear()
     queue_redraw()
 
 
 func set_native_station_time(native_units: float) -> void:
     if not is_finite(native_units) or native_units < 0.0:
         return
-    if is_equal_approx(_native_station_time, native_units):
+    if _native_station_time == native_units:
         return
     var now: int = Time.get_ticks_usec()
     _previous_native_time = _display_native_time(now)
@@ -854,6 +856,10 @@ func _center() -> Vector2:
 func _visual_body_angle(body: Dictionary, now_usec: int) -> float:
     var current: float = float(body.get("current_angle", 0.0))
     var bid: String = str(body.get("id", ""))
+    if bid in ["earth", "luna"]:
+        var period: float = body.get("satellite_orbit_period_native", body.get("orbit_period", 0.0))
+        if period > 0.0:
+            return current + 360.0 * (_display_native_time(now_usec) - _native_station_time) / period
     if not _body_motion_from.has(bid):
         return current
     return VisualMotion.orbit_angle(float(_body_motion_from[bid]),
@@ -1022,181 +1028,93 @@ var colonizer_progress := -1.0 # legacy readout, no longer drives a ship draw
 var _freight: Dictionary = {}
 
 
-func _flight_offset(kind: String) -> Vector2:
-    return Vector2(14.0, -14.0) if kind == "colonizer" else Vector2(-14.0, -14.0)
+func _flight_frame(kind: String) -> Dictionary:
+    var earth := _body_by_id("earth")
+    var moon := _body_by_id("luna")
+    var scale := _orbit_scale()
+    var center := _body_position(earth, scale)
+    var separation := _body_position(moon, scale) - center
+    # Globe symbols are enlarged relative to the local orbit. Use their
+    # actual draw bounds plus the ship glyph radius for the approach gates.
+    var earth_radius := _body_size(earth) * 1.07
+    var moon_radius := _body_size(moon) * 1.07
+    var room := separation.length() - earth_radius - moon_radius
+    var glyph := clampf(room / 24.0, 0.0, 1.0)
+    var earth_clearance := earth_radius + glyph * 8.0
+    var gap := room - glyph * 16.0
+    return {"center": center, "axis": separation.normalized(),
+        "separation": separation.length(), "earth_gate": earth_clearance,
+        "gap": maxf(0.0, gap), "glyph": glyph, "opacity": clampf(gap / 8.0, 0.0, 1.0),
+        "berth": (6.0 if kind == "colonizer" else -6.0) * glyph}
 
 
-func _flight_body_world(body: Dictionary, at_native: float) -> Vector2:
-    # Stable Sol MAP coordinates, before applying camera pan/zoom. Parent
-    # moons use the same local-radius compression as visible globe orbits.
-    # Values are derived from the existing world snapshot + native calendar.
-    var delta: float = at_native - _native_station_time
-    var period: float = float(body.get("orbit_period", 0.0))
-    if not str(body.get("parent_body_id", "")).is_empty():
-        period = float(body.get("satellite_orbit_period_native", period))
-    var angle: float = float(body.get("current_angle", 0.0))
-    if period > 0.0:
-        angle += 360.0 * delta / period
-    var vector: Vector2 = Vector2(cos(deg_to_rad(angle)),
-        -sin(deg_to_rad(angle)))
-    var parent: Dictionary = _known_moon_parent(body)
-    if not parent.is_empty():
-        return _flight_body_world(parent, at_native) + vector * (
-            pow(_satellite_orbit_native_radius(body), SATELLITE_COMPRESSION))
-    return vector * _radius_transform(float(body.get("orbit_radius", 0.0)))
-
-
-func _flight_screen(world_point: Vector2) -> Vector2:
-    # Camera transform is applied ONLY at render time. Zoom never
-    # replans a path or changes its curvature/side.
-    return _center() + world_point * _orbit_scale() * _zoom
-
-
-func _native_body_screen(body: Dictionary, at_native: float,
-        scale: float) -> Vector2:
-    # Kept as a read-only convenience for the existing orbital checks.
-    return _center() + _flight_body_world(body, at_native) * scale * _zoom
-
-
-func _flight_obstacles(source_id: String, destination_id: String,
-        departure: float, arrival: float) -> Array:
-    var unit_per_km: float = SOL_NATIVE_UNITS_PER_AU / KM_PER_AU
-    var star_radius: float = pow(696340.0 * unit_per_km,
-        ORBIT_COMPRESSION)
-    var obstacles: Array = [{"id": "sol", "center": Vector2.ZERO,
-        "radius": star_radius}]
-    # Only real third-party celestial bodies. Source and destination are
-    # allowed contact points; exclude them from collision planning.
-    for raw in _world.get("bodies", []):
-        if not (raw is Dictionary):
-            continue
-        var body: Dictionary = raw
-        var id: String = str(body.get("id", ""))
-        if id == source_id or id == destination_id or (
-                str(body.get("type", "")) not in ["planet", "moon"]):
-            continue
-        var km: float = float(body.get("physical_radius_km",
-            body.get("radius_km", SOL_BODY_RADII_KM.get(id, 0.0))))
-        if km <= 0.0:
-            continue
-        # Physical-body radius converted into fixed Sol map units.
-        # We explicitly do NOT use icon pixels, _zoom or viewport size.
-        obstacles.append({"id": id, "center": _flight_body_world(body,
-            (departure + arrival) * 0.5),
-            "radius": pow(km * unit_per_km, ORBIT_COMPRESSION)})
-    return obstacles
-
-
-func _flight_route(kind: String, ship: Dictionary,
-        source_id: String, destination_id: String) -> Dictionary:
-    var departure: float = float(ship.get("departure", 0.0))
-    var arrival: float = float(ship.get("arrival", 0.0))
-    var key: Array = [source_id, destination_id, departure, arrival]
-    var cached: Dictionary = _flight_routes.get(kind, {})
-    if cached.get("key", []) == key:
-        return cached["path"]
-    var source: Dictionary = _body_by_id(source_id)
-    var destination: Dictionary = _body_by_id(destination_id)
-    if source.is_empty() or destination.is_empty():
-        return {}
-    var start: Vector2 = _flight_body_world(source, departure)
-    var finish: Vector2 = _flight_body_world(destination, arrival)
-    var obstacles: Array = _flight_obstacles(
-        source_id, destination_id, departure, arrival)
-    var path: Dictionary = FlightVisual.plan(start, finish, obstacles)
-    _flight_routes[kind] = {"key": key, "path": path}
-    return path
+func _project_flight(point: Vector2, orbit: Dictionary, time: float,
+        frame: Dictionary, screen_axis: Vector2) -> Vector2:
+    var axis := LocalFlight.axis(orbit, time)
+    var along := clampf(inverse_lerp(orbit.earth, orbit.luna, point.dot(axis)), 0.0, 1.0)
+    var across: float = axis.cross(point) * frame.separation / orbit.distance + frame.berth
+    return frame.center + screen_axis * (frame.earth_gate + frame.gap * along) + (
+        Vector2(-screen_axis.y, screen_axis.x) * across)
 
 
 func _flight_pose(kind: String, ship: Dictionary, when_usec: int) -> Dictionary:
     if ship.is_empty():
         return {}
-    var location: String = str(ship.get("location", ""))
-    var offset: Vector2 = _flight_offset(kind)
-    if location != "transit":
-        var dock_id: String = location if kind == "freight" else "earth"
-        if dock_id == "earth-colony":
-            dock_id = "earth"
-        if dock_id not in ["earth", "luna"]:
-            return {}
-        var dock: Dictionary = _body_by_id(dock_id)
-        if dock.is_empty():
-            return {}
-        return {"moving": false, "position": _body_position(
-            dock, _orbit_scale()) + offset, "direction": Vector2.RIGHT,
-            "progress": 0.0, "source": dock_id, "destination": dock_id}
-    var source_id: String = "earth"
-    var destination_id: String = "luna"
-    if kind == "freight":
-        var order: Dictionary = ship.get("order", {})
-        source_id = str(order.get("source", ""))
-        destination_id = str(order.get("destination", ""))
-    var route: Dictionary = _flight_route(
-        kind, ship, source_id, destination_id)
-    if route.is_empty():
+    var frame := _flight_frame(kind)
+    var screen_axis: Vector2 = frame.axis
+    var lateral := Vector2(-screen_axis.y, screen_axis.x)
+    var path: Dictionary = ship.get("trajectory", {})
+    if ship.get("location") != "transit":
+        var dock_id: String = ship.location if kind == "freight" else "earth"
+        var distance: float = frame.earth_gate + (frame.gap if dock_id == "luna" else 0.0)
+        var offset: Vector2 = screen_axis * distance + lateral * frame.berth
+        return {"moving": false, "position": frame.center + offset,
+            "direction": Vector2(offset.y, -offset.x).normalized(), "opacity": frame.opacity,
+            "glyph": frame.glyph}
+    if path.is_empty():
         return {}
-    var departure: float = float(ship.get("departure", 0.0))
-    var arrival: float = float(ship.get("arrival", departure))
-    if arrival <= departure:
-        return {}
-    var progress: float = FlightVisual.fraction(
-        departure, arrival, _display_native_time(when_usec))
-    var sample: Dictionary = FlightVisual.sample(route, progress)
-    var world_point: Vector2 = sample["position"]
-    return {"moving": true, "world_position": world_point,
-        "position": _flight_screen(world_point) + offset,
-        "direction": sample["direction"], "progress": progress,
-        "source": source_id, "destination": destination_id,
-        "route": route, "departure": departure, "arrival": arrival}
+    var t := clampf(_display_native_time(when_usec), path.departure, path.arrival)
+    var point := LocalFlight.position(path, t)
+    var axis := LocalFlight.axis(path.orbit, t)
+    var velocity := LocalFlight.velocity(path, t)
+    var position := _project_flight(point, path.orbit, t, frame, screen_axis)
+    var relative := velocity - LocalFlight.tangent(point, path.orbit.omega)
+    var heading := LocalFlight.tangent(position - (frame.center as Vector2), path.orbit.omega)
+    heading += screen_axis * (frame.gap * relative.dot(axis) / (path.orbit.luna - path.orbit.earth))
+    heading += lateral * (frame.separation * axis.cross(relative) / path.orbit.distance)
+    return {"moving": true, "world_position": point,
+        "position": position, "direction": heading.normalized(),
+        "progress": LocalFlight.progress(path, t), "route": path, "time": t,
+        "frame": frame, "opacity": frame.opacity, "glyph": frame.glyph}
 
 
-func _start_visual_docking(kind: String, ship: Dictionary) -> void:
-    var old: Dictionary = _flight_draw_states.get(kind, {})
-    if old.is_empty():
-        old = _flight_pose(kind, ship, Time.get_ticks_usec())
-    if old.is_empty():
-        return
-    _docking_visuals[kind] = {
-        "from": (old["position"] as Vector2) - _center(),
-        "from_world": old.get("world_position", (_flight_screen(
-            Vector2.ZERO) - _center())),
-        "heading": old.get("direction", Vector2.RIGHT),
-        "destination": str(old.get("destination", "luna")),
-        "started_usec": Time.get_ticks_usec(),
-        "duration_usec": 150000
-    }
+func _remember_arrival(kind: String, previous: Dictionary, next: Dictionary,
+        snap: bool) -> void:
+    if snap:
+        _ending_flights.erase(kind)
+    elif previous.has("trajectory") and previous.get("arrival") != next.get("arrival"):
+        _ending_flights[kind] = previous
 
 
 func set_colonizer(ship: Dictionary, snap: bool = false) -> void:
-    if not snap and _colonizer.get("location", "") == "transit" and (
-            ship.get("location", "") != "transit"):
-        _start_visual_docking("colonizer", _colonizer)
-    if snap:
-        _flight_routes.erase("colonizer")
-    if snap or ship.get("location", "") == "transit":
-        _docking_visuals.erase("colonizer")
     if ship != _colonizer or snap:
+        _remember_arrival("colonizer", _colonizer, ship, snap)
         _colonizer = ship.duplicate(true)
         queue_redraw()
 
 
 func set_freight(freight: Dictionary, snap: bool = false) -> void:
-    if not snap and _freight.get("location", "") == "transit" and (
-            freight.get("location", "") != "transit"):
-        _start_visual_docking("freight", _freight)
-    if snap:
-        _flight_routes.erase("freight")
-    if snap or freight.get("location", "") == "transit":
-        _docking_visuals.erase("freight")
-    if snap or freight != _freight:
+    if freight != _freight or snap:
+        _remember_arrival("freight", _freight, freight, snap)
         _freight = freight.duplicate(true)
         queue_redraw()
 
 
 func _paint_flight_ship(kind: String, position: Vector2,
-        direction: Vector2, fade: float = 1.0) -> void:
+        direction: Vector2, fade: float, glyph: float) -> void:
     var forward: Vector2 = direction.normalized() if (
         direction.length_squared() > 0.000001) else Vector2.RIGHT
+    forward *= glyph
     var lateral := Vector2(-forward.y, forward.x)
     var tint: Color = Color("#93dfca" if kind == "colonizer" else "#f6d38a")
     tint.a = clampf(fade, 0.0, 1.0)
@@ -1218,48 +1136,29 @@ func _paint_flight_ship(kind: String, position: Vector2,
 
 
 func _draw_flight(kind: String, ship: Dictionary) -> void:
-    if _docking_visuals.has(kind):
-        var docking: Dictionary = _docking_visuals[kind]
-        var delta_usec: int = (
-            _flight_pause_started_usec if _flight_paused else _draw_now_usec
-        ) - int(docking["started_usec"])
-        var alpha: float = clampf(float(maxi(0, delta_usec)) /
-            float(docking["duration_usec"]), 0.0, 1.0)
-        var body: Dictionary = _body_by_id(str(docking["destination"]))
-        if not body.is_empty():
-            var target: Vector2 = _body_position(body, _orbit_scale()) + (
-                _flight_offset(kind))
-            var from: Vector2 = _flight_screen(
-                docking["from_world"]) + _flight_offset(kind)
-            var position: Vector2 = from.lerp(target, alpha)
-            var start_heading: Vector2 = docking.get("heading", Vector2.RIGHT)
-            var final_heading: Vector2 = (
-                Vector2.RIGHT if kind == "freight" else
-                (target - from).normalized())
-            if final_heading.length_squared() < 0.000001:
-                final_heading = start_heading
-            var heading := Vector2.RIGHT.rotated(lerp_angle(
-                start_heading.angle(), final_heading.angle(), alpha))
-            _paint_flight_ship(kind, position, heading,
-                1.0 - alpha if kind == "colonizer" else 1.0)
-            _flight_draw_states[kind] = {
-                "position": position, "direction": heading,
-                "progress": alpha, "docking": true,
-                "moving": alpha < 1.0}
-        return
+    var ending: Dictionary = _ending_flights.get(kind, {})
+    if not ending.is_empty():
+        if _display_native_time(_draw_now_usec) < float(ending.arrival):
+            ship = ending
+        else:
+            _ending_flights.erase(kind)
     var pose: Dictionary = _flight_pose(kind, ship, _draw_now_usec)
     if pose.is_empty():
         return
+    _flight_draw_states[kind] = pose
+    if pose.opacity <= 0.0:
+        return # At overview scale the enlarged body symbols can touch.
     var position: Vector2 = pose["position"]
     if bool(pose["moving"]) and kind == _selected_flight_kind:
-        var route: Dictionary = pose["route"]
-        var map_points: PackedVector2Array = route["points"]
+        var path: Dictionary = pose.route
+        var frame: Dictionary = pose.frame
         var line := PackedVector2Array()
-        for world_point in map_points:
-            line.append(_flight_screen(world_point) + _flight_offset(kind))
-        if line.size() > 1:
-            draw_polyline(line, Color("#8cbbce", 0.65), 1.5, true)
-    _paint_flight_ship(kind, position, pose["direction"])
+        for index in range(25):
+            var at := lerpf(path.departure, path.arrival, index / 24.0)
+            var axis: Vector2 = frame.axis.rotated(path.orbit.omega * (at - pose.time))
+            line.append(_project_flight(LocalFlight.position(path, at), path.orbit, at, frame, axis))
+        draw_polyline(line, Color("#8cbbce", 0.65), 1.5, true)
+    _paint_flight_ship(kind, position, pose["direction"], pose.opacity, pose.glyph)
     if bool(pose["moving"]):
         _flight_pins.append({"kind": kind, "position": position})
         if kind == _selected_flight_kind:
@@ -1273,7 +1172,6 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
             Model.batch_unit(str(cargo.get("resource", "")))]
         draw_string(get_theme_default_font(), position + Vector2(9.0, -7.0),
             label, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#f6d38a"))
-    _flight_draw_states[kind] = pose
 
 func _draw() -> void:
     var started: int = Time.get_ticks_usec()
