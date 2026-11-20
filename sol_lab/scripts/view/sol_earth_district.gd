@@ -12,7 +12,7 @@ const Art = preload("res://scripts/view/sol_earth_district_art.gd")
 const SHIP_PATH = "res://assets/district/freighter.png"
 const PORT_PATHS = ["res://earth_port/EarthPort.tscn",
  "res://sol_lab/earth_port/EarthPort.tscn"]
-const AREA = Vector2(950, 670)
+const AREA = Vector2(980, 670)
 const EARTH = "earth"
 const PLOTS = {
  "earth-ac-01": Rect2(419, 282, 108, 79),
@@ -27,10 +27,10 @@ const PLOTS = {
  "earth-industry-02": Rect2(560, 82, 138, 99),
  "earth-industry-03": Rect2(714, 82, 147, 99),
  "earth-industry-04": Rect2(573, 198, 134, 79),
- "earth-port-01": Rect2(638, 382, 225, 172),
+ "earth-port-01": Rect2(548, 382, 354, 203),
  "earth-common-01": Rect2(244, 522, 162, 96),
  "earth-common-02": Rect2(726, 198, 135, 79),
- "earth-common-03": Rect2(434, 400, 142, 104),
+ "earth-common-03": Rect2(429, 400, 105, 104),
 }
 var _plots: Dictionary = {}
 var _facilities: Dictionary = {}

@@ -1208,29 +1208,12 @@ func set_second_freight(ship: Dictionary, snap: bool = false) -> void:
         queue_redraw()
 
 
+const ShipArt = preload("res://sol_lab/earth_port/ship_art.gd")
+
 func _paint_flight_ship(kind: String, position: Vector2,
-        direction: Vector2, fade: float, glyph: float) -> void:
-    var forward: Vector2 = direction.normalized() if (
-        direction.length_squared() > 0.000001) else Vector2.RIGHT
-    forward *= glyph
-    var lateral := Vector2(-forward.y, forward.x)
-    var tint: Color = Color("#93dfca" if kind == "colonizer" else "#f6d38a")
-    tint.a = clampf(fade, 0.0, 1.0)
-    var polygon: PackedVector2Array
-    if kind == "colonizer":
-        polygon = PackedVector2Array([
-            position + forward * 8.0,
-            position - forward * 5.0 + lateral * 5.0,
-            position - forward * 5.0 - lateral * 5.0])
-    else:
-        polygon = PackedVector2Array([
-            position + forward * 6.0 + lateral * 3.5,
-            position + forward * 6.0 - lateral * 3.5,
-            position - forward * 6.0 - lateral * 5.0,
-            position - forward * 6.0 + lateral * 5.0])
-    draw_colored_polygon(polygon, tint)
-    draw_line(position - forward * 2.0,
-        position + forward * 4.0, Color("#102331", tint.a), 1.4)
+        direction: Vector2, fade: float, glyph: float, loaded: bool) -> void:
+    var tint := Color(1.0, 1.0, 1.0, clampf(fade, 0.0, 1.0))
+    ShipArt.paint(self, position, direction.angle(), glyph * 0.6, tint, kind == "colonizer", loaded)
 
 
 func _draw_flight(kind: String, ship: Dictionary) -> void:
@@ -1256,7 +1239,8 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
             var axis: Vector2 = frame.axis.rotated(path.orbit.omega * (at - pose.time))
             line.append(_project_flight(LocalFlight.position(path, at), path.orbit, at, frame, axis))
         draw_polyline(line, Color("#8cbbce", 0.65), 1.5, true)
-    _paint_flight_ship(kind, position, pose["direction"], pose.opacity, pose.glyph)
+    var loaded: bool = int(ship.get("order", {}).get("amount", 0)) > 0
+    _paint_flight_ship(kind, position, pose["direction"], pose.opacity, pose.glyph, loaded)
     if bool(pose["moving"]):
         _flight_pins.append({"kind": kind, "position": position})
         if kind == _selected_flight_kind:

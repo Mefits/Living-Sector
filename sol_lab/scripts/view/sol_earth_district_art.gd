@@ -10,13 +10,13 @@ const YARD = Color("#797a68")
 
 static func terrain(c: CanvasItem, area: Vector2) -> void:
  c.draw_rect(Rect2(Vector2.ZERO, area), Color("#646b4c"))
- var wet := PackedVector2Array([Vector2(888, 0), Vector2(area.x, 0),
-  area, Vector2(903, area.y), Vector2(882, 498), Vector2(913, 390),
-  Vector2(881, 273), Vector2(911, 176)])
+ var wet := PackedVector2Array([Vector2(945, 0), Vector2(area.x, 0),
+  area, Vector2(954, area.y), Vector2(937, 498), Vector2(952, 390),
+  Vector2(936, 273), Vector2(950, 176)])
  c.draw_colored_polygon(wet, Color("#4c6457"))
- c.draw_polyline(PackedVector2Array([Vector2(898, 0), Vector2(926, 176),
-  Vector2(896, 273), Vector2(930, 390), Vector2(898, 498),
-  Vector2(924, area.y)]), Color("#536e62"), 8, true)
+ c.draw_polyline(PackedVector2Array([Vector2(955, 0), Vector2(964, 176),
+  Vector2(949, 273), Vector2(964, 390), Vector2(949, 498),
+  Vector2(965, area.y)]), Color("#536e62"), 8, true)
  var rng := RandomNumberGenerator.new()
  rng.seed = 21018
  for i in range(2700):
@@ -32,19 +32,19 @@ static func terrain(c: CanvasItem, area: Vector2) -> void:
    c.draw_circle(p + Vector2(3, 3), radius, Color("#434c36"))
    c.draw_circle(p, radius, Color("#536041").lerp(Color("#768157"), rng.randf()))
  for y in [62, 371, 640]:
-  road(c, Vector2(35, y), Vector2(881, y))
- for x in [36, 881]:
+  road(c, Vector2(35, y), Vector2(917, y))
+ for x in [36, 917]:
   road(c, Vector2(x, 63), Vector2(x, area.y - 21))
  road(c, Vector2(353, 63), Vector2(353, 371))
- road(c, Vector2(606, 371), Vector2(606, 640))
- road(c, Vector2(608, 449), Vector2(643, 449))
+ road(c, Vector2(538, 371), Vector2(538, 640))
+ road(c, Vector2(538, 449), Vector2(548, 449))
  # Gravel approaches, kept outside the buildable footprints.
  for x in [112, 251, 468, 624, 789]:
   c.draw_line(Vector2(x, 72), Vector2(x, 82), Color("#898774"), 16)
  for x in [136, 318, 502]:
   c.draw_line(Vector2(x, 380), Vector2(x, 400), Color("#898774"), 11)
  if area.y > 670:
-  road(c, Vector2(36, 672), Vector2(881, 672))
+  road(c, Vector2(36, 672), Vector2(917, 672))
 
 static func road(c: CanvasItem, a: Vector2, b: Vector2) -> void:
  c.draw_line(a, b, Color("#8a8975"), 22)
@@ -89,7 +89,7 @@ static func tank(c: CanvasItem, p: Vector2, radius: float, tint: Color) -> void:
  c.draw_circle(p, maxf(2, radius * 0.27), tint.darkened(0.35))
 
 static func pad_anchor(r: Rect2) -> Vector2:
- return r.position + Vector2(34, 71)
+ return r.position + Vector2(128, 67)
 
 static func building(c: CanvasItem, r: Rect2, kind: String, ship: Texture2D,
   is_preview: bool = false) -> void:

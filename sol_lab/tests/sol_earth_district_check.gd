@@ -115,12 +115,74 @@ func run() -> void:
   "Return restores the Earth globe")
  game._open_district()
  plot_click(district, "earth-industry-01")
+ await unload_in_district(game)
  print("SOL_EARTH_DISTRICT_PASS")
  if "--capture" in OS.get_cmdline_user_args() and DisplayServer.get_name() != "headless":
   await create_timer(1.0).timeout
   await RenderingServer.frame_post_draw
   var frame := root.get_texture().get_image()
   check(frame.get_size() == Vector2i(1366, 768), "Capture is at the requested game resolution")
-  check(frame.save_png("user://Living-Sector-Earth-District.png") == OK, "Capture saved")
+  check(frame.save_png("user://Living-Sector-Earth-District-Live-Port.png") == OK, "Capture saved")
   await create_timer(2.0).timeout
  quit()
+
+func advance(game: Control, until: float) -> void:
+ game.native_time = until
+ game._advance_construction()
+ game._update_native_map()
+
+func unload_in_district(game: Control) -> void:
+ var sim = game.construction
+ game._native_body_selected({"id": "luna"})
+ game.colony_button.pressed.emit()
+ advance(game, sim.expedition.ship.arrival)
+ game._open_build()
+ for kind in ["mining_rig", "spaceport"]:
+  game.browser.build_controls[kind].button.pressed.emit()
+  var site: String = game.browser.placement_options[0].id
+  game.native_view.choose_placement(site)
+  game.browser.select_placement(site)
+  game.browser.placement_confirm.pressed.emit()
+ advance(game, sim.sites.back().finish_native)
+ game._close_browser()
+ game._open_manual_freight()
+ game.manual_amount.value = 1
+ check(not game.manual_freight_dialog.get_ok_button().disabled, "Outbound order is ready")
+ game.manual_freight_dialog.get_ok_button().pressed.emit()
+ game.manual_freight_dialog.hide()
+ advance(game, sim.freight_status().arrival)
+ # Use mined ore from the real lunar production cycle.
+ game._set_speed(16)
+ for tick in range(500):
+  if sim.colony_inventory("luna").supply.get("ore", 0) >= 3:
+   break
+  game._step()
+ check(sim.colony_inventory("luna").supply.get("ore", 0) >= 3, "Lunar mine produced a shipment")
+ game._open_manual_freight()
+ game.manual_amount.value = 3
+ check(not game.manual_freight_dialog.get_ok_button().disabled, "Return ore order is ready")
+ game.manual_freight_dialog.get_ok_button().pressed.emit()
+ game.manual_freight_dialog.hide()
+ var eta: float = sim.freight_status().arrival
+ game._open_district()
+ var district = game.district
+ var port = district._port
+ check(is_instance_valid(port) and port.is_visible_in_tree() and port.position == Vector2(676, 449),
+  "Completed Earth port mounts the live scene at the real main pad")
+ advance(game, eta - 0.01)
+ var stock_before: float = sim.colony_inventory("earth").supply.get("ore", 0)
+ await process_frame
+ check(port._state.bays[0].order.get("amount") == 3, "Mounted port sees the inbound container")
+ advance(game, eta)
+ await process_frame
+ check(sim.colony_inventory("earth").supply.get("ore", 0) == stock_before + 3,
+  "Touchdown credits the real Earth warehouse once")
+ advance(game, eta + port.SERVICE * 0.72)
+ await process_frame
+ check(port._state.bays[0].last_arrival.get("amount") == 3 and port._state.time > eta,
+  "Mounted port has a live unload pose on its service road")
+ check(sim.colony_inventory("earth").supply.get("ore", 0) == stock_before + 3,
+  "The loader pose does not credit the warehouse a second time")
+ plot_click(district, "earth-port-01")
+ check(game.colony_panel.page == "logistics", "Port plot opens its normal controls")
+ print("SOL_EARTH_DISTRICT_LIVE_UNLOAD_PASS")
