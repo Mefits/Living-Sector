@@ -27,7 +27,12 @@ var detail_description: Label
 var detail_icon: Control
 var overview: VBoxContainer
 var stock_view: VBoxContainer
+var logistics_view: VBoxContainer
+var logistics_title: Label
+var logistics_status: Label
 var scroll: ScrollContainer
+var production_data: Dictionary = {}
+var displayed_native: float = 0.0
 var page: String = "overview"
 var selected_facility: String = ""
 var body_id: String = ""
@@ -103,6 +108,15 @@ func _ready() -> void:
  stock_panel = Stock.new()
  stock_view.add_child(stock_panel)
  stock_view.hide()
+ logistics_view = VBoxContainer.new()
+ logistics_view.add_theme_constant_override("separation", 10)
+ content.add_child(logistics_view)
+ logistics_title = _label(logistics_view, "ЛОГИСТИКА", 15,
+  Color("#e4d0a0"))
+ logistics_status = _label(logistics_view, "", 13,
+  Color("#bfd2dc"))
+ logistics_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+ logistics_view.hide()
 
  message = _label(layout, "", 12, Color("#e5cb92"))
  message.clip_text = true
@@ -111,7 +125,7 @@ func _ready() -> void:
  freight_button = _button(layout, "Грузовик", func(): pass)
  line_holder = VBoxContainer.new()
  line_holder.add_theme_constant_override("separation", 3)
- layout.add_child(line_holder)
+ logistics_view.add_child(line_holder)
  # Keep prior diagnostic text queryable; no large legacy data in layout.
  details = Label.new()
  details.hide()
@@ -139,7 +153,14 @@ func _switch_page(next_page: String) -> void:
  page = next_page
  overview.visible = page == "overview"
  stock_view.visible = page == "stock"
+ logistics_view.visible = page == "logistics"
  scroll.scroll_vertical = 0
+
+func open_stock() -> void:
+ _switch_page("stock")
+
+func open_logistics() -> void:
+ _switch_page("logistics")
 
 func show_food(food: Dictionary) -> void:
  food_status.visible = not food.is_empty()
@@ -156,11 +177,13 @@ func show_food(food: Dictionary) -> void:
 func show_colony(next_body: String, name_ru: String,
         residents: int, warehouse: Dictionary, constructed: Array,
         current_sites: Array, idle: String, line_status: String,
-        now_native: float) -> void:
+        now_native: float, production: Dictionary = {}) -> void:
  if body_id != next_body:
   selected_facility = ""
   _switch_page("overview")
  body_id = next_body
+ displayed_native = now_native
+ production_data = production
  heading.text = name_ru
  population.text = "%d жителей" % residents if bool(warehouse.get("present", false)) else "Без колонии"
  var supply: Dictionary = warehouse.get("supply", {})
@@ -183,6 +206,58 @@ func show_colony(next_body: String, name_ru: String,
  _set_built(constructed)
  _show_selected_detail()
 
+## One shared colony logistics surface for map-clicked ports and the
+## "Линия" quick entry. Buttons below remain the original game commands.
+func show_logistics(line: Dictionary, freight: Dictionary,
+        waiting_reason: String = "") -> void:
+ var destination_names: Dictionary = Model.PLANET_NAMES
+ var enabled: bool = bool(line.get("enabled", false))
+ logistics_title.text = "КОСМОПОРТ · " + str(
+  destination_names.get(body_id, body_id)) if _selected_kind() == "spaceport" else (
+  "ЛОГИСТИКА · " + str(destination_names.get(body_id, body_id)))
+ var sentences: PackedStringArray = PackedStringArray()
+ sentences.append("Регулярная линия: " + (
+  "включена" if enabled else "отключена"))
+ var legs: Dictionary = line.get("legs", {})
+ for destination in ["luna", "earth"]:
+  var leg: Dictionary = legs.get(destination, {})
+  var origin: String = "earth" if destination == "luna" else "luna"
+  sentences.append("%s → %s: %d %s · резерв %s" % [
+   destination_names.get(origin, origin),
+   destination_names.get(destination, destination),
+   int(leg.get("amount", 0)),
+   Model.resource_label(str(leg.get("resource", ""))),
+   Model.batch_amount(float(leg.get("reserve", 0)))])
+ var location: String = str(freight.get("location", ""))
+ if location == "transit":
+  var order: Dictionary = freight.get("order", {})
+  var source: String = str(order.get("source", ""))
+  var target: String = str(order.get("destination", ""))
+  var amount: int = int(order.get("amount", 0))
+  var manifest: String = ("%d %s" % [
+   amount, Model.resource_label(str(order.get("resource", "")))]) if (
+   amount > 0) else "пустой трюм"
+  sentences.append("Грузовик: в пути · %s → %s" % [
+   destination_names.get(source, source), destination_names.get(target, target)])
+  sentences.append("На борту: " + manifest)
+  sentences.append("Прибытие: " + Calendar.calendar_text(
+   float(freight.get("arrival", 0))))
+ else:
+  sentences.append("Грузовик: у %s · трюм пуст" % (
+   "Земли" if location == "earth" else (
+   "Луны" if location == "luna" else "нет корабля")))
+ if enabled and not waiting_reason.is_empty():
+  sentences.append(waiting_reason)
+ logistics_status.text = "\n".join(sentences)
+
+
+func _selected_kind() -> String:
+ for facility in built_facilities:
+  if str(facility.get("id", "")) == selected_facility:
+   return _kind(facility)
+ return ""
+
+
 func _set_built(items: Array) -> void:
  built_facilities = items
  var keys: Array[String] = []
@@ -195,6 +270,11 @@ func _set_built(items: Array) -> void:
  var desired: Array[String] = []
  for item in items:
   desired.append(str(item.get("id", "")))
+ var totals: Dictionary = {}
+ for item in items:
+  var kind: String = _kind(item)
+  totals[kind] = int(totals.get(kind, 0)) + 1
+ var ordinal: Dictionary = {}
  if desired != existing or built_buttons.is_empty():
   for child in built_list.get_children():
    built_list.remove_child(child)
@@ -212,8 +292,11 @@ func _set_built(items: Array) -> void:
    symbol.kind = kind
    symbol.tint = Color("#c1d6dc")
    row.add_child(symbol)
-   var pick := _button(row, str(item.get("name", kind)),
-    _pick.bind(facility_id))
+   ordinal[kind] = int(ordinal.get(kind, 0)) + 1
+   var readable: String = str(item.get("name", kind))
+   if int(totals.get(kind, 0)) > 1:
+    readable += " · №%d" % int(ordinal[kind])
+   var pick := _button(row, readable, _pick.bind(facility_id))
    pick.alignment = HORIZONTAL_ALIGNMENT_LEFT
    built_buttons[facility_id] = pick
  if not selected_facility.is_empty() and not desired.has(selected_facility):
@@ -239,23 +322,62 @@ func _show_selected_detail() -> void:
  detail_title.hide()
  detail_description.hide()
  detail_icon.hide()
+ for facility_id in built_buttons:
+  var button: Button = built_buttons[facility_id]
+  if not is_instance_valid(button):
+   continue
+  button.add_theme_color_override("font_color",
+   Color("#f1d69d") if facility_id == selected_facility else
+   Color("#c4d5df"))
  for facility in built_facilities:
   if str(facility.get("id", "")) != selected_facility:
    continue
   var kind: String = _kind(facility)
   var item: Dictionary = Model.find_building(kind)
   var purpose: String = _purpose(kind, item)
-  var state: String = "Построено · готово"
-  if kind in ["mining_rig", "refinery", "farm"]:
-   var produced: String = str(facility.get("production_status", ""))
-   state = produced if not produced.is_empty() else "Ожидание первой партии (30 дней)"
+  var lines: PackedStringArray = PackedStringArray([purpose])
+  if kind in ["mining_rig", "farm", "refinery"]:
+   var data: Dictionary = production_data.get(selected_facility, {})
+   if bool(data.get("last_present", false)):
+    lines.append("Фактическая последняя партия: +%s %s" % [
+     Model.batch_amount(float(data.get("last_amount", 0))),
+     Model.resource_label(str(data.get("last_resource", "")))])
+    lines.append("Выпущено: " + Calendar.calendar_text(
+     float(data.get("last_native", 0))))
+    var changes: String = str(data.get("last_changes", ""))
+    if not changes.is_empty():
+     lines.append("Фактическая партия: " + changes)
+   else:
+    lines.append("Последняя партия: ещё не выпускалась (нет подтверждённых данных)")
+   lines.append("Прогноз следующего выпуска: +%s %s" % [
+    Model.batch_amount(float(data.get("forecast", 0))),
+    Model.resource_label(str(data.get("product", "")))])
+   var idle: String = str(data.get("idle_reason", ""))
+   if not idle.is_empty():
+    lines.append(idle)
+   var next_batch: float = float(data.get("next_native", INF))
+   if is_finite(next_batch):
+    lines.append("%s: %s · через %d дн." % [
+     "Следующая попытка" if not idle.is_empty() else "Следующая партия (план)",
+     Calendar.calendar_text(next_batch),
+     Calendar.days_remaining(displayed_native, next_batch)])
+   else:
+    lines.append("Следующая партия: не запланирована")
   elif kind in ["factory", "power_plant"]:
-   state = "Цикл производства не подключён в Sol Lab"
+   lines.append("Производственный цикл пока не подключён")
+   lines.append("Фактической партии и срока следующего выпуска нет")
+  elif kind == "spaceport":
+   lines.append("Открыта логистика этой колонии")
+  elif kind == "administrative_center":
+   lines.append("Открыто управление строительством и очередью")
+  else:
+   lines.append("Построено · готово")
   detail_icon.kind = kind
   detail_icon.show()
   detail_icon.queue_redraw()
-  detail_title.text = str(facility.get("name", kind))
-  detail_description.text = "%s\nСостояние: %s" % [purpose, state]
+  detail_title.text = str(facility.get("name", kind)) + " · " + str(
+   facility.get("id", "")).right(4)
+  detail_description.text = "\n".join(lines)
   detail_title.show()
   detail_description.show()
   break
