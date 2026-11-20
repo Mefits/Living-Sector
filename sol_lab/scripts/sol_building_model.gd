@@ -160,7 +160,7 @@ static func available(b: Dictionary, settings: Dictionary,
  if cost < 1 or stock(world, body) < cost:
   return false
  if body in ["earth", "luna"]:
-  return not SurfaceSites.free(body, id, world.get(
+  return not SurfaceSites.free_sites(body, id, world.get(
    "facilities", [])).is_empty()
  return true
 

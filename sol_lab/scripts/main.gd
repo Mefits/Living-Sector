@@ -941,7 +941,7 @@ func _refresh_construction_ui() -> void:
 func _begin_placement(body: String, building_id: String) -> void:
     if body != selected or browser == null or not browser.visible:
         return
-    var candidates: Array = SurfaceSites.free(body, building_id,
+    var candidates: Array = SurfaceSites.free_sites(body, building_id,
         world.get("facilities", []))
     if candidates.is_empty():
         _notice("Для здания нет свободных подходящих площадок")

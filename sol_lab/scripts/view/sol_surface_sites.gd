@@ -53,7 +53,7 @@ static func occupied(body: String, facilities: Array) -> Dictionary:
    result[key] = str(raw.get("id", ""))
  return result
 
-static func free(body: String, building_id: String,
+static func free_sites(body: String, building_id: String,
         facilities: Array) -> Array:
  var claimed: Dictionary = occupied(body, facilities)
  var result: Array = []
@@ -66,7 +66,7 @@ static func reservable(body: String, building_id: String,
         site_id: String, facilities: Array) -> Dictionary:
  if site_id.is_empty():
   return {}
- for entry in free(body, building_id, facilities):
+ for entry in free_sites(body, building_id, facilities):
   if str(entry.get("id", "")) == site_id:
    return entry
  return {}

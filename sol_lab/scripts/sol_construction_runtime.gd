@@ -331,7 +331,7 @@ func order(body: String, building_id: String,
  # the human catalog ALWAYS supplies a confirmed named site ID.
  var chosen: Dictionary = {}
  if body in ["earth", "luna"]:
-  var available_sites: Array = SurfaceSites.free(body, building_id,
+  var available_sites: Array = SurfaceSites.free_sites(body, building_id,
    world.get("facilities", []))
   if requested_site_id.is_empty():
    if not available_sites.is_empty():
