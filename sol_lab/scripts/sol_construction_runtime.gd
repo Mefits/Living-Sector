@@ -26,6 +26,8 @@ var sites: Array = []
 var expedition := preload("res://scripts/sol_lunar_expedition.gd").new()
 var _freighter: Dictionary = {}
 var _second: Dictionary = {}
+# Latest completed Earth arrival per slot, for the local port view.
+var _earth_arrivals: Dictionary = {}
 var ship_order: Dictionary = {}
 var _line_enabled := false
 var _line_legs: Dictionary = {}
@@ -45,6 +47,7 @@ func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  expedition.reset(world)
  _freighter = _starting_freighter()
  _second = {}
+ _earth_arrivals.clear()
  ship_order = {}
  _line_enabled = false
  _line_legs = _default_line_legs()
@@ -255,12 +258,29 @@ func _dispatch_line() -> bool:
 func freight_status(slot: int = 1) -> Dictionary:
  return (_second if slot == 2 else _freighter).duplicate(true)
 
+## Read-only projection. Flight orders, not UI visibility, drive the port.
+func earth_port_state() -> Dictionary:
+ var bays := []
+ for slot in [1, 2]:
+  var ship := _second if slot == 2 else _freighter
+  bays.append({
+   "location": ship.get("location", ""),
+   "order": ship.get("order", {}).duplicate(),
+   "departure": ship.get("departure", 0.0),
+   "arrival": ship.get("arrival", 0.0),
+   "last_arrival": _earth_arrivals.get(slot, {}).duplicate(),
+  })
+ return {"time": now_native, "bays": bays}
+
 func _land_freighter(slot: int) -> void:
  var ship := _second if slot == 2 else _freighter
  var shipment: Dictionary = ship.order
  var stock: Dictionary = _market_for(shipment.destination).supply
  if shipment.amount > 0:
   stock[shipment.resource] = float(stock.get(shipment.resource, 0)) + int(shipment.amount)
+ if shipment.destination == "earth":
+  _earth_arrivals[slot] = {"time": ship.arrival, "resource": shipment.resource,
+   "amount": shipment.amount}
  ship.clear()
  ship.location = shipment.destination
 
@@ -699,6 +719,7 @@ func restore(data: Dictionary) -> bool:
  configure_freight_line(restored_line.legs)
  set_freight_line_enabled(restored_line.enabled)
  sites = input_sites.duplicate(true)
+ _earth_arrivals.clear()
  now_native = float(t)
  _index_producers()
  next_id = int(seq)
