@@ -3,6 +3,7 @@ extends Control
 const SolProfile = preload("res://scripts/sol_profile.gd")
 const SolStarter = preload("res://scripts/sol_start_scenario.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
+const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 const NativeStarSystemView = preload("res://scripts/star_system_view.gd")
 const BuildingBrowser = preload("res://scripts/building_browser.gd")
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
@@ -595,6 +596,10 @@ func _input(event: InputEvent) -> void:
         if event.keycode == KEY_F9:
             _toggle_admin()
             get_viewport().set_input_as_handled()
+        elif event.keycode == KEY_ESCAPE and native_view != null and (
+                not native_view._placement_body_id.is_empty()):
+            _cancel_placement()
+            get_viewport().set_input_as_handled()
         elif event.keycode == KEY_SPACE:
             # Handle BEFORE focused Buttons can reinterpret Space as
             # ui_accept and accidentally repeat the previous command.
@@ -640,7 +645,9 @@ func _make_browser() -> void:
     browser.reset_requested.connect(_restore)
     browser.values_changed.connect(_show_selected)
     browser.close_requested.connect(_close_browser)
-    browser.build_requested.connect(_order_build)
+    browser.build_requested.connect(_begin_placement)
+    browser.placement_confirmed.connect(_order_build)
+    browser.placement_cancelled.connect(_cancel_placement)
     browser.cancel_requested.connect(_cancel_build)
     browser.stock_requested.connect(_open_stock_from_browser)
     browser.save_game_requested.connect(_save_game)
@@ -664,6 +671,7 @@ func _open_browser(admin: bool) -> void:
     _layout_right_side()
 
 func _close_browser() -> void:
+    _cancel_placement()
     browser.hide()
     sidebar.show()
     _layout_right_side()
@@ -735,6 +743,8 @@ func _make_native_map() -> void:
     native_view.body_selected.connect(_native_body_selected)
     native_view.body_open_requested.connect(_native_body_selected)
     native_view.facility_selected.connect(_native_facility_selected)
+    native_view.placement_site_selected.connect(_placement_chosen)
+    native_view.placement_cancel_requested.connect(_cancel_placement)
     add_child(native_view)
     # Under sidebar and header, but above the empty root background.
     move_child(native_view, 0)
@@ -759,6 +769,8 @@ func _native_body_selected(body: Dictionary) -> void:
     var id: String = str(body.get("id", ""))
     if not Model.VISIBLE.has(id):
         return
+    if id != selected:
+        _cancel_placement()
     selected = id
     native_view.select_body(id)
     if browser.visible:
@@ -925,8 +937,42 @@ func _refresh_construction_ui() -> void:
     _dock_refresh_peak_usec = maxi(_dock_refresh_peak_usec,
         _dock_refresh_last_usec)
 
-func _order_build(body: String, building_id: String) -> void:
-    var result: Dictionary = construction.order(body, building_id)
+## Choosing the catalog item is free and enters placement mode.
+func _begin_placement(body: String, building_id: String) -> void:
+    if body != selected or browser == null or not browser.visible:
+        return
+    var candidates: Array = SurfaceSites.free(body, building_id,
+        world.get("facilities", []))
+    if candidates.is_empty():
+        _notice("Для здания нет свободных подходящих площадок")
+        return
+    native_view.start_placement(body, building_id, candidates)
+    browser.start_placement(building_id, candidates)
+
+
+func _placement_chosen(site_id: String) -> void:
+    if browser != null and browser.visible:
+        browser.select_placement(site_id)
+
+
+func _cancel_placement() -> void:
+    if native_view != null:
+        native_view.stop_placement()
+    if browser != null:
+        browser.clear_placement()
+
+
+## Only the confirmed choice can bill construction in this UI.
+func _order_build(body: String, building_id: String,
+        site_id: String = "") -> void:
+    if not site_id.is_empty() and (
+            browser == null or browser.placement_chosen_id != site_id or
+            body != selected):
+        _notice("Сначала подтвердите свободную площадку")
+        return
+    var result: Dictionary = construction.order(body, building_id, site_id)
+    if bool(result.get("ok", false)):
+        _cancel_placement()
     if bool(result.get("ok", false)):
         _update_native_map()
         _show_selected()
@@ -995,6 +1041,7 @@ func _load_game() -> void:
     if not construction.restore(value):
         _notice("Сохранение несовместимо или повреждено")
         return
+    _cancel_placement()
     native_time = construction.now_native
     visual_tick_count = int(value.get("visual_tick_count", 0))
     visual_clock.reset()

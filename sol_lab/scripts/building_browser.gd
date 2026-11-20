@@ -5,6 +5,8 @@ signal reset_requested
 signal values_changed
 signal close_requested
 signal build_requested(body_id: String, building_id: String)
+signal placement_confirmed(body_id: String, building_id: String, site_id: String)
+signal placement_cancelled
 signal cancel_requested(site_id: String)
 signal stock_requested
 signal save_game_requested
@@ -42,6 +44,12 @@ var time_labels: Dictionary = {}
 var scroll: ScrollContainer
 var colony_line: Label
 var build_detail: Label
+var placement_panel: VBoxContainer
+var placement_caption: Label
+var placement_confirm: Button
+var placement_building_id: String = ""
+var placement_chosen_id: String = ""
+var placement_options: Array = []
 
 func _ready() -> void:
  color = Color("#101e2d")
@@ -198,6 +206,12 @@ func _navigate(target: String) -> void:
  queue_mounted = false
  build_detail = null
  grid = null
+ placement_panel = null
+ placement_caption = null
+ placement_confirm = null
+ placement_building_id = ""
+ placement_chosen_id = ""
+ placement_options.clear()
  scroll.scroll_vertical = 0
  feedback.text = ""
  var planet_name: String = ("Земля" if body_id == "earth"
@@ -229,6 +243,17 @@ func _cards(editable: bool) -> void:
   queue_panel = VBoxContainer.new()
   cards_root.add_child(queue_panel)
   _refresh_queue()
+  placement_panel = VBoxContainer.new()
+  placement_panel.add_theme_constant_override("separation", 5)
+  cards_root.add_child(placement_panel)
+  placement_caption = _label(placement_panel, "", 13, Color("#e2d5ae"))
+  placement_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+  var actions := HBoxContainer.new()
+  placement_panel.add_child(actions)
+  placement_confirm = _button(actions, "Подтвердить место", _confirm_placement)
+  placement_confirm.disabled = true
+  _button(actions, "Отмена · бесплатно", func(): placement_cancelled.emit())
+  placement_panel.hide()
 
  grid = GridContainer.new()
  grid.columns = 3 if editable else 1
@@ -287,9 +312,9 @@ func _cards(editable: bool) -> void:
    label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
    label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
    label.custom_minimum_size.y = 32
-   var action := _button(top, "Заказать" if available else "Нет металла",
+   var action := _button(top, "Выбрать место" if available else "Нет места / металла",
     _request_build.bind(id))
-   action.custom_minimum_size = Vector2(99, 32)
+   action.custom_minimum_size = Vector2(111, 32)
    action.add_theme_font_size_override("font_size", 12)
    action.disabled = not available
    var purpose: Label = _label(stack, _purpose(id), 12,
@@ -373,7 +398,7 @@ func refresh_build_availability() -> void:
   (controls["title"] as Label).add_theme_color_override("font_color",
    Color("#e7f0f4") if available else Color("#8da3b2"))
   var action: Button = controls["button"]
-  action.text = "Заказать" if available else "Нет ресурсов"
+  action.text = "Выбрать место" if available else "Нет места / металла"
   action.disabled = not available
   build_controls[id] = controls
 
@@ -419,6 +444,52 @@ func _number(value: float) -> String:
  if is_equal_approx(value, roundf(value)):
   return str(int(roundf(value)))
  return "%.2f" % value
+
+func start_placement(building_id: String, candidates: Array) -> void:
+ placement_building_id = building_id
+ placement_chosen_id = ""
+ placement_options = candidates.duplicate(true)
+ if placement_panel == null:
+  return
+ var item: Dictionary = Model.find_building(building_id)
+ placement_caption.text = "%s · свободно площадок: %d\n" % [
+  str(item.get("name", building_id)), candidates.size()] + (
+  "Кликните подсвеченную площадку на планете. Материалы пока не списаны.")
+ placement_confirm.disabled = true
+ placement_panel.show()
+ scroll.scroll_vertical = 0
+
+
+func select_placement(site_id: String) -> void:
+ if placement_panel == null or not placement_panel.visible:
+  return
+ for candidate in placement_options:
+  if str(candidate.get("id", "")) != site_id:
+   continue
+  placement_chosen_id = site_id
+  placement_caption.text = "%s · %s\n" % [
+   str(Model.find_building(placement_building_id).get(
+    "name", placement_building_id)),
+   str(candidate.get("label", site_id))] + (
+   "Подтвердите место для списания материалов и заказа строительства.")
+  placement_confirm.disabled = false
+  return
+
+
+func _confirm_placement() -> void:
+ if placement_building_id.is_empty() or placement_chosen_id.is_empty():
+  return
+ placement_confirmed.emit(body_id, placement_building_id,
+  placement_chosen_id)
+
+
+func clear_placement() -> void:
+ placement_building_id = ""
+ placement_chosen_id = ""
+ placement_options.clear()
+ if placement_panel != null:
+  placement_panel.hide()
+
 
 func _request_build(building_id: String) -> void:
  build_requested.emit(body_id, building_id)
