@@ -356,9 +356,18 @@ func order(body: String, building_id: String) -> Dictionary:
  }
  # Only the four defined Sol preview buildings own fixed slots.
  # Other catalog entries stay procedural and must not save an empty site.
- var fixed_site: Array = Model.surface_site(building_id)
- if fixed_site.size() == 2:
-  facility["surface_site"] = fixed_site
+ var instance: int = 0
+ for item in world.get("facilities", []):
+  if str(item.get("body", "")) != body:
+   continue
+  if str(item.get("type", "")) == building_id or (
+      str(item.get("type", "")) == "construction_site" and
+      str(item.get("construction_building_id", "")) == building_id):
+   instance += 1
+ var mapped_site: Array = Model.surface_site_instance(
+  building_id, instance)
+ if mapped_site.size() == 2:
+  facility["surface_site"] = mapped_site
  # Commit once, after every validation: stock and the unique site appear
  # together. There is no synthetic material refund or repeat debit.
  supply["metals"] = float(supply["metals"]) - cost
@@ -690,21 +699,27 @@ func _advance_production(completed: Array) -> void:
    var facility: Dictionary = entry.facility
    var due := float(facility.next_batch_native)
    if due <= deadline + EPSILON_NATIVE:
-    _run_batch(facility, entry.market.supply, entry.recipe)
+    _run_batch(facility, entry.market.supply, entry.recipe, due)
     due += interval
     facility.next_batch_native = due
    next_batch = minf(next_batch, due)
   batch_revision += 1
 
-func _run_batch(facility: Dictionary, supply: Dictionary, recipe: Dictionary) -> void:
+func _run_batch(facility: Dictionary, supply: Dictionary,
+        recipe: Dictionary, attempt_time: float = -1.0) -> void:
+ if attempt_time < 0.0:
+  attempt_time = now_native
+ facility["last_attempt_native"] = attempt_time
  if facility.body == "luna" and recipe.id == "mining_rig" and (
      not meal_cycles.get("luna", {}).get("facility", {}).get("fed", true)):
   facility.production_status = "Простой: поселенцам не хватает еды"
+  facility["last_idle_reason"] = facility.production_status
   return
  var row: Dictionary = settings.get(recipe.id, {})
  var output: float = Model.calculated(recipe, settings, planets, str(facility.body))
  if output <= 0:
   facility["production_status"] = "Простой: нулевая выработка"
+  facility["last_idle_reason"] = facility["production_status"]
   return
  # Check all ingredients before committing the complete batch.
  for key in recipe.inputs:
@@ -714,6 +729,7 @@ func _run_batch(facility: Dictionary, supply: Dictionary, recipe: Dictionary) ->
    facility["production_status"] = "Простой: не хватает %s (нужно %s, есть %s)" % [
     Model.batch_unit(key), Model.batch_amount(float(required)),
     Model.batch_amount(available)]
+   facility["last_idle_reason"] = facility["production_status"]
    return
  var changes := PackedStringArray()
  for key in recipe.inputs:
@@ -727,6 +743,45 @@ func _run_batch(facility: Dictionary, supply: Dictionary, recipe: Dictionary) ->
  changes.append("+%s %s" % [
   Model.batch_amount(output), Model.batch_unit(str(recipe.product))])
  facility["production_status"] = ", ".join(changes)
+ # Authoritative completed batch receipt, separate from future predictions.
+ facility["last_batch_native"] = attempt_time
+ facility["last_batch_amount"] = output
+ facility["last_batch_resource"] = str(recipe.product)
+ facility["last_batch_changes"] = facility["production_status"]
+ facility["last_idle_reason"] = ""
+
+## Read-only lookup by physical facility ID, never aggregated by recipe.
+## Legacy free-form status cannot be mistaken for a confirmed last batch.
+func production_details(facility_id: String) -> Dictionary:
+ for raw in world.get("facilities", []):
+  if str(raw.get("id", "")) != facility_id:
+   continue
+  var facility: Dictionary = raw
+  var kind: String = str(facility.get("type", ""))
+  var result: Dictionary = {"id": facility_id, "kind": kind,
+   "supported": kind in ["mining_rig", "farm", "refinery"]}
+  if not bool(result["supported"]):
+   return result
+  var recipe: Dictionary = Model.find_building(kind)
+  result["product"] = str(recipe.get("product", "none"))
+  result["forecast"] = Model.calculated(recipe, settings, planets,
+   str(facility.get("body", "")))
+  result["next_native"] = float(facility.get("next_batch_native", INF))
+  result["idle_reason"] = str(facility.get("last_idle_reason", ""))
+  if result["idle_reason"].is_empty() and str(facility.get(
+      "production_status", "")).begins_with("Простой:"):
+   result["idle_reason"] = str(facility["production_status"])
+  result["last_present"] = facility.has("last_batch_native") and (
+   facility.has("last_batch_amount")) and facility.has(
+   "last_batch_resource")
+  if bool(result["last_present"]):
+   result["last_native"] = float(facility["last_batch_native"])
+   result["last_amount"] = float(facility["last_batch_amount"])
+   result["last_resource"] = str(facility["last_batch_resource"])
+   result["last_changes"] = str(facility.get("last_batch_changes", ""))
+  return result
+ return {}
+
 
 ## Read-only snapshot from this planet's actual colony market. An
 ## uncolonized body has no stock panel, never an invented zero-warehouse.

@@ -28,6 +28,25 @@ const BATCH_UNITS: Dictionary = {
 static func surface_site(building_id: String) -> Array:
  return (SURFACE_SITES.get(building_id, []) as Array).duplicate()
 
+## Identical enterprise types are separate facility IDs and globe anchors.
+## The first preserves the established art location, subsequent sites use
+## deterministic inboard offsets saved on the real facility at order time.
+static func surface_site_instance(building_id: String, index: int) -> Array:
+ var base: Array = surface_site(building_id)
+ if base.size() != 2 or index <= 0:
+  return base
+ var origin := Vector2(float(base[0]), float(base[1]))
+ for attempt in range(1, 56):
+  var slot: int = index + attempt - 1
+  var angle: float = float(slot) * 2.399963229728653
+  var radius: float = 0.20 + 0.11 * float((slot / 7) % 3)
+  var candidate: Vector2 = origin + Vector2(
+   cos(angle), sin(angle)) * radius
+  if candidate.length() <= 0.85 and candidate.distance_to(origin) >= 0.14:
+   return [snappedf(candidate.x, 0.0001),
+    snappedf(candidate.y, 0.0001)]
+ return base
+
 static func batch_unit(resource: String) -> String:
  return str(BATCH_UNITS.get(resource, resource))
 
@@ -105,8 +124,15 @@ static func find_building(id: String) -> Dictionary:
    return item
  return {}
 
+## Infrastructure remains unique; enterprises can have multiple actual
+## instances with independent production clocks and physical selection IDs.
+const UNIQUE_BUILDINGS: Array[String] = [
+ "administrative_center", "spaceport", "orbital_platform", "shipyard"]
+
 static func built_or_pending(world: Dictionary,
         body: String, building_id: String) -> bool:
+ if building_id not in UNIQUE_BUILDINGS:
+  return false
  for facility in world.get("facilities", []):
   if not (facility is Dictionary):
    continue
