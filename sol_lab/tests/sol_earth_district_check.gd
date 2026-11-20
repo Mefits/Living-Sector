@@ -36,7 +36,9 @@ func run() -> void:
  var stock: Control = game.colony_stock_panel
  await capture(12)
  check(map.focus_body("earth"), "Earth exists on the ordinary globe")
- map._zoom = map._focus_zoom_target
+ await capture(22)
+ if map._focus_zoom_target > 0:
+  map._zoom = map._focus_zoom_target
  for step in range(6):
   if district.visible:
    break
@@ -216,12 +218,15 @@ func unload_in_district(game: Control) -> void:
  advance(game, eta - 0.01)
  var stock_before: float = sim.colony_inventory("earth").supply.get("ore", 0)
  await process_frame
+ await process_frame
  check(port._state.bays[0].order.get("amount") == 3, "Mounted port sees the inbound container")
  advance(game, eta)
+ await process_frame
  await process_frame
  check(sim.colony_inventory("earth").supply.get("ore", 0) == stock_before + 3,
   "Touchdown credits the real Earth warehouse once")
  advance(game, eta + port.SERVICE * 0.72)
+ await process_frame
  await process_frame
  check(port._state.bays[0].last_arrival.get("amount") == 3 and port._state.time > eta,
   "Mounted port has a live unload pose on its service road")
