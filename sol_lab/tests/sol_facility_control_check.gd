@@ -44,11 +44,12 @@ func build(body_id: String, kind: String) -> String:
  var before: int = game.construction.sites.size()
  b.pressed.emit()
  verify(game.browser.placement_panel.visible and
-  not game.native_view._placement_sites.is_empty(),
+  not game.browser.placement_options.is_empty(),
   "catalog enters placement instead of billing immediately")
- if not game.native_view._placement_sites.is_empty():
-  var site_id: String = str(game.native_view._placement_sites[0]["id"])
-  game.native_view.choose_placement(site_id)
+ if not game.browser.placement_options.is_empty():
+  var site_id: String = str(game.browser.placement_options[0]["id"])
+  if not game.district.visible:
+   game.native_view.choose_placement(site_id)
   game.browser.select_placement(site_id)
   game.browser.placement_confirm.pressed.emit()
  verify(game.construction.sites.size() == before + 1,
@@ -89,6 +90,8 @@ func choose_from_globe(id: String) -> void:
    "Globe click selected SAME ID "+id)
 
 func focus_and_settle(id: String) -> void:
+ if game.district.visible:
+  game._close_district()
  game.native_view.focus_body(id)
  for i in range(100):
   await process_frame

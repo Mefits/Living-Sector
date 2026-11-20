@@ -4,6 +4,7 @@ extends Control
 ## camera zoom. Native N14/N39 positions and orbital angles are untouched.
 ## Facility markers remain attached to real source body identities.
 
+signal earth_district_requested
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
 signal ship_selected(ship_id: String)
@@ -12,6 +13,7 @@ signal placement_site_selected(site_id: String)
 signal placement_cancel_requested
 
 const MIN_ZOOM: float = 0.45
+const DISTRICT_ENTRY_RADIUS: float = 220.0
 const MAX_ZOOM: float = 512.0
 const FOCUS_GLOBE_RADIUS: float = 165.0
 ## Sol Lab camera acquisition: begin following the zoomed planet at x3.1.
@@ -1389,6 +1391,15 @@ func _draw_system() -> void:
                 if detail_opacity > 0.001:
                     _draw_globe_detail(body, position, visual_radius,
                         detail_opacity)
+        if bid == "earth" and _body_ids_by_location.has("earth-colony"):
+            var settlement := position + Vector2(-0.17, -0.20) * sprite_extent
+            draw_circle(settlement, 5.0, Color("#1e3433"), true, -1.0, true)
+            draw_circle(settlement, 3.2, Color("#e9cf91"), true, -1.0, true)
+            if visual_radius >= 85.0:
+                var callout := settlement + Vector2(27, -26)
+                draw_line(settlement, callout, Color("#e9cf91"), 1.2, true)
+                draw_string(font, callout + Vector2(4, 0), "Поселение · приблизить",
+                    HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color("#f2e6c7"))
         if picked:
             draw_arc(position, visual_radius + 7.0, 0.0, TAU, 40,
                 Color(0.65, 0.92, 0.98, moon_fade), 1.8, true)
@@ -1980,6 +1991,13 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     var prior_target: float = _wheel_target_zoom if _wheel_target_zoom > 0.0 else _zoom
     _wheel_target_zoom = clampf(prior_target * multiplier, MIN_ZOOM, MAX_ZOOM)
     _wheel_anchor = pointer
+    if multiplier > 1.0 and _focused_body_id == "earth" and (
+            _body_ids_by_location.has("earth-colony") and
+            _body_size_at_zoom(_body_by_id("earth"), prior_target) >=
+            DISTRICT_ENTRY_RADIUS / _ui_viewport_scale):
+        _wheel_target_zoom = -1.0
+        earth_district_requested.emit()
+        return
     if multiplier > 1.0:
         # Identify by existing screen hit-test. Acquire focus at x3.1,
         # independent of globe surface detail and camera UI scale.

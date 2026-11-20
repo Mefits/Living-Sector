@@ -18,6 +18,8 @@ const Calendar = preload("res://scripts/sol_calendar.gd")
 const Economy = preload("res://scripts/sol_construction_runtime.gd")
 const Glyph = preload("res://scripts/view/colony_building_glyph.gd")
 const Icons = preload("res://scripts/view/sol_icon_atlas.gd")
+var dock_layout: VBoxContainer
+
 var world: Dictionary = {}
 var active_sites: Array = []
 var now_native: float = 0.0
@@ -60,6 +62,7 @@ func _ready() -> void:
  for key in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
   margins.add_theme_constant_override(key, 12)
  var layout := VBoxContainer.new()
+ dock_layout = layout
  layout.add_theme_constant_override("separation", 9)
  margins.add_child(layout)
 
@@ -192,6 +195,8 @@ func _clear(parent: Node) -> void:
   child.queue_free()
 
 func _navigate(target: String) -> void:
+ if not placement_building_id.is_empty():
+  placement_cancelled.emit()
  page = target
  _clear(tabs)
  _clear(cards_root)
@@ -445,7 +450,7 @@ func _number(value: float) -> String:
   return str(int(roundf(value)))
  return "%.2f" % value
 
-func start_placement(building_id: String, candidates: Array) -> void:
+func start_placement(building_id: String, candidates: Array, local := false) -> void:
  placement_building_id = building_id
  placement_chosen_id = ""
  placement_options = candidates.duplicate(true)
@@ -454,6 +459,7 @@ func start_placement(building_id: String, candidates: Array) -> void:
  var item: Dictionary = Model.find_building(building_id)
  placement_caption.text = "%s · свободно площадок: %d\n" % [
   str(item.get("name", building_id)), candidates.size()] + (
+  "Кликните участок в районе. Материалы пока не списаны." if local else
   "Кликните подсвеченную площадку на планете. Материалы пока не списаны.")
  placement_confirm.disabled = true
  placement_panel.show()
@@ -474,6 +480,13 @@ func select_placement(site_id: String) -> void:
    "Подтвердите место для списания материалов и заказа строительства.")
   placement_confirm.disabled = false
   return
+
+
+func reject_placement(reason: String) -> void:
+ placement_chosen_id = ""
+ if placement_panel != null and placement_panel.visible:
+  placement_caption.text = reason
+  placement_confirm.disabled = true
 
 
 func _confirm_placement() -> void:

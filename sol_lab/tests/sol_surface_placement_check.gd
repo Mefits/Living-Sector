@@ -78,8 +78,9 @@ func start_build(body: String, kind: String) -> void:
   return
  button.pressed.emit()
  check(game.browser.placement_panel.visible and
-  game.native_view._placement_body_id == body and
-  game.native_view._placement_building_id == kind,
+  (game.district.is_placing() if game.district.visible else
+   game.native_view._placement_body_id == body and
+   game.native_view._placement_building_id == kind),
   "Catalog starts placement without ordering "+kind)
 
 func choose_and_confirm(site_id: String) -> String:
@@ -87,7 +88,8 @@ func choose_and_confirm(site_id: String) -> String:
  check(not slot.is_empty(), "Valid target slot "+site_id)
  if slot.is_empty():
   return ""
- game.native_view.choose_placement(site_id)
+ if not game.district.visible:
+  game.native_view.choose_placement(site_id)
  game.browser.select_placement(site_id)
  check(not game.browser.placement_confirm.disabled,
   "Explicit site confirmation enabled")
@@ -165,24 +167,23 @@ func _run() -> void:
   game.construction.sites.is_empty(),
   "Selecting a building does not debit inventory")
  await settle("earth")
- check(game.native_view._placement_pins.size() >= 3,
-  "Display several free mine plots on the globe")
- var first_marker: Dictionary = game.native_view._placement_pins[0]
- var target_site: String = str(first_marker["id"])
- # Exercise real Godot mouse click, not just a synthetic direct order.
+ check(game.browser.placement_options.size() >= 3,
+  "Display several free mine plots in the district")
+ var target_site: String = str(game.browser.placement_options[0]["id"])
+ var plot: Rect2 = game.district.PLOTS[target_site]
  var pointer := InputEventMouseButton.new()
  pointer.button_index = MOUSE_BUTTON_LEFT
- pointer.position = first_marker["position"]
+ pointer.position = game.district._origin + plot.get_center() * game.district._scale
  pointer.pressed = true
- game.native_view._gui_input(pointer)
+ game.district._gui_input(pointer)
  check(game.browser.placement_chosen_id == target_site and
   not game.browser.placement_confirm.disabled,
-  "Actual globe click selects the named construction plot")
+  "Actual district click selects the named construction plot")
  await capture("earth-choose")
  game.browser.placement_cancelled.emit()
  check(inventory("earth") == first_stock and
   game.construction.sites.is_empty() and
-  game.native_view._placement_body_id.is_empty(),
+  not game.district.is_placing(),
   "Exiting placement is free and leaves no site reserved")
  start_build("earth", "mining_rig")
  var first_mine: String = choose_and_confirm(target_site)
@@ -212,7 +213,7 @@ func _run() -> void:
   find_facility(first_complete).get("surface_site_id") == target_site,
   "Finished building keeps the same reserved plot")
  start_build("earth","mining_rig")
- var second_slot: String = str(game.native_view._placement_sites[0]["id"])
+ var second_slot: String = str(game.browser.placement_options[0]["id"])
  check(second_slot != target_site,"Already built plot never reappears")
  var next_mine: String = choose_and_confirm(second_slot)
  check(first_complete != next_mine, "Second mine is distinct")

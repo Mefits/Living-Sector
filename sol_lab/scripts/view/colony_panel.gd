@@ -10,6 +10,8 @@ const Glyph = preload("res://scripts/view/colony_building_glyph.gd")
 const Stock = preload("res://scripts/view/colony_stock_panel.gd")
 const Icons = preload("res://scripts/view/sol_icon_atlas.gd")
 
+var dock_layout: VBoxContainer
+
 var heading: Label
 var population: Label
 var summary: Label
@@ -45,6 +47,7 @@ func _ready() -> void:
  style.set_content_margin_all(12)
  add_theme_stylebox_override("panel", style)
  var layout := VBoxContainer.new()
+ dock_layout = layout
  layout.add_theme_constant_override("separation", 7)
  add_child(layout)
  var header := HBoxContainer.new()
@@ -72,7 +75,7 @@ func _ready() -> void:
  navigation.add_theme_constant_override("separation", 5)
  layout.add_child(navigation)
  _button(navigation, "Строить", func(): build_requested.emit())
- _button(navigation, "Склад", func(): _switch_page("stock"))
+ _button(navigation, "Склад", open_stock)
  _button(navigation, "Построено", func(): _switch_page("overview"))
  _button(navigation, "Линия", func(): line_requested.emit())
 
@@ -161,8 +164,12 @@ func clear_facility_selection() -> void:
  _switch_page("overview")
  _show_selected_detail()
 
+func select_overview() -> void:
+ _switch_page("overview")
+
 func open_stock() -> void:
- _switch_page("stock")
+ if stock_panel.get_parent() == stock_view:
+  _switch_page("stock")
 
 func open_logistics() -> void:
  _switch_page("logistics")

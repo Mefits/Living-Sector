@@ -44,11 +44,12 @@ func click_build(id: String) -> String:
   return ""
  button.pressed.emit()
  check(game.browser.placement_panel.visible and
-  not game.native_view._placement_sites.is_empty(),
+  not game.browser.placement_options.is_empty(),
   "order row enters placement first")
- if not game.native_view._placement_sites.is_empty():
-  var site_id: String = str(game.native_view._placement_sites[0]["id"])
-  game.native_view.choose_placement(site_id)
+ if not game.browser.placement_options.is_empty():
+  var site_id: String = str(game.browser.placement_options[0]["id"])
+  if not game.district.visible:
+   game.native_view.choose_placement(site_id)
   game.browser.select_placement(site_id)
   game.browser.placement_confirm.pressed.emit()
  check(not game.construction.sites.is_empty(), "UI created actual site")
@@ -172,6 +173,8 @@ func _run() -> void:
  check(has_facility(platform_id, "orbital_platform") and
   has_facility(yard_id, "shipyard"),
   "platform and shipyard retain separate saved simulation identities")
+ if game.district.visible:
+  game._close_district()
  game.native_view.focus_body("earth")
  for i in range(55):
   await process_frame

@@ -3,6 +3,9 @@ extends Control
 const SolProfile = preload("res://scripts/sol_profile.gd")
 const SolStarter = preload("res://scripts/sol_start_scenario.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
+const EarthDistrict = preload("res://scripts/view/sol_earth_district.gd")
+var district: Control
+
 const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 const NativeStarSystemView = preload("res://scripts/star_system_view.gd")
 const BuildingBrowser = preload("res://scripts/building_browser.gd")
@@ -281,6 +284,9 @@ func _step() -> void:
     _refresh_construction_ui()
 
 func _reset_camera() -> void:
+    if district != null and district.visible:
+        _close_district()
+        return
     if native_view != null:
         native_view.reset_view()
 
@@ -636,8 +642,12 @@ func _input(event: InputEvent) -> void:
             _toggle_admin()
             get_viewport().set_input_as_handled()
         elif event.keycode == KEY_ESCAPE and native_view != null and (
-                not native_view._placement_body_id.is_empty()):
+                not native_view._placement_body_id.is_empty() or
+                (district != null and district.visible and district.is_placing())):
             _cancel_placement()
+            get_viewport().set_input_as_handled()
+        elif event.keycode == KEY_ESCAPE and district != null and district.visible:
+            _close_district()
             get_viewport().set_input_as_handled()
         elif event.keycode == KEY_SPACE:
             # Handle BEFORE focused Buttons can reinterpret Space as
@@ -707,12 +717,14 @@ func _open_browser(admin: bool) -> void:
     browser.configure(world, config, selected, admin)
     browser.set_construction_state(world, construction.sites, native_time)
     sidebar.hide()
+    _dock_district_stock()
     _layout_right_side()
 
 func _close_browser() -> void:
     _cancel_placement()
     browser.hide()
     sidebar.show()
+    _dock_district_stock()
     _layout_right_side()
 
 func _layout_right_side() -> void:
@@ -729,6 +741,8 @@ func _layout_right_side() -> void:
     sidebar.offset_top = 46.0
     native_view.offset_right = -active_width
     native_view.offset_top = 78.0 if diagnostics_visible else 46.0
+    district.offset_right = native_view.offset_right
+    district.offset_top = native_view.offset_top
     browser.anchor_left = 1.0
     browser.anchor_right = 1.0
     browser.anchor_bottom = 1.0
@@ -793,6 +807,58 @@ func _make_native_map() -> void:
     native_view.set_colonizer(construction.expedition.ship, true)
     native_view.set_freight(construction.freight_status(), true)
     native_view.set_second_freight(construction.freight_status(2), true)
+    district = EarthDistrict.new()
+    add_child(district)
+    district.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    move_child(district, 1)
+    district.hide()
+    district.bind_runtime(construction)
+    district.return_requested.connect(_close_district)
+    district.facility_selected.connect(_native_facility_selected)
+    district.site_selected.connect(_placement_chosen)
+    district.selection_invalid.connect(func(reason: String):
+        browser.reject_placement(reason))
+    district.placement_cancelled.connect(_cancel_placement)
+    native_view.earth_district_requested.connect(_open_district)
+
+
+func _open_district() -> void:
+    if district.visible or not Model.colony(world, "earth"):
+        return
+    if selected != "earth":
+        _native_body_selected({"id": "earth"})
+    native_view.hide()
+    district.show_district()
+    _dock_district_stock()
+    _refresh_district()
+
+
+func _close_district() -> void:
+    _cancel_placement()
+    district.hide()
+    _dock_district_stock()
+    native_view.show()
+    native_view.focus_body("earth")
+
+
+func _refresh_district() -> void:
+    if district.visible:
+        district.update_colony(world.get("facilities", []))
+
+
+func _dock_district_stock() -> void:
+    if district == null or browser == null:
+        return
+    var parent: Control = colony_panel.stock_view
+    if district.visible:
+        parent = browser.dock_layout if browser.visible else colony_panel.dock_layout
+    if colony_stock_panel.get_parent() == parent:
+        return
+    colony_stock_panel.reparent(parent, false)
+    parent.move_child(colony_stock_panel, 1 if district.visible else 0)
+    if district.visible and not browser.visible:
+        colony_panel.select_overview()
+
 
 func _update_native_map(snap_freight: bool = false) -> void:
     if native_view == null:
@@ -803,6 +869,7 @@ func _update_native_map(snap_freight: bool = false) -> void:
     native_view.set_colonizer(construction.expedition.ship, snap_freight)
     native_view.set_freight(construction.freight_status(), snap_freight)
     native_view.set_second_freight(construction.freight_status(2), snap_freight)
+    _refresh_district()
     _map_view_last_usec = maxi(0, Time.get_ticks_usec() - begun)
     _map_view_peak_usec = maxi(_map_view_peak_usec, _map_view_last_usec)
 
@@ -812,12 +879,15 @@ func _native_body_selected(body: Dictionary) -> void:
         return
     if id != selected:
         _cancel_placement()
+        if district.visible:
+            _close_district()
     selected = id
     native_view.select_body(id)
     if browser.visible:
         browser.select_planet(id)
     _show_selected()
     colony_panel.clear_facility_selection()
+    district.select_facility("")
 
 func _native_facility_selected(facility_id: String) -> void:
     _activate_facility(facility_id)
@@ -843,6 +913,7 @@ func _activate_facility(facility_id: String) -> void:
         colony_panel.select_facility(facility_id)
         _refresh_yard()
         native_view.select_facility(facility_id)
+        district.select_facility(facility_id)
         var kind: String = str(item.get("type", ""))
         if kind == "station" and str(item.get(
                 "location", "")) == body + "-colony":
@@ -1021,8 +1092,19 @@ func _begin_placement(body: String, building_id: String) -> void:
     if candidates.is_empty():
         _notice("Для здания нет свободных подходящих площадок")
         return
-    native_view.start_placement(body, building_id, candidates)
-    browser.start_placement(building_id, candidates)
+    var local: bool = body == "earth" and building_id in EarthDistrict.Art.GROUND
+    if local:
+        native_view.stop_placement()
+        _open_district()
+        district.start_placement(building_id)
+        candidates = candidates.duplicate(true)
+        for candidate in candidates:
+            candidate["label"] = district.plot_name(str(candidate["id"]))
+    else:
+        if district.visible:
+            _close_district()
+        native_view.start_placement(body, building_id, candidates)
+    browser.start_placement(building_id, candidates, local)
 
 
 func _placement_chosen(site_id: String) -> void:
@@ -1031,6 +1113,8 @@ func _placement_chosen(site_id: String) -> void:
 
 
 func _cancel_placement() -> void:
+    if district != null:
+        district.stop_placement()
     if native_view != null:
         native_view.stop_placement()
     if browser != null:
