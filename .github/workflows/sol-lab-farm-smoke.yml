@@ -213,6 +213,47 @@ jobs:
           cat "$RUNNER_TEMP/sol-lab-logs/icon-atlas.log"
           grep -qF SOL_ICON_ATLAS_PASS "$RUNNER_TEMP/sol-lab-logs/icon-atlas.log"
 
+      - name: Verify individual building controls and real Earth Moon receipts
+        shell: bash
+        run: |
+          set -euo pipefail
+          export XDG_DATA_HOME="$(mktemp -d)"
+          if ! timeout --signal=TERM --kill-after=5s 55s \
+            godot --headless --path sol_lab --script res://tests/sol_facility_control_check.gd \
+            > "$RUNNER_TEMP/sol-lab-logs/facility-control.log" 2>&1; then
+            cat "$RUNNER_TEMP/sol-lab-logs/facility-control.log"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/sol-lab-logs/facility-control.log"
+          grep -qF SOL_FACILITY_CONTROL_PASS "$RUNNER_TEMP/sol-lab-logs/facility-control.log"
+
+      - name: Capture selected mine and active freight spaceport at 1366x768
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v xvfb-run >/dev/null 2>&1; then
+            export XDG_DATA_HOME="$(mktemp -d)"
+            if ! timeout --signal=TERM --kill-after=5s 60s \
+              xvfb-run -a -s "-screen 0 2560x1440x24" \
+              env LIBGL_ALWAYS_SOFTWARE=1 SOL_CAPTURE_FACILITIES=1 \
+              godot --path sol_lab --script res://tests/sol_facility_control_check.gd \
+              > "$RUNNER_TEMP/sol-lab-logs/facility-screenshots.log" 2>&1; then
+              cat "$RUNNER_TEMP/sol-lab-logs/facility-screenshots.log"
+              exit 1
+            fi
+            cat "$RUNNER_TEMP/sol-lab-logs/facility-screenshots.log"
+            grep -qF SOL_FACILITY_SCREENSHOT "$RUNNER_TEMP/sol-lab-logs/facility-screenshots.log"
+          fi
+
+      - name: Upload colony facility acceptance screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sol-lab-facility-screenshots
+          path: sol_lab/sol-facility-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Compare real frame spikes across speed and pause (diagnostic)
         shell: bash
         run: |
