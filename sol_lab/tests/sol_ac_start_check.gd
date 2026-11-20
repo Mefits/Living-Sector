@@ -4,6 +4,7 @@ extends SceneTree
 const Start = preload("res://scripts/sol_start_scenario.gd")
 const Assets = preload("res://scripts/view/physical_assets_projection.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
+const Sites = preload("res://scripts/view/sol_surface_sites.gd")
 
 func _initialize() -> void:
     var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(
@@ -25,7 +26,8 @@ func _initialize() -> void:
     var ground: Array = projected.get("surface", [])
     var orbitals: Array = projected.get("orbital", [])
     okay = okay and ground.size() == 2 and orbitals.is_empty()
-    var expected: Array = Model.surface_site("administrative_center")
+    var expected: Array = Sites.get_site(
+        "earth", "earth-ac-01")["at"]
     okay = okay and ground.any(func(asset): return (asset.render_type == "administrative_center"
         and asset.site == Vector2(float(expected[0]), float(expected[1]))))
     okay = okay and Model.stock(start, "earth") == Start.EARTH_STOCK.metals

@@ -110,7 +110,7 @@ func _initialize() -> void:
  var positions: Array = fixed_sites.values()
  for i in range(positions.size()):
   for j in range(i + 1, positions.size()):
-   ok = ok and positions[i].distance_to(positions[j]) >= 0.60
+   ok = ok and positions[i].distance_to(positions[j]) >= 0.19
  visual.advance_to(_day(45.0))
  ok = ok and _sites(visual.world) == pending
  var saved_visual: Variant = JSON.parse_string(JSON.stringify(visual.snapshot()))

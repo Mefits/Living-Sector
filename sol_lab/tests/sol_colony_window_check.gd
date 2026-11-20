@@ -55,6 +55,15 @@ func _build(id: String) -> void:
   "Catalog cannot build " + id)
  if not button.disabled and button.is_visible_in_tree():
   button.pressed.emit()
+  _check(game.browser.placement_panel.visible,
+   "build row enters free placement mode")
+  _check(game.native_view._placement_sites.size() > 0,
+   "compatible sites displayed")
+  if not game.native_view._placement_sites.is_empty():
+   var site_id: String = str(game.native_view._placement_sites[0]["id"])
+   game.native_view.choose_placement(site_id)
+   game.browser.select_placement(site_id)
+   game.browser.placement_confirm.pressed.emit()
 
 func _stock(body: String, kind: String) -> float:
  return float(game.construction.colony_inventory(body).get(

@@ -43,6 +43,14 @@ func build(body_id: String, kind: String) -> String:
   return ""
  var before: int = game.construction.sites.size()
  b.pressed.emit()
+ verify(game.browser.placement_panel.visible and
+  not game.native_view._placement_sites.is_empty(),
+  "catalog enters placement instead of billing immediately")
+ if not game.native_view._placement_sites.is_empty():
+  var site_id: String = str(game.native_view._placement_sites[0]["id"])
+  game.native_view.choose_placement(site_id)
+  game.browser.select_placement(site_id)
+  game.browser.placement_confirm.pressed.emit()
  verify(game.construction.sites.size() == before + 1,
   "Order creates distinct facility: "+kind)
  var id: String = str(game.construction.sites.back().get("id", ""))

@@ -43,6 +43,14 @@ func click_build(id: String) -> String:
  if button.disabled:
   return ""
  button.pressed.emit()
+ check(game.browser.placement_panel.visible and
+  not game.native_view._placement_sites.is_empty(),
+  "order row enters placement first")
+ if not game.native_view._placement_sites.is_empty():
+  var site_id: String = str(game.native_view._placement_sites[0]["id"])
+  game.native_view.choose_placement(site_id)
+  game.browser.select_placement(site_id)
+  game.browser.placement_confirm.pressed.emit()
  check(not game.construction.sites.is_empty(), "UI created actual site")
  return str(game.construction.sites.back().get("id", ""))
 
