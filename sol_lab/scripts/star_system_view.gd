@@ -8,6 +8,8 @@ signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
 signal ship_selected(ship_id: String)
 signal facility_selected(facility_id: String)
+signal placement_site_selected(site_id: String)
+signal placement_cancel_requested
 
 const MIN_ZOOM: float = 0.45
 const MAX_ZOOM: float = 512.0
@@ -56,6 +58,7 @@ const FacilityLabels = preload("res://scripts/view/facility_labels_ru.gd")
 const ColonyRoads = preload("res://scripts/view/colony_roads_projection.gd")
 const SurfaceBuildingLOD = preload("res://scripts/view/surface_building_lod.gd")
 const BuildingGlyph = preload("res://scripts/view/colony_building_glyph.gd")
+const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 const N43 = preload("res://scripts/sim/ships/native_location_resolver.gd")
 const SolOrbits = preload("res://scripts/sim/orbits/native_satellite_orbit_profiles.gd")
 ## A visual-only relationship for two real, unambiguous astronomical moons.
@@ -110,6 +113,13 @@ var _colony_anim_time: float = 0.0
 var _colony_anim_accum: float = 0.0
 var _colony_has_activity: bool = false
 var _facility_pins: Array = []
+## Pure visual placement state; only Runtime.order() commits resources.
+var _placement_body_id: String = ""
+var _placement_building_id: String = ""
+var _placement_sites: Array = []
+var _placement_pins: Array = []
+var _placement_hover_id: String = ""
+var _placement_chosen_id: String = ""
 ## Bounded screen records of real Sol stations. Never N39 objects or nodes.
 var _station_draw_records: Array = []
 ## At most one ephemeral UI interpolation per actual arrival receipt.
@@ -535,6 +545,83 @@ func select_facility(facility_id: String) -> void:
     _selected_ship_id = ""
     _selected_body_id = ""
     queue_redraw()
+
+
+func start_placement(body_id: String, building_id: String,
+        candidates: Array) -> void:
+ _placement_body_id = body_id
+ _placement_building_id = building_id
+ _placement_sites = candidates.duplicate(true)
+ _placement_chosen_id = ""
+ _placement_hover_id = ""
+ focus_body(body_id)
+ queue_redraw()
+
+
+func stop_placement() -> void:
+ _placement_body_id = ""
+ _placement_building_id = ""
+ _placement_sites.clear()
+ _placement_pins.clear()
+ _placement_hover_id = ""
+ _placement_chosen_id = ""
+ queue_redraw()
+
+
+func choose_placement(site_id: String) -> void:
+ _placement_chosen_id = site_id
+ queue_redraw()
+
+
+func _pick_placement(pointer: Vector2) -> void:
+ var chosen: String = ""
+ var closest: float = INF
+ for pin in _placement_pins:
+  var distance: float = pointer.distance_to(pin["position"])
+  if distance <= float(pin["hit_radius"]) and distance < closest:
+   closest = distance
+   chosen = str(pin["id"])
+ if not chosen.is_empty():
+  choose_placement(chosen)
+  placement_site_selected.emit(chosen)
+
+
+func _draw_placement(scale: float) -> void:
+ _placement_pins.clear()
+ if _placement_body_id.is_empty():
+  return
+ var body: Dictionary = _body_by_id(_placement_body_id)
+ if body.is_empty():
+  return
+ var center: Vector2 = _body_position(body, scale)
+ var radius: float = _body_size(body)
+ var font: Font = get_theme_default_font()
+ for site in _placement_sites:
+  var position: Vector2 = center + SurfaceSites.site_position(site) * radius
+  var id: String = str(site.get("id", ""))
+  var active: bool = id == _placement_chosen_id
+  var hovered: bool = id == _placement_hover_id
+  var color: Color = Color("#f3d89e") if active else (
+   Color("#a5e6dd") if hovered else Color("#75d1a5"))
+  var outline: float = maxf(7.0, radius * 0.055)
+  draw_circle(position, outline * 0.80,
+   Color(color.r, color.g, color.b, 0.13))
+  draw_arc(position, outline, 0.0, TAU, 24, color, 2.0, true)
+  _placement_pins.append({"id": id, "position": position,
+   "hit_radius": maxf(13.0, outline * 1.5)})
+  if active or hovered:
+   BuildingGlyph.paint(self, _placement_building_id,
+    position, maxf(5.5, radius * 0.075), color)
+   draw_string(font, position + Vector2(13, -14),
+    str(site.get("label", id)),
+    HORIZONTAL_ALIGNMENT_LEFT, -1, 12, color)
+  else:
+   draw_circle(position, 2.5, color)
+ draw_string(font, Vector2(14, 52),
+  "РАЗМЕЩЕНИЕ · %s · площадок %d · кликните маркер" % [
+   str(Model.find_building(_placement_building_id).get(
+    "name", _placement_building_id)), _placement_sites.size()],
+  HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#e7d0a5"))
 
 
 ## One native scalar from the real N158 calendar, not another simulation.
@@ -1338,6 +1425,7 @@ func _draw_system() -> void:
     # Real source-backed stations and surface enterprises are drawn
     # independently. No extra N39/N9 objects are generated in the UI.
     _draw_physical_assets(scale)
+    _draw_placement(scale)
     # Draw ONLY ships with a real committed N14 transit.position. The
     # radial display is compressed by the same source orbit transform as
     # the planets; there is no fabricated travel or per-frame motion.
@@ -1547,6 +1635,29 @@ func _draw_physical_assets(scale: float) -> void:
             symbol_kind = kind
         BuildingGlyph.paint(self, symbol_kind, pos,
             maxf(3.0, icon_size), tone)
+        # Reserved free apron: two stable map-local coordinates for future
+        # touchdown and cargo handling. Decorative only; no ship movement.
+        if kind == "spaceport":
+            var pads: Dictionary = facility.get("port_pads", {})
+            for target_kind in ["landing", "loading"]:
+                var pad: Dictionary = pads.get(target_kind, {})
+                if pad.is_empty():
+                    continue
+                var pad_pos: Vector2 = body_pos + (
+                    SurfaceSites.site_position(pad)) * body_radius
+                var pad_color: Color = (
+                    Color("#92d5d9", alpha) if target_kind == "landing"
+                    else Color("#dfca8f", alpha))
+                draw_line(pos, pad_pos, Color(
+                    pad_color.r, pad_color.g, pad_color.b, 0.38), 1.0)
+                draw_rect(Rect2(pad_pos - Vector2(6, 4),
+                    Vector2(12, 8)), Color(
+                    pad_color.r, pad_color.g, pad_color.b, alpha * 0.16), true)
+                draw_rect(Rect2(pad_pos - Vector2(6, 4),
+                    Vector2(12, 8)), pad_color, false, 1.25)
+                draw_string(font, pad_pos + Vector2(-3, 3),
+                    "П" if target_kind == "landing" else "Г",
+                    HORIZONTAL_ALIGNMENT_LEFT, -1, 10, pad_color)
         if kind == "construction_site":
             # Existing unique site progress, backed by calendar timestamps.
             var begin: float = float(facility.get("construction_start_native", 0.0))
@@ -1916,6 +2027,9 @@ func _pick_sol_flight(pointer: Vector2) -> bool:
 
 
 func _pick(pointer: Vector2, open_body: bool = false) -> void:
+    if not _placement_body_id.is_empty():
+        _pick_placement(pointer)
+        return
     if _pick_sol_flight(pointer):
         return
     if _pick_ship(pointer):
@@ -1966,6 +2080,28 @@ func _nearest_pin(pointer: Vector2) -> Dictionary:
 
 
 func _gui_input(event: InputEvent) -> void:
+    if event is InputEventMouseMotion and (
+            not _placement_body_id.is_empty()):
+        var newest: String = ""
+        var nearest: float = INF
+        for marker in _placement_pins:
+            var gap: float = event.position.distance_to(
+                marker["position"])
+            if gap <= float(marker["hit_radius"]) and gap < nearest:
+                newest = str(marker["id"])
+                nearest = gap
+        if newest != _placement_hover_id:
+            _placement_hover_id = newest
+            queue_redraw()
+        return
+    if event is InputEventMouseButton and (
+            not _placement_body_id.is_empty()):
+        if event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+            placement_cancel_requested.emit()
+        elif event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+            _pick_placement(event.position)
+        accept_event()
+        return
     if event is InputEventMouseButton:
         if event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
             _zoom_at(event.position, WHEEL_ZOOM)
