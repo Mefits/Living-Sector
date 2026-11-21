@@ -139,6 +139,7 @@ func _build_ui() -> void:
     bar.add_child(game_menu)
     var popup: PopupMenu = game_menu.get_popup()
     popup.add_item("Новая игра", 1)
+    popup.add_item("Сектор", 6)
     popup.add_item("Сохранить", 2)
     popup.add_item("Загрузить", 3)
     popup.add_separator()
@@ -209,8 +210,21 @@ func _build_ui() -> void:
     _build_freight_line_controls(colony_panel.line_holder)
 
 
+var sector_view: Control
+
+func _open_sector() -> void:
+    if sector_view == null:
+        sector_view = preload("res://scripts/sector_view.gd").new()
+        var layer := CanvasLayer.new()
+        layer.layer = 20
+        add_child(layer)
+        layer.add_child(sector_view)
+        sector_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    sector_view.show()
+
 func _on_game_menu(id: int) -> void:
     match id:
+        6: _open_sector()
         1: _new_game()
         2: _save_game()
         3: _load_game()
