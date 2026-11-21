@@ -51,7 +51,6 @@ func build(body_id: String, kind: String) -> String:
   if not game.district.visible:
    game.native_view.choose_placement(site_id)
   game.browser.select_placement(site_id)
-  game.browser.placement_confirm.pressed.emit()
  verify(game.construction.sites.size() == before + 1,
   "Order creates distinct facility: "+kind)
  var id: String = str(game.construction.sites.back().get("id", ""))
@@ -174,10 +173,18 @@ func _run() -> void:
   game.colony_panel.detail_description.text != first_text,
   "Selection switches instance-specific production dates")
  await focus_and_settle("earth")
- choose_from_globe(earth_1)
+ verify(not game.native_view._facility_pins.any(func(pin): return pin.id == earth_1),
+  "Earth has no duplicate facility pin on the globe")
+ game._open_district()
+ var district = game.district
+ for site in district._facilities:
+  if district._facilities[site].id == earth_1:
+   var plot: Rect2 = district._plots[site]
+   district._click_at(district._origin + plot.get_center() * district._scale)
+   break
  verify(game.colony_panel.page == "overview" and
   game.colony_panel.detail_description.text.contains(
-  "Фактическая последняя партия"), "Globe opens production panel")
+  "Фактическая последняя партия"), "Earth district opens production panel")
  await capture("mine")
 
  # A source-backed idle reason does not erase the last successful receipt.

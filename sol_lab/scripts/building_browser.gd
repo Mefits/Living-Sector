@@ -48,7 +48,6 @@ var colony_line: Label
 var build_detail: Label
 var placement_panel: VBoxContainer
 var placement_caption: Label
-var placement_confirm: Button
 var placement_building_id: String = ""
 var placement_chosen_id: String = ""
 var placement_options: Array = []
@@ -213,7 +212,6 @@ func _navigate(target: String) -> void:
  grid = null
  placement_panel = null
  placement_caption = null
- placement_confirm = null
  placement_building_id = ""
  placement_chosen_id = ""
  placement_options.clear()
@@ -255,8 +253,6 @@ func _cards(editable: bool) -> void:
   placement_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
   var actions := HBoxContainer.new()
   placement_panel.add_child(actions)
-  placement_confirm = _button(actions, "Подтвердить место", _confirm_placement)
-  placement_confirm.disabled = true
   _button(actions, "Отмена · бесплатно", func(): placement_cancelled.emit())
   placement_panel.hide()
 
@@ -457,9 +453,8 @@ func start_placement(building_id: String, candidates: Array, local := false) -> 
  if placement_panel == null:
   return
  placement_caption.text = _placement_summary() + "\nСвободно: %d\n" % candidates.size() + (
-  "Кликните участок в районе. Материалы пока не списаны." if local else
-  "Кликните подсвеченную площадку на планете. Материалы пока не списаны.")
- placement_confirm.disabled = true
+  "Клик по участку начинает стройку." if local else
+  "Клик по подсвеченной площадке начинает стройку.")
  placement_panel.show()
  scroll.scroll_vertical = 0
 
@@ -471,8 +466,7 @@ func select_placement(site_id: String) -> void:
   if str(candidate.get("id", "")) != site_id:
    continue
   placement_chosen_id = site_id
-  placement_caption.text = _placement_summary() + "\n" + str(candidate.get("label", site_id))
-  placement_confirm.disabled = false
+  placement_confirmed.emit(body_id, placement_building_id, site_id)
   return
 
 
@@ -488,14 +482,6 @@ func reject_placement(reason: String) -> void:
  placement_chosen_id = ""
  if placement_panel != null and placement_panel.visible:
   placement_caption.text = _placement_summary() + "\n" + reason
-  placement_confirm.disabled = true
-
-
-func _confirm_placement() -> void:
- if placement_building_id.is_empty() or placement_chosen_id.is_empty():
-  return
- placement_confirmed.emit(body_id, placement_building_id,
-  placement_chosen_id)
 
 
 func clear_placement() -> void:

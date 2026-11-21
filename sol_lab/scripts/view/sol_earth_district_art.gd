@@ -29,12 +29,39 @@ static func terrain(c: CanvasItem, area: Vector2) -> void:
    var radius := rng.randf_range(2, 8)
    c.draw_circle(p + Vector2(3, 3), radius, Color("#434c36"))
    c.draw_circle(p, radius, Color("#536041").lerp(Color("#768157"), rng.randf()))
- for street in Roads.streets(area):
-  c.draw_line(street[0], street[1], Color("#8a8975"), 22)
- for street in Roads.streets(area):
-  road(c, street[0], street[1])
- c.draw_line(Vector2(Roads.CONNECTOR, Roads.PORT_LANE),
-  Vector2(Roads.PORT.position.x, Roads.PORT_LANE), Color("#444c48"), 9)
+static func lunar_terrain(c: CanvasItem, area: Vector2) -> void:
+ c.draw_rect(Rect2(Vector2.ZERO, area), Color("#858086"))
+ var rng := RandomNumberGenerator.new()
+ rng.seed = 8307
+ for i in range(900):
+  var point := Vector2(rng.randf_range(0, area.x), rng.randf_range(0, area.y))
+  c.draw_circle(point, rng.randf_range(1, 5), Color(0.27, 0.25, 0.28, 0.18))
+ for crater in [Vector3(378, 101, 34), Vector3(1055, 725, 62), Vector3(326, 793, 32)]:
+  var point := Vector2(crater.x, crater.y)
+  c.draw_circle(point, crater.z, Color("#979098"))
+  c.draw_circle(point + Vector2(4, 3), crater.z - 4, Color("#746f77"))
+  c.draw_arc(point, crater.z - 5, 0.0, PI, 24, Color("#a09aa0"), 2.0, true)
+
+static func lunar_building(c: CanvasItem, plot: Rect2, kind: String) -> void:
+ if kind == "administrative_center":
+  var center := plot.get_center()
+  var spine := Rect2(center - Vector2(32, 11), Vector2(64, 22))
+  c.draw_rect(Rect2(spine.position + Vector2(4, 4), spine.size), Color("#514d56"))
+  c.draw_rect(spine, Color("#cecdcc"))
+  for offset in [-18.0, 18.0]:
+   var pod := center + Vector2(offset, 0)
+   c.draw_circle(pod + Vector2(4, 4), 19.0, Color("#514d56"))
+   c.draw_circle(pod, 17.0, Color("#e0ded8"))
+   c.draw_circle(pod, 7.0, Color("#798d98"))
+ elif kind == "farm":
+  var module := plot.grow(-7)
+  c.draw_rect(module, Color("#a9b3bc"))
+  c.draw_rect(module.grow(-4), Color("#435b64"))
+  for offset in [0.25, 0.50, 0.75]:
+   var x: float = module.position.x + module.size.x * offset
+   c.draw_line(Vector2(x, module.position.y), Vector2(x, module.end.y), Color("#c4ccd2"), 3.0)
+ else:
+  building(c, plot, kind, null)
 
 static func road(c: CanvasItem, a: Vector2, b: Vector2) -> void:
  c.draw_line(a, b, Color("#444c48"), 16)

@@ -51,7 +51,6 @@ func click_build(id: String) -> String:
   if not game.district.visible:
    game.native_view.choose_placement(site_id)
   game.browser.select_placement(site_id)
-  game.browser.placement_confirm.pressed.emit()
  check(not game.construction.sites.is_empty(), "UI created actual site")
  return str(game.construction.sites.back().get("id", ""))
 

@@ -64,7 +64,6 @@ func play(target: String) -> Dictionary:
   assert(site.begins_with(target + "-"))
   game.native_view.choose_placement(site)
   game.browser.select_placement(site)
-  game.browser.placement_confirm.pressed.emit()
  assert(sim.sites.size() == 2)
  var ready: float = sim.sites.back().finish_native
  advance(game, ready)
@@ -124,7 +123,6 @@ func order_building(game: Control, kind: String) -> void:
  game.browser.build_controls[kind].button.pressed.emit()
  var site: String = game.browser.placement_options[0].id
  game.browser.select_placement(site)
- game.browser.placement_confirm.pressed.emit()
 
 func second_colony(game: Control, first: String, target: String) -> void:
  var sim = game.construction
@@ -156,8 +154,10 @@ func second_colony(game: Control, first: String, target: String) -> void:
  advance(game, sim.ship_order.finish_native)
  assert(sim.freight_status(2).location == "earth")
  game._native_body_selected({"id": target})
- game.colony_button.pressed.emit()
- assert(game.colony_panel.selected_facility == yard)
+ assert(game.colony_button.disabled and not game.yard_controls.visible)
+ game._native_body_selected({"id": "earth"})
+ game.colony_panel.built_buttons[yard].pressed.emit()
+ assert(game.colony_panel.selected_facility == yard and game.yard_controls.visible)
  var earth_metal: float = sim.colony_inventory("earth").supply.metals
  game.yard_colonizer.pressed.emit()
  assert(sim.ship_order.is_empty())

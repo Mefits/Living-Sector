@@ -6,6 +6,7 @@ extends Control
 
 signal earth_district_requested(pointer: Vector2, projection: Rect2)
 const DistrictRoads = preload("res://scripts/view/sol_district_roads.gd")
+var _earth_district_open := false
 var district_extent: Vector2 = DistrictRoads.AREA
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
@@ -15,7 +16,8 @@ signal placement_site_selected(site_id: String)
 signal placement_cancel_requested
 
 const MIN_ZOOM: float = 0.45
-const DISTRICT_ENTRY_RADIUS: float = 220.0
+const DISTRICT_ENTRY_RADIUS: float = 380.0
+const DISTRICT_WIDTH_TO_RADIUS: float = 0.12
 const MAX_ZOOM: float = 512.0
 const FOCUS_GLOBE_RADIUS: float = 165.0
 ## Sol Lab camera acquisition: begin following the zoomed planet at x3.1.
@@ -1430,29 +1432,11 @@ func _draw_system() -> void:
                     _draw_globe_detail(body, position, visual_radius,
                         detail_opacity)
         if bid == "earth" and _body_ids_by_location.has("earth-colony"):
-            var settlement := position + Vector2(-0.17, -0.20) * sprite_extent
-            draw_circle(settlement, 5.0, Color("#1e3433"), true, -1.0, true)
-            draw_circle(settlement, 3.2, Color("#e9cf91"), true, -1.0, true)
-            if visual_radius >= 105.0:
-                var footprint := _district_footprint(position, visual_radius)
-                draw_rect(footprint, Color("#646b4c"))
-                draw_rect(footprint, Color("#c5c49f"), false, 1)
-                var district_scale: float = footprint.size.x / district_extent.x
-                for segment in DistrictRoads.streets(district_extent):
-                    draw_line(footprint.position + segment[0] * district_scale,
-                        footprint.position + segment[1] * district_scale, Color("#858672"),
-                        maxf(1.0, 14.0 * district_scale), true)
-                for facility in _world.get("facilities", []):
-                    var site: String = str(facility.get("surface_site_id", ""))
-                    if facility.get("body") == "earth" and DistrictRoads.PLOTS.has(site):
-                        var plot: Rect2 = DistrictRoads.PLOTS[site]
-                        draw_rect(Rect2(footprint.position + plot.position * district_scale,
-                            plot.size * district_scale), Color("#92927b"))
-                if visual_radius >= 162.0:
-                    for pad in [DistrictRoads.PAD, DistrictRoads.PAD + Vector2(167, 0)]:
-                        draw_circle(footprint.position + pad * district_scale,
-                            29.0 * district_scale, Color("#444d48"), true, -1.0, true)
-            if visual_radius >= 85.0:
+            var settlement := _district_footprint(position, visual_radius).get_center()
+            if not _earth_district_open:
+                draw_circle(settlement, 5.0, Color("#1e3433"), true, -1.0, true)
+                draw_circle(settlement, 3.2, Color("#e9cf91"), true, -1.0, true)
+            if visual_radius >= 85.0 and not _earth_district_open:
                 var callout := settlement + Vector2(27, -26)
                 draw_line(settlement, callout, Color("#e9cf91"), 1.2, true)
                 draw_string(font, callout + Vector2(4, 0), "Поселение · приблизить",
@@ -1674,6 +1658,8 @@ func _draw_physical_assets(scale: float) -> void:
     # site slots. Their surface coordinates are explicitly schematic
     # until a physical colony land-placement model is designed.
     for facility in _physical_assets.get("surface", []):
+        if facility.get("body") == "earth":
+            continue
         var parent: Dictionary = _body_by_id(str(facility["body"]))
         if parent.is_empty():
             continue
@@ -1771,7 +1757,7 @@ func _draw_physical_assets(scale: float) -> void:
 ## Lightweight roads from real source-backed ground sites, attached to the
 ## SAME animated orbital position as their parent. No separate terrain mode.
 func _draw_colony_roads(scale: float) -> void:
-    if _focused_body_id.is_empty():
+    if _focused_body_id.is_empty() or _focused_body_id == "earth":
         return
     var body: Dictionary = _body_by_id(_focused_body_id)
     if body.is_empty():
@@ -2043,17 +2029,21 @@ func _follow_threshold_reached(current_zoom: float) -> bool:
 
 
 func _district_footprint(center: Vector2, radius: float) -> Rect2:
-    var extent := district_extent * (0.44 * radius / district_extent.x)
+    var extent := district_extent * (DISTRICT_WIDTH_TO_RADIUS * radius / district_extent.x)
     return Rect2(center + Vector2(-0.18, -0.21) * radius - extent * 0.5, extent)
 
 func earth_district_projection() -> Rect2:
     var earth := _body_by_id("earth")
     return _district_footprint(_body_position(earth, _orbit_scale()), _body_size(earth))
 
+func set_earth_district_open(open: bool) -> void:
+    _earth_district_open = open
+    queue_redraw()
+
 func align_earth_district(projection: Rect2) -> void:
     var earth := _body_by_id("earth")
     var radius_at_one := _body_size_at_zoom(earth, 1.0)
-    var radius := projection.size.x / 0.44
+    var radius := projection.size.x / DISTRICT_WIDTH_TO_RADIUS
     var ratio := radius / radius_at_one
     _zoom = ratio * ratio if ratio <= sqrt(32.0) else (
         32.0 * pow(ratio / sqrt(32.0), 1.0 / 1.12))
@@ -2092,9 +2082,7 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
         if footprint.has_point(pointer):
             _wheel_target_zoom = -1.0
             earth_district_requested.emit(pointer, footprint)
-        else:
-            _wheel_target_zoom = minf(_wheel_target_zoom, prior_target)
-        return
+            return
     if multiplier > 1.0:
         # Identify by existing screen hit-test. Acquire focus at x3.1,
         # independent of globe surface detail and camera UI scale.

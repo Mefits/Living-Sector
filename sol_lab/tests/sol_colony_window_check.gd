@@ -64,7 +64,6 @@ func _build(id: String) -> void:
    if not game.district.visible:
     game.native_view.choose_placement(site_id)
    game.browser.select_placement(site_id)
-   game.browser.placement_confirm.pressed.emit()
 
 func _stock(body: String, kind: String) -> float:
  return float(game.construction.colony_inventory(body).get(

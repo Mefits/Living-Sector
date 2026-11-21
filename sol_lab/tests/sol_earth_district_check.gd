@@ -16,6 +16,8 @@ func click(view: Control, point: Vector2) -> void:
  event.position = point
  event.pressed = true
  view._gui_input(event)
+ event.pressed = false
+ view._gui_input(event)
 
 func plot_click(view: Control, site: String) -> void:
  click(view, view._origin + (view._plots[site] as Rect2).get_center() * view._scale)
@@ -52,6 +54,24 @@ func run() -> void:
  check(district.visible and map.mouse_filter == Control.MOUSE_FILTER_IGNORE, "Approaching the focused Earth opens the district")
  await create_timer(0.52).timeout
  check(stock.get_parent() == game.colony_panel.dock_layout, "Stock is visible in the district")
+ var mouse := InputEventMouseButton.new()
+ mouse.position = district._origin + district.camera_extent() * district._scale * 0.5
+ mouse.button_index = MOUSE_BUTTON_RIGHT
+ mouse.pressed = true
+ district._gui_input(mouse)
+ check(district.visible, "Right click leaves the district open")
+ mouse.button_index = MOUSE_BUTTON_LEFT
+ district._gui_input(mouse)
+ var origin_before: Vector2 = district._origin
+ var drag := InputEventMouseMotion.new()
+ drag.relative = Vector2(20, 12)
+ drag.position = mouse.position + drag.relative
+ district._gui_input(drag)
+ mouse.position = drag.position
+ mouse.pressed = false
+ district._gui_input(mouse)
+ check(district._origin.is_equal_approx(origin_before + drag.relative),
+  "Left drag pans the district without selecting a facility")
  check(district._facilities.has("earth-ac-01") and district._facilities.has("earth-farm-01"),
   "The initial AC and farm occupy the correct plots")
  for building in Model.BUILDINGS:
@@ -75,15 +95,12 @@ func run() -> void:
  check(browser.get_global_rect().end.x <= 1367 and browser.scroll.size.y > 210,
   "1366 by 768 leaves the catalog usable with the warehouse open")
  plot_click(district, "earth-ac-01")
- check(browser.placement_confirm.disabled and browser.placement_caption.text.contains("Участок занят"),
+ check(game.construction.sites.is_empty() and browser.placement_caption.text.contains("Участок занят"),
   "Occupied plot gives the specific rejection")
  plot_click(district, "earth-farm-02")
- check(browser.placement_confirm.disabled and browser.placement_caption.text.contains("Непригодная"),
+ check(game.construction.sites.is_empty() and browser.placement_caption.text.contains("Непригодная"),
   "Incompatible ground cannot be selected")
  plot_click(district, "earth-industry-01")
- check(not browser.placement_confirm.disabled and Model.stock(game.world, "earth") == initial,
-  "Preview gives no debit")
- browser.placement_confirm.pressed.emit()
  check(Model.stock(game.world, "earth") == initial - 1 and game.construction.sites.size() == 1,
   "Confirmation spends metal once and reserves the site")
  game._save_game()
@@ -103,7 +120,6 @@ func run() -> void:
    continue
   browser.build_controls[kind].button.pressed.emit()
   plot_click(district, chosen[kind])
-  browser.placement_confirm.pressed.emit()
   check(district._facilities.get(chosen[kind], {}).get("type") == "construction_site",
    "Catalog placement reserved " + kind)
  var deadline: float = game.construction.sites.back().finish_native
@@ -168,7 +184,6 @@ func unload_in_district(game: Control) -> void:
   var site: String = game.browser.placement_options[0].id
   game.native_view.choose_placement(site)
   game.browser.select_placement(site)
-  game.browser.placement_confirm.pressed.emit()
  advance(game, sim.sites.back().finish_native)
  game._close_browser()
  game._open_manual_freight()

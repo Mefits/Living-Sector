@@ -20,6 +20,9 @@ const WHEEL_ZOOM := 1.32
 const EARTH = "earth"
 const Roads = preload("res://scripts/view/sol_district_roads.gd")
 const PLOTS = Roads.PLOTS
+var body_id := EARTH
+var _back: Button
+var _title: Label
 var _plots: Dictionary = {}
 var _facilities: Dictionary = {}
 var _kind := ""
@@ -31,6 +34,8 @@ var _origin := Vector2.ZERO
 var _zoom := 1.0
 var _pan := Vector2.ZERO
 var _drag := false
+var _press_point := Vector2.ZERO
+var _left_held := false
 var _world_size := AREA
 var _port: Node2D
 var _runtime: RefCounted
@@ -73,8 +78,16 @@ func _ready() -> void:
  add_child(_hint)
  _hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
  resized.connect(_redraw_layout)
+ _back = back
+ _title = title
  _chrome.assign([back, title, _hint])
  _set_hint()
+
+func set_body(id: String) -> void:
+ body_id = id
+ _back.text = "‹  " + Model.PLANET_NAMES[id]
+ _title.text = Model.PLANET_NAMES[id].to_upper() + "  /  ПОСЕЛЕНИЕ"
+ _terrain.queue_redraw()
 
 func show_district(pointer := Vector2(-1, -1), projection := Rect2()) -> void:
  cancel_camera()
@@ -100,6 +113,8 @@ func cancel_camera() -> void:
   _wheel_tween.kill()
   _wheel_tween = null
  _surface_scale = 0.0
+ _drag = false
+ _left_held = false
 
 func _minimum_zoom() -> float:
  return _surface_scale / _overview_scale() if _surface_scale > 0.0 else 1.0
@@ -151,6 +166,8 @@ func set_traffic_time(value: float) -> void:
   _traffic.queue_redraw()
 
 func _draw_ground_freight() -> void:
+ if body_id != EARTH:
+  return
  for site in _facilities:
   var mine: Dictionary = _facilities[site]
   if mine.has("refinery_return_end") and _traffic_time < float(mine.refinery_return_end) and _scale >= 0.58:
@@ -182,6 +199,8 @@ func _draw_ground_freight() -> void:
   Art.ground_cargo(_traffic, pose, moving, _zoom)
 
 func _select_cargo(point: Vector2) -> bool:
+ if body_id != EARTH:
+  return false
  if _port != null and _port.visible and _port.has_method("cargo_at"):
   var cargo: Dictionary = _port.cargo_at(point - _port.position)
   if not cargo.is_empty():
@@ -199,11 +218,17 @@ func _select_cargo(point: Vector2) -> bool:
  return false
 
 func update_colony(facilities: Array) -> void:
- _plots = PLOTS.duplicate()
+ _plots = PLOTS.duplicate() if body_id == EARTH else {}
+ if body_id == "luna":
+  for entry in Sites.entries(body_id):
+   if entry.get("kind") == "ground":
+    var center := AREA * (Vector2(0.5, 0.5) + Sites.site_position(entry) * 0.49)
+    var plot_size := Vector2(162, 120) if "spaceport" in entry.types else Vector2(94, 64)
+    _plots[entry.id] = Rect2(center - plot_size * 0.5, plot_size)
  _facilities.clear()
  var overflow := 0
  for facility in facilities:
-  if facility.get("body", "") != EARTH:
+  if facility.get("body", "") != body_id:
    continue
   var kind: String = Sites.facility_kind(facility)
   if kind not in Art.GROUND:
@@ -238,6 +263,8 @@ func start_placement(kind: String) -> void:
  _terrain.queue_redraw()
 
 func plot_name(site: String) -> String:
+ if body_id != EARTH:
+  return str(Sites.get_site(body_id, site).get("label", site))
  if site == "earth-port-01":
   return "Портовый участок"
  var plot: Rect2 = PLOTS.get(site, Rect2())
@@ -267,7 +294,7 @@ func _set_hint(reason := "") -> void:
   return
  _hint.text = reason if not reason.is_empty() else (
   "Выберите участок · ЛКМ   /   Отмена · ПКМ" if not _kind.is_empty() else
-  "Осмотр · ЛКМ   /   Масштаб · колесо   /   Перемещение · СКМ")
+  "Осмотр · клик   /   Перемещение · удерживать ЛКМ   /   Масштаб · колесо")
 
 func _plot_at(point: Vector2) -> String:
  for key in _plots:
@@ -279,56 +306,66 @@ func placement_reason(site: String) -> String:
  if _facilities.has(site):
   var kind := Sites.facility_kind(_facilities[site])
   return "Участок занят · %s" % Model.find_building(kind).get("name", kind)
- if site.is_empty() or _kind not in Sites.get_site(EARTH, site).get("types", []):
+ if site.is_empty() or _kind not in Sites.get_site(body_id, site).get("types", []):
   return "Непригодная поверхность для этой постройки"
  return ""
 
 func _gui_input(event: InputEvent) -> void:
  if event is InputEventMouseMotion:
+  if _left_held and not _drag and event.position.distance_to(_press_point) >= 7.0:
+   _drag = true
+   if _wheel_tween != null:
+    _wheel_tween.kill()
+    _wheel_tween = null
+   _wheel_target = _zoom
   if _drag:
    _pan += event.relative
-  elif not _kind.is_empty():
+   _redraw_layout()
+  elif is_placing():
    _hover = _plot_at((event.position - _origin) / _scale)
    _set_hint(placement_reason(_hover))
-  if _drag or is_placing():
    _terrain.queue_redraw()
-   _redraw_layout()
  if not event is InputEventMouseButton:
   return
- if event.button_index == MOUSE_BUTTON_MIDDLE:
-  _drag = event.pressed
+ if event.button_index == MOUSE_BUTTON_LEFT:
+  if event.pressed:
+   _press_point = event.position
+   _left_held = true
+  else:
+   var click: bool = _left_held and not _drag and event.position.distance_to(_press_point) < 7.0
+   _left_held = false
+   _drag = false
+   if click:
+    _click_at(event.position)
  elif event.pressed:
   match event.button_index:
    MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN:
     var world_point: Vector2 = (event.position - _origin) / _scale
     if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and is_equal_approx(_zoom, _minimum_zoom()) and not is_placing():
      zoom_out_requested.emit(event.position, world_point / _world_size)
-     accept_event()
-     return
-    _wheel_zoom(event.position, world_point,
-     WHEEL_ZOOM if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / WHEEL_ZOOM)
-    _hover = _plot_at(world_point)
-   MOUSE_BUTTON_RIGHT:
-    if _kind.is_empty():
-     return_requested.emit()
     else:
+     _wheel_zoom(event.position, world_point,
+      WHEEL_ZOOM if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / WHEEL_ZOOM)
+   MOUSE_BUTTON_RIGHT:
+    if is_placing():
      placement_cancelled.emit()
-   MOUSE_BUTTON_LEFT:
-    var site := _plot_at((event.position - _origin) / _scale)
-    if not _kind.is_empty():
-     var reason := placement_reason(site)
-     _chosen = site if reason.is_empty() else ""
-     _set_hint(reason)
-     if reason.is_empty():
-      site_selected.emit(site)
-     else:
-      selection_invalid.emit(reason)
-    elif not _select_cargo((event.position - _origin) / _scale) and (
-      _facilities.has(site) and _facilities[site].get("type") != "construction_site"):
-     facility_selected.emit(str(_facilities[site]["id"]))
-  _terrain.queue_redraw()
-  _redraw_layout()
  accept_event()
+
+func _click_at(pointer: Vector2) -> void:
+ var point := (pointer - _origin) / _scale
+ var site := _plot_at(point)
+ if is_placing():
+  var reason := placement_reason(site)
+  _chosen = site if reason.is_empty() else ""
+  _set_hint(reason)
+  if reason.is_empty():
+   site_selected.emit(site)
+  else:
+   selection_invalid.emit(reason)
+  _terrain.queue_redraw()
+ elif not _select_cargo(point) and (
+   _facilities.has(site) and _facilities[site].get("type") != "construction_site"):
+  facility_selected.emit(str(_facilities[site]["id"]))
 
 func _centered_origin(at_scale: float) -> Vector2:
  return (size - _world_size * at_scale) * 0.5 + Vector2(0, 6)
@@ -350,30 +387,51 @@ func _redraw_layout() -> void:
 
 func _draw() -> void:
  if _surface_scale <= 0.0:
-  draw_rect(Rect2(Vector2.ZERO, size), Color("#252f28"))
+  draw_rect(Rect2(Vector2.ZERO, size), Color("#252f28") if body_id == EARTH else Color("#3f3d41"))
 
 func _draw_district() -> void:
- Art.terrain(_terrain, _world_size)
+ if body_id == "luna":
+  Art.lunar_terrain(_terrain, _world_size)
+  var hub: Rect2 = _plots["luna-ac-01"]
+  for site in _facilities:
+   if site == "luna-ac-01":
+    continue
+   var plot: Rect2 = _plots[site]
+   var start := hub.get_center()
+   var finish := plot.get_center()
+   var bend := Vector2(finish.x, start.y)
+   _terrain.draw_polyline(PackedVector2Array([start, bend, finish]), Color("#625e61"), 8.0, true)
+ else:
+  Art.terrain(_terrain, _world_size)
+  for site in _facilities:
+   if not _plots.has(site):
+    continue
+   var plot: Rect2 = _plots[site]
+   var access := Roads.port_access() if plot == Roads.PORT else Roads.ore_route(plot)
+   for step in range(1, access.size()):
+    Art.road(_terrain, access[step - 1], access[step])
  for site in _plots:
   var plot: Rect2 = _plots[site]
   var facility: Dictionary = _facilities.get(site, {})
-  if not facility.is_empty() and plot != Roads.PORT:
+  if body_id == EARTH and not facility.is_empty() and plot != Roads.PORT:
    _terrain.draw_polyline(Roads.driveway(plot), Color("#777a67"), 8.0, true)
   if facility.is_empty():
-   if is_placing():
+   if body_id == EARTH and is_placing():
     Art.empty_plot(_terrain, plot, site)
   else:
    var kind := Sites.facility_kind(facility)
    var pending: bool = facility.get("type") == "construction_site"
    if pending:
     Art.construction(_terrain, plot, kind)
+   elif body_id == "luna":
+    Art.lunar_building(_terrain, plot, kind)
    elif not (site == "earth-port-01" and _port != null and _port.visible):
     var docked_ship: Texture2D
     if kind == "spaceport" and (_runtime.freight_status().get("location") == EARTH or
       _runtime.freight_status(2).get("location") == EARTH):
      docked_ship = _ship
     Art.building(_terrain, plot, kind, docked_ship)
-   if plot != Roads.PORT:
+   if body_id == EARTH and plot != Roads.PORT:
     Art.gate(_terrain, Roads.driveway(plot), Color("#c6a873"))
    if not pending and str(facility.get("id", "")) == _selected:
     _terrain.draw_rect(plot.grow(3), Color("#b6d8df"), false, 2)
@@ -383,7 +441,10 @@ func _draw_district() -> void:
     var color := Color("#b7d99b") if valid else Color("#e88b75")
     _terrain.draw_rect(plot.grow(2), color, false, 2.5 if site == _chosen else 1.3)
    if valid and (site == _hover or site == _chosen):
-    Art.preview(_terrain, plot, _kind, null)
-    _terrain.draw_polyline(Roads.driveway(plot), Color("#b7d99b"), 6.0, true)
-    Art.gate(_terrain, Roads.driveway(plot), Color("#b7d99b"))
+    if body_id == EARTH:
+     Art.preview(_terrain, plot, _kind, null)
+     _terrain.draw_polyline(Roads.driveway(plot), Color("#b7d99b"), 6.0, true)
+     Art.gate(_terrain, Roads.driveway(plot), Color("#b7d99b"))
+    else:
+     Art.lunar_building(_terrain, plot, _kind)
 

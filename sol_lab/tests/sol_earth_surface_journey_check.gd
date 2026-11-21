@@ -28,6 +28,8 @@ func point_click(view: Control, at: Vector2) -> void:
  event.pressed = true
  event.button_index = MOUSE_BUTTON_LEFT
  view._gui_input(event)
+ event.pressed = false
+ view._gui_input(event)
 
 func record() -> void:
  await process_frame
@@ -138,10 +140,9 @@ func run() -> void:
  district._gui_input(hover)
  await hold(0.40)
  point_click(district, pointer)
- verify(not game.browser.placement_confirm.disabled and game.colony_stock_panel.is_visible_in_tree(),
+ verify(game.construction.sites.size() == 1 and game.colony_stock_panel.is_visible_in_tree(),
   "The new site and warehouse are visible at the same time")
  await hold(0.38)
- game.browser.placement_confirm.pressed.emit()
  var deadline: float = game.construction.sites.back().finish_native
  game._close_browser()
  game._pause()

@@ -80,16 +80,21 @@ func _run() -> void:
  }))
  _press(game.browser.build_controls["mining_rig"].button)
  _assert(_stock() == 2.0, "starting placement is free")
- var mine_site: String = str(game.native_view._placement_sites[0]["id"])
- game.native_view.choose_placement(mine_site)
- game.browser.select_placement(mine_site)
- _press(game.browser.placement_confirm)
+ var mine_site: String = str(game.browser.placement_options[0]["id"])
+ _assert(game.district.visible and game.district.body_id == "luna" and
+  game.district._facilities.has("luna-ac-01"), "Lunar district shows the landed AC")
+ var pointer := InputEventMouseButton.new()
+ pointer.button_index = MOUSE_BUTTON_LEFT
+ var mine_plot: Rect2 = game.district._plots[mine_site]
+ pointer.position = game.district._origin + mine_plot.get_center() * game.district._scale
+ pointer.pressed = true
+ game.district._gui_input(pointer)
+ pointer.pressed = false
+ game.district._gui_input(pointer)
  _assert(_stock() == 1.0, "mine subtracts exactly one lunar metal")
  _press(game.browser.build_controls["spaceport"].button)
- var port_site: String = str(game.native_view._placement_sites[0]["id"])
- game.native_view.choose_placement(port_site)
+ var port_site: String = str(game.browser.placement_options[0]["id"])
  game.browser.select_placement(port_site)
- _press(game.browser.placement_confirm)
  _assert(_stock() == 0.0, "spaceport subtracts exactly one lunar metal")
  _assert(game.construction.sites.size() == 2, "both lunar sites pending")
  game._save_game()

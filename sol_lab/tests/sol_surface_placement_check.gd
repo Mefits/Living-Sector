@@ -88,13 +88,12 @@ func choose_and_confirm(site_id: String) -> String:
  check(not slot.is_empty(), "Valid target slot "+site_id)
  if slot.is_empty():
   return ""
- if not game.district.visible:
-  game.native_view.choose_placement(site_id)
- game.browser.select_placement(site_id)
- check(not game.browser.placement_confirm.disabled,
-  "Explicit site confirmation enabled")
  var before: int = game.construction.sites.size()
- game.browser.placement_confirm.pressed.emit()
+ if game.district.visible:
+  game.browser.select_placement(site_id)
+ else:
+  game.native_view.choose_placement(site_id)
+  game.browser.select_placement(site_id)
  check(game.construction.sites.size() == before + 1,
   "Only confirmed site creates a paid order")
  if game.construction.sites.size() != before + 1:
@@ -170,15 +169,6 @@ func _run() -> void:
  check(game.browser.placement_options.size() >= 3,
   "Display several free mine plots in the district")
  var target_site: String = str(game.browser.placement_options[0]["id"])
- var plot: Rect2 = game.district.PLOTS[target_site]
- var pointer := InputEventMouseButton.new()
- pointer.button_index = MOUSE_BUTTON_LEFT
- pointer.position = game.district._origin + plot.get_center() * game.district._scale
- pointer.pressed = true
- game.district._gui_input(pointer)
- check(game.browser.placement_chosen_id == target_site and
-  not game.browser.placement_confirm.disabled,
-  "Actual district click selects the named construction plot")
  await capture("earth-choose")
  game.browser.placement_cancelled.emit()
  check(inventory("earth") == first_stock and
