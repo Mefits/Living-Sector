@@ -25,6 +25,9 @@ var config: Dictionary = {}
 var native_time: float = 0.0
 var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
+static var start_mars_trade := false
+var trade_button: Button
+var trade_status: Label
 var colony_button: Button
 var freight_button: Button
 var manual_freight_dialog: AcceptDialog
@@ -93,6 +96,9 @@ func _ready() -> void:
     _init_extra_settings()
     construction.planets = config["planets"]
     construction.setup(world, config["buildings"])
+    if start_mars_trade:
+        construction.mars_trade.start(construction)
+        start_mars_trade = false
     _build_ui()
     _make_native_map()
     _make_browser()
@@ -139,6 +145,7 @@ func _build_ui() -> void:
     bar.add_child(game_menu)
     var popup: PopupMenu = game_menu.get_popup()
     popup.add_item("Новая игра", 1)
+    popup.add_item("Старт: Земля, Луна и марсианская экспедиция", 6)
     popup.add_item("Сохранить", 2)
     popup.add_item("Загрузить", 3)
     popup.add_separator()
@@ -207,6 +214,13 @@ func _build_ui() -> void:
             _notice("Колонизатор заложен на Земле"))
     add_child(colonizer_order_dialog)
     _build_freight_line_controls(colony_panel.line_holder)
+    trade_status = Label.new()
+    trade_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    colony_panel.line_holder.add_child(trade_status)
+    trade_button = _button(colony_panel.line_holder, "Обменять 4 металла на 4 руды", func():
+        if construction.mars_trade.charter(construction):
+            _update_native_map()
+            _show_selected())
 
 
 func _on_game_menu(id: int) -> void:
@@ -219,6 +233,9 @@ func _on_game_menu(id: int) -> void:
             performance_bar.visible = diagnostics_visible
             _layout_right_side()
         5: _toggle_admin()
+        6:
+            start_mars_trade = true
+            _new_game()
 
 
 func _button(parent: Node, label: String, action: Callable) -> Button:
@@ -547,6 +564,7 @@ func _open_manual_freight(preferred_slot: int = 0) -> void:
         var busy: bool = location in ["transit", "loading"] or (slot == 1 and construction.freight_line().enabled)
         manual_ship.add_item("Грузовик %d · %s%s" % [slot, status, " · линия" if slot == 1 and construction.freight_line().enabled else ""], slot)
         var index := manual_ship.item_count - 1
+        busy = busy or (slot == 2 and not construction.mars_trade.phase.is_empty())
         manual_ship.set_item_disabled(index, busy)
         if not busy and (manual_ship.selected < 0 or manual_ship.is_item_disabled(manual_ship.selected) or slot == previous):
             manual_ship.select(index)
@@ -778,9 +796,28 @@ func _show_selected() -> void:
             colony_panel.summary.text = "Колонизатор в пути · " + Calendar.calendar_text(expedition.ship.arrival)
             colony_panel.summary.tooltip_text = colony_panel.summary.text
         _refresh_yard()
+        var phase: String = construction.mars_trade.phase
+        trade_status.visible = not phase.is_empty()
+        trade_button.visible = phase == "waiting"
+        if trade_status.visible:
+            var reason: String = construction.mars_trade.charter_reason(construction)
+            trade_button.disabled = not reason.is_empty()
+            trade_status.text = {
+                "waiting": "Марс копит руду на обмен. Ваш борт может доставить металл первым и вернётся с рудой. Лунная линия на это время остановится.",
+                "ore_out": "Марсианский борт везёт руду на Землю.",
+                "metal_back": "Марсианский борт возвращается с металлом.",
+                "charter_metal": "Ваш борт везёт металл на Марс. Лунная линия приостановлена.",
+                "charter_ore": "Ваш борт возвращается с рудой. Лунная линия возобновится по прибытии.",
+                "building": "Марс готовит запуск переработчика.",
+                "working": "Марс меняет выпущенный металл на топливо.",
+                "metal_out": "Марсианский борт везёт металл на Землю.",
+                "fuel_back": "Марсианский борт возвращается с топливом."
+            }.get(phase, "")
+            if phase == "waiting" and not reason.is_empty():
+                trade_status.text += "\n" + reason
         colony_panel.show_food(construction.colony_food(selected))
         colony_panel.show_logistics(construction.freight_line(),
-            freight, construction.freight_line_wait(), construction.freight_status(2), construction.colony_destination())
+            freight, construction.freight_line_wait(), construction.freight_status(2), construction.colony_destination(), not construction.mars_trade.phase.is_empty())
         if browser != null and browser.visible:
             browser.set_colony_summary(name_ru, population_count, warehouse)
         return
@@ -854,6 +891,9 @@ func _make_browser() -> void:
     browser.hide()
 
 func _open_build() -> void:
+    if selected == "mars" and not construction.mars_trade.phase.is_empty():
+        _open_colony_logistics()
+        return
     _open_browser(false)
 
 func _open_browser(admin: bool) -> void:
@@ -1081,7 +1121,7 @@ func _activate_facility(facility_id: String) -> void:
         elif kind == "spaceport":
             colony_panel.show_logistics(construction.freight_line(),
                 construction.freight_status(),
-                construction.freight_line_wait(), construction.freight_status(2), construction.colony_destination())
+                construction.freight_line_wait(), construction.freight_status(2), construction.colony_destination(), not construction.mars_trade.phase.is_empty())
             colony_panel.open_logistics()
         return
 

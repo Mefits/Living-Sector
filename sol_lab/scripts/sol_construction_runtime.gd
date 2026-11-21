@@ -37,6 +37,8 @@ var _second: Dictionary = {}
 var ground_ore: Array = []
 var stock_history: Array = []
 var _earth_arrivals: Dictionary = {}
+const MarsTrade = preload("res://scripts/sol_mars_trade.gd")
+var mars_trade := MarsTrade.new()
 var ship_order: Dictionary = {}
 var _line_enabled := false
 var _line_legs: Dictionary = {}
@@ -59,6 +61,7 @@ func setup(source_world: Dictionary, building_settings: Dictionary) -> void:
  _earth_arrivals.clear()
  ground_ore.clear()
  stock_history.clear()
+ mars_trade.phase = ""
  ship_order = {}
  _line_enabled = false
  _line_legs = _default_line_legs()
@@ -183,6 +186,10 @@ func depart_freighter(destination: String, food: bool = false) -> bool:
 ## The old one-button APIs below remain for legacy test/save compatibility.
 func manual_freight_reason(destination: String,
         resource: String, amount: float, slot: int = 1) -> String:
+ if mars_trade.phase in ["charter_metal", "charter_ore"] and slot == 1:
+  return "Борт выполняет марсианский обмен"
+ if not mars_trade.phase.is_empty() and slot == 2:
+  return "Борт принадлежит марсианской экспедиции"
  if slot not in [1, 2]:
   return "Грузовик недоступен"
  if slot == 1 and _line_enabled:
@@ -254,7 +261,7 @@ func freight_line() -> Dictionary:
  return {"enabled": _line_enabled, "legs": _line_legs.duplicate(true)}
 
 func set_freight_line_enabled(enabled: bool) -> void:
- _line_enabled = enabled and not _freighter.is_empty()
+ _line_enabled = enabled and not _freighter.is_empty() and mars_trade.phase not in ["charter_metal", "charter_ore"]
 
 func configure_freight_line(legs: Dictionary) -> bool:
  if not _valid_line_legs(legs):
@@ -330,6 +337,9 @@ func _dispatch_line() -> bool:
  var shipment := _next_line_order()
  if not _line_block_reason(shipment).is_empty():
   return false
+ if not mars_trade.phase.is_empty() and shipment.destination == "luna" and (
+   _market_for("luna").supply.food > 4):
+  return false
  _launch_freighter(shipment)
  return true
 
@@ -362,6 +372,7 @@ func _land_freighter(slot: int) -> void:
    "amount": shipment.amount}
  ship.clear()
  ship.location = shipment.destination
+ mars_trade.arrived(self, slot, shipment)
 
 func order_second_freighter(yard: String) -> bool:
  return order_ship(yard, "freighter")
@@ -474,13 +485,19 @@ func _colony_owner(body: String) -> String:
  return ""
 
 func order(body: String, building_id: String,
-        requested_site_id: String = "") -> Dictionary:
+        requested_site_id: String = "", autonomous := false) -> Dictionary:
+ if body == "mars" and not mars_trade.phase.is_empty() and not autonomous:
+  return {"ok": false, "reason": "Марсианская экспедиция управляет своими стройками"}
  var building: Dictionary = Model.find_building(building_id)
  if building.is_empty():
   return {"ok": false, "reason": "Неизвестное здание"}
  if not Model.colony(world, body):
   return {"ok": false, "reason": "Нет административного центра на планете"}
- if not Model.available(building, settings, world, body):
+ var build_settings := settings
+ if autonomous and body == "mars" and building_id == "refinery":
+  build_settings = settings.duplicate(true)
+  build_settings.refinery.metals = MarsTrade.LOT
+ if not Model.available(building, build_settings, world, body):
   if Model.built_or_pending(world, body, building_id):
    return {"ok": false, "reason": "Здание уже построено или строится"}
   return {"ok": false, "reason": "Недостаточно ресурсов или нет колонии"}
@@ -502,7 +519,7 @@ func order(body: String, building_id: String,
  var market: Dictionary = _market_for(body)
  if market.is_empty():
   return {"ok": false, "reason": "Нет местного склада административного центра"}
- var cost: int = int(settings[building_id].get("metals", 1))
+ var cost: int = MarsTrade.LOT if autonomous and body == "mars" and building_id == "refinery" else int(settings[building_id].get("metals", 1))
  var supply: Dictionary = market.get("supply", {})
  if cost < 1 or int(supply.get("metals", 0)) < cost:
   return {"ok": false, "reason": "Недостаточно металла на складе"}
@@ -575,6 +592,8 @@ func cancel_order(site_id: String) -> Dictionary:
  if facility_index < 0:
   return {"ok": false, "reason": "Стройплощадка уже отсутствует"}
  var body: String = str(site.get("body", ""))
+ if body == "mars" and not mars_trade.phase.is_empty():
+  return {"ok": false, "reason": "Заказ марсианской экспедиции"}
  if str(facilities[facility_index].get("body", "")) != body:
   return {"ok": false, "reason": "Несовпадение колонии и стройплощадки"}
  var market: Dictionary = _market_for(body)
@@ -639,6 +658,7 @@ func advance_to(new_native: float) -> Array:
    completed.append("Грузовик 2 готов")
   ship_order = {}
  _advance_production(completed)
+ mars_trade.update(self, completed)
  var history_size := stock_history.size()
  stock_history = stock_history.filter(func(entry): return (
   entry.time > now_native - Calendar.days_to_native(30)))
@@ -674,6 +694,7 @@ func snapshot() -> Dictionary:
  saved_second.erase("trajectory")
  return {
   "version": VERSION,
+  "mars_trade": mars_trade.phase,
   "ground_ore": ground_ore.duplicate(true),
   "stock_history": stock_history.duplicate(true),
   "expedition": expedition.snapshot(),
@@ -851,7 +872,13 @@ func restore(data: Dictionary) -> bool:
     not entry.get("resource") is String or not _finite_number(entry.get("time")) or
     not _finite_number(entry.get("delta")) or entry.time > t):
    return false
+ var trade_phase: Variant = data.get("mars_trade", "")
+ if trade_phase not in MarsTrade.PHASES or (trade_phase != "" and (
+  colonies.size() != 2 or saved_second.is_empty() or
+  all_ids.get("facility-mars-ac", {}).get("faction_id") != MarsTrade.OWNER)):
+  return false
  # Commit all restored domains only after all checks pass.
+ mars_trade.phase = trade_phase
  expedition.restore(world, manifest)
  if version < 5 and not expedition.ship.is_empty():
   expedition.ship.food = expedition.STARTER_FOOD
