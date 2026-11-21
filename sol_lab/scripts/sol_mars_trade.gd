@@ -1,6 +1,5 @@
 extends RefCounted
 ## Scripted scenario contracts use the ordinary manifests and market mutations.
-const Model = preload("res://scripts/sol_building_model.gd")
 const Sites = preload("res://scripts/view/sol_surface_sites.gd")
 const OWNER := "mars-expedition"
 const LOT := 4
@@ -74,7 +73,7 @@ func arrived(sim, slot: int, shipment: Dictionary) -> void:
     _prepaid(sim, "mars", "earth", "ore", 1)
   "charter_ore":
    if slot == 1 and shipment.destination == "earth":
-    phase = "working" if Model.built_or_pending(sim.world, "mars", "refinery") else "building"
+    phase = "working" if not _refinery_id(sim).is_empty() else "building"
     sim.set_freight_line_enabled(true)
   "ore_out", "metal_out":
    if slot == 2 and shipment.destination == "earth":
@@ -91,7 +90,7 @@ func update(sim, notices: Array) -> void:
   phase = "ore_out"
   _fly(sim, "mars", "earth", "ore", LOT, 2)
   notices.append("Марс: руда отправлена в обмен на металл")
- if phase in ["building", "charter_ore"] and not Model.built_or_pending(sim.world, "mars", "refinery"):
+ if phase in ["building", "charter_ore"] and _refinery_id(sim).is_empty():
   if sim.order("mars", "refinery", "", true).ok:
    notices.append("Марс заложил переработчик")
  if phase in ["building", "working"] and sim.freight_status(2).location == "mars" and (
@@ -104,6 +103,7 @@ func update(sim, notices: Array) -> void:
 
 func _refinery_id(sim) -> String:
  for building in sim.world.facilities:
-  if building.body == "mars" and building.type == "refinery":
+  if building.body == "mars" and (building.type == "refinery" or (
+   building.type == "construction_site" and building.get("construction_building_id") == "refinery")):
    return building.id
  return ""

@@ -46,6 +46,12 @@ func play(intervene: bool) -> Dictionary:
   if metal_trip > 0 and sim.colony_inventory("mars").movement.get("fuel", {}).get("in", 0) >= 4:
    fuel_arrived = ceili(day)
    break
+ var refineries := 0
+ for building in game.world.facilities:
+  if building.body == "mars" and (building.type == "refinery" or (
+   building.type == "construction_site" and building.get("construction_building_id") == "refinery")):
+   refineries += 1
+ assert(refineries == 1)
  var result := {"first_output": first_output, "moon_min": minimum, "hungry": hungry,
   "metal_trip": metal_trip, "fuel_arrived": fuel_arrived,
   "phase": sim.mars_trade.phase, "npc": sim.freight_status(2).get("arrival", -1), "moon_final": sim.colony_inventory("luna").supply.food}

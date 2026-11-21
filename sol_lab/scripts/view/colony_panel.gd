@@ -249,7 +249,7 @@ func show_logistics(line: Dictionary, freight: Dictionary,
   row.text = "Грузовик %d · %s\n%s" % [index + 1, status,
    "Регулярная линия" if assigned else ("После рейса остановится" if active else "Свободен · назначить рейс")]
   if mars_trade and index == 1:
-   row.text = "Марсианский грузовик · " + status
+   row.text = "Марсианский грузовик\n" + status
   row.disabled = (active and not assigned) or (mars_trade and index == 1)
  if enabled and not waiting_reason.is_empty():
   sentences.append(waiting_reason)
