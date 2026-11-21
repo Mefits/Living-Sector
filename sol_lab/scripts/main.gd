@@ -5,7 +5,6 @@ const SolStarter = preload("res://scripts/sol_start_scenario.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const EarthDistrict = preload("res://scripts/view/sol_earth_district.gd")
 var district: Control
-var surface_button: Button
 
 const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 const NativeStarSystemView = preload("res://scripts/star_system_view.gd")
@@ -179,7 +178,6 @@ func _build_ui() -> void:
     colony_button = colony_panel.colonize_button
     colony_button.pressed.connect(_open_expedition)
     _build_expedition_dialog()
-    surface_button = _button(colony_panel.overview, "Лунное поселение", _open_lunar_district)
     freight_button = colony_panel.freight_button
     freight_button.hide()
     colony_panel.build_requested.connect(_open_build)
@@ -697,7 +695,6 @@ func _show_selected() -> void:
         var expedition = construction.expedition
         var free_world: bool = selected in expedition.TARGETS and not expedition.colonies.has(selected)
         var building_colonizer: bool = construction.ship_order.get("kind") == "colonizer"
-        surface_button.visible = selected == "luna" and expedition.colonies.has("luna")
         colony_button.visible = free_world
         colony_button.text = "Экспедиция · " + name_ru
         colony_button.disabled = expedition.ship.get("location") != "earth-colony"
@@ -960,15 +957,12 @@ func _make_native_map() -> void:
     district.hide()
     district.bind_runtime(construction)
     district.return_requested.connect(_close_district)
-    district.surface_projection_changed.connect(native_view.align_earth_district)
+    district.surface_projection_changed.connect(native_view.align_district)
     district.zoom_out_requested.connect(func(pointer: Vector2, fraction: Vector2):
-        if district.body_id == "luna":
-            _close_district()
-            return
-        native_view.return_to_earth_point(pointer, fraction)
+        native_view.return_to_surface_point(pointer, fraction, district.body_id)
         district.cancel_camera()
         district.hide()
-        native_view.set_earth_district_open(false)
+        native_view.set_open_district("")
         native_view.mouse_filter = Control.MOUSE_FILTER_STOP
         native_view._zoom_at(pointer, 1.0 / native_view.WHEEL_ZOOM))
     district.facility_selected.connect(_native_facility_selected)
@@ -976,41 +970,31 @@ func _make_native_map() -> void:
     district.selection_invalid.connect(func(reason: String):
         browser.reject_placement(reason))
     district.placement_cancelled.connect(_cancel_placement)
-    native_view.earth_district_requested.connect(_open_district)
+    native_view.district_requested.connect(_open_district)
 
 
-func _open_district(pointer := Vector2(-1, -1), projection := Rect2()) -> void:
-    if not Model.colony(world, "earth") or (district.visible and district.body_id == "earth"):
+func _open_district(pointer := Vector2(-1, -1), projection := Rect2(), body_id := "earth") -> void:
+    if not Model.colony(world, body_id) or (district.visible and district.body_id == body_id):
         return
     if district.visible:
         _close_district()
-    if selected != "earth":
-        _native_body_selected({"id": "earth"})
+    if selected != body_id:
+        _native_body_selected({"id": body_id})
     native_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    district.set_body("earth")
+    district.set_body(body_id)
     district.update_colony(world.get("facilities", []))
     native_view.district_extent = district.camera_extent()
-    native_view.set_earth_district_open(true)
+    native_view.set_open_district(body_id)
     district.show_district(pointer, projection)
     _dock_colony_stock()
     _refresh_district()
-
-
-func _open_lunar_district() -> void:
-    if district.visible or selected != "luna" or not Model.colony(world, "luna"):
-        return
-    native_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    district.set_body("luna")
-    district.update_colony(world.get("facilities", []))
-    district.show_district()
-    _dock_colony_stock()
 
 
 func _close_district() -> void:
     _cancel_placement()
     district.cancel_camera()
     district.hide()
-    native_view.set_earth_district_open(false)
+    native_view.set_open_district("")
     native_view.mouse_filter = Control.MOUSE_FILTER_STOP
     _dock_colony_stock()
     native_view.show()
@@ -1020,8 +1004,7 @@ func _close_district() -> void:
 func _refresh_district() -> void:
     if district.visible:
         district.update_colony(world.get("facilities", []))
-        if district.body_id == "earth":
-            native_view.district_extent = district.camera_extent()
+        native_view.district_extent = district.camera_extent()
 
 
 func _dock_colony_stock() -> void:
@@ -1277,13 +1260,10 @@ func _begin_placement(body: String, building_id: String) -> void:
     if candidates.is_empty():
         _notice("Для здания нет свободных подходящих площадок")
         return
-    var local: bool = building_id in EarthDistrict.Art.GROUND and body in ["earth", "luna"]
+    var local: bool = building_id in EarthDistrict.Art.GROUND and body in native_view.DISTRICT_BODIES
     if local:
         native_view.stop_placement()
-        if body == "luna":
-            _open_lunar_district()
-        else:
-            _open_district()
+        _open_district(Vector2(-1, -1), Rect2(), body)
         district.start_placement(building_id)
         candidates = candidates.duplicate(true)
         for candidate in candidates:

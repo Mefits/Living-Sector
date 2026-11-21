@@ -29,8 +29,8 @@ static func terrain(c: CanvasItem, area: Vector2) -> void:
    var radius := rng.randf_range(2, 8)
    c.draw_circle(p + Vector2(3, 3), radius, Color("#434c36"))
    c.draw_circle(p, radius, Color("#536041").lerp(Color("#768157"), rng.randf()))
-static func lunar_terrain(c: CanvasItem, area: Vector2) -> void:
- c.draw_rect(Rect2(Vector2.ZERO, area), Color("#858086"))
+static func barren_terrain(c: CanvasItem, area: Vector2, mars: bool) -> void:
+ c.draw_rect(Rect2(Vector2.ZERO, area), Color("#976a55") if mars else Color("#858086"))
  var rng := RandomNumberGenerator.new()
  rng.seed = 8307
  for i in range(900):
@@ -38,11 +38,11 @@ static func lunar_terrain(c: CanvasItem, area: Vector2) -> void:
   c.draw_circle(point, rng.randf_range(1, 5), Color(0.27, 0.25, 0.28, 0.18))
  for crater in [Vector3(378, 101, 34), Vector3(1055, 725, 62), Vector3(326, 793, 32)]:
   var point := Vector2(crater.x, crater.y)
-  c.draw_circle(point, crater.z, Color("#979098"))
-  c.draw_circle(point + Vector2(4, 3), crater.z - 4, Color("#746f77"))
-  c.draw_arc(point, crater.z - 5, 0.0, PI, 24, Color("#a09aa0"), 2.0, true)
+  c.draw_circle(point, crater.z, Color("#ad7d61") if mars else Color("#979098"))
+  c.draw_circle(point + Vector2(4, 3), crater.z - 4, Color("#79503f") if mars else Color("#746f77"))
+  c.draw_arc(point, crater.z - 5, 0.0, PI, 24, Color("#b58a6e") if mars else Color("#a09aa0"), 2.0, true)
 
-static func lunar_building(c: CanvasItem, plot: Rect2, kind: String) -> void:
+static func outpost_building(c: CanvasItem, plot: Rect2, kind: String) -> void:
  if kind == "administrative_center":
   var center := plot.get_center()
   var spine := Rect2(center - Vector2(32, 11), Vector2(64, 22))

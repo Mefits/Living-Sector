@@ -219,10 +219,10 @@ func _select_cargo(point: Vector2) -> bool:
 
 func update_colony(facilities: Array) -> void:
  _plots = PLOTS.duplicate() if body_id == EARTH else {}
- if body_id == "luna":
+ if body_id != EARTH:
   for entry in Sites.entries(body_id):
    if entry.get("kind") == "ground":
-    var center := AREA * (Vector2(0.5, 0.5) + Sites.site_position(entry) * 0.49)
+    var center := AREA * Sites.district_fraction(entry)
     var plot_size := Vector2(162, 120) if "spaceport" in entry.types else Vector2(94, 64)
     _plots[entry.id] = Rect2(center - plot_size * 0.5, plot_size)
  _facilities.clear()
@@ -243,7 +243,8 @@ func update_colony(facilities: Array) -> void:
  var extent := AREA + Vector2(0, ceili(float(overflow) / 6.0) * 112)
  if extent != _world_size:
   _world_size = extent
-  _redraw_layout()
+  if visible:
+   _redraw_layout()
  if _port != null:
   var facility: Dictionary = _facilities.get("earth-port-01", {})
   _port.visible = facility.get("type", "") == "spaceport"
@@ -390,11 +391,11 @@ func _draw() -> void:
   draw_rect(Rect2(Vector2.ZERO, size), Color("#252f28") if body_id == EARTH else Color("#3f3d41"))
 
 func _draw_district() -> void:
- if body_id == "luna":
-  Art.lunar_terrain(_terrain, _world_size)
-  var hub: Rect2 = _plots["luna-ac-01"]
+ if body_id != EARTH:
+  Art.barren_terrain(_terrain, _world_size, body_id == "mars")
+  var hub: Rect2 = _plots[body_id + "-ac-01"]
   for site in _facilities:
-   if site == "luna-ac-01":
+   if site == body_id + "-ac-01":
     continue
    var plot: Rect2 = _plots[site]
    var start := hub.get_center()
@@ -423,8 +424,8 @@ func _draw_district() -> void:
    var pending: bool = facility.get("type") == "construction_site"
    if pending:
     Art.construction(_terrain, plot, kind)
-   elif body_id == "luna":
-    Art.lunar_building(_terrain, plot, kind)
+   elif body_id != EARTH:
+    Art.outpost_building(_terrain, plot, kind)
    elif not (site == "earth-port-01" and _port != null and _port.visible):
     var docked_ship: Texture2D
     if kind == "spaceport" and (_runtime.freight_status().get("location") == EARTH or
@@ -446,5 +447,5 @@ func _draw_district() -> void:
      _terrain.draw_polyline(Roads.driveway(plot), Color("#b7d99b"), 6.0, true)
      Art.gate(_terrain, Roads.driveway(plot), Color("#b7d99b"))
     else:
-     Art.lunar_building(_terrain, plot, _kind)
+     Art.outpost_building(_terrain, plot, _kind)
 

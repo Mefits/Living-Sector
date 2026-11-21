@@ -51,7 +51,7 @@ func cross_to_district(game: Control, local_point: Vector2) -> void:
  var district = game.district
  var fraction := local_point / Roads.AREA
  for step in range(16):
-  var projection: Rect2 = globe.earth_district_projection()
+  var projection: Rect2 = globe.district_projection("earth")
   var pointer: Vector2 = projection.position + projection.size * fraction
   if not globe.get_rect().has_point(pointer + globe.position):
    pointer = projection.get_center()
@@ -67,7 +67,7 @@ func cross_to_district(game: Control, local_point: Vector2) -> void:
    var stopped_scale: float = district._scale
    verify(is_equal_approx(stopped_scale, projection.size.x / Roads.AREA.x * globe.WHEEL_ZOOM),
     "Crossing into the district only applies one wheel step")
-   var planet_projection: Rect2 = globe.earth_district_projection()
+   var planet_projection: Rect2 = globe.district_projection("earth")
    verify(planet_projection.position.distance_to(district._origin) < 0.1,
     "The district and Earth use the same surface projection")
    verify(is_equal_approx(planet_projection.size.x, Roads.AREA.x * stopped_scale),
@@ -91,7 +91,7 @@ func cross_to_globe(game: Control, local_point: Vector2) -> void:
  wheel(district, pointer, false)
  await hold(0.38)
  verify(not district.visible, "Returns input to the globe")
- var projection: Rect2 = game.native_view.earth_district_projection()
+ var projection: Rect2 = game.native_view.district_projection("earth")
  verify((projection.position + projection.size * (local_point / Roads.AREA)).distance_to(pointer) < 1.5,
   "Globe still shows that surface point at the pointer")
 

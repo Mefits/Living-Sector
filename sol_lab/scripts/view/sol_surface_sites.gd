@@ -34,6 +34,9 @@ static func site_position(site: Dictionary) -> Vector2:
   return Vector2.ZERO
  return Vector2(float(xy[0]), float(xy[1]))
 
+static func district_fraction(site: Dictionary) -> Vector2:
+ return Vector2(0.5, 0.5) + site_position(site) * 0.49
+
 static func facility_kind(facility: Dictionary) -> String:
  var kind: String = str(facility.get("type", ""))
  if kind == "construction_site":

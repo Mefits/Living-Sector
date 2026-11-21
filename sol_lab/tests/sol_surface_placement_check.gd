@@ -326,8 +326,10 @@ func _run() -> void:
  check(not drawn_pads.is_empty() and
   not drawn_pads.get("landing",{}).is_empty(),
   "Visible lunar port has pad projections from the same catalogue")
- check(game.native_view._facility_pins.size() >= 5,
-  "Built lunar structures selectable as independent facilities")
+ game._open_district(Vector2(-1, -1), Rect2(), "luna")
+ check(game.district.visible and game.district.body_id == "luna" and
+  game.district._facilities.has("luna-ac-01") and game.district._facilities.has("luna-port-01"),
+  "The lunar district shows the real AC and completed port")
  await capture("luna-built")
  print("SOL_PLACEMENT_RESULT ",JSON.stringify({
   "first":first_complete,"second":next_mine,"port":port.get("id",""),

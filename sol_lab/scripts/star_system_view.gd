@@ -4,9 +4,10 @@ extends Control
 ## camera zoom. Native N14/N39 positions and orbital angles are untouched.
 ## Facility markers remain attached to real source body identities.
 
-signal earth_district_requested(pointer: Vector2, projection: Rect2)
+signal district_requested(pointer: Vector2, projection: Rect2, body_id: String)
 const DistrictRoads = preload("res://scripts/view/sol_district_roads.gd")
-var _earth_district_open := false
+const DISTRICT_BODIES := ["earth", "luna", "mars"]
+var _open_district_body := ""
 var district_extent: Vector2 = DistrictRoads.AREA
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
@@ -79,7 +80,7 @@ const KNOWN_VISUAL_MOON_PARENTS: Dictionary = {
 var _world: Dictionary = {}
 var _live_fleet: Dictionary = {}
 var _selected_body_id: String = ""
-var _earth_follow_offset := Vector2.ZERO
+var _surface_follow_offset := Vector2.ZERO
 var _zoom: float = 1.0
 ## Compensates the logical viewport shrink introduced by the *global UI*
 ## content_scale_factor at close-up only. Native physical world untouched.
@@ -273,11 +274,11 @@ func _process(delta: float) -> void:
         # Follow mode anchors the real body; free zoom anchors the pointer.
         if _focused_body_id.is_empty():
             _pan += (_wheel_anchor - _center()) * (1.0 - ratio)
-        elif _focused_body_id == "earth":
-            var earth := _body_by_id("earth")
-            var radius_ratio := _body_size_at_zoom(earth, next_zoom_wheel) / _body_size(earth)
+        elif _focused_body_id in DISTRICT_BODIES:
+            var focused := _body_by_id(_focused_body_id)
+            var radius_ratio := _body_size_at_zoom(focused, next_zoom_wheel) / _body_size(focused)
             var relative := _wheel_anchor - size * 0.5
-            _earth_follow_offset = relative + (_earth_follow_offset - relative) * radius_ratio
+            _surface_follow_offset = relative + (_surface_follow_offset - relative) * radius_ratio
         _zoom = next_zoom_wheel
         camera_changed = true
         if absf(_zoom - _wheel_target_zoom) < 0.005:
@@ -312,8 +313,8 @@ func _process(delta: float) -> void:
             _follow_orbit_offset = orbit_offset
             _follow_orbit_valid = true
             var desired_pan: Vector2 = -orbit_offset
-            if _focused_body_id == "earth":
-                desired_pan += _earth_follow_offset
+            if _focused_body_id in DISTRICT_BODIES:
+                desired_pan += _surface_follow_offset
             var remaining: Vector2 = desired_pan - _pan
             if remaining.length() < 1.5:
                 _pan = desired_pan
@@ -827,7 +828,7 @@ func focus_body(body_id: String) -> bool:
     var body: Dictionary = _body_by_id(body_id)
     if body.is_empty():
         return false
-    _earth_follow_offset = Vector2.ZERO
+    _surface_follow_offset = Vector2.ZERO
     _selected_body_id = body_id
     _focused_body_id = body_id
     _return_camera = false
@@ -1431,12 +1432,12 @@ func _draw_system() -> void:
                 if detail_opacity > 0.001:
                     _draw_globe_detail(body, position, visual_radius,
                         detail_opacity)
-        if bid == "earth" and _body_ids_by_location.has("earth-colony"):
-            var settlement := _district_footprint(position, visual_radius).get_center()
-            if not _earth_district_open:
-                draw_circle(settlement, 5.0, Color("#1e3433"), true, -1.0, true)
-                draw_circle(settlement, 3.2, Color("#e9cf91"), true, -1.0, true)
-            if visual_radius >= 85.0 and not _earth_district_open:
+        if _has_surface_district(bid) and bid != _open_district_body:
+            var footprint := _district_footprint(position, visual_radius, bid)
+            var settlement := footprint.position + footprint.size * _district_marker_fraction(bid)
+            draw_circle(settlement, 5.0, Color("#1e3433"), true, -1.0, true)
+            draw_circle(settlement, 3.2, Color("#e9cf91"), true, -1.0, true)
+            if visual_radius >= 85.0:
                 var callout := settlement + Vector2(27, -26)
                 draw_line(settlement, callout, Color("#e9cf91"), 1.2, true)
                 draw_string(font, callout + Vector2(4, 0), "Поселение · приблизить",
@@ -1658,7 +1659,7 @@ func _draw_physical_assets(scale: float) -> void:
     # site slots. Their surface coordinates are explicitly schematic
     # until a physical colony land-placement model is designed.
     for facility in _physical_assets.get("surface", []):
-        if facility.get("body") == "earth":
+        if _has_surface_district(str(facility.get("body", ""))):
             continue
         var parent: Dictionary = _body_by_id(str(facility["body"]))
         if parent.is_empty():
@@ -1757,7 +1758,7 @@ func _draw_physical_assets(scale: float) -> void:
 ## Lightweight roads from real source-backed ground sites, attached to the
 ## SAME animated orbital position as their parent. No separate terrain mode.
 func _draw_colony_roads(scale: float) -> void:
-    if _focused_body_id.is_empty() or _focused_body_id == "earth":
+    if _focused_body_id.is_empty() or _has_surface_district(_focused_body_id):
         return
     var body: Dictionary = _body_by_id(_focused_body_id)
     if body.is_empty():
@@ -2028,40 +2029,52 @@ func _follow_threshold_reached(current_zoom: float) -> bool:
     return current_zoom >= FOLLOW_START_ZOOM
 
 
-func _district_footprint(center: Vector2, radius: float) -> Rect2:
-    var extent := district_extent * (DISTRICT_WIDTH_TO_RADIUS * radius / district_extent.x)
-    return Rect2(center + Vector2(-0.18, -0.21) * radius - extent * 0.5, extent)
+func _has_surface_district(body_id: String) -> bool:
+    return body_id in DISTRICT_BODIES and _body_ids_by_location.has(body_id + "-colony")
 
-func earth_district_projection() -> Rect2:
-    var earth := _body_by_id("earth")
-    return _district_footprint(_body_position(earth, _orbit_scale()), _body_size(earth))
+func _district_marker_fraction(body_id: String) -> Vector2:
+    if body_id == "earth":
+        return Vector2(0.5, 0.5)
+    var ac := SurfaceSites.get_site(body_id, body_id + "-ac-01")
+    return SurfaceSites.district_fraction(ac)
 
-func set_earth_district_open(open: bool) -> void:
-    _earth_district_open = open
+func _district_footprint(center: Vector2, radius: float, body_id := "earth") -> Rect2:
+    var area := district_extent if body_id == "earth" or body_id == _open_district_body else DistrictRoads.AREA
+    var extent := area * (DISTRICT_WIDTH_TO_RADIUS * radius / area.x)
+    var offset := Vector2(-0.18, -0.21)
+    if body_id != "earth":
+        offset = SurfaceSites.site_position(SurfaceSites.get_site(body_id, body_id + "-ac-01"))
+    return Rect2(center + offset * radius - extent * _district_marker_fraction(body_id), extent)
+
+func district_projection(body_id: String) -> Rect2:
+    var body := _body_by_id(body_id)
+    return _district_footprint(_body_position(body, _orbit_scale()), _body_size(body), body_id)
+
+func set_open_district(body_id: String) -> void:
+    _open_district_body = body_id
     queue_redraw()
 
-func align_earth_district(projection: Rect2) -> void:
-    var earth := _body_by_id("earth")
-    var radius_at_one := _body_size_at_zoom(earth, 1.0)
+func align_district(projection: Rect2) -> void:
+    var body := _body_by_id(_open_district_body)
+    var radius_at_one := _body_size_at_zoom(body, 1.0)
     var radius := projection.size.x / DISTRICT_WIDTH_TO_RADIUS
     var ratio := radius / radius_at_one
     _zoom = ratio * ratio if ratio <= sqrt(32.0) else (
         32.0 * pow(ratio / sqrt(32.0), 1.0 / 1.12))
-    return_to_earth_point(projection.get_center(), Vector2(0.5, 0.5))
+    return_to_surface_point(projection.get_center(), Vector2(0.5, 0.5), _open_district_body)
 
-
-func return_to_earth_point(pointer: Vector2, fraction: Vector2) -> void:
-    _focused_body_id = "earth"
+func return_to_surface_point(pointer: Vector2, fraction: Vector2, body_id: String) -> void:
+    _focused_body_id = body_id
     _focus_zoom_target = -1.0
     _wheel_target_zoom = -1.0
-    var earth := _body_by_id("earth")
-    var radius := _body_size(earth)
+    var body := _body_by_id(body_id)
+    var radius := _body_size(body)
     _draw_now_usec = Time.get_ticks_usec()
     _draw_body_positions.clear()
-    var center := _body_position(earth, _orbit_scale())
-    var footprint := _district_footprint(center, radius)
+    var center := _body_position(body, _orbit_scale())
+    var footprint := _district_footprint(center, radius, body_id)
     _pan += pointer - (footprint.position + footprint.size * fraction)
-    _earth_follow_offset = center + pointer - (footprint.position + footprint.size * fraction) - size * 0.5
+    _surface_follow_offset = center + pointer - (footprint.position + footprint.size * fraction) - size * 0.5
     _follow_orbit_offset = center - (_center() - (pointer - (footprint.position + footprint.size * fraction)))
     _follow_orbit_valid = true
     _draw_body_positions.clear()
@@ -2073,15 +2086,13 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     var prior_target: float = _wheel_target_zoom if _wheel_target_zoom > 0.0 else _zoom
     _wheel_target_zoom = clampf(prior_target * multiplier, MIN_ZOOM, maxf(prior_target, MAX_ZOOM))
     _wheel_anchor = pointer
-    if multiplier > 1.0 and _focused_body_id == "earth" and (
-            _body_ids_by_location.has("earth-colony") and
-            _body_size_at_zoom(_body_by_id("earth"), prior_target) >=
+    if multiplier > 1.0 and _has_surface_district(_focused_body_id) and (
+            _body_size_at_zoom(_body_by_id(_focused_body_id), prior_target) >=
             DISTRICT_ENTRY_RADIUS / _ui_viewport_scale):
-        var earth := _body_by_id("earth")
-        var footprint := _district_footprint(_body_position(earth, _orbit_scale()), _body_size(earth))
+        var footprint := district_projection(_focused_body_id)
         if footprint.has_point(pointer):
             _wheel_target_zoom = -1.0
-            earth_district_requested.emit(pointer, footprint)
+            district_requested.emit(pointer, footprint, _focused_body_id)
             return
     if multiplier > 1.0:
         # Identify by existing screen hit-test. Acquire focus at x3.1,

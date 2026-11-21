@@ -80,13 +80,16 @@ func pin(id: String) -> Dictionary:
    return value
  return {}
 
-func choose_from_globe(id: String) -> void:
- var candidate: Dictionary = pin(id)
- verify(not candidate.is_empty(), "Globe has real pin "+id)
- if not candidate.is_empty():
-  game.native_view._pick(candidate["position"])
-  verify(game.colony_panel.selected_facility == id,
-   "Globe click selected SAME ID "+id)
+func choose_from_surface(id: String) -> void:
+ if not game.district.visible:
+  game._open_district(Vector2(-1, -1), Rect2(), game.selected)
+ for site in game.district._facilities:
+  if game.district._facilities[site].id == id:
+   var plot: Rect2 = game.district._plots[site]
+   game.district._click_at(game.district._origin + plot.get_center() * game.district._scale)
+   return
+ verify(false, "District has real facility " + id)
+
 
 func focus_and_settle(id: String) -> void:
  if game.district.visible:
@@ -245,7 +248,7 @@ func _run() -> void:
   "Cargo manifest is simulation owned, 10 units")
  choose_planet("luna")
  await focus_and_settle("luna")
- choose_from_globe(port)
+ choose_from_surface(port)
  verify(game.colony_panel.page == "logistics" and
   game.colony_panel.logistics_view.visible,
   "Ground port opens ONE shared logistics panel")
@@ -284,8 +287,8 @@ func _run() -> void:
   bool(actual(luna_2).get("last_present",false)),
   "Both lunar mining instances eventually produce real batches")
  await focus_and_settle("luna")
- choose_from_globe(luna_1)
- choose_from_globe(luna_2)
+ choose_from_surface(luna_1)
+ choose_from_surface(luna_2)
  choose_from_list(luna_1)
  var lunar_caption: String = game.colony_panel.detail_title.text
  choose_from_list(luna_2)
@@ -293,7 +296,7 @@ func _run() -> void:
   "Lunar built list selects separate facility instances")
  # AC must route to the *existing* construction catalog + actual queue.
  await focus_and_settle("luna")
- choose_from_globe("facility-luna-ac")
+ choose_from_surface("facility-luna-ac")
  verify(game.browser.visible and game.browser.body_id == "luna" and
   game.browser.queue_panel != null,
   "Lunar AC opens existing construction and queue")

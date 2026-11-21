@@ -12,6 +12,35 @@ func advance(game: Control, time: float) -> void:
  game._update_native_map()
  game._show_selected()
 
+func check_surface_zoom(game: Control, target: String) -> void:
+ var map = game.native_view
+ assert(map.focus_body(target))
+ await create_timer(1.0).timeout
+ for step in range(12):
+  await create_timer(0.26).timeout
+  var projection: Rect2 = map.district_projection(target)
+  var wheel := InputEventMouseButton.new()
+  wheel.position = projection.position + projection.size * map._district_marker_fraction(target)
+  assert(Rect2(Vector2.ZERO, map.size).has_point(wheel.position))
+  wheel.button_index = MOUSE_BUTTON_WHEEL_UP
+  wheel.pressed = true
+  map._gui_input(wheel)
+  if not game.district.visible:
+   continue
+  assert(game.district.body_id == target and game.district._facilities.has(target + "-ac-01"))
+  await create_timer(0.25).timeout
+  var district = game.district
+  var aligned: Rect2 = map.district_projection(target)
+  assert(aligned.position.distance_to(district._origin) < 0.2)
+  assert(is_equal_approx(aligned.size.x, district.camera_extent().x * district._scale))
+  wheel.button_index = MOUSE_BUTTON_WHEEL_DOWN
+  district._gui_input(wheel)
+  await create_timer(0.23).timeout
+  district._gui_input(wheel)
+  assert(not district.visible and map._focused_body_id == target)
+  return
+ assert(false, "Wheel never opened the colony on " + target)
+
 func play(target: String) -> Dictionary:
  var game = MAIN.instantiate()
  root.add_child(game)
@@ -57,6 +86,7 @@ func play(target: String) -> Dictionary:
  assert(not sim.colony_inventory(other).present)
  assert(sim.colony_inventory(target).supply.food == 10 + extra)
  assert(sim.colony_inventory(target).supply.metals == 2 and sim.expedition.ship.is_empty())
+ await check_surface_zoom(game, target)
  game._open_build()
  for kind in ["mining_rig", "spaceport"]:
   game.browser.build_controls[kind].button.pressed.emit()
