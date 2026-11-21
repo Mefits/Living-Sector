@@ -124,6 +124,20 @@ func run() -> void:
  game._open_district()
  plot_click(district, "earth-industry-01")
  await ore_chain(game)
+ var plant: Dictionary = district._facilities["earth-industry-01"]
+ check(plant.type == "refinery", "Selected refinery exists")
+ if not plant.has("refinery_shipment"):
+  advance(game, plant.next_batch_native)
+  plant = district._facilities["earth-industry-01"]
+ check(plant.has("refinery_shipment"), "Refinery ingredients leave the warehouse")
+ var expected_output: float = plant.refinery_shipment.output
+ var due_at_gate: float = plant.refinery_shipment.arrival
+ var metal_before: float = game.construction.colony_inventory("earth").supply.metals
+ game._save_game()
+ game._load_game()
+ advance(game, due_at_gate)
+ check(is_equal_approx(game.construction.colony_inventory("earth").supply.metals,
+  metal_before + expected_output), "In-flight refinery supply survives reload and credits one batch")
  await unload_in_district(game)
  print("SOL_EARTH_DISTRICT_PASS")
  if "--capture" in OS.get_cmdline_user_args() and DisplayServer.get_name() != "headless":

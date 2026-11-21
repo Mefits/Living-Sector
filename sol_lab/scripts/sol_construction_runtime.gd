@@ -671,6 +671,18 @@ func restore(data: Dictionary) -> bool:
     var due: Variant = f[key]
     if not (due is float or due is int) or not is_finite(float(due)) or float(due) <= float(t):
      return false
+  if f.has("refinery_return_end") or f.has("refinery_shipment"):
+   if f.get("type") != "refinery" or f.get("body") != "earth" or not (
+     _finite_number(f.get("refinery_return_start")) and _finite_number(f.get("refinery_return_end")) and
+     f.refinery_return_start < f.refinery_return_end):
+    return false
+   if f.has("refinery_shipment"):
+    var load_data: Variant = f.refinery_shipment
+    if not load_data is Dictionary or not (_finite_number(load_data.get("departure")) and
+      _finite_number(load_data.get("arrival")) and _finite_number(load_data.get("output")) and
+      load_data.get("changes") is String and load_data.output > 0 and load_data.departure <= t and
+      load_data.arrival == f.refinery_return_start and load_data.arrival == f.get("next_batch_native")):
+     return false
   if f.has("next_meal_native") and not f.get("fed") is bool:
    return false
   all_ids[id] = f
@@ -883,8 +895,18 @@ func _advance_production(completed: Array) -> void:
    var facility: Dictionary = entry.facility
    var due := float(facility.next_batch_native)
    if due <= deadline + EPSILON_NATIVE:
-    _run_batch(facility, entry.market.supply, entry.recipe, due)
-    due += interval
+    if facility.has("refinery_shipment"):
+     var shipment: Dictionary = facility.refinery_shipment
+     _change_stock("earth", entry.recipe.product, shipment.output, due)
+     _record_batch(facility, entry.recipe.product, shipment.output, shipment.changes, due)
+     facility.erase("refinery_shipment")
+     due = maxf(float(shipment.departure) + interval, due + EPSILON_NATIVE * 2)
+    else:
+     _run_batch(facility, entry.market.supply, entry.recipe, due)
+     if facility.has("refinery_shipment"):
+      due = facility.refinery_shipment.arrival
+     else:
+      due += interval
     facility.next_batch_native = due
    next_batch = minf(next_batch, due)
   batch_revision += 1
@@ -922,6 +944,17 @@ func _run_batch(facility: Dictionary, supply: Dictionary,
   if consumed > 0:
    changes.append("−%s %s" % [
     Model.batch_amount(float(consumed)), Model.batch_unit(key)])
+ changes.append("+%s %s" % [Model.batch_amount(output), Model.batch_unit(str(recipe.product))])
+ if facility.body == "earth" and recipe.id == "refinery" and changes.size() > 1:
+  var route := Roads.ore_route(Roads.mine_plot(world.facilities, facility.id))
+  var duration := Roads.length(route) / 65.0
+  facility["refinery_shipment"] = {"departure": attempt_time, "arrival": attempt_time + duration,
+   "output": output, "changes": ", ".join(changes)}
+  facility["refinery_return_end"] = attempt_time + duration * 2
+  facility["refinery_return_start"] = attempt_time + duration
+  facility["production_status"] = "Сырьё в пути со склада"
+  facility["last_idle_reason"] = ""
+  return
  if facility.body == "earth" and recipe.id == "mining_rig":
   var pickup := maxf(attempt_time, float(facility.get("truck_home", 0.0))) + 0.75
   for job in ground_ore:
@@ -932,14 +965,14 @@ func _run_batch(facility: Dictionary, supply: Dictionary,
    "pickup": pickup, "due": pickup + Roads.length(route) / 65.0})
  else:
   _change_stock(facility.body, recipe.product, output, attempt_time)
- changes.append("+%s %s" % [
-  Model.batch_amount(output), Model.batch_unit(str(recipe.product))])
- facility["production_status"] = ", ".join(changes)
- # Authoritative completed batch receipt, separate from future predictions.
- facility["last_batch_native"] = attempt_time
+ _record_batch(facility, recipe.product, output, ", ".join(changes), attempt_time)
+
+func _record_batch(facility: Dictionary, product: String, output: float, changes: String, at: float) -> void:
+ facility["production_status"] = changes
+ facility["last_batch_native"] = at
  facility["last_batch_amount"] = output
- facility["last_batch_resource"] = str(recipe.product)
- facility["last_batch_changes"] = facility["production_status"]
+ facility["last_batch_resource"] = product
+ facility["last_batch_changes"] = changes
  facility["last_idle_reason"] = ""
 
 ## Read-only lookup by physical facility ID, never aggregated by recipe.
@@ -958,6 +991,8 @@ func production_details(facility_id: String) -> Dictionary:
   result["product"] = str(recipe.get("product", "none"))
   result["forecast"] = Model.calculated(recipe, settings, planets,
    str(facility.get("body", "")))
+  if facility.has("refinery_shipment"):
+   result["delivery"] = "Сырьё в пути со склада к переработчику"
   result["next_native"] = float(facility.get("next_batch_native", INF))
   result["idle_reason"] = str(facility.get("last_idle_reason", ""))
   if result["idle_reason"].is_empty() and str(facility.get(

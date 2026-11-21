@@ -369,13 +369,13 @@ func _show_selected_detail() -> void:
      Model.resource_label(str(data.get("last_resource", "")))])
     lines.append("Выпущено: " + Calendar.calendar_text(
      float(data.get("last_native", 0))))
-    if data.has("delivery"):
-     lines.append(str(data.delivery))
     var changes: String = str(data.get("last_changes", ""))
     if not changes.is_empty():
      lines.append("Фактическая партия: " + changes)
    else:
     lines.append("Последняя партия: ещё не выпускалась (нет подтверждённых данных)")
+   if data.has("delivery"):
+    lines.append(str(data.delivery))
    lines.append("Прогноз следующего выпуска: +%s %s" % [
     Model.batch_amount(float(data.get("forecast", 0))),
     Model.resource_label(str(data.get("product", "")))])
@@ -430,3 +430,4 @@ func _purpose(kind: String, item: Dictionary) -> String:
   "orbital_platform":
    return "Орбитальная инфраструктура"
  return str(item.get("name", "Объект колонии"))
+

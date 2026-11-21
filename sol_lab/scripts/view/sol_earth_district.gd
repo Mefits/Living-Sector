@@ -104,6 +104,16 @@ func set_traffic_time(value: float) -> void:
 func _draw_ground_freight() -> void:
  for site in _facilities:
   var mine: Dictionary = _facilities[site]
+  if mine.has("refinery_return_end") and _traffic_time < float(mine.refinery_return_end) and _scale >= 0.58:
+   var road := Roads.ore_route(_plots[site])
+   var arrival := float(mine.refinery_return_start)
+   var duration := float(mine.refinery_return_end) - arrival
+   var loaded := _traffic_time < arrival
+   var start_time := arrival
+   if loaded:
+    road.reverse()
+    start_time -= duration
+   Art.ground_cargo(_traffic, Roads.pose(road, (_traffic_time - start_time) / duration), true, _zoom, loaded)
   if mine.get("type") != "mining_rig" or not mine.has("truck_home"):
    continue
   var start := float(mine.truck_unloaded)
@@ -304,3 +314,4 @@ func _draw() -> void:
    if valid and (site == _hover or site == _chosen):
     Art.preview(self, plot, _kind, null)
     draw_polyline(Roads.driveway(plot), Color("#b7d99b"), 6.0, true)
+
