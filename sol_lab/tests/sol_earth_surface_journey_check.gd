@@ -62,7 +62,17 @@ func cross_to_district(game: Control, local_point: Vector2) -> void:
     verify((district._origin + Roads.AREA * fraction * district._scale).distance_to(pointer) < 0.1,
      "Zoom preserves the same local feature under the cursor")
     await hold(0.09)
-   await hold(0.08)
+   var stopped_scale: float = district._scale
+   verify(is_equal_approx(stopped_scale, projection.size.x / Roads.AREA.x * globe.WHEEL_ZOOM),
+    "Crossing into the district only applies one wheel step")
+   var planet_projection: Rect2 = globe.earth_district_projection()
+   verify(planet_projection.position.distance_to(district._origin) < 0.1,
+    "The district and Earth use the same surface projection")
+   verify(is_equal_approx(planet_projection.size.x, Roads.AREA.x * stopped_scale),
+    "Earth zooms with the district")
+   await hold(0.55)
+   verify(is_equal_approx(district._scale, stopped_scale),
+    "The district stops zooming without more wheel input")
    return
   await hold(0.28)
  verify(false, "Wheel enters the district")
@@ -72,10 +82,11 @@ func cross_to_globe(game: Control, local_point: Vector2) -> void:
  var pointer: Vector2 = district._origin + local_point * district._scale
  var starting_scale: float = district._scale
  wheel(district, pointer, false)
- await hold(0.17)
- verify(district.visible and district._scale < starting_scale, "Exit is animated")
+ await hold(0.20)
+ verify(district.visible and district._scale < starting_scale, "One reverse step zooms out on the surface")
  verify((district._origin + local_point * district._scale).distance_to(pointer) < 0.1,
   "The same feature stays anchored on exit")
+ wheel(district, pointer, false)
  await hold(0.38)
  verify(not district.visible, "Returns input to the globe")
  var projection: Rect2 = game.native_view.earth_district_projection()

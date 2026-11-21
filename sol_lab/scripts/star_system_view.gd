@@ -2050,6 +2050,16 @@ func earth_district_projection() -> Rect2:
     var earth := _body_by_id("earth")
     return _district_footprint(_body_position(earth, _orbit_scale()), _body_size(earth))
 
+func align_earth_district(projection: Rect2) -> void:
+    var earth := _body_by_id("earth")
+    var radius_at_one := _body_size_at_zoom(earth, 1.0)
+    var radius := projection.size.x / 0.44
+    var ratio := radius / radius_at_one
+    _zoom = ratio * ratio if ratio <= sqrt(32.0) else (
+        32.0 * pow(ratio / sqrt(32.0), 1.0 / 1.12))
+    return_to_earth_point(projection.get_center(), Vector2(0.5, 0.5))
+
+
 func return_to_earth_point(pointer: Vector2, fraction: Vector2) -> void:
     _focused_body_id = "earth"
     _focus_zoom_target = -1.0
@@ -2071,7 +2081,7 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
     _return_camera = false
     _focus_zoom_target = -1.0
     var prior_target: float = _wheel_target_zoom if _wheel_target_zoom > 0.0 else _zoom
-    _wheel_target_zoom = clampf(prior_target * multiplier, MIN_ZOOM, MAX_ZOOM)
+    _wheel_target_zoom = clampf(prior_target * multiplier, MIN_ZOOM, maxf(prior_target, MAX_ZOOM))
     _wheel_anchor = pointer
     if multiplier > 1.0 and _focused_body_id == "earth" and (
             _body_ids_by_location.has("earth-colony") and

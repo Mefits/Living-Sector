@@ -966,12 +966,13 @@ func _make_native_map() -> void:
     district.hide()
     district.bind_runtime(construction)
     district.return_requested.connect(_close_district)
+    district.surface_projection_changed.connect(native_view.align_earth_district)
     district.zoom_out_requested.connect(func(pointer: Vector2, fraction: Vector2):
         native_view.return_to_earth_point(pointer, fraction)
-        district.exit_to_projection(pointer, fraction, native_view.earth_district_projection()))
-    district.zoom_out_finished.connect(func():
+        district.cancel_camera()
         district.hide()
-        native_view.mouse_filter = Control.MOUSE_FILTER_STOP)
+        native_view.mouse_filter = Control.MOUSE_FILTER_STOP
+        native_view._zoom_at(pointer, 1.0 / native_view.WHEEL_ZOOM))
     district.facility_selected.connect(_native_facility_selected)
     district.site_selected.connect(_placement_chosen)
     district.selection_invalid.connect(func(reason: String):

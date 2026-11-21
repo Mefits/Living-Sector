@@ -2,7 +2,7 @@ extends Control
 ## Earth district presentation. Named site IDs remain the construction authority.
 signal return_requested
 signal zoom_out_requested(pointer: Vector2, fraction: Vector2)
-signal zoom_out_finished
+signal surface_projection_changed(projection: Rect2)
 signal facility_selected(id: String)
 signal site_selected(id: String)
 signal selection_invalid(reason: String)
@@ -16,6 +16,7 @@ const PORT_PATHS = ["res://earth_port/EarthPort.tscn",
  "res://sol_lab/earth_port/EarthPort.tscn"]
 const AREA = Roads.AREA
 const CLOSE_SCALE := 2.23
+const WHEEL_ZOOM := 1.32
 const EARTH = "earth"
 const Roads = preload("res://scripts/view/sol_district_roads.gd")
 const PLOTS = Roads.PLOTS
@@ -39,9 +40,9 @@ var _hint: Label
 var _traffic := Node2D.new()
 var _terrain := Node2D.new()
 var _chrome: Array[Control] = []
-var _handoff: Tween
+var _surface_scale := 0.0
+var _wheel_target := 1.0
 var _wheel_tween: Tween
-var _backdrop := 1.0
 var _drawn_plots: Dictionary = {}
 
 func _ready() -> void:
@@ -78,52 +79,44 @@ func _ready() -> void:
 func show_district(pointer := Vector2(-1, -1), projection := Rect2()) -> void:
  cancel_camera()
  _zoom = 1.0
+ _wheel_target = _zoom
  _pan = Vector2.ZERO
  show()
- _redraw_layout()
- if pointer.x < 0 or not projection.has_area():
-  return
- var fraction := (pointer - projection.position) / projection.size
- _animate_handoff(pointer, fraction * _world_size, projection.size.x / _world_size.x, false)
+ if pointer.x >= 0 and projection.has_area():
+  _surface_scale = projection.size.x / _world_size.x
+  _zoom = _surface_scale / _overview_scale()
+  _wheel_target = _zoom
+  var anchor := (pointer - projection.position) / _surface_scale
+  _set_zoom_at(pointer, anchor, _zoom)
+  _wheel_zoom(pointer, anchor, WHEEL_ZOOM)
+ else:
+  _redraw_layout()
 
 func camera_extent() -> Vector2:
  return _world_size
 
 func cancel_camera() -> void:
- if _handoff != null:
-  _handoff.kill()
-  _handoff = null
  if _wheel_tween != null:
   _wheel_tween.kill()
   _wheel_tween = null
- _backdrop = 1.0
- for item in _chrome:
-  item.modulate.a = 1.0
+ _surface_scale = 0.0
 
-func exit_to_projection(pointer: Vector2, fraction: Vector2, projection: Rect2) -> void:
- _animate_handoff(pointer, fraction * _world_size, projection.size.x / _world_size.x, true)
+func _minimum_zoom() -> float:
+ return _surface_scale / _overview_scale() if _surface_scale > 0.0 else 1.0
 
-func _animate_handoff(pointer: Vector2, anchor: Vector2, orbital_scale: float, exiting: bool) -> void:
- var local_scale := _overview_scale()
- _handoff = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
- var start := local_scale if exiting else orbital_scale
- var finish := orbital_scale if exiting else local_scale
- var project := func(fraction: float):
-  _scale = exp(lerpf(log(start), log(finish), fraction))
-  _origin = pointer - anchor * _scale
-  _backdrop = smoothstep(0.21, 0.75, 1.0 - fraction if exiting else fraction)
-  for item in _chrome:
-   item.modulate.a = _backdrop
-  _apply_projection()
- project.call(0.0)
- _handoff.tween_method(project, 0.0, 1.0, 0.48)
- _handoff.finished.connect(func():
-  _handoff = null
-  if exiting:
-   zoom_out_finished.emit()
-  else:
-   _pan = _origin - ((size - _world_size * _scale) * 0.5 + Vector2(0, 6))
-   _redraw_layout())
+func _set_zoom_at(pointer: Vector2, anchor: Vector2, value: float) -> void:
+ _zoom = value
+ var next_scale := _overview_scale() * value
+ _pan = pointer - anchor * next_scale - _centered_origin(next_scale)
+ _redraw_layout()
+
+func _wheel_zoom(pointer: Vector2, anchor: Vector2, multiplier: float) -> void:
+ _wheel_target = clampf(_wheel_target * multiplier, _minimum_zoom(),
+  CLOSE_SCALE / _overview_scale())
+ if _wheel_tween != null:
+  _wheel_tween.kill()
+ _wheel_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+ _wheel_tween.tween_method(func(value: float): _set_zoom_at(pointer, anchor, value), _zoom, _wheel_target, 0.16)
 
 func _overview_scale() -> float:
  var available := size - Vector2(10, 78)
@@ -291,9 +284,6 @@ func placement_reason(site: String) -> String:
  return ""
 
 func _gui_input(event: InputEvent) -> void:
- if _handoff != null:
-  accept_event()
-  return
  if event is InputEventMouseMotion:
   if _drag:
    _pan += event.relative
@@ -311,21 +301,12 @@ func _gui_input(event: InputEvent) -> void:
   match event.button_index:
    MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN:
     var world_point: Vector2 = (event.position - _origin) / _scale
-    if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and is_equal_approx(_zoom, 1.0) and not is_placing():
+    if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and is_equal_approx(_zoom, _minimum_zoom()) and not is_placing():
      zoom_out_requested.emit(event.position, world_point / _world_size)
      accept_event()
      return
-    var target := clampf(_zoom * (1.25 if event.button_index == MOUSE_BUTTON_WHEEL_UP else
-     1.0 / 1.25), 1.0, CLOSE_SCALE / _overview_scale())
-    var pointer: Vector2 = event.position
-    if _wheel_tween != null:
-     _wheel_tween.kill()
-    _wheel_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-    _wheel_tween.tween_method(func(value: float):
-     _zoom = value
-     var next_scale := _overview_scale() * value
-     _pan = pointer - world_point * next_scale - ((size - _world_size * next_scale) * 0.5 + Vector2(0, 6))
-     _redraw_layout(), _zoom, target, 0.19)
+    _wheel_zoom(event.position, world_point,
+     WHEEL_ZOOM if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / WHEEL_ZOOM)
     _hover = _plot_at(world_point)
    MOUSE_BUTTON_RIGHT:
     if _kind.is_empty():
@@ -349,21 +330,27 @@ func _gui_input(event: InputEvent) -> void:
   _redraw_layout()
  accept_event()
 
-func _redraw_layout() -> void:
- if _handoff != null:
-  return
- _scale = _overview_scale() * _zoom
- _origin = (size - _world_size * _scale) * 0.5 + _pan + Vector2(0, 6)
- _apply_projection()
+func _centered_origin(at_scale: float) -> Vector2:
+ return (size - _world_size * at_scale) * 0.5 + Vector2(0, 6)
 
-func _apply_projection() -> void:
+func _redraw_layout() -> void:
+ _scale = _overview_scale() * _zoom
+ _origin = _centered_origin(_scale) + _pan
  _layer.position = _origin
  _layer.scale = Vector2.ONE * _scale
+ var detail_alpha := 1.0
+ if _surface_scale > 0.0:
+  detail_alpha = smoothstep(1.0, WHEEL_ZOOM * WHEEL_ZOOM, _scale / _surface_scale)
+  surface_projection_changed.emit(Rect2(_origin, _world_size * _scale))
+ _layer.modulate.a = detail_alpha
+ for item in _chrome:
+  item.modulate.a = detail_alpha
  _traffic.queue_redraw()
  queue_redraw()
 
 func _draw() -> void:
- draw_rect(Rect2(Vector2.ZERO, size), Color(0.145, 0.184, 0.157, _backdrop))
+ if _surface_scale <= 0.0:
+  draw_rect(Rect2(Vector2.ZERO, size), Color("#252f28"))
 
 func _draw_district() -> void:
  Art.terrain(_terrain, _world_size)
