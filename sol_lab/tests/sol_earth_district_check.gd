@@ -48,6 +48,7 @@ func run() -> void:
   var earth: Dictionary = map._body_by_id("earth")
   wheel.position = map._district_footprint(map._body_position(earth, map._orbit_scale()), map._body_size(earth)).get_center()
   map._gui_input(wheel)
+  await create_timer(0.25).timeout
  await capture(12)
  check(district.visible and map.mouse_filter == Control.MOUSE_FILTER_IGNORE, "Approaching the focused Earth opens the district")
  await create_timer(0.52).timeout

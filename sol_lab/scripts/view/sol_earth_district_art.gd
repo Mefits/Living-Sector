@@ -9,12 +9,35 @@ const OCHRE = Color("#cd9b54")
 const DARK = Color("#303634")
 const YARD = Color("#797a68")
 
-static func terrain(c: CanvasItem, area: Vector2) -> void:
- c.draw_rect(Rect2(Vector2.ZERO, area), Color("#646b4c"))
- var bank := area.x - 26.0
- var wet := PackedVector2Array([Vector2(bank, 0), Vector2(area.x, 0),
-  area, Vector2(bank + 3, area.y), Vector2(bank - 9, 510), Vector2(bank + 5, 242)])
- c.draw_colored_polygon(wet, Color("#4c6457"))
+static func terrain(c: CanvasItem, area: Vector2, local: bool) -> void:
+ # Translucent patches around the streets sit directly on the globe colour.
+ # Their edges overlap freely and never describe the bounds of a plot map.
+ for patch in [
+  [Vector2(166, 170), Vector2(270, 225)],
+  [Vector2(487, 420), Vector2(290, 165)],
+  [Vector2(869, 249), Vector2(350, 224)],
+  [Vector2(1044, 695), Vector2(314, 260)],
+  [Vector2(277, 810), Vector2(359, 186)]]:
+  for ring in range(3):
+   var outline := PackedVector2Array()
+   for step in range(36):
+    var angle := TAU * step / 36.0
+    var uneven := 0.94 + sin(angle * 3.0 + patch[0].x) * 0.09 + cos(angle * 5.0) * 0.05
+    outline.append(patch[0] + Vector2.from_angle(angle) * patch[1] * uneven * (1.0 - ring * 0.15))
+   c.draw_colored_polygon(outline, Color(0.31, 0.37, 0.25, 0.13))
+ if local:
+  _ground_details(c, area)
+ for street in Roads.streets(area):
+  c.draw_line(street[0], street[1], Color("#8a8975"), 22)
+ for street in Roads.streets(area):
+  if local:
+   road(c, street[0], street[1])
+  else:
+   c.draw_line(street[0], street[1], Color("#444c48"), 16)
+ c.draw_line(Vector2(Roads.CONNECTOR, Roads.PORT_LANE),
+  Vector2(Roads.PORT.position.x, Roads.PORT_LANE), Color("#444c48"), 9)
+
+static func _ground_details(c: CanvasItem, area: Vector2) -> void:
  var rng := RandomNumberGenerator.new()
  rng.seed = 21018
  for i in range(2700):
@@ -29,12 +52,6 @@ static func terrain(c: CanvasItem, area: Vector2) -> void:
    var radius := rng.randf_range(2, 8)
    c.draw_circle(p + Vector2(3, 3), radius, Color("#434c36"))
    c.draw_circle(p, radius, Color("#536041").lerp(Color("#768157"), rng.randf()))
- for street in Roads.streets(area):
-  c.draw_line(street[0], street[1], Color("#8a8975"), 22)
- for street in Roads.streets(area):
-  road(c, street[0], street[1])
- c.draw_line(Vector2(Roads.CONNECTOR, Roads.PORT_LANE),
-  Vector2(Roads.PORT.position.x, Roads.PORT_LANE), Color("#444c48"), 9)
 
 static func road(c: CanvasItem, a: Vector2, b: Vector2) -> void:
  c.draw_line(a, b, Color("#444c48"), 16)

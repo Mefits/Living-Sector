@@ -829,18 +829,24 @@ func _make_native_map() -> void:
     district.hide()
     district.bind_runtime(construction)
     district.return_requested.connect(_close_district)
+    native_view.earth_plan = district.paint_plan
+    native_view.earth_plan_pins = district.plan_pins
+    district.projection_changed.connect(func(projection: Rect2):
+        if district.visible:
+            native_view.set_close_earth(projection))
     district.zoom_out_requested.connect(func(pointer: Vector2, fraction: Vector2):
         native_view.return_to_earth_point(pointer, fraction)
-        district.exit_to_projection(pointer, fraction, native_view.earth_district_projection()))
-    district.zoom_out_finished.connect(func():
         district.hide()
-        native_view.mouse_filter = Control.MOUSE_FILTER_STOP)
+        native_view.set_close_earth(Rect2())
+        native_view.mouse_filter = Control.MOUSE_FILTER_STOP
+        native_view._zoom_at(pointer, 1.0 / NativeStarSystemView.WHEEL_ZOOM))
     district.facility_selected.connect(_native_facility_selected)
     district.site_selected.connect(_placement_chosen)
     district.selection_invalid.connect(func(reason: String):
         browser.reject_placement(reason))
     district.placement_cancelled.connect(_cancel_placement)
     native_view.earth_district_requested.connect(_open_district)
+    _refresh_district()
 
 
 func _open_district(pointer := Vector2(-1, -1), projection := Rect2()) -> void:
@@ -851,7 +857,7 @@ func _open_district(pointer := Vector2(-1, -1), projection := Rect2()) -> void:
     native_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
     district.update_colony(world.get("facilities", []))
     native_view.district_extent = district.camera_extent()
-    district.show_district(pointer, projection)
+    district.show_district(pointer, projection if projection.has_area() else native_view.earth_district_projection())
     _dock_colony_stock()
     _refresh_district()
 
@@ -860,6 +866,7 @@ func _close_district() -> void:
     _cancel_placement()
     district.cancel_camera()
     district.hide()
+    native_view.set_close_earth(Rect2())
     native_view.mouse_filter = Control.MOUSE_FILTER_STOP
     _dock_colony_stock()
     native_view.show()
@@ -867,9 +874,8 @@ func _close_district() -> void:
 
 
 func _refresh_district() -> void:
-    if district.visible:
-        district.update_colony(world.get("facilities", []))
-        native_view.district_extent = district.camera_extent()
+    district.update_colony(world.get("facilities", []))
+    native_view.district_extent = district.camera_extent()
 
 
 func _dock_colony_stock() -> void:

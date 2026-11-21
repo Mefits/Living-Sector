@@ -62,7 +62,11 @@ func cross_to_district(game: Control, local_point: Vector2) -> void:
     verify((district._origin + Roads.AREA * fraction * district._scale).distance_to(pointer) < 0.1,
      "Zoom preserves the same local feature under the cursor")
     await hold(0.09)
-   await hold(0.08)
+   while district._scale < 0.65:
+    wheel(district, pointer, true)
+    await hold(0.25)
+    verify((district._origin + Roads.AREA * fraction * district._scale).distance_to(pointer) < 0.15,
+     "Every wheel step keeps its port or district point")
    return
   await hold(0.28)
  verify(false, "Wheel enters the district")
@@ -70,17 +74,18 @@ func cross_to_district(game: Control, local_point: Vector2) -> void:
 func cross_to_globe(game: Control, local_point: Vector2) -> void:
  var district = game.district
  var pointer: Vector2 = district._origin + local_point * district._scale
- var starting_scale: float = district._scale
- wheel(district, pointer, false)
- await hold(0.17)
- verify(district.visible and district._scale < starting_scale, "Exit is animated")
- verify((district._origin + local_point * district._scale).distance_to(pointer) < 0.1,
-  "The same feature stays anchored on exit")
- await hold(0.38)
- verify(not district.visible, "Returns input to the globe")
- var projection: Rect2 = game.native_view.earth_district_projection()
- verify((projection.position + projection.size * (local_point / Roads.AREA)).distance_to(pointer) < 1.5,
-  "Globe still shows that surface point at the pointer")
+ var globe = game.native_view
+ for step in range(16):
+  wheel(district, pointer, false)
+  await hold(0.25)
+  if not district.visible:
+   var projection: Rect2 = globe.earth_district_projection()
+   verify((projection.position + projection.size * (local_point / Roads.AREA)).distance_to(pointer) < 1.5,
+    "Globe still shows that surface point at the pointer")
+   return
+  verify((district._origin + local_point * district._scale).distance_to(pointer) < 0.15,
+   "The same feature stays anchored on each outward wheel step")
+ verify(false, "Returns input to the globe")
 
 func test_roads() -> void:
  for id in ["earth-mine-01", SITE, "earth-south-02", "earth-east-04"]:
@@ -115,9 +120,16 @@ func run() -> void:
  await hold(0.60)
  await cross_to_district(game, Vector2(899, 512))
  await cross_to_globe(game, Vector2(899, 512))
+ var blank: Vector2 = globe.earth_district_projection().get_center() + Vector2(100, 60)
+ for step in range(4):
+  wheel(globe, blank, true)
+  await hold(0.08)
+ verify(not district.visible, "Empty ground does not enter or recenter on the colony")
  globe.focus_body("earth")
  await hold(0.52)
- await cross_to_district(game, Roads.AREA * 0.5)
+ await cross_to_district(game, Vector2(1215, 654))
+ await cross_to_globe(game, Vector2(1215, 654))
+ game._open_district()
  game._open_build()
  game.browser.build_controls["mining_rig"].button.pressed.emit()
  var plot: Rect2 = Roads.PLOTS[SITE]
