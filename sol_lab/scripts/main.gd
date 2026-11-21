@@ -551,7 +551,7 @@ func _open_manual_freight(preferred_slot: int = 0) -> void:
         if not busy and (manual_ship.selected < 0 or manual_ship.is_item_disabled(manual_ship.selected) or slot == previous):
             manual_ship.select(index)
     _manual_ship_changed()
-    manual_freight_dialog.popup_centered(Vector2i(455, 445))
+    _popup_beside_colony(manual_freight_dialog, Vector2i(455, 445))
 
 
 func _manual_ship_slot() -> int:
@@ -658,7 +658,13 @@ func _open_freight_line() -> void:
                 fields.policy.select(index)
         fields.amount.value = leg.amount
         fields.reserve.value = leg.reserve
-    freight_line_dialog.popup_centered(Vector2i(750, 220))
+    _popup_beside_colony(freight_line_dialog, Vector2i(750, 220))
+
+func _popup_beside_colony(dialog: Window, extent: Vector2i) -> void:
+    var map_width: float = sidebar.position.x
+    dialog.popup(Rect2i(Vector2i(maxf(8, (map_width - extent.x) * 0.5),
+        maxf(46, (size.y - extent.y) * 0.5)), extent))
+
 
 func _apply_freight_line() -> void:
     var legs := {}
@@ -841,7 +847,6 @@ func _make_browser() -> void:
     browser.placement_confirmed.connect(_order_build)
     browser.placement_cancelled.connect(_cancel_placement)
     browser.cancel_requested.connect(_cancel_build)
-    browser.stock_requested.connect(_open_stock_from_browser)
     browser.save_game_requested.connect(_save_game)
     browser.load_game_requested.connect(_load_game)
     browser.new_game_requested.connect(_new_game)
@@ -850,11 +855,6 @@ func _make_browser() -> void:
 
 func _open_build() -> void:
     _open_browser(false)
-
-func _open_stock_from_browser() -> void:
-    _close_browser()
-    _show_selected()
-    colony_panel.open_stock()
 
 func _open_browser(admin: bool) -> void:
     browser.configure(world, config, selected, admin)

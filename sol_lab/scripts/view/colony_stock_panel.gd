@@ -1,5 +1,6 @@
 extends PanelContainer
 ## Compact, read-only view of a real colony market (never a second inventory).
+const Calendar = preload("res://scripts/sol_calendar.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
 const Icons = preload("res://scripts/view/sol_icon_atlas.gd")
 const ORDER: Array[String] = [
@@ -12,6 +13,7 @@ const EXTRA_LABELS: Dictionary = {
  "medical": "Медтовары", "luxury": "Роскошь"
 }
 var heading: Label
+var arrivals: VBoxContainer
 var columns: HBoxContainer
 var amount_labels: Dictionary = {}
 var _visible_keys: Array[String] = []
@@ -37,13 +39,20 @@ func _init() -> void:
  body.add_child(heading)
  columns = HBoxContainer.new()
  columns.add_theme_constant_override("separation", 12)
+ var legend := Label.new()
+ legend.text = "Доступно  /  изменение за 30 игр. дней"
+ legend.add_theme_font_size_override("font_size", 12)
+ body.add_child(legend)
  body.add_child(columns)
+ arrivals = VBoxContainer.new()
+ body.add_child(arrivals)
 
 func show_inventory(planet: String, warehouse: Dictionary) -> void:
  visible = bool(warehouse.get("present", false))
  if not visible:
   return
  heading.text = "Склад колонии · " + planet
+ _show_incoming(warehouse.get("incoming", []))
  var supply: Dictionary = warehouse.get("supply", {})
  var movement: Dictionary = warehouse.get("movement", {})
  var keys: Array[String] = []
@@ -90,6 +99,7 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
   if resource_icon != null:
    line.add_child(resource_icon)
   var resource_name := Label.new()
+  resource_name.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
   resource_name.text = str(EXTRA_LABELS.get(resource,
    Model.resource_label(resource)))
   resource_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -109,7 +119,7 @@ func _display_amount(label: Label, value: float, row: Dictionary) -> void:
  var incoming: float = row.get("in", 0.0)
  var spent: float = row.get("out", 0.0)
  var balance := incoming - spent
- label.text = "%s  %s%s" % [Model.batch_amount(value),
+ label.text = "%s / %s%s" % [Model.batch_amount(value),
   "+" if balance > 0 else "", Model.batch_amount(balance)]
  label.mouse_filter = Control.MOUSE_FILTER_STOP
  label.tooltip_text = "Доступно: %s
@@ -117,3 +127,22 @@ func _display_amount(label: Label, value: float, row: Dictionary) -> void:
 В резерве: %s" % [
   Model.batch_amount(value), Model.batch_amount(incoming), Model.batch_amount(spent),
   Model.batch_amount(row.get("reserved", 0.0))]
+
+
+func _show_incoming(incoming: Array) -> void:
+ while arrivals.get_child_count() > incoming.size():
+  var row := arrivals.get_child(-1)
+  arrivals.remove_child(row)
+  row.queue_free()
+ for index in incoming.size():
+  var shipment: Dictionary = incoming[index]
+  if index == arrivals.get_child_count():
+   var label := Label.new()
+   label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+   label.add_theme_font_size_override("font_size", 12)
+   label.add_theme_color_override("font_color", Color("#a9dbed"))
+   arrivals.add_child(label)
+  arrivals.get_child(index).text = "%s: +%s %s · борт %d%s" % [
+   "В пути" if is_finite(shipment.arrival) else "Погрузка",
+   Model.batch_amount(shipment.amount), Model.batch_unit(shipment.resource), shipment.ship,
+   " · " + Calendar.calendar_text(shipment.arrival) if is_finite(shipment.arrival) else ""]

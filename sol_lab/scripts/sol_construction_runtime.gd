@@ -1124,7 +1124,15 @@ func colony_inventory(body: String) -> Dictionary:
   if ship.get("location") == "loading" and ship.order.source == body:
    var row: Dictionary = movement.get_or_add(ship.order.resource, {"in": 0.0, "out": 0.0, "reserved": 0.0})
    row.reserved += ship.order.amount
- return {"present": true, "supply": (market["supply"] as Dictionary).duplicate(), "movement": movement}
+ var incoming: Array = []
+ for index in [1, 2]:
+  var ship := _freighter if index == 1 else _second
+  var cargo: Dictionary = ship.get("order", {})
+  if cargo.get("destination") == body and float(cargo.get("amount", 0)) > 0:
+   incoming.append({"ship": index, "resource": cargo.resource, "amount": cargo.amount,
+    "arrival": ship.get("arrival", INF)})
+ return {"present": true, "supply": (market["supply"] as Dictionary).duplicate(),
+  "movement": movement, "incoming": incoming}
 
 func _change_stock(body: String, resource: String, delta: float, when: float) -> void:
  if delta == 0:

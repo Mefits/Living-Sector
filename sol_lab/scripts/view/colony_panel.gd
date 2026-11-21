@@ -16,7 +16,6 @@ var dock_layout: VBoxContainer
 var heading: Label
 var population: Label
 var summary: Label
-var metal: Label
 var food_status: Label
 var details: Label
 var message: Label
@@ -30,7 +29,6 @@ var detail_title: Label
 var detail_description: Label
 var detail_icon: Control
 var overview: VBoxContainer
-var stock_view: VBoxContainer
 var logistics_view: VBoxContainer
 var logistics_title: Label
 var logistics_status: Label
@@ -53,6 +51,7 @@ func _ready() -> void:
  layout.add_theme_constant_override("separation", 7)
  add_child(layout)
  var header := HBoxContainer.new()
+ header.custom_minimum_size.y = 38
  layout.add_child(header)
  heading = _label(header, "Земля", 22, Color("#f0dfae"))
  heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -61,13 +60,6 @@ func _ready() -> void:
  summary = _label(layout, "", 13, Color("#a8c6d4"))
  summary.clip_text = true
  summary.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
- var metals_row := HBoxContainer.new()
- metals_row.add_theme_constant_override("separation", 5)
- layout.add_child(metals_row)
- var metal_icon: TextureRect = Icons.make_icon("metals", false, 20)
- if metal_icon != null:
-  metals_row.add_child(metal_icon)
- metal = _label(metals_row, "", 15, Color("#e6d59d"))
  # Long food/ration diagnostics must remain a wrapping full-width Label.
  # A nested HBox here can force a tall minimum panel on 1366x768.
  food_status = _label(layout, "", 13, Color("#bfd0d9"))
@@ -77,11 +69,11 @@ func _ready() -> void:
  navigation.add_theme_constant_override("separation", 5)
  layout.add_child(navigation)
  _button(navigation, "Строить", func(): build_requested.emit())
- _button(navigation, "Склад", open_stock)
  _button(navigation, "Построено", func(): _switch_page("overview"))
  _button(navigation, "Линия", func(): line_requested.emit())
 
  scroll = ScrollContainer.new()
+ scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
  scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
  scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  layout.add_child(scroll)
@@ -108,11 +100,9 @@ func _ready() -> void:
  built_list = VBoxContainer.new()
  built_list.add_theme_constant_override("separation", 3)
  overview.add_child(built_list)
- stock_view = VBoxContainer.new()
- content.add_child(stock_view)
  stock_panel = Stock.new()
- stock_view.add_child(stock_panel)
- stock_view.hide()
+ layout.add_child(stock_panel)
+ layout.move_child(stock_panel, 1)
  logistics_view = VBoxContainer.new()
  logistics_view.add_theme_constant_override("separation", 10)
  content.add_child(logistics_view)
@@ -161,7 +151,6 @@ func _button(parent: Node, text_value: String, callback: Callable) -> Button:
 func _switch_page(next_page: String) -> void:
  page = next_page
  overview.visible = page == "overview"
- stock_view.visible = page == "stock"
  logistics_view.visible = page == "logistics"
  scroll.scroll_vertical = 0
 
@@ -173,10 +162,6 @@ func clear_facility_selection() -> void:
 func select_overview() -> void:
  _switch_page("overview")
 
-func open_stock() -> void:
- if stock_panel.get_parent() == stock_view:
-  _switch_page("stock")
-
 func open_logistics() -> void:
  _switch_page("logistics")
 
@@ -184,12 +169,10 @@ func show_food(food: Dictionary) -> void:
  food_status.visible = not food.is_empty()
  if food.is_empty():
   return
- var text := "Еда: %s · расход %s / 30 дн. · запас ≈ %d дн." % [
-  Model.batch_amount(food.stock), Model.batch_amount(food.rate), food.days]
+ var text := "Расход еды: %s / 30 дн. · запас ≈ %d дн." % [
+  Model.batch_amount(food.rate), food.days]
  if not food.covered:
   text += "\nДефицит еды в текущем цикле"
- if food.has("incoming"):
-  text += "\nВ пути: +%d еды · %s" % [food.incoming, Calendar.calendar_text(food.arrival)]
  food_status.text = text
 
 func show_colony(next_body: String, name_ru: String,
@@ -204,10 +187,6 @@ func show_colony(next_body: String, name_ru: String,
  production_data = production
  heading.text = name_ru
  population.text = "%d жителей" % residents if bool(warehouse.get("present", false)) else "Без колонии"
- var supply: Dictionary = warehouse.get("supply", {})
- metal.text = ("Металл на складе: %s" %
-  Model.batch_amount(float(supply.get("metals", 0)))) if bool(
-  warehouse.get("present", false)) else "Нет местного склада"
  stock_panel.show_inventory(name_ru, warehouse)
  var site_line: String = "Строек нет"
  for site in current_sites:

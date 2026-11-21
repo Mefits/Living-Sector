@@ -54,7 +54,7 @@ func _run() -> void:
  _assert(int(game.construction.expedition.settlers.get("population_count", -1)) == 100, "population 100")
  _assert(_stock() == 2.0, "real lunar warehouse 2 metals")
  _assert(game.colony_stock_panel.visible, "stock panel exists for lunar colony")
- _assert(game.colony_panel.metal.text.contains("2"), "overview metal count visible")
+ _assert(game.colony_stock_panel.amount_labels["metals"].text.begins_with("2"), "overview metal count visible")
  _assert(game.colony_stock_panel.amount_labels["metals"].text.begins_with("2"),
   "Lunar display shows 2 metals")
  var build_button: Button = null
@@ -103,7 +103,7 @@ func _run() -> void:
  _assert(game.message_line.text.begins_with("Игра загружена"), "load accepted")
  _assert(_stock() == 0.0, "loading doesn't grant metal")
  _assert(game.construction.sites.size() == 2, "load keeps two sites")
- _assert(game.browser.colony_line.text.contains("металл 0"),
+ _assert(game.colony_stock_panel.amount_labels["metals"].text.begins_with("0 /"),
   "catalog retains warehouse balance after load")
  print("SOL_COLONY_REPRO_AFTER_ORDERS ", JSON.stringify({
   "selected": game.selected,

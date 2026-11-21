@@ -300,17 +300,9 @@ func _run() -> void:
  verify(game.browser.visible and game.browser.body_id == "luna" and
   game.browser.queue_panel != null,
   "Lunar AC opens existing construction and queue")
- var stock_button: Button = null
- for button in game.browser.find_children("*","Button",true,false):
-  if button.text == "Склад":
-   stock_button = button
-   break
- verify(stock_button != null, "AC construction has one-click stock")
- if stock_button != null:
-  stock_button.pressed.emit()
- verify(not game.browser.visible and
-  game.colony_stock_panel.is_visible_in_tree(),
-  "AC stock opens same existing colony stock panel")
+ verify(game.colony_stock_panel.is_visible_in_tree(),
+  "Stock stays visible in the construction catalogue")
+ game._close_browser()
  # Quick entry returns to SAME logistics panel used by port click.
  game._open_colony_logistics()
  verify(game.colony_panel.logistics_view.visible and

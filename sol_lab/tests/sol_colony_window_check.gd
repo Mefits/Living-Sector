@@ -82,7 +82,7 @@ func _layout(width: int, height: int, context: String) -> void:
  var side: Rect2 = game.sidebar.get_global_rect()
  var heading: Rect2 = game.colony_panel.heading.get_global_rect()
  var summary: Rect2 = game.colony_panel.summary.get_global_rect()
- var stock: Rect2 = game.colony_panel.metal.get_global_rect()
+ var stock: Rect2 = game.colony_stock_panel.get_global_rect()
  var view: Rect2 = game.colony_panel.scroll.get_global_rect()
  var last_controls: Rect2 = game.freight_line_buttons.get_global_rect()
  _check(side.position.x >= 0 and side.end.x <= logical_width + 1.0 and
@@ -100,7 +100,7 @@ func _layout(width: int, height: int, context: String) -> void:
   context + " list has usable scroll area")
  _check(game.colony_panel.heading.is_visible_in_tree(),
   context + " title visible")
- for caption in ["Строить", "Склад", "Построено", "Линия"]:
+ for caption in ["Строить", "Построено", "Линия"]:
   var found := false
   for node in game.colony_panel.find_children("*", "Button", true, false):
    if node.text != caption:
@@ -154,7 +154,7 @@ func _run() -> void:
  _check(game.construction.expedition.settlers.get("population_count") == 100,
   "100 lunar colonists")
  _check(_stock("luna", "metals") == 2.0 and
-  game.colony_panel.metal.text.contains("2"),
+  game.colony_stock_panel.amount_labels["metals"].text.begins_with("2"),
   "two real lunar metals visible without opening catalog")
  _menu(2)
  _menu(3)
@@ -163,7 +163,7 @@ func _run() -> void:
   "load immediately after landing preserves exact cargo and population")
  _press_button(game.colony_panel, "Строить")
  _check(game.browser.body_id == "luna" and
-  game.browser.colony_line.text.contains("металл 2"),
+  game.colony_stock_panel.amount_labels["metals"].text.begins_with("2 /"),
   "Lunar catalog shows actual two metals")
  _build("mining_rig")
  _check(_stock("luna", "metals") == 1.0, "mine debit 1")
@@ -187,7 +187,6 @@ func _run() -> void:
    (game.colony_panel.built_buttons[fid] as Button).pressed.emit()
    _check(game.colony_panel.selected_facility == fid and
     game.colony_panel.detail_title.visible, "built list opens " + fid)
- _press_button(game.colony_panel, "Склад")
  _check(game.colony_stock_panel.is_visible_in_tree() and
   game.colony_stock_panel.amount_labels["metals"].text.begins_with("0"),
   "full warehouse always visible")
@@ -199,20 +198,15 @@ func _run() -> void:
  _check(game.freight_line_dialog.visible,
   "regular line settings share the logistics panel")
  game.freight_line_dialog.hide()
- # Zoom to the real globe and click actual rendered facility pins.
- game.native_view.focus_body("luna")
- for i in range(80):
-  await process_frame
- var pins: Dictionary = {}
- for pin in game.native_view._facility_pins:
-  pins[str(pin["id"])] = pin["position"]
+ # Select built facilities from the current lunar surface view.
  for fid in expected:
-  _check(pins.has(fid), "globe shows clickable pin " + fid)
-  if not pins.has(fid):
-   continue
-  game.native_view._pick(pins[fid])
-  _check(game.colony_panel.selected_facility == fid,
-   "globe pin selects same card " + fid)
+  for site in game.district._facilities:
+   if game.district._facilities[site].id == fid:
+    var plot: Rect2 = game.district._plots[site]
+    game.district._click_at(game.district._origin + plot.get_center() * game.district._scale)
+    break
+  _check(game.colony_panel.selected_facility == fid and game.colony_stock_panel.visible,
+   "Surface selection keeps the lunar stock visible " + fid)
  # Build several enterprises on Earth from its real warehouse.
  _select("earth")
  _press_button(game.colony_panel, "Строить")

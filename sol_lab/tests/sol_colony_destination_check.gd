@@ -219,6 +219,10 @@ func second_colony(game: Control, first: String, target: String) -> void:
  assert(sim.expedition.ship.target == target and sim.colony_population(first) == 100)
  advance(game, eta)
  assert(sim.colony_population(first) == 100 and sim.colony_population(target) == 100)
+ game._native_body_selected({"id": "mars"})
+ assert(game.colony_stock_panel.visible and game.colony_stock_panel.heading.text.ends_with("Марс"))
+ game._native_body_selected({"id": target})
+
  assert(sim.expedition.ship.is_empty() and sim.colony_destination() == first)
  if target != "mars":
   return
