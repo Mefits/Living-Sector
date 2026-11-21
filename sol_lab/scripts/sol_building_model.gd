@@ -159,7 +159,7 @@ static func available(b: Dictionary, settings: Dictionary,
  var cost: int = int(settings.get(id, {}).get("metals", 1))
  if cost < 1 or stock(world, body) < cost:
   return false
- if body in ["earth", "luna"]:
+ if body in VISIBLE:
   return not SurfaceSites.free_sites(body, id, world.get(
    "facilities", [])).is_empty()
  return true

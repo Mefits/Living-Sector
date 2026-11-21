@@ -120,6 +120,8 @@ func run() -> void:
 
  select_body("luna")
  press(game.colony_button)
+ game.expedition_dialog.confirmed.emit()
+ game.expedition_dialog.hide()
  var landing: float = game.construction.expedition.ship.arrival
  advance(landing)
  var ration: Dictionary = food("luna")

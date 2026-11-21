@@ -29,6 +29,10 @@ var colony_button: Button
 var freight_button: Button
 var manual_freight_dialog: AcceptDialog
 var manual_ship: OptionButton
+var expedition_dialog: AcceptDialog
+var expedition_summary: Label
+var expedition_food: SpinBox
+var expedition_target := ""
 var yard_controls: VBoxContainer
 var yard_status: Label
 var yard_order: Button
@@ -169,7 +173,8 @@ func _build_ui() -> void:
     details = colony_panel.details
     message_line = colony_panel.message
     colony_button = colony_panel.colonize_button
-    colony_button.pressed.connect(_colonize_luna)
+    colony_button.pressed.connect(_open_expedition)
+    _build_expedition_dialog()
     freight_button = colony_panel.freight_button
     freight_button.hide()
     colony_panel.build_requested.connect(_open_build)
@@ -314,6 +319,8 @@ func _process(delta: float) -> void:
     if construction_ui_elapsed >= 0.5:
         construction_ui_elapsed = fmod(construction_ui_elapsed, 0.5)
         _refresh_yard()
+        if expedition_dialog != null and expedition_dialog.visible:
+            _refresh_expedition_preview()
         # No construction rows = nothing to animate. Open/close/order/
         # completion paths still refresh immediately as needed.
         if browser != null and browser.visible and (
@@ -327,11 +334,78 @@ func _process(delta: float) -> void:
     if frame_profiler.display_due():
         _update_performance_label()
 
+func _build_expedition_dialog() -> void:
+    expedition_dialog = AcceptDialog.new()
+    expedition_dialog.ok_button_text = "Отправить колонизатор"
+    expedition_dialog.add_cancel_button("Отмена")
+    add_child(expedition_dialog)
+    var form := VBoxContainer.new()
+    form.custom_minimum_size.x = 430
+    expedition_dialog.add_child(form)
+    expedition_summary = Label.new()
+    expedition_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    expedition_summary.custom_minimum_size.x = 430
+    form.add_child(expedition_summary)
+    var label := Label.new()
+    label.text = "Дополнительная еда с земного склада"
+    form.add_child(label)
+    expedition_food = SpinBox.new()
+    expedition_food.step = 1
+    form.add_child(expedition_food)
+    expedition_food.value_changed.connect(func(_amount: float): _refresh_expedition_preview())
+    expedition_dialog.confirmed.connect(func():
+        if construction.depart_colonizer(expedition_target, int(expedition_food.value)):
+            _update_native_map()
+            _show_selected()
+            _notice("Колонизатор отправился · " + Model.PLANET_NAMES[expedition_target])
+        else:
+            _notice("Отправка недоступна · проверьте земной запас еды"))
+
+func _open_expedition() -> void:
+    var plan: Dictionary = construction.expedition_preview(selected)
+    if plan.is_empty():
+        return
+    expedition_target = selected
+    expedition_dialog.title = "Экспедиция · " + Model.PLANET_NAMES[selected]
+    expedition_food.max_value = floorf(plan.earth_food)
+    expedition_food.set_value_no_signal(minf(plan.recommended, expedition_food.max_value))
+    _refresh_expedition_preview()
+    expedition_dialog.popup_centered(Vector2i(484, 340))
+
+func _refresh_expedition_preview() -> void:
+    var plan: Dictionary = construction.expedition_preview(expedition_target)
+    if plan.is_empty():
+        return
+    expedition_food.max_value = maxf(0.0, floorf(plan.earth_food))
+    var supplies: float = construction.expedition.STARTER_FOOD + expedition_food.value
+    var rate: float = construction.expedition.PASSENGERS * ConstructionRuntime.FOOD_PER_RESIDENT
+    var cycles := floorf(supplies / rate)
+    expedition_summary.text = (
+        "Поселенцы: %d · строительный металл: %d · еда: %s
+" +
+        "Полёт: %.1f дн. · местная шахта: %s руды за цикл
+" +
+        "Порт: %d дн. · первая доставка примерно через %.1f дн. после посадки
+" +
+        "Расход: %s еды за 30 дн. · первый дефицит на %.0f-й день после посадки
+" +
+        "Земной склад: %s → %s еды при отправке") % [
+        construction.expedition.PASSENGERS, construction.expedition.METALS,
+        Model.batch_amount(supplies), plan.flight_days, Model.batch_amount(plan.ore),
+        plan.port_days, plan.resupply_days, Model.batch_amount(rate),
+        (cycles + 1) * ConstructionRuntime.CYCLE_DAYS,
+        Model.batch_amount(plan.earth_food), Model.batch_amount(plan.earth_food - expedition_food.value)]
+    if expedition_food.value < plan.recommended:
+        expedition_summary.text += "
+До первой доставки возможен голод. Добавьте %d еды." % (
+            plan.recommended - int(expedition_food.value))
+
+# Legacy scenario helper. Player orders use the confirmation dialog.
 func _colonize_luna() -> void:
-    if selected == "luna" and construction.expedition.depart(native_time):
+    if selected == "luna" and construction.depart_colonizer("luna", 0):
         _update_native_map()
         _show_selected()
-        _notice("Колонизатор отправился к Луне")
+
 
 func _send_freighter(food: bool = false) -> void:
     if not construction.depart_freighter(selected, food):
@@ -341,7 +415,7 @@ func _send_freighter(food: bool = false) -> void:
     _notice("Грузовик отправлен")
 
 func _return_freighter() -> void:
-    if selected != "luna" or not construction.return_freighter():
+    if selected != construction.colony_destination() or not construction.return_freighter():
         return
     native_view.set_freight(construction.freight_status())
     _show_selected()
@@ -374,13 +448,6 @@ func _build_freight_line_controls(parent: Control) -> void:
     direction_label.text = "Маршрут"
     manual_form.add_child(direction_label)
     manual_destination = OptionButton.new()
-    for destination in ["luna", "earth"]:
-        var shipment: Dictionary = construction.freight_order(destination)
-        manual_destination.add_item("%s → %s" % [
-            Model.PLANET_NAMES[shipment.source],
-            Model.PLANET_NAMES[shipment.destination]])
-        manual_destination.set_item_metadata(
-            manual_destination.item_count - 1, destination)
     manual_form.add_child(manual_destination)
     manual_destination.item_selected.connect(_manual_route_changed)
     var commodity_label := Label.new()
@@ -451,10 +518,16 @@ func _build_freight_line_controls(parent: Control) -> void:
             policy.add_item(ConstructionRuntime.LOAD_POLICIES[key])
             policy.set_item_metadata(policy.item_count - 1, key)
         grid.add_child(policy)
-        freight_line_fields[destination] = {"policy": policy,"resource": resource, "amount": amount, "reserve": reserve}
+        freight_line_fields[destination] = {"direction": direction, "policy": policy,"resource": resource, "amount": amount, "reserve": reserve}
 
 func _open_manual_freight(preferred_slot: int = 0) -> void:
     manual_empty.button_pressed = false
+    manual_destination.clear()
+    for destination in [construction.colony_destination(), "earth"]:
+        var order: Dictionary = construction.freight_order(destination)
+        manual_destination.add_item("%s → %s" % [
+            Model.PLANET_NAMES[order.source], Model.PLANET_NAMES[destination]])
+        manual_destination.set_item_metadata(manual_destination.item_count - 1, destination)
     var previous := preferred_slot if preferred_slot > 0 else _manual_ship_slot()
     manual_ship.clear()
     for slot in [1, 2]:
@@ -471,7 +544,7 @@ func _open_manual_freight(preferred_slot: int = 0) -> void:
         if not busy and (manual_ship.selected < 0 or manual_ship.is_item_disabled(manual_ship.selected) or slot == previous):
             manual_ship.select(index)
     _manual_ship_changed()
-    manual_freight_dialog.popup_centered()
+    manual_freight_dialog.popup_centered(Vector2i(455, 445))
 
 
 func _manual_ship_slot() -> int:
@@ -480,7 +553,7 @@ func _manual_ship_slot() -> int:
 
 func _manual_ship_changed() -> void:
     var location: String = construction.freight_status(_manual_ship_slot()).get("location", "earth")
-    var wanted: String = "earth" if location == "luna" else "luna"
+    var wanted: String = "earth" if location == construction.colony_destination() else construction.colony_destination()
     for index in manual_destination.item_count:
         if str(manual_destination.get_item_metadata(index)) == wanted:
             manual_destination.select(index)
@@ -556,6 +629,9 @@ func _open_freight_line() -> void:
     for destination in freight_line_fields:
         var fields: Dictionary = freight_line_fields[destination]
         var leg: Dictionary = line.legs[destination]
+        var actual: String = "earth" if destination == "earth" else construction.colony_destination()
+        var order: Dictionary = construction.freight_order(actual)
+        fields.direction.text = "%s → %s" % [Model.PLANET_NAMES[order.source], Model.PLANET_NAMES[actual]]
         var resource: OptionButton = fields.resource
         for index in resource.item_count:
             if resource.get_item_metadata(index) == leg.resource:
@@ -566,7 +642,7 @@ func _open_freight_line() -> void:
                 fields.policy.select(index)
         fields.amount.value = leg.amount
         fields.reserve.value = leg.reserve
-    freight_line_dialog.popup_centered()
+    freight_line_dialog.popup_centered(Vector2i(750, 220))
 
 func _apply_freight_line() -> void:
     var legs := {}
@@ -601,18 +677,20 @@ func _show_selected() -> void:
             "Ресурсные коэффициенты:"
         ]
         var expedition = construction.expedition
-        colony_button.visible = selected == "luna" and expedition.ship.get("location") == "earth-colony"
-        if selected in ["earth", "luna"] and not expedition.ship.is_empty():
+        colony_button.visible = selected in expedition.TARGETS and expedition.ship.get("location") == "earth-colony"
+        if colony_button.visible:
+            colony_button.text = "Экспедиция · " + name_ru
+        if selected in Model.VISIBLE and not expedition.ship.is_empty():
             if expedition.ship.location == "transit":
-                items.insert(1, "Колонизатор → Луна · прибытие " + Calendar.calendar_text(expedition.ship.arrival))
+                items.insert(1, "Колонизатор → " + Model.PLANET_NAMES[expedition.ship.target] + " · прибытие " + Calendar.calendar_text(expedition.ship.arrival))
             else:
-                items.insert(1, "Колонизатор у Земли · выберите Луну")
-        elif selected == "luna" and not expedition.settlers.is_empty():
+                items.insert(1, "Колонизатор у Земли · выберите Луну или Марс")
+        elif selected == construction.colony_destination() and not expedition.settlers.is_empty():
             items.insert(1, "Население: %d" % int(expedition.settlers.population_count))
         var order: Dictionary = construction.freight_order(selected)
         var freight: Dictionary = construction.freight_status()
         freight_button.hide()
-        freight_line_buttons.visible = not order.is_empty()
+        freight_line_buttons.visible = not order.is_empty() and selected in ["earth", construction.colony_destination()]
         if freight_line_buttons.visible:
             var line: Dictionary = construction.freight_line()
             freight_line_toggle.text = "Отключить линию" if line.enabled else "Включить линию"
@@ -665,10 +743,13 @@ func _show_selected() -> void:
             batches[facility_id] = construction.production_details(facility_id)
         colony_panel.show_colony(selected, name_ru, population_count, warehouse, built,
             construction.sites, idle, line_status, native_time, batches)
+        if expedition.ship.get("location") == "transit" and expedition.ship.get("target") == selected:
+            colony_panel.summary.text = "Колонизатор в пути · " + Calendar.calendar_text(expedition.ship.arrival)
+            colony_panel.summary.tooltip_text = colony_panel.summary.text
         _refresh_yard()
         colony_panel.show_food(construction.colony_food(selected))
         colony_panel.show_logistics(construction.freight_line(),
-            freight, construction.freight_line_wait(), construction.freight_status(2))
+            freight, construction.freight_line_wait(), construction.freight_status(2), construction.colony_destination())
         if browser != null and browser.visible:
             browser.set_colony_summary(name_ru, population_count, warehouse)
         return
@@ -967,7 +1048,7 @@ func _activate_facility(facility_id: String) -> void:
         elif kind == "spaceport":
             colony_panel.show_logistics(construction.freight_line(),
                 construction.freight_status(),
-                construction.freight_line_wait(), construction.freight_status(2))
+                construction.freight_line_wait(), construction.freight_status(2), construction.colony_destination())
             colony_panel.open_logistics()
         return
 

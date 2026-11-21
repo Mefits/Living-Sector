@@ -244,8 +244,8 @@ func _run() -> void:
   "Ground port opens ONE shared logistics panel")
  var logistics: String = game.colony_panel.logistics_status.text
  verify(logistics.contains("Регулярная линия: включена") and
-  logistics.contains("Грузовик: в пути") and
-  logistics.contains("На борту: 10") and logistics.contains(
+  game.colony_panel.ship_rows[0].text.contains("В пути") and
+  game.colony_panel.ship_rows[0].text.contains("10") and logistics.contains(
   "Земля") and logistics.contains("Луна"),
   "Port shows line, direction, hold and truck status")
  verify(game.freight_line_buttons.is_ancestor_of(
@@ -304,7 +304,7 @@ func _run() -> void:
  # Quick entry returns to SAME logistics panel used by port click.
  game._open_colony_logistics()
  verify(game.colony_panel.logistics_view.visible and
-  game.colony_panel.logistics_status.text.contains("Грузовик"),
+  game.colony_panel.ship_rows[0].text.contains("Грузовик"),
   "Quick logistics and port click share an identical panel")
 
  game._save_game()

@@ -93,7 +93,7 @@ static func attach(facility: Dictionary, entry: Dictionary) -> void:
 ## nearest compatible still-free named site; pending sites retain their IDs.
 ## If the catalogue is exhausted, preserve the legacy coordinate unchanged.
 static func reconcile(facilities: Array, queue: Array = []) -> void:
- for body in ["earth", "luna"]:
+ for body in ["earth", "luna", "mars"]:
   var claimed: Dictionary = {}
   for raw in facilities:
    if not (raw is Dictionary) or str(raw.get("body", "")) != body:

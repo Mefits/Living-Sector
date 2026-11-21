@@ -367,7 +367,10 @@ func _run() -> void:
  game._open_manual_freight()
  check(game.manual_freight_dialog.visible,
   "one-off order opens after port built")
- game.manual_resource.select(1) # "food" follows "metals" on lunar legs
+ for index in game.manual_resource.item_count:
+  if game.manual_resource.get_item_metadata(index) == "food":
+   game.manual_resource.select(index)
+   break
  game.manual_amount.value = 5
  game._preview_manual_freight()
  check(game.manual_preview.text.contains("5") and

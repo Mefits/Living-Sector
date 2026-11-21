@@ -669,5 +669,232 @@
       ],
       "kind": "orbit"
     }
+  ],
+  "mars": [
+    {
+      "id": "mars-ac-01",
+      "label": "АЦ · северо-западный массив",
+      "at": [
+        -0.48,
+        -0.26
+      ],
+      "types": [
+        "administrative_center"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-port-01",
+      "label": "Космопорт · юго-восточное плато",
+      "at": [
+        0.32,
+        0.33
+      ],
+      "types": [
+        "spaceport"
+      ],
+      "kind": "ground",
+      "landing": {
+        "id": "mars-landing-01",
+        "at": [
+          0.66,
+          0.42
+        ],
+        "label": "Посадка · свободный участок"
+      },
+      "loading": {
+        "id": "mars-loading-01",
+        "at": [
+          0.52,
+          0.67
+        ],
+        "label": "Погрузка · свободный участок"
+      }
+    },
+    {
+      "id": "mars-mine-01",
+      "label": "Рудник · северный кратер",
+      "at": [
+        -0.1,
+        -0.55
+      ],
+      "types": [
+        "mining_rig"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-mine-02",
+      "label": "Рудник · восточный массив",
+      "at": [
+        0.54,
+        -0.32
+      ],
+      "types": [
+        "mining_rig"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-mine-03",
+      "label": "Рудник · юго-западный массив",
+      "at": [
+        -0.46,
+        0.25
+      ],
+      "types": [
+        "mining_rig"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-mine-04",
+      "label": "Рудник · центральное плато",
+      "at": [
+        0.02,
+        0.02
+      ],
+      "types": [
+        "mining_rig"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-industry-01",
+      "label": "Промзона · северо-восточное плато",
+      "at": [
+        0.25,
+        -0.64
+      ],
+      "types": [
+        "refinery",
+        "factory",
+        "power_plant"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-industry-02",
+      "label": "Промзона · западный склон",
+      "at": [
+        -0.7,
+        0
+      ],
+      "types": [
+        "refinery",
+        "factory",
+        "power_plant"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-industry-03",
+      "label": "Промзона · южный кратер",
+      "at": [
+        -0.18,
+        0.6
+      ],
+      "types": [
+        "refinery",
+        "factory",
+        "power_plant"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-industry-04",
+      "label": "Промзона · восточный склон",
+      "at": [
+        0.76,
+        -0.07
+      ],
+      "types": [
+        "refinery",
+        "factory",
+        "power_plant"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-common-01",
+      "label": "Резерв · северная равнина",
+      "at": [
+        -0.33,
+        -0.69
+      ],
+      "types": [
+        "farm",
+        "mining_rig",
+        "power_plant"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-common-02",
+      "label": "Резерв · западный хребет",
+      "at": [
+        -0.7,
+        -0.37
+      ],
+      "types": [
+        "farm",
+        "mining_rig",
+        "factory"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-common-03",
+      "label": "Резерв · экваториальное плато",
+      "at": [
+        -0.17,
+        0.27
+      ],
+      "types": [
+        "farm",
+        "mining_rig",
+        "refinery"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-common-04",
+      "label": "Резерв · южное плато",
+      "at": [
+        0.03,
+        0.71
+      ],
+      "types": [
+        "farm",
+        "power_plant"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "mars-orbit-01",
+      "label": "Орбитальная позиция · I",
+      "at": [
+        -1.2,
+        -0.4
+      ],
+      "types": [
+        "orbital_platform",
+        "shipyard"
+      ],
+      "kind": "orbit"
+    },
+    {
+      "id": "mars-orbit-02",
+      "label": "Орбитальная позиция · II",
+      "at": [
+        1.18,
+        -0.35
+      ],
+      "types": [
+        "orbital_platform",
+        "shipyard"
+      ],
+      "kind": "orbit"
+    }
   ]
 }

@@ -957,7 +957,7 @@ func _center() -> Vector2:
 func _visual_body_angle(body: Dictionary, now_usec: int) -> float:
     var current: float = float(body.get("current_angle", 0.0))
     var bid: String = str(body.get("id", ""))
-    if bid in ["earth", "luna"]:
+    if bid in ["earth", "luna", "mars"]:
         var period: float = body.get("satellite_orbit_period_native", body.get("orbit_period", 0.0))
         if period > 0.0:
             return current + 360.0 * (_display_native_time(now_usec) - _native_station_time) / period
@@ -1159,13 +1159,51 @@ func _project_flight(point: Vector2, orbit: Dictionary, time: float,
         Vector2(-screen_axis.y, screen_axis.x) * across)
 
 
+func _solar_screen_body(orbit: Dictionary, id: String, at: float) -> Vector2:
+    var body := _body_by_id(id)
+    var physical := LocalFlight.gate(orbit, id, at)
+    var radius := _radius_transform(float(body.orbit_radius)) * _orbit_scale() * _zoom
+    return _center() + physical.normalized() * radius
+
+func _solar_flight_position(path: Dictionary, at: float) -> Vector2:
+    var orbit: Dictionary = path.orbit
+    var source: String = path.source
+    var target: String = path.destination
+    var from := _solar_screen_body(orbit, source, at)
+    var toward := _solar_screen_body(orbit, target, at)
+    var heading := (toward - from).normalized()
+    var point := LocalFlight.position(path, at)
+    var progress := LocalFlight.progress(path, at)
+    var scale := from.distance_to(toward) / maxf(1.0,
+        LocalFlight.gate(orbit, source, at).distance_to(LocalFlight.gate(orbit, target, at)))
+    var from_offset := from + heading * (_body_size(_body_by_id(source)) * 1.07 + 5.0)
+    var to_offset := toward - heading * (_body_size(_body_by_id(target)) * 1.07 + 5.0)
+    from_offset -= LocalFlight.gate(orbit, source, at) * scale
+    to_offset -= LocalFlight.gate(orbit, target, at) * scale
+    return point * scale + from_offset.lerp(to_offset, progress)
+
 func _flight_pose(kind: String, ship: Dictionary, when_usec: int) -> Dictionary:
     if ship.is_empty():
         return {}
+    var path: Dictionary = ship.get("trajectory", {})
+    if path.get("orbit", {}).has("solar"):
+        var at := clampf(_display_native_time(when_usec), path.departure, path.arrival)
+        var position := _solar_flight_position(path, at)
+        var direction := (_solar_flight_position(path, minf(path.arrival, at + 0.1)) -
+            _solar_flight_position(path, maxf(path.departure, at - 0.1))).normalized()
+        return {"moving": true, "position": position, "direction": direction, "opacity": 1.0,
+            "glyph": 1.0, "route": path, "time": at, "progress": LocalFlight.progress(path, at),
+            "world_position": LocalFlight.position(path, at)}
+    if ship.get("location") == "mars":
+        var body := _body_by_id("mars")
+        var center := _body_position(body, _orbit_scale())
+        var earth := _body_position(_body_by_id("earth"), _orbit_scale())
+        var axis := (earth - center).normalized()
+        return {"moving": false, "position": center + axis * (_body_size(body) * 1.07 + 5.0),
+            "direction": axis, "opacity": 1.0, "glyph": 1.0}
     var frame := _flight_frame(kind)
     var screen_axis: Vector2 = frame.axis
     var lateral := Vector2(-screen_axis.y, screen_axis.x)
-    var path: Dictionary = ship.get("trajectory", {})
     if ship.get("location") != "transit":
         var dock_id: String = ship.location if kind != "colonizer" else "earth"
         if dock_id == "loading":
@@ -1245,12 +1283,15 @@ func _draw_flight(kind: String, ship: Dictionary) -> void:
     var position: Vector2 = pose["position"]
     if bool(pose["moving"]) and kind == _selected_flight_kind:
         var path: Dictionary = pose.route
-        var frame: Dictionary = pose.frame
         var line := PackedVector2Array()
         for index in range(25):
             var at := lerpf(path.departure, path.arrival, index / 24.0)
-            var axis: Vector2 = frame.axis.rotated(path.orbit.omega * (at - pose.time))
-            line.append(_project_flight(LocalFlight.position(path, at), path.orbit, at, frame, axis))
+            if path.orbit.has("solar"):
+                line.append(_solar_flight_position(path, at))
+            else:
+                var frame: Dictionary = pose.frame
+                var axis: Vector2 = frame.axis.rotated(path.orbit.omega * (at - pose.time))
+                line.append(_project_flight(LocalFlight.position(path, at), path.orbit, at, frame, axis))
         draw_polyline(line, Color("#8cbbce", 0.65), 1.5, true)
     var loaded: bool = float(ship.get("order", {}).get("amount", 0)) > 0
     _paint_flight_ship(kind, position, pose["direction"], pose.opacity, pose.glyph, loaded)

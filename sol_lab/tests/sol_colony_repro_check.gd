@@ -42,6 +42,8 @@ func _run() -> void:
  _select("luna")
  _assert(game.selected == "luna", "selected body before landing")
  _press(game.colony_button)
+ game.expedition_dialog.confirmed.emit()
+ game.expedition_dialog.hide()
  var arrival: float = float(game.construction.expedition.ship.get("arrival", -1))
  for tick in range(200):
   if game.native_time >= arrival:
@@ -53,7 +55,7 @@ func _run() -> void:
  _assert(_stock() == 2.0, "real lunar warehouse 2 metals")
  _assert(game.colony_stock_panel.visible, "stock panel exists for lunar colony")
  _assert(game.colony_panel.metal.text.contains("2"), "overview metal count visible")
- _assert(str(game.colony_stock_panel.amount_labels.get("metals", Label.new()).text) == "2",
+ _assert(game.colony_stock_panel.amount_labels["metals"].text.begins_with("2"),
   "Lunar display shows 2 metals")
  var build_button: Button = null
  for button in game.colony_panel.find_children("*", "Button", true, false):

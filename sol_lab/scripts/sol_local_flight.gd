@@ -24,9 +24,9 @@ static func geometry(world: Dictionary) -> Dictionary:
   "luna": (native_radius - Profile.compact_station_orbit_radius("luna")) * km_per_unit}
 
 static func make(world: Dictionary, kind: String, source: String,
-        departure: float, saved_arrival: float = -1.0) -> Dictionary:
- var orbit := geometry(world)
- var target := "luna" if source == "earth" else "earth"
+        departure: float, saved_arrival: float = -1.0, destination := "") -> Dictionary:
+ var target := destination if not destination.is_empty() else ("luna" if source == "earth" else "earth")
+ var orbit := solar_geometry(world) if "mars" in [source, target] else geometry(world)
  var arrival := saved_arrival
  if arrival < 0.0:
   var native_day := Calendar.days_to_native(1.0)
@@ -34,7 +34,7 @@ static func make(world: Dictionary, kind: String, source: String,
   # A cubic's acceleration is affine in time, so its maximum magnitude
   # is at one of the two ends. Solve against the future moving gate.
   var low := 0.0
-  var high := sqrt(6.0 * (float(orbit.luna) - float(orbit.earth)) / limit)
+  var high := sqrt(6.0 * gate(orbit, source, departure).distance_to(gate(orbit, target, departure)) / limit)
   while _peak_acceleration(_curve(orbit, source, target, departure, high), high) > limit:
    high *= 1.5
   for i in range(24):
@@ -54,7 +54,7 @@ static func make(world: Dictionary, kind: String, source: String,
  # Only legacy deadlines require special handling: the older 12-day
  # flight can sweep over half the orbit with edited periods. A radial
  # transfer in the rotating frame keeps such saved runs outside the bodies.
- path.legacy = is_equal_approx(arrival - departure, Calendar.days_to_native(LEGACY_DAYS))
+ path.legacy = not orbit.has("solar") and is_equal_approx(arrival - departure, Calendar.days_to_native(LEGACY_DAYS))
  return path
 
 static func _peak_acceleration(curve: Dictionary, duration: float) -> float:
@@ -65,14 +65,30 @@ static func _curve(orbit: Dictionary, source: String, target: String,
         departure: float, duration: float) -> Dictionary:
  var p: Vector2 = gate(orbit, source, departure)
  var q: Vector2 = gate(orbit, target, departure + duration)
- var v: Vector2 = tangent(p, orbit.omega) * duration
- var w: Vector2 = tangent(q, orbit.omega) * duration
+ var v: Vector2 = tangent(p, _omega(orbit, source)) * duration
+ var w: Vector2 = tangent(q, _omega(orbit, target)) * duration
  return {"p": p, "a": 2.0 * (p - q) + v + w, "b": 3.0 * (q - p) - 2.0 * v - w, "c": v}
 
 static func axis(orbit: Dictionary, time: float) -> Vector2:
  return Vector2.RIGHT.rotated(float(orbit.angle) + float(orbit.omega) * time)
 
+static func solar_geometry(world: Dictionary) -> Dictionary:
+ var orbits: Dictionary = {}
+ for body in world.get("bodies", []):
+  if body.get("id") in ["earth", "mars"]:
+   orbits[body.id] = {
+    "radius": float(body.orbit_radius) * Profile.KM_PER_AU / Profile.SOL_UNITS_PER_AU,
+    "angle": -deg_to_rad(float(body.get("current_angle", 0.0))),
+    "omega": -TAU / float(body.orbit_period)}
+ return {"solar": orbits}
+
+static func _omega(orbit: Dictionary, body: String) -> float:
+ return orbit.solar[body].omega if orbit.has("solar") else orbit.omega
+
 static func gate(orbit: Dictionary, body: String, time: float) -> Vector2:
+ if orbit.has("solar"):
+  var track: Dictionary = orbit.solar[body]
+  return Vector2.RIGHT.rotated(track.angle + track.omega * time) * float(track.radius)
  return axis(orbit, time) * float(orbit[body])
 
 static func tangent(point: Vector2, omega: float) -> Vector2:
@@ -100,7 +116,7 @@ static func velocity(path: Dictionary, time: float) -> Vector2:
   var radial: float = (path.orbit[path.destination] - path.orbit[path.source]) * 6.0 * u * (1.0 - u)
   return tangent(position(path, at), path.orbit.omega) + axis(path.orbit, at) * radial / duration
  if u >= 1.0:
-  return tangent(gate(path.orbit, path.destination, path.arrival), path.orbit.omega)
+  return tangent(gate(path.orbit, path.destination, path.arrival), _omega(path.orbit, path.destination))
  return ((3.0 * path.a * u + 2.0 * path.b) * u + path.c) / duration
 
 static func valid_times(ship: Dictionary, now: float) -> bool:

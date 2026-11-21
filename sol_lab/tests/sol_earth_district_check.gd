@@ -159,6 +159,8 @@ func unload_in_district(game: Control) -> void:
  var sim = game.construction
  game._native_body_selected({"id": "luna"})
  game.colony_button.pressed.emit()
+ game.expedition_dialog.confirmed.emit()
+ game.expedition_dialog.hide()
  advance(game, sim.expedition.ship.arrival)
  game._open_build()
  for kind in ["mining_rig", "spaceport"]:
