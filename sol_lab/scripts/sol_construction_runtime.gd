@@ -9,7 +9,8 @@ const SurfaceSites = preload("res://scripts/view/sol_surface_sites.gd")
 const Flight = preload("res://scripts/sol_local_flight.gd")
 
 const Roads = preload("res://scripts/view/sol_district_roads.gd")
-const VERSION: int = 9
+const VERSION: int = 10
+const COLONIZER_DAYS := 60
 const SHIP_METALS := 80
 const SHIP_DAYS := 30
 const EPSILON_NATIVE := 0.000001
@@ -104,7 +105,7 @@ func colony_destination() -> String:
  return expedition.ship.get("target", "luna")
 
 func expedition_preview(target: String) -> Dictionary:
- if target not in expedition.TARGETS or expedition.ship.get("location") != "earth-colony":
+ if target not in expedition.TARGETS or expedition.colonies.has(target) or expedition.ship.get("location") != "earth-colony":
   return {}
  var flight := Flight.make(world, "colonizer", "earth", now_native, -1.0, target)
  var port := Model.find_building("spaceport")
@@ -127,8 +128,8 @@ func depart_colonizer(target: String, extra_food: int) -> bool:
  _change_stock("earth", "food", -extra_food, now_native)
  return true
 
-func freight_order(destination: String) -> Dictionary:
- var remote := colony_destination()
+func freight_order(destination: String, source := "") -> Dictionary:
+ var remote := source if source in expedition.TARGETS else colony_destination()
  if destination == "earth":
   return {"source": remote, "destination": "earth", "resource": "ore", "amount": 10}
  if destination in expedition.TARGETS:
@@ -192,7 +193,7 @@ func manual_freight_reason(destination: String,
  if not is_finite(amount) or not is_equal_approx(amount, snappedf(amount, 0.01)) or (
      amount < 0 or amount > FREIGHT_CAPACITY):
   return "Количество должно быть от 0 до %d" % FREIGHT_CAPACITY
- var shipment: Dictionary = freight_order(destination)
+ var shipment: Dictionary = freight_order(destination, freight_status(slot).get("location", ""))
  shipment["resource"] = resource
  shipment["amount"] = amount
  return _shipment_block_reason(shipment, 0, slot)
@@ -201,7 +202,7 @@ func depart_manual_freight(destination: String,
         resource: String, amount: float, slot: int = 1) -> bool:
  if not manual_freight_reason(destination, resource, amount, slot).is_empty():
   return false
- var shipment: Dictionary = freight_order(destination)
+ var shipment: Dictionary = freight_order(destination, freight_status(slot).get("location", ""))
  shipment["resource"] = resource
  shipment["amount"] = amount
  _launch_freighter(shipment, slot)
@@ -290,7 +291,10 @@ static func _whole_number(value: Variant) -> bool:
 
 func _next_line_order() -> Dictionary:
  var destination := "earth" if _freighter.location != "earth" else colony_destination()
- var shipment := freight_order(destination)
+ var shipment := freight_order(destination, _freighter.location)
+ if destination == "earth" and shipment.source != colony_destination():
+  shipment.amount = 0
+  return shipment
  var leg: Dictionary = _line_legs["earth" if destination == "earth" else "luna"]
  shipment.resource = leg.resource
  shipment.amount = leg.amount
@@ -304,7 +308,8 @@ func _next_line_order() -> Dictionary:
 
 func _line_block_reason(shipment: Dictionary) -> String:
  var leg: Dictionary = _line_legs["earth" if shipment.destination == "earth" else "luna"]
- var empty: bool = leg.get("policy", "full") == "empty"
+ var empty: bool = leg.get("policy", "full") == "empty" or (
+  shipment.destination == "earth" and shipment.source != colony_destination())
  var reason := _shipment_block_reason(shipment, 0.0 if empty else float(leg.reserve))
  if reason.is_empty() and not empty and shipment.amount <= 0:
   return "Нет груза сверх резерва"
@@ -359,7 +364,15 @@ func _land_freighter(slot: int) -> void:
  ship.location = shipment.destination
 
 func order_second_freighter(yard: String) -> bool:
- if not _second.is_empty() or not ship_order.is_empty():
+ return order_ship(yard, "freighter")
+
+func can_build_colonizer() -> bool:
+ return expedition.ship.is_empty() and expedition.colonies.size() == 1
+
+func order_ship(yard: String, kind: String) -> bool:
+ if kind not in ["freighter", "colonizer"] or not ship_order.is_empty():
+  return false
+ if (kind == "freighter" and not _second.is_empty()) or (kind == "colonizer" and not can_build_colonizer()):
   return false
  if not _earth_yard(world.facilities, yard):
   return false
@@ -367,8 +380,8 @@ func order_second_freighter(yard: String) -> bool:
  if float(stock.get("metals", 0)) < SHIP_METALS:
   return false
  _change_stock("earth", "metals", -SHIP_METALS, now_native)
- ship_order = {"yard": yard, "start_native": now_native,
-  "finish_native": now_native + Calendar.days_to_native(SHIP_DAYS)}
+ ship_order = {"yard": yard, "kind": kind, "start_native": now_native,
+  "finish_native": now_native + Calendar.days_to_native(COLONIZER_DAYS if kind == "colonizer" else SHIP_DAYS)}
  return true
 
 func cancel_second_freighter(yard: String) -> bool:
@@ -404,22 +417,20 @@ func _migrate_freighter(version: int, saved: Variant) -> Variant:
      "departure": saved.get("departure"), "arrival": saved.get("arrival")}
  return null
 
-func _valid_freighter(saved: Variant, facilities: Array, colony: String, time: float) -> bool:
+func _valid_freighter(saved: Variant, facilities: Array, colonies: Array, time: float) -> bool:
  if not saved is Dictionary:
   return false
  if _starting_freighter().is_empty():
   return saved.is_empty()
  if saved.get("location") == "earth":
   return not saved.has("order")
- if colony.is_empty() or not _has_spaceport(facilities, colony):
-  return false
- if saved.get("location") == colony:
-  return not saved.has("order")
+ if saved.get("location") in colonies:
+  return not saved.has("order") and _has_spaceport(facilities, saved.location)
  if saved.get("location") == "loading":
   var cargo: Variant = saved.get("order")
   return cargo is Dictionary and cargo.get("source") == "earth" and (
-   cargo.get("destination") == colony and cargo.get("resource") == "ore" and
-   _valid_cargo(cargo, colony) and _has_spaceport(facilities, "earth") and
+   cargo.get("destination") in colonies and cargo.get("resource") == "ore" and
+   _has_spaceport(facilities, cargo.destination) and _valid_cargo(cargo, cargo.destination) and _has_spaceport(facilities, "earth") and
    _finite_number(saved.get("load_started")) and _finite_number(saved.get("load_due")) and
    saved.load_started <= time and saved.load_due > time and
    is_equal_approx(saved.load_due - saved.load_started, 3.25))
@@ -429,9 +440,12 @@ func _valid_freighter(saved: Variant, facilities: Array, colony: String, time: f
  if not shipment is Dictionary:
   return false
  var destination: String = str(shipment.get("destination", ""))
- var expected_source := colony if destination == "earth" else ("earth" if destination == colony else "")
+ var origin: String = shipment.get("source", "")
+ var remote := origin if destination == "earth" else destination
+ var valid_route := remote in colonies and _has_spaceport(facilities, remote) and (
+  destination == "earth" or origin == "earth")
  var empty_trip: bool = shipment.get("resource") in FREIGHT_RESOURCES.get(shipment.get("destination"), []) and shipment.get("amount") == 0
- if expected_source.is_empty() or shipment.get("source") != expected_source or (
+ if not valid_route or (
      not empty_trip and not _valid_cargo(shipment, destination)):
   return false
  return Flight.valid_times(saved, time)
@@ -604,7 +618,7 @@ func advance_to(new_native: float) -> Array:
   var landed_at := float(expedition.ship.arrival)
   if expedition.land_if_due(world, now_native, _colony_owner("earth")):
    _register_meals(world.facilities.back(), landed_at)
-   completed.append("Основана колония · " + Model.PLANET_NAMES[colony_destination()])
+   completed.append("Основана колония · " + Model.PLANET_NAMES[world.facilities.back().body])
  var remaining: Array = []
  for site in sites:
   if now_native + EPSILON_NATIVE < float(site["finish_native"]):
@@ -617,9 +631,13 @@ func advance_to(new_native: float) -> Array:
    remaining.append(site)
  sites = remaining
  if not ship_order.is_empty() and now_native + EPSILON_NATIVE >= float(ship_order.finish_native):
+  if ship_order.get("kind") == "colonizer":
+   expedition.prepare_ship()
+   completed.append("Колонизатор готов у Земли")
+  else:
+   _second = {"location": "earth"}
+   completed.append("Грузовик 2 готов")
   ship_order = {}
-  _second = {"location": "earth"}
-  completed.append("Грузовик 2 готов")
  _advance_production(completed)
  var history_size := stock_history.size()
  stock_history = stock_history.filter(func(entry): return (
@@ -691,21 +709,22 @@ func restore(data: Dictionary) -> bool:
  if not (input_sites is Array) or not (input_facilities is Array) or (
      not (input_markets is Array)):
   return false
- var colony := ""
+ var colonies: Array = []
  for item in input_markets:
   if item is Dictionary and item.get("facility_id") in ["luna-colony", "mars-colony"]:
-   if not colony.is_empty():
+   var body := str(item.facility_id).trim_suffix("-colony")
+   if body in colonies:
     return false
-   colony = str(item.facility_id).trim_suffix("-colony")
+   colonies.append(body)
  var manifest: Variant = data.get("expedition", initial_manifest)
- if not expedition.validate(manifest, colony, float(t)):
+ if not expedition.validate(manifest, colonies, float(t)):
   return false
  if version >= 5 and not manifest.ship.is_empty():
   var food: Variant = manifest.ship.get("food")
   if not _whole_number(food) or food < expedition.STARTER_FOOD or (
    manifest.ship.get("location") == "earth-colony" and food != expedition.STARTER_FOOD):
    return false
- if input_markets.size() != initial_markets + int(not colony.is_empty()):
+ if input_markets.size() != initial_markets + colonies.size():
   return false
  var all_ids: Dictionary = {}
  var site_ids: Dictionary = {}
@@ -748,7 +767,7 @@ func restore(data: Dictionary) -> bool:
   all_ids[id] = f
  for target in expedition.TARGETS:
   var ac: Dictionary = all_ids.get("facility-%s-ac" % target, {})
-  if (not ac.is_empty()) != (target == colony):
+  if (not ac.is_empty()) != (target in colonies):
    return false
   if not ac.is_empty() and (ac.get("body") != target or ac.get("location") != target + "-colony"):
    return false
@@ -787,7 +806,7 @@ func restore(data: Dictionary) -> bool:
   if int(m["supply"].get("metals", -1)) < 0:
    return false
  var restored_freighter: Variant = _migrate_freighter(version, data.get("freighter"))
- if not _valid_freighter(restored_freighter, input_facilities, colony, float(t)):
+ if not _valid_freighter(restored_freighter, input_facilities, colonies, float(t)):
   return false
  var restored_line: Variant = data.get("freight_line") if version >= 4 else (
   {"enabled": false, "legs": _default_line_legs()})
@@ -798,16 +817,20 @@ func restore(data: Dictionary) -> bool:
  var saved_order: Variant = data.get("ship_order", {}) if version >= 7 else {}
  if not saved_second is Dictionary or not saved_order is Dictionary:
   return false
- if not saved_second.is_empty() and not _valid_freighter(saved_second, input_facilities, colony, float(t)):
+ if not saved_second.is_empty() and not _valid_freighter(saved_second, input_facilities, colonies, float(t)):
   return false
  if not saved_order.is_empty():
   var start: Variant = saved_order.get("start_native")
   var finish: Variant = saved_order.get("finish_native")
-  if not saved_second.is_empty() or not _earth_yard(input_facilities, str(saved_order.get("yard", ""))):
+  var kind: String = saved_order.get("kind", "freighter")
+  if kind not in ["freighter", "colonizer"] or (kind == "freighter" and not saved_second.is_empty()) or (
+    kind == "colonizer" and (colonies.size() != 1 or not manifest.ship.is_empty())):
+   return false
+  if not _earth_yard(input_facilities, str(saved_order.get("yard", ""))):
    return false
   if not (start is int or start is float) or not (finish is int or finish is float):
    return false
-  if start < 0 or start > t or finish <= t or not is_equal_approx(finish - start, Calendar.days_to_native(SHIP_DAYS)):
+  if start < 0 or start > t or finish <= t or not is_equal_approx(finish - start, Calendar.days_to_native(COLONIZER_DAYS if kind == "colonizer" else SHIP_DAYS)):
    return false
  var road_jobs: Variant = data.get("ground_ore", [])
  var history: Variant = data.get("stock_history", [])
@@ -836,7 +859,7 @@ func restore(data: Dictionary) -> bool:
  _ensure_earth_spaceport(world.facilities)
  SurfaceSites.reconcile(world["facilities"], input_sites)
  world["markets"] = input_markets.duplicate(true)
- if version < 5 and colony == "luna":
+ if version < 5 and "luna" in colonies:
   var supply: Dictionary = _market_for("luna").supply
   supply.food = float(supply.get("food", 0)) + expedition.STARTER_FOOD
  _freighter = _restore_flight(restored_freighter)

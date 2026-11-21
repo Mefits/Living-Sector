@@ -9,18 +9,23 @@ const METALS := 2
 const STARTER_FOOD := 10
 var ship: Dictionary = {}
 var settlers: Dictionary = {}
+var colonies: Dictionary = {}
 var _world: Dictionary = {}
 
 func reset(world: Dictionary) -> void:
  _world = world
  settlers = {}
+ colonies = {}
  ship = {}
  if world.get("system", {}).get("id", "") == "system-sol":
-  ship = {"id":"sol-colonizer-1", "location":"earth-colony",
-   "population":PASSENGERS, "metals":METALS, "food":STARTER_FOOD}
+  prepare_ship()
+
+func prepare_ship() -> void:
+ ship = {"id":"sol-colonizer-%d" % (colonies.size() + 1), "location":"earth-colony",
+  "population":PASSENGERS, "metals":METALS, "food":STARTER_FOOD}
 
 func depart(now: float, target := "luna", extra_food := 0) -> bool:
- if ship.get("location", "") != "earth-colony" or target not in TARGETS or extra_food < 0:
+ if ship.get("location", "") != "earth-colony" or target not in TARGETS or colonies.has(target) or extra_food < 0:
   return false
  ship.location = "transit"
  ship["target"] = target
@@ -42,32 +47,53 @@ func land_if_due(world: Dictionary, now: float, owner: String) -> bool:
  world.facilities.append(ac)
  world.markets.append({"id":"market-" + port, "facility_id":port,
   "supply":{"metals":ship.metals, "food":ship.food}})
- settlers = {"label":"Residents " + port, "facility_id":port,
+ var population := {"label":"Residents " + port, "facility_id":port,
   "demographic":"workers", "population_count":ship.population, "faction_id":owner}
- world.populations.append(settlers)
+ colonies[target] = population
+ if settlers.is_empty():
+  settlers = population
+ world.populations.append(population)
  ship = {}
  return true
 
 func snapshot() -> Dictionary:
  var saved := ship.duplicate()
  saved.erase("trajectory")
- return {"ship":saved, "settlers":settlers.duplicate()}
+ return {"ship":saved, "settlers":settlers.duplicate(), "colonies":colonies.duplicate(true)}
 
-func validate(data: Variant, colony: String, now: float) -> bool:
+func saved_colonies(data: Dictionary) -> Dictionary:
+ if data.get("colonies") is Dictionary:
+  return data.colonies
+ var prior: Dictionary = data.get("settlers", {})
+ if prior.is_empty():
+  return {}
+ return {str(prior.get("facility_id", "")).trim_suffix("-colony"): prior}
+
+func validate(data: Variant, worlds: Array, now: float) -> bool:
  if not data is Dictionary or not data.get("ship") is Dictionary or not data.get("settlers") is Dictionary:
   return false
+ var records := saved_colonies(data)
+ if records.size() != worlds.size():
+  return false
+ for body in worlds:
+  var population: Variant = records.get(body, {})
+  if not population is Dictionary or population.get("facility_id") != body + "-colony" or population.get("population_count") != PASSENGERS:
+   return false
+ if not records.is_empty():
+  var first := str(data.settlers.get("facility_id", "")).trim_suffix("-colony")
+  if records.get(first) != data.settlers:
+   return false
+ elif not data.settlers.is_empty():
+  return false
  var saved: Dictionary = data.ship
- if not colony.is_empty():
-  return saved.is_empty() and data.settlers.get("facility_id") == colony + "-colony" and data.settlers.get("population_count") == PASSENGERS
  if saved.is_empty():
-  return _world.get("system", {}).get("id") != "system-sol" and data.settlers.is_empty()
- if not data.settlers.is_empty() or saved.get("population") != PASSENGERS or saved.get("metals") != METALS:
+  return not worlds.is_empty() or _world.get("system", {}).get("id") != "system-sol"
+ if worlds.size() == TARGETS.size() or saved.get("population") != PASSENGERS or saved.get("metals") != METALS:
   return false
  if saved.get("location") == "earth-colony":
   return true
- if saved.get("location") != "transit":
-  return false
- return saved.get("target", "luna") in TARGETS and Flight.valid_times(saved, now)
+ var target: String = saved.get("target", "luna")
+ return saved.get("location") == "transit" and target in TARGETS and target not in worlds and Flight.valid_times(saved, now)
 
 func restore(world: Dictionary, data: Dictionary) -> void:
  var residents: Array = world.get("populations", [])
@@ -79,5 +105,6 @@ func restore(world: Dictionary, data: Dictionary) -> void:
   ship["target"] = ship.get("target", "luna")
   ship.trajectory = Flight.make(world, "colonizer", "earth", ship.departure, ship.arrival, ship.target)
  settlers = data.settlers.duplicate()
- if not settlers.is_empty():
-  residents.append(settlers)
+ colonies = saved_colonies(data).duplicate(true)
+ for population in colonies.values():
+  residents.append(population)
