@@ -2,7 +2,7 @@ extends Control
 
 const Runtime = preload("res://scripts/sector_runtime.gd")
 const Model = preload("res://scripts/sol_building_model.gd")
-const SHIP = preload("res://sol_lab/earth_port/assets/container.png")
+const ShipArt = preload("res://sol_lab/earth_port/ship_art.gd")
 const SAVE := "user://sol_sector_v1.json"
 const GOLD := Color("#efb96e")
 const BLUE := Color("#97bcca")
@@ -223,6 +223,20 @@ func _ship_position(ship: Dictionary) -> Vector2:
   return _gate().lerp(_planet(f.target) + Vector2(28,-22), 1.0 - (f.arrival - sim.day) / sim.approach)
  return Vector2.INF
 
+func _heading(ship: Dictionary) -> float:
+ if not ship.has("flight"):
+  return 0.0
+ var order: Dictionary = ship.flight
+ var origin: String = sim.planets[order.source].system
+ var target: String = sim.planets[order.target].system
+ if system_id.is_empty():
+  return _star(origin).angle_to_point(_star(target))
+ if origin == target:
+  return _planet(order.source).angle_to_point(_planet(order.target))
+ if system_id == origin:
+  return (_planet(order.source) + Vector2(28, -22)).angle_to_point(_gate())
+ return _gate().angle_to_point(_planet(order.target) + Vector2(28, -22))
+
 func _draw() -> void:
  draw_rect(Rect2(Vector2.ZERO, size), Color("#0b1521"))
  var font := ThemeDB.fallback_font
@@ -259,7 +273,8 @@ func _draw() -> void:
   if not point.is_finite():
    continue
   draw_circle(point, 16, Color("#192c3b"))
-  draw_texture_rect(SHIP, Rect2(point - Vector2(12, 9), Vector2(24, 18)), false)
+  ShipArt.paint(self, point, _heading(ship), 24.0 / ShipArt.EMPTY.get_height(),
+   Color.WHITE, false, ship.has("flight"))
   if ship.id == ship_id:
    draw_arc(point, 17, 0, TAU, 32, GOLD, 2, true)
   draw_string(font, point + Vector2(18,-12), ship.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, GOLD)
@@ -269,6 +284,8 @@ func _gui_input(event: InputEvent) -> void:
   return
  var click: Vector2 = event.position
  for ship in sim.ships.values():
+  if system_id.is_empty() and sim.systems.keys().any(func(id): return _star(id).distance_to(click) < 8):
+   break
   if _ship_position(ship).distance_to(click) < 17:
    _select_ship(ship.id)
    return
