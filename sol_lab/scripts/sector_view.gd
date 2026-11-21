@@ -14,13 +14,7 @@ var ship_id := ""
 var halted := false
 var panel: VBoxContainer
 var summary: Label
-var preview: Label
 var day_label: Label
-var source: OptionButton
-var carrier: OptionButton
-var goods: OptionButton
-var quantity: SpinBox
-var send: Button
 
 func _ready() -> void:
  sim.setup(JSON.parse_string(FileAccess.get_file_as_string("res://data/sector_start.json")))
@@ -69,89 +63,11 @@ func _card() -> void:
  for item in panel.get_children():
   panel.remove_child(item)
   item.queue_free()
- source = null
  summary = _label()
- if not ship_id.is_empty() or colony_id.is_empty():
-  return
- _label().text = "Разовая доставка"
- source = _options("Отправитель")
- carrier = _options("Корабль")
- goods = _options("Ресурс")
- quantity = SpinBox.new()
- quantity.min_value = 0.1
- quantity.max_value = 1000
- quantity.step = 0.1
- quantity.value = 10
- panel.add_child(quantity)
- quantity.value_changed.connect(func(_value): _quote())
- preview = _label()
- send = _button(panel, "Отправить груз", _dispatch)
- for id in sim.planets:
-  if id != colony_id and sim.planets[id].has("colony"):
-   _item(source, _address(id), id)
- source.item_selected.connect(func(_i): _choices())
- goods.item_selected.connect(func(_i): _quote())
- carrier.item_selected.connect(func(_i): _quote())
- _choices()
-
-func _options(title: String) -> OptionButton:
- _label().text = title
- var options := OptionButton.new()
- options.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
- panel.add_child(options)
- return options
-
-func _item(options: OptionButton, title: String, id: String) -> void:
- options.add_item(title)
- options.set_item_metadata(options.item_count - 1, id)
-
-func _chosen(options: OptionButton) -> String:
- return "" if options.selected < 0 else str(options.get_selected_metadata())
 
 func _address(id: String) -> String:
  var planet: Dictionary = sim.planets[id]
  return sim.systems[planet.system].name + " / " + planet.name
-
-func _choices() -> void:
- carrier.clear()
- goods.clear()
- var id := _chosen(source)
- if not id.is_empty():
-  for ship in sim.ships.values():
-   if not ship.has("flight") and ship.port == id and ship.owner == sim.planets[colony_id].colony.owner:
-    _item(carrier, ship.name, ship.id)
-  var stock: Dictionary = sim.planets[id].colony.stock
-  for resource in stock:
-   if stock[resource] > 0:
-    _item(goods, Model.resource_label(resource), resource)
-  var recipe := Model.find_building(sim.planets[colony_id].colony.industry)
-  for i in goods.item_count:
-   var resource: String = goods.get_item_metadata(i)
-   if recipe.get("inputs", {}).has(resource):
-    goods.select(i)
-    quantity.value = recipe.inputs[resource]
-    break
- _quote()
-
-func _quote() -> void:
- var id := _chosen(source)
- var vessel := _chosen(carrier)
- var resource := _chosen(goods)
- send.disabled = true
- if vessel.is_empty() or resource.is_empty():
-  preview.text = "У отправителя нужен свободный корабль и груз."
-  return
- var ship: Dictionary = sim.ships[vessel]
- var stock: float = sim.planets[id].colony.stock.get(resource, 0)
- send.disabled = ship.has("flight") or ship.port != id or quantity.value > minf(stock, ship.capacity)
- preview.text = "%s → %s\n%.1f дн. · после погрузки %.1f ост." % [
-  sim.planets[id].name, sim.planets[colony_id].name,
-  sim.duration(id, colony_id, ship), stock - quantity.value]
-
-func _dispatch() -> void:
- var vessel := _chosen(carrier)
- if sim.dispatch(vessel, _chosen(source), colony_id, _chosen(goods), quantity.value):
-  _select_ship(vessel)
 
 func _select_ship(id: String) -> void:
  ship_id = id
@@ -167,11 +83,17 @@ func _process(delta: float) -> void:
   summary.text = "%s\n%s" % [ship.name, ship.owner]
   if ship.has("flight"):
    var flight: Dictionary = ship.flight
-   summary.text += "\n\n%s → %s\n%s · %.1f\nПрибытие в день %.1f" % [
-    _address(flight.source), _address(flight.target), Model.resource_label(flight.resource),
-    flight.amount, flight.arrival]
+   if ship.has("reserved"):
+    var job: Dictionary = ship.reserved
+    summary.text += "\n\nЛетит порожняком за грузом\nЗарезервировано: %s · %s\nДля колонии %s" % [
+     Model.resource_label(job.resource), Model.batch_amount(job.amount), _address(job.target)]
+   elif flight.amount > 0:
+    summary.text += "\n\nВезёт груз: %s · %s" % [
+     Model.resource_label(flight.resource), Model.batch_amount(flight.amount)]
+   summary.text += "\n\n%s → %s\nПрибытие в день %.1f" % [
+    _address(flight.source), _address(flight.target), flight.arrival]
   else:
-   summary.text += "\n\nУ причала · " + _address(ship.port)
+   summary.text += "\n\nЖдёт назначения у причала\n" + _address(ship.port)
  elif not colony_id.is_empty():
   var colony: Dictionary = sim.planets[colony_id].colony
   var recipe := Model.find_building(colony.industry)
@@ -182,10 +104,11 @@ func _process(delta: float) -> void:
   for resource in recipe.get("inputs", {}):
    var needed: float = recipe.inputs[resource] - colony.stock.get(resource, 0)
    if needed > 0:
-    summary.text += "\nЖдёт %s · %.1f" % [Model.resource_label(resource).to_lower(), needed]
+    summary.text += "\n%s · нужно %s\n%s" % [Model.resource_label(resource),
+     Model.batch_amount(needed), sim.input_status(colony_id, resource)]
   if colony.has("last"):
    summary.text += "\nВыпуск %.1f · день %.1f" % [colony.last.amount, colony.last.day]
-  _quote()
+
  else:
   summary.text = "Сектор\nВыберите звезду или корабль."
  queue_redraw()
@@ -274,7 +197,7 @@ func _draw() -> void:
    continue
   draw_circle(point, 16, Color("#192c3b"))
   ShipArt.paint(self, point, _heading(ship), 24.0 / ShipArt.EMPTY.get_height(),
-   Color.WHITE, false, ship.has("flight"))
+   Color.WHITE, false, ship.get("flight", {}).get("amount", 0) > 0)
   if ship.id == ship_id:
    draw_arc(point, 17, 0, TAU, 32, GOLD, 2, true)
   draw_string(font, point + Vector2(18,-12), ship.name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, GOLD)
