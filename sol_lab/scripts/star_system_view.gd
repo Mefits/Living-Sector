@@ -4,7 +4,9 @@ extends Control
 ## camera zoom. Native N14/N39 positions and orbital angles are untouched.
 ## Facility markers remain attached to real source body identities.
 
-signal earth_district_requested(pointer: Vector2, fraction: Vector2)
+signal earth_district_requested(pointer: Vector2, projection: Rect2)
+const DistrictRoads = preload("res://scripts/view/sol_district_roads.gd")
+var district_extent: Vector2 = DistrictRoads.AREA
 signal body_selected(body: Dictionary)
 signal body_open_requested(body: Dictionary)
 signal ship_selected(ship_id: String)
@@ -1392,11 +1394,23 @@ func _draw_system() -> void:
             draw_circle(settlement, 3.2, Color("#e9cf91"), true, -1.0, true)
             if visual_radius >= 105.0:
                 var footprint := _district_footprint(position, visual_radius)
-                draw_rect(footprint, Color("#52664eaa"))
+                draw_rect(footprint, Color("#646b4c"))
                 draw_rect(footprint, Color("#c5c49f"), false, 1)
-                for y in [0.24, 0.55, 0.81]:
-                    var start := footprint.position + Vector2(2, footprint.size.y * y)
-                    draw_line(start, start + Vector2(footprint.size.x - 4, 0), Color("#a7ac82"), 1)
+                var district_scale: float = footprint.size.x / district_extent.x
+                for segment in DistrictRoads.streets(district_extent):
+                    draw_line(footprint.position + segment[0] * district_scale,
+                        footprint.position + segment[1] * district_scale, Color("#858672"),
+                        maxf(1.0, 14.0 * district_scale), true)
+                for facility in _world.get("facilities", []):
+                    var site: String = str(facility.get("surface_site_id", ""))
+                    if facility.get("body") == "earth" and DistrictRoads.PLOTS.has(site):
+                        var plot: Rect2 = DistrictRoads.PLOTS[site]
+                        draw_rect(Rect2(footprint.position + plot.position * district_scale,
+                            plot.size * district_scale), Color("#92927b"))
+                if visual_radius >= 162.0:
+                    for pad in [DistrictRoads.PAD, DistrictRoads.PAD + Vector2(167, 0)]:
+                        draw_circle(footprint.position + pad * district_scale,
+                            29.0 * district_scale, Color("#444d48"), true, -1.0, true)
             if visual_radius >= 85.0:
                 var callout := settlement + Vector2(27, -26)
                 draw_line(settlement, callout, Color("#e9cf91"), 1.2, true)
@@ -1988,8 +2002,12 @@ func _follow_threshold_reached(current_zoom: float) -> bool:
 
 
 func _district_footprint(center: Vector2, radius: float) -> Rect2:
-    var extent := Vector2(0.44, 0.35) * radius
+    var extent := district_extent * (0.44 * radius / district_extent.x)
     return Rect2(center + Vector2(-0.18, -0.21) * radius - extent * 0.5, extent)
+
+func earth_district_projection() -> Rect2:
+    var earth := _body_by_id("earth")
+    return _district_footprint(_body_position(earth, _orbit_scale()), _body_size(earth))
 
 func return_to_earth_point(pointer: Vector2, fraction: Vector2) -> void:
     _focused_body_id = "earth"
@@ -1997,12 +2015,15 @@ func return_to_earth_point(pointer: Vector2, fraction: Vector2) -> void:
     _wheel_target_zoom = -1.0
     var earth := _body_by_id("earth")
     var radius := _body_size(earth)
+    _draw_now_usec = Time.get_ticks_usec()
     _draw_body_positions.clear()
     var center := _body_position(earth, _orbit_scale())
     var footprint := _district_footprint(center, radius)
     _pan += pointer - (footprint.position + footprint.size * fraction)
     _earth_follow_offset = center + pointer - (footprint.position + footprint.size * fraction) - size * 0.5
-    _follow_orbit_valid = false
+    _follow_orbit_offset = center - (_center() - (pointer - (footprint.position + footprint.size * fraction)))
+    _follow_orbit_valid = true
+    _draw_body_positions.clear()
     queue_redraw()
 
 func _zoom_at(pointer: Vector2, multiplier: float) -> void:
@@ -2017,10 +2038,9 @@ func _zoom_at(pointer: Vector2, multiplier: float) -> void:
             DISTRICT_ENTRY_RADIUS / _ui_viewport_scale):
         var earth := _body_by_id("earth")
         var footprint := _district_footprint(_body_position(earth, _orbit_scale()), _body_size(earth))
-        if footprint.grow(10).has_point(pointer):
+        if footprint.has_point(pointer):
             _wheel_target_zoom = -1.0
-            earth_district_requested.emit(pointer,
-                ((pointer - footprint.position) / footprint.size).clamp(Vector2.ZERO, Vector2.ONE))
+            earth_district_requested.emit(pointer, footprint)
         else:
             _wheel_target_zoom = minf(_wheel_target_zoom, prior_target)
         return

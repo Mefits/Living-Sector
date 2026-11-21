@@ -1,5 +1,6 @@
 extends RefCounted
 ## Top-down modules drawn in district pixels. One sun vector for the whole district.
+const Roads = preload("res://scripts/view/sol_district_roads.gd")
 const GROUND = ["administrative_center", "farm", "mining_rig", "refinery",
  "factory", "power_plant", "spaceport"]
 const PAPER = Color("#c2c2ad")
@@ -10,13 +11,10 @@ const YARD = Color("#797a68")
 
 static func terrain(c: CanvasItem, area: Vector2) -> void:
  c.draw_rect(Rect2(Vector2.ZERO, area), Color("#646b4c"))
- var wet := PackedVector2Array([Vector2(945, 0), Vector2(area.x, 0),
-  area, Vector2(954, area.y), Vector2(937, 498), Vector2(952, 390),
-  Vector2(936, 273), Vector2(950, 176)])
+ var bank := area.x - 26.0
+ var wet := PackedVector2Array([Vector2(bank, 0), Vector2(area.x, 0),
+  area, Vector2(bank + 3, area.y), Vector2(bank - 9, 510), Vector2(bank + 5, 242)])
  c.draw_colored_polygon(wet, Color("#4c6457"))
- c.draw_polyline(PackedVector2Array([Vector2(955, 0), Vector2(964, 176),
-  Vector2(949, 273), Vector2(964, 390), Vector2(949, 498),
-  Vector2(965, area.y)]), Color("#536e62"), 8, true)
  var rng := RandomNumberGenerator.new()
  rng.seed = 21018
  for i in range(2700):
@@ -31,18 +29,14 @@ static func terrain(c: CanvasItem, area: Vector2) -> void:
    var radius := rng.randf_range(2, 8)
    c.draw_circle(p + Vector2(3, 3), radius, Color("#434c36"))
    c.draw_circle(p, radius, Color("#536041").lerp(Color("#768157"), rng.randf()))
- for y in [62, 371, 640]:
-  road(c, Vector2(35, y), Vector2(917, y))
- for x in [36, 917]:
-  road(c, Vector2(x, 63), Vector2(x, area.y - 21))
- road(c, Vector2(353, 63), Vector2(353, 371))
- road(c, Vector2(538, 371), Vector2(538, area.y - 10))
- road(c, Vector2(538, 509), Vector2(548, 509))
- for y in range(772, int(area.y) - 20, 112):
-  road(c, Vector2(36, y), Vector2(917, y))
+ for street in Roads.streets(area):
+  c.draw_line(street[0], street[1], Color("#8a8975"), 22)
+ for street in Roads.streets(area):
+  road(c, street[0], street[1])
+ c.draw_line(Vector2(Roads.CONNECTOR, Roads.PORT_LANE),
+  Vector2(Roads.PORT.position.x, Roads.PORT_LANE), Color("#444c48"), 9)
 
 static func road(c: CanvasItem, a: Vector2, b: Vector2) -> void:
- c.draw_line(a, b, Color("#8a8975"), 22)
  c.draw_line(a, b, Color("#444c48"), 16)
  var dir := (b - a).normalized()
  for d in range(4, int(a.distance_to(b)) - 9, 18):
@@ -207,3 +201,10 @@ static func ground_cargo(c: CanvasItem, pose: Transform2D, moving: bool, zoom: f
  if zoom >= 1.16:
   c.draw_line(crate.position + Vector2(3, 2), crate.end - Vector2(5, 1), OCHRE.darkened(0.2), 1)
  c.draw_set_transform(Vector2.ZERO)
+
+
+static func gate(c: CanvasItem, access: PackedVector2Array, tint: Color) -> void:
+ var normal := (access[1] - access[0]).normalized().rotated(PI * 0.5)
+ c.draw_line(access[0] - normal * 6, access[0] + normal * 6, DARK, 5, true)
+ for side in [-1, 1]:
+  c.draw_circle(access[0] + normal * 5 * side, 1.65, tint)

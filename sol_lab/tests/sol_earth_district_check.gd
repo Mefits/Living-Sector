@@ -49,7 +49,8 @@ func run() -> void:
   wheel.position = map._district_footprint(map._body_position(earth, map._orbit_scale()), map._body_size(earth)).get_center()
   map._gui_input(wheel)
  await capture(12)
- check(district.visible and not map.visible, "Approaching the focused Earth opens the district")
+ check(district.visible and map.mouse_filter == Control.MOUSE_FILTER_IGNORE, "Approaching the focused Earth opens the district")
+ await create_timer(0.52).timeout
  check(stock.get_parent() == game.colony_panel.dock_layout, "Stock is visible in the district")
  check(district._facilities.has("earth-ac-01") and district._facilities.has("earth-farm-01"),
   "The initial AC and farm occupy the correct plots")
@@ -74,10 +75,10 @@ func run() -> void:
  check(browser.get_global_rect().end.x <= 1367 and browser.scroll.size.y > 210,
   "1366 by 768 leaves the catalog usable with the warehouse open")
  plot_click(district, "earth-ac-01")
- check(browser.placement_confirm.disabled and browser.placement_caption.text.begins_with("Участок занят"),
+ check(browser.placement_confirm.disabled and browser.placement_caption.text.contains("Участок занят"),
   "Occupied plot gives the specific rejection")
  plot_click(district, "earth-farm-02")
- check(browser.placement_confirm.disabled and browser.placement_caption.text.begins_with("Непригодная"),
+ check(browser.placement_confirm.disabled and browser.placement_caption.text.contains("Непригодная"),
   "Incompatible ground cannot be selected")
  plot_click(district, "earth-industry-01")
  check(not browser.placement_confirm.disabled and Model.stock(game.world, "earth") == initial,

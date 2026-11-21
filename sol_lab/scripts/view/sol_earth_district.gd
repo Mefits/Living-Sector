@@ -2,6 +2,7 @@ extends Control
 ## Earth district presentation. Named site IDs remain the construction authority.
 signal return_requested
 signal zoom_out_requested(pointer: Vector2, fraction: Vector2)
+signal zoom_out_finished
 signal facility_selected(id: String)
 signal site_selected(id: String)
 signal selection_invalid(reason: String)
@@ -13,7 +14,8 @@ const Art = preload("res://scripts/view/sol_earth_district_art.gd")
 const SHIP_PATH = "res://assets/district/freighter.png"
 const PORT_PATHS = ["res://earth_port/EarthPort.tscn",
  "res://sol_lab/earth_port/EarthPort.tscn"]
-const AREA = Vector2(980, 782)
+const AREA = Roads.AREA
+const CLOSE_SCALE := 2.23
 const EARTH = "earth"
 const Roads = preload("res://scripts/view/sol_district_roads.gd")
 const PLOTS = Roads.PLOTS
@@ -35,6 +37,12 @@ var _ship: Texture2D
 var _layer := Node2D.new()
 var _hint: Label
 var _traffic := Node2D.new()
+var _terrain := Node2D.new()
+var _chrome: Array[Control] = []
+var _handoff: Tween
+var _wheel_tween: Tween
+var _backdrop := 1.0
+var _drawn_plots: Dictionary = {}
 
 func _ready() -> void:
  clip_contents = true
@@ -44,6 +52,8 @@ func _ready() -> void:
   if image != null and not image.is_empty():
    _ship = ImageTexture.create_from_image(image)
  add_child(_layer)
+ _layer.add_child(_terrain)
+ _terrain.draw.connect(_draw_district)
  var back := Button.new()
  back.text = "‹  Земля"
  back.position = Vector2(18, 14)
@@ -62,16 +72,62 @@ func _ready() -> void:
  add_child(_hint)
  _hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
  resized.connect(_redraw_layout)
+ _chrome.assign([back, title, _hint])
  _set_hint()
 
-func show_district(pointer := Vector2(-1, -1), fraction := Vector2.ZERO) -> void:
+func show_district(pointer := Vector2(-1, -1), projection := Rect2()) -> void:
+ cancel_camera()
  _zoom = 1.0
  _pan = Vector2.ZERO
  show()
  _redraw_layout()
- if pointer.x >= 0:
-  _pan += pointer - (_origin + _world_size * fraction * _scale)
-  _redraw_layout()
+ if pointer.x < 0 or not projection.has_area():
+  return
+ var fraction := (pointer - projection.position) / projection.size
+ _animate_handoff(pointer, fraction * _world_size, projection.size.x / _world_size.x, false)
+
+func camera_extent() -> Vector2:
+ return _world_size
+
+func cancel_camera() -> void:
+ if _handoff != null:
+  _handoff.kill()
+  _handoff = null
+ if _wheel_tween != null:
+  _wheel_tween.kill()
+  _wheel_tween = null
+ _backdrop = 1.0
+ for item in _chrome:
+  item.modulate.a = 1.0
+
+func exit_to_projection(pointer: Vector2, fraction: Vector2, projection: Rect2) -> void:
+ _animate_handoff(pointer, fraction * _world_size, projection.size.x / _world_size.x, true)
+
+func _animate_handoff(pointer: Vector2, anchor: Vector2, orbital_scale: float, exiting: bool) -> void:
+ var local_scale := _overview_scale()
+ _handoff = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+ var start := local_scale if exiting else orbital_scale
+ var finish := orbital_scale if exiting else local_scale
+ var project := func(fraction: float):
+  _scale = exp(lerpf(log(start), log(finish), fraction))
+  _origin = pointer - anchor * _scale
+  _backdrop = smoothstep(0.21, 0.75, 1.0 - fraction if exiting else fraction)
+  for item in _chrome:
+   item.modulate.a = _backdrop
+  _apply_projection()
+ project.call(0.0)
+ _handoff.tween_method(project, 0.0, 1.0, 0.48)
+ _handoff.finished.connect(func():
+  _handoff = null
+  if exiting:
+   zoom_out_finished.emit()
+  else:
+   _pan = _origin - ((size - _world_size * _scale) * 0.5 + Vector2(0, 6))
+   _redraw_layout())
+
+func _overview_scale() -> float:
+ var available := size - Vector2(10, 78)
+ return maxf(0.01, minf(available.x / _world_size.x, available.y / _world_size.y))
 
 func bind_runtime(construction: RefCounted) -> void:
  _runtime = construction
@@ -166,25 +222,38 @@ func update_colony(facilities: Array) -> void:
    _plots[site] = Roads.overflow_plot(overflow)
    overflow += 1
   _facilities[site] = facility
- _world_size = AREA + Vector2(0, ceili(float(overflow) / 6.0) * 112)
+ var extent := AREA + Vector2(0, ceili(float(overflow) / 6.0) * 112)
+ if extent != _world_size:
+  _world_size = extent
+  _redraw_layout()
  if _port != null:
   var facility: Dictionary = _facilities.get("earth-port-01", {})
   _port.visible = facility.get("type", "") == "spaceport"
- _redraw_layout()
+ var plots: Dictionary = {}
+ for site in _facilities:
+  var facility: Dictionary = _facilities[site]
+  plots[site] = [facility.get("id"), facility.get("type"), Sites.facility_kind(facility)]
+ if plots != _drawn_plots:
+  _drawn_plots = plots
+  _terrain.queue_redraw()
 
 func start_placement(kind: String) -> void:
  _kind = kind
  _chosen = ""
  _hover = ""
  _set_hint()
- queue_redraw()
+ _terrain.queue_redraw()
 
 func plot_name(site: String) -> String:
  if site == "earth-port-01":
   return "Портовый участок"
  var plot: Rect2 = PLOTS.get(site, Rect2())
  var zone := "Производственный двор"
- if plot.position.y >= 400:
+ if plot.position.x >= 941:
+  zone = "Восточный квартал"
+ elif plot.position.y >= 799:
+  zone = "Южный квартал"
+ elif plot.position.y >= 400:
   zone = "Расширение" if plot.position.y >= 661 else "Южные поля"
  elif plot.position.x < 350:
   zone = "Горный участок"
@@ -198,7 +267,7 @@ func stop_placement() -> void:
 
 func select_facility(id: String) -> void:
  _selected = id
- queue_redraw()
+ _terrain.queue_redraw()
 
 func _set_hint(reason := "") -> void:
  if _hint == null:
@@ -222,6 +291,9 @@ func placement_reason(site: String) -> String:
  return ""
 
 func _gui_input(event: InputEvent) -> void:
+ if _handoff != null:
+  accept_event()
+  return
  if event is InputEventMouseMotion:
   if _drag:
    _pan += event.relative
@@ -229,6 +301,7 @@ func _gui_input(event: InputEvent) -> void:
    _hover = _plot_at((event.position - _origin) / _scale)
    _set_hint(placement_reason(_hover))
   if _drag or is_placing():
+   _terrain.queue_redraw()
    _redraw_layout()
  if not event is InputEventMouseButton:
   return
@@ -239,15 +312,20 @@ func _gui_input(event: InputEvent) -> void:
    MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN:
     var world_point: Vector2 = (event.position - _origin) / _scale
     if event.button_index == MOUSE_BUTTON_WHEEL_DOWN and is_equal_approx(_zoom, 1.0) and not is_placing():
-     zoom_out_requested.emit(event.position, (world_point / _world_size).clamp(Vector2.ZERO, Vector2.ONE))
+     zoom_out_requested.emit(event.position, world_point / _world_size)
      accept_event()
      return
-    var old_zoom := _zoom
-    _zoom = clampf(_zoom * (1.16 if event.button_index == MOUSE_BUTTON_WHEEL_UP else
-     1.0 / 1.16), 1.0, 2.7)
-    var ratio := _zoom / old_zoom
-    var center := size * 0.5 + Vector2(0, 6)
-    _pan = (event.position - center) * (1.0 - ratio) + _pan * ratio
+    var target := clampf(_zoom * (1.25 if event.button_index == MOUSE_BUTTON_WHEEL_UP else
+     1.0 / 1.25), 1.0, CLOSE_SCALE / _overview_scale())
+    var pointer: Vector2 = event.position
+    if _wheel_tween != null:
+     _wheel_tween.kill()
+    _wheel_tween = create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+    _wheel_tween.tween_method(func(value: float):
+     _zoom = value
+     var next_scale := _overview_scale() * value
+     _pan = pointer - world_point * next_scale - ((size - _world_size * next_scale) * 0.5 + Vector2(0, 6))
+     _redraw_layout(), _zoom, target, 0.19)
     _hover = _plot_at(world_point)
    MOUSE_BUTTON_RIGHT:
     if _kind.is_empty():
@@ -267,51 +345,58 @@ func _gui_input(event: InputEvent) -> void:
     elif not _select_cargo((event.position - _origin) / _scale) and (
       _facilities.has(site) and _facilities[site].get("type") != "construction_site"):
      facility_selected.emit(str(_facilities[site]["id"]))
+  _terrain.queue_redraw()
   _redraw_layout()
  accept_event()
 
 func _redraw_layout() -> void:
- var available := size - Vector2(10, 78)
- _scale = maxf(0.01, minf(available.x / _world_size.x,
-  available.y / _world_size.y)) * _zoom
- var limit := (size * 0.48 + _world_size * _scale * 0.25)
- _pan = _pan.clamp(-limit, limit)
+ if _handoff != null:
+  return
+ _scale = _overview_scale() * _zoom
  _origin = (size - _world_size * _scale) * 0.5 + _pan + Vector2(0, 6)
+ _apply_projection()
+
+func _apply_projection() -> void:
  _layer.position = _origin
  _layer.scale = Vector2.ONE * _scale
  _traffic.queue_redraw()
  queue_redraw()
 
 func _draw() -> void:
- draw_rect(Rect2(Vector2.ZERO, size), Color("#252f28"))
- draw_set_transform(_origin, 0.0, Vector2.ONE * _scale)
- Art.terrain(self, _world_size)
+ draw_rect(Rect2(Vector2.ZERO, size), Color(0.145, 0.184, 0.157, _backdrop))
+
+func _draw_district() -> void:
+ Art.terrain(_terrain, _world_size)
  for site in _plots:
   var plot: Rect2 = _plots[site]
   var facility: Dictionary = _facilities.get(site, {})
   if not facility.is_empty() and plot != Roads.PORT:
-   draw_polyline(Roads.driveway(plot), Color("#777a67"), 8.0, true)
+   _terrain.draw_polyline(Roads.driveway(plot), Color("#777a67"), 8.0, true)
   if facility.is_empty():
-   Art.empty_plot(self, plot, site)
+   if is_placing():
+    Art.empty_plot(_terrain, plot, site)
   else:
    var kind := Sites.facility_kind(facility)
    var pending: bool = facility.get("type") == "construction_site"
    if pending:
-    Art.construction(self, plot, kind)
+    Art.construction(_terrain, plot, kind)
    elif not (site == "earth-port-01" and _port != null and _port.visible):
     var docked_ship: Texture2D
     if kind == "spaceport" and (_runtime.freight_status().get("location") == EARTH or
       _runtime.freight_status(2).get("location") == EARTH):
      docked_ship = _ship
-    Art.building(self, plot, kind, docked_ship)
+    Art.building(_terrain, plot, kind, docked_ship)
+   if plot != Roads.PORT:
+    Art.gate(_terrain, Roads.driveway(plot), Color("#c6a873"))
    if not pending and str(facility.get("id", "")) == _selected:
-    draw_rect(plot.grow(3), Color("#b6d8df"), false, 2)
+    _terrain.draw_rect(plot.grow(3), Color("#b6d8df"), false, 2)
   if not _kind.is_empty():
    var valid := placement_reason(site).is_empty()
    if valid or site == _hover:
     var color := Color("#b7d99b") if valid else Color("#e88b75")
-    draw_rect(plot.grow(2), color, false, 2.5 if site == _chosen else 1.3)
+    _terrain.draw_rect(plot.grow(2), color, false, 2.5 if site == _chosen else 1.3)
    if valid and (site == _hover or site == _chosen):
-    Art.preview(self, plot, _kind, null)
-    draw_polyline(Roads.driveway(plot), Color("#b7d99b"), 6.0, true)
+    Art.preview(_terrain, plot, _kind, null)
+    _terrain.draw_polyline(Roads.driveway(plot), Color("#b7d99b"), 6.0, true)
+    Art.gate(_terrain, Roads.driveway(plot), Color("#b7d99b"))
 

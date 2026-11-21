@@ -1008,6 +1008,8 @@ func production_details(facility_id: String) -> Dictionary:
      break
    if not result.has("delivery") and facility.body == "earth" and kind == "mining_rig":
     result["delivery"] = "Последняя партия принята складом"
+   if not result.has("delivery") and facility.body == "earth" and kind == "refinery":
+    result["delivery"] = "Сырьё для последнего выпуска принято у ворот"
    result["last_native"] = float(facility["last_batch_native"])
    result["last_amount"] = float(facility["last_batch_amount"])
    result["last_resource"] = str(facility["last_batch_resource"])

@@ -187,6 +187,8 @@ func _run() -> void:
  deliver_steps(refinery_site)
  var factory_due: float = float(actual(refinery).get("next_native",0))
  deliver_steps(factory_due)
+ if actual(refinery).get("delivery", "").contains("в пути"):
+  deliver_steps(float(actual(refinery).get("next_native", 0)))
  verify(bool(actual(refinery).get("last_present",false)),
   "Refinery has first successful actual receipt")
  for market in game.world.get("markets",[]):

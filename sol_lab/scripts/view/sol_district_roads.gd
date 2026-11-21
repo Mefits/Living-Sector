@@ -1,5 +1,6 @@
 extends RefCounted
 ## Ground geometry shared by the district renderer and its freight simulation.
+const AREA := Vector2(1266, 920)
 const PORT := Rect2(548, 382, 354, 203)
 const PAD := Vector2(676, 449)
 const GATE := PAD + Vector2(-8, 89)
@@ -23,22 +24,56 @@ const PLOTS = {
  "earth-expansion-02": Rect2(195, 661, 116, 92),
  "earth-expansion-03": Rect2(334, 661, 116, 92),
  "earth-expansion-04": Rect2(561, 661, 116, 92),
+ "earth-east-01": Rect2(941, 400, 116, 92),
+ "earth-east-02": Rect2(1080, 400, 116, 92),
+ "earth-east-03": Rect2(941, 513, 116, 92),
+ "earth-east-04": Rect2(1080, 513, 116, 92),
+ "earth-south-01": Rect2(56, 799, 116, 92),
+ "earth-south-02": Rect2(195, 799, 116, 92),
+ "earth-south-03": Rect2(334, 799, 116, 92),
+ "earth-south-04": Rect2(561, 799, 116, 92),
  "earth-common-03": Rect2(429, 400, 105, 104),
 }
 const CROSS := 371.0
 const CONNECTOR := 538.0
 const PORT_LANE := 509.0
+const EAST_STREET := 917.0
+const OVERFLOW_TOP := 941
+
+static func streets(area: Vector2) -> Array:
+ var roads := [
+  [Vector2(36, 62), Vector2(EAST_STREET, 62)],
+  [Vector2(36, CROSS), Vector2(1218, CROSS)],
+  [Vector2(36, 640), Vector2(1218, 640)],
+  [Vector2(36, 772), Vector2(EAST_STREET, 772)],
+  [Vector2(36, 62), Vector2(36, area.y - 18)],
+  [Vector2(EAST_STREET, 62), Vector2(EAST_STREET, area.y - 18)],
+  [Vector2(353, 62), Vector2(353, CROSS)],
+  [Vector2(CONNECTOR, CROSS), Vector2(CONNECTOR, area.y - 18)]]
+ for y in range(922, int(area.y) - 10, 112):
+  roads.append([Vector2(36, y), Vector2(EAST_STREET, y)])
+ return roads
+
+static func port_access() -> PackedVector2Array:
+ return PackedVector2Array([Vector2(CONNECTOR, PORT_LANE), Vector2(GATE.x, PORT_LANE), GATE])
+
 
 static func driveway(plot: Rect2) -> PackedVector2Array:
  var center := plot.get_center()
  if plot == PORT:
   return PackedVector2Array([Vector2(PORT.position.x, PORT_LANE),
    Vector2(CONNECTOR, PORT_LANE)])
- if plot.position.y >= 661 and plot.position.y < 791:
-  return PackedVector2Array([Vector2(center.x, plot.position.y), Vector2(center.x, 640)])
+ if plot.position.x >= 941:
+  var street_y := CROSS if plot.position.y < 500 else 640.0
+  return PackedVector2Array([Vector2(center.x,
+   plot.position.y if street_y == CROSS else plot.end.y), Vector2(center.x, street_y)])
+ if plot.position.y >= 661:
+  var street_y := 640.0 if plot.position.y < 772 else 772.0
+  if plot.position.y >= OVERFLOW_TOP:
+   street_y = 922.0 + floorf((plot.position.y - OVERFLOW_TOP) / 112) * 112
+  return PackedVector2Array([Vector2(center.x, plot.position.y), Vector2(center.x, street_y)])
  if plot.position.y >= 522:
-  return PackedVector2Array([Vector2(center.x, plot.end.y), Vector2(center.x, 640 + (
-   floorf(maxf(0.0, plot.position.y - 791) / 112) * 112 + 132 if plot.position.y >= 791 else 0.0))])
+  return PackedVector2Array([Vector2(center.x, plot.end.y), Vector2(center.x, 640)])
  var road_x := 36.0 if center.x < 180 else 353.0
  if center.x < 340 and plot.position.y < 280:
   return PackedVector2Array([Vector2(plot.position.x if road_x == 36 else plot.end.x,
@@ -60,9 +95,7 @@ static func ore_route(plot: Rect2) -> PackedVector2Array:
   points.append(Vector2(road.x, CROSS))
  if road.y <= CROSS:
   points.append(Vector2(CONNECTOR, CROSS))
- points.append(Vector2(CONNECTOR, PORT_LANE))
- points.append(Vector2(GATE.x, PORT_LANE))
- points.append(GATE)
+ points.append_array(port_access())
  return points
 
 static func length(points: PackedVector2Array) -> float:
@@ -80,13 +113,20 @@ static func pose(points: PackedVector2Array, progress: float) -> Transform2D:
   if segment <= 0:
    continue
   if distance <= segment or index == points.size() - 1:
-   return Transform2D((finish - start).angle(), start.lerp(finish, distance / segment))
+   var angle := (finish - start).angle()
+   if index > 1 and distance < 6.0:
+    var previous := (start - points[index - 2]).angle()
+    angle = lerp_angle(previous, angle, smoothstep(-6.0, 6.0, distance))
+   elif index < points.size() - 1 and segment - distance < 6.0:
+    var next := (points[index + 1] - finish).angle()
+    angle = lerp_angle(angle, next, smoothstep(-6.0, 6.0, distance - segment))
+   return Transform2D(angle, start.lerp(finish, distance / segment))
   distance -= segment
  return Transform2D(0.0, points[0])
 
 static func overflow_plot(index: int) -> Rect2:
  return Rect2(58 + (index % 6) * 140,
-  791 + floori(float(index) / 6.0) * 112, 116, 92)
+  OVERFLOW_TOP + floori(float(index) / 6.0) * 112, 116, 92)
 
 static func mine_plot(facilities: Array, id: String) -> Rect2:
  var overflow := 0

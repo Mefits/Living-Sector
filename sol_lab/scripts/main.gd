@@ -830,8 +830,11 @@ func _make_native_map() -> void:
     district.bind_runtime(construction)
     district.return_requested.connect(_close_district)
     district.zoom_out_requested.connect(func(pointer: Vector2, fraction: Vector2):
-        _close_district()
-        native_view.return_to_earth_point(pointer, fraction))
+        native_view.return_to_earth_point(pointer, fraction)
+        district.exit_to_projection(pointer, fraction, native_view.earth_district_projection()))
+    district.zoom_out_finished.connect(func():
+        district.hide()
+        native_view.mouse_filter = Control.MOUSE_FILTER_STOP)
     district.facility_selected.connect(_native_facility_selected)
     district.site_selected.connect(_placement_chosen)
     district.selection_invalid.connect(func(reason: String):
@@ -840,20 +843,24 @@ func _make_native_map() -> void:
     native_view.earth_district_requested.connect(_open_district)
 
 
-func _open_district(pointer := Vector2(-1, -1), fraction := Vector2.ZERO) -> void:
+func _open_district(pointer := Vector2(-1, -1), projection := Rect2()) -> void:
     if district.visible or not Model.colony(world, "earth"):
         return
     if selected != "earth":
         _native_body_selected({"id": "earth"})
-    native_view.hide()
-    district.show_district(pointer, fraction)
+    native_view.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    district.update_colony(world.get("facilities", []))
+    native_view.district_extent = district.camera_extent()
+    district.show_district(pointer, projection)
     _dock_colony_stock()
     _refresh_district()
 
 
 func _close_district() -> void:
     _cancel_placement()
+    district.cancel_camera()
     district.hide()
+    native_view.mouse_filter = Control.MOUSE_FILTER_STOP
     _dock_colony_stock()
     native_view.show()
     native_view.focus_body("earth")
@@ -862,6 +869,7 @@ func _close_district() -> void:
 func _refresh_district() -> void:
     if district.visible:
         district.update_colony(world.get("facilities", []))
+        native_view.district_extent = district.camera_extent()
 
 
 func _dock_colony_stock() -> void:

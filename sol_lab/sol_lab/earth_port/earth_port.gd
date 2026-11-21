@@ -54,9 +54,10 @@ func cargo_at(local: Vector2) -> Dictionary:
 func _draw() -> void:
 	_cargo_hits.clear()
 	var gate := Roads.GATE - Roads.PAD
-	var lane_y := Roads.PORT_LANE - Roads.PAD.y
-	var entrance := PackedVector2Array([Vector2(Roads.PORT.position.x - Roads.PAD.x, lane_y),
-		Vector2(gate.x, lane_y), gate])
+	var entrance := Roads.port_access()
+	entrance[0].x = Roads.PORT.position.x
+	for index in entrance.size():
+		entrance[index] -= Roads.PAD
 	draw_polyline(entrance, Color("#444c48"), 9.0, true)
 	draw_polyline(entrance, Color("#999278"), 1.0, true)
 	# Dark opening under the roof lip and contrasting dock posts.

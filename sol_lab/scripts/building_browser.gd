@@ -456,9 +456,7 @@ func start_placement(building_id: String, candidates: Array, local := false) -> 
  placement_options = candidates.duplicate(true)
  if placement_panel == null:
   return
- var item: Dictionary = Model.find_building(building_id)
- placement_caption.text = "%s · свободно площадок: %d\n" % [
-  str(item.get("name", building_id)), candidates.size()] + (
+ placement_caption.text = _placement_summary() + "\nСвободно: %d\n" % candidates.size() + (
   "Кликните участок в районе. Материалы пока не списаны." if local else
   "Кликните подсвеченную площадку на планете. Материалы пока не списаны.")
  placement_confirm.disabled = true
@@ -473,19 +471,23 @@ func select_placement(site_id: String) -> void:
   if str(candidate.get("id", "")) != site_id:
    continue
   placement_chosen_id = site_id
-  placement_caption.text = "%s · %s\n" % [
-   str(Model.find_building(placement_building_id).get(
-    "name", placement_building_id)),
-   str(candidate.get("label", site_id))] + (
-   "Подтвердите место для списания материалов и заказа строительства.")
+  placement_caption.text = _placement_summary() + "\n" + str(candidate.get("label", site_id))
   placement_confirm.disabled = false
   return
 
 
+func _placement_summary() -> String:
+ var buildings: Dictionary = config.get("buildings", {})
+ var item := Model.find_building(placement_building_id)
+ var row: Dictionary = buildings.get(placement_building_id, {})
+ return "%s · %d металла · %d дн.\n%s" % [
+  item.get("name", placement_building_id), int(row.get("metals", 1)),
+  Model.construction_days(item, buildings), _purpose(placement_building_id)]
+
 func reject_placement(reason: String) -> void:
  placement_chosen_id = ""
  if placement_panel != null and placement_panel.visible:
-  placement_caption.text = reason
+  placement_caption.text = _placement_summary() + "\n" + reason
   placement_confirm.disabled = true
 
 

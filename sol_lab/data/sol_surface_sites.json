@@ -313,6 +313,134 @@
         "farm"
       ],
       "kind": "ground"
+    },
+    {
+      "id": "earth-east-01",
+      "label": "east-01",
+      "at": [
+        0.7,
+        0.04
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-east-02",
+      "label": "east-02",
+      "at": [
+        0.72,
+        0.28
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-east-03",
+      "label": "east-03",
+      "at": [
+        0.56,
+        0.5
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-east-04",
+      "label": "east-04",
+      "at": [
+        0.28,
+        0.68
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-south-01",
+      "label": "south-01",
+      "at": [
+        -0.54,
+        0.48
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-south-02",
+      "label": "south-02",
+      "at": [
+        -0.06,
+        0.52
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-south-03",
+      "label": "south-03",
+      "at": [
+        0.0,
+        0.72
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
+    },
+    {
+      "id": "earth-south-04",
+      "label": "south-04",
+      "at": [
+        -0.64,
+        0.26
+      ],
+      "types": [
+        "mining_rig",
+        "refinery",
+        "factory",
+        "power_plant",
+        "farm"
+      ],
+      "kind": "ground"
     }
   ],
   "luna": [

@@ -363,6 +363,8 @@ func _show_selected_detail() -> void:
   var lines: PackedStringArray = PackedStringArray([purpose])
   if kind in ["mining_rig", "farm", "refinery"]:
    var data: Dictionary = production_data.get(selected_facility, {})
+   if data.has("delivery"):
+    lines.append(str(data.delivery))
    if bool(data.get("last_present", false)):
     lines.append("Фактическая последняя партия: +%s %s" % [
      Model.batch_amount(float(data.get("last_amount", 0))),
@@ -374,8 +376,6 @@ func _show_selected_detail() -> void:
      lines.append("Фактическая партия: " + changes)
    else:
     lines.append("Последняя партия: ещё не выпускалась (нет подтверждённых данных)")
-   if data.has("delivery"):
-    lines.append(str(data.delivery))
    lines.append("Прогноз следующего выпуска: +%s %s" % [
     Model.batch_amount(float(data.get("forecast", 0))),
     Model.resource_label(str(data.get("product", "")))])
