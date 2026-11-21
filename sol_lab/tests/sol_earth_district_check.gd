@@ -302,6 +302,9 @@ func ore_chain(game: Control) -> void:
  var job: Dictionary = sim.ground_ore[0]
  var amount: float = job.amount
  var stored: float = sim.colony_inventory("earth").supply.ore
+ var ledger: Dictionary = sim.colony_inventory("earth")
+ check(ledger.movement.ore.mined == amount and ledger.incoming[0].amount == amount,
+  "Physical production flows to the pending machine, not available stock")
  check(job.pickup > due and job.due > job.pickup, "A visible batch waits before collection")
  if not capture_folder.is_empty():
   for index in range(38):
@@ -322,6 +325,8 @@ func ore_chain(game: Control) -> void:
  advance(game, job.due)
  check(is_equal_approx(sim.colony_inventory("earth").supply.ore, stored + amount),
   "Warehouse receives the fractional batch once at the gate")
+ check(sim.colony_inventory("earth").movement.ore.road_received == amount,
+  "Ledger counts the road receipt separately from mining")
  print("SOL_EARTH_ROAD_BATCH ", amount)
 
 func capture(count := 1) -> void:

@@ -4,6 +4,7 @@ signal build_requested
 signal ship_requested(slot: int)
 signal line_requested
 signal facility_requested(facility_id: String)
+signal supply_requested(resource: String, amount: float)
 
 const Model = preload("res://scripts/sol_building_model.gd")
 const Calendar = preload("res://scripts/sol_calendar.gd")
@@ -16,21 +17,21 @@ var dock_layout: VBoxContainer
 var heading: Label
 var population: Label
 var summary: Label
-var metal: Label
 var food_status: Label
 var details: Label
 var message: Label
 var stock_panel: PanelContainer
 var colonize_button: Button
-var freight_button: Button
 var ship_rows: Array[Button] = []
 var line_holder: VBoxContainer
 var built_list: VBoxContainer
 var detail_title: Label
 var detail_description: Label
 var detail_icon: Control
+var supply_button: Button
+var shortage_resource := ""
+var shortage_amount := 0.0
 var overview: VBoxContainer
-var stock_view: VBoxContainer
 var logistics_view: VBoxContainer
 var logistics_title: Label
 var logistics_status: Label
@@ -61,13 +62,6 @@ func _ready() -> void:
  summary = _label(layout, "", 13, Color("#a8c6d4"))
  summary.clip_text = true
  summary.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
- var metals_row := HBoxContainer.new()
- metals_row.add_theme_constant_override("separation", 5)
- layout.add_child(metals_row)
- var metal_icon: TextureRect = Icons.make_icon("metals", false, 20)
- if metal_icon != null:
-  metals_row.add_child(metal_icon)
- metal = _label(metals_row, "", 15, Color("#e6d59d"))
  # Long food/ration diagnostics must remain a wrapping full-width Label.
  # A nested HBox here can force a tall minimum panel on 1366x768.
  food_status = _label(layout, "", 13, Color("#bfd0d9"))
@@ -77,9 +71,8 @@ func _ready() -> void:
  navigation.add_theme_constant_override("separation", 5)
  layout.add_child(navigation)
  _button(navigation, "Строить", func(): build_requested.emit())
- _button(navigation, "Склад", open_stock)
  _button(navigation, "Построено", func(): _switch_page("overview"))
- _button(navigation, "Линия", func(): line_requested.emit())
+ _button(navigation, "Логистика", func(): line_requested.emit())
 
  scroll = ScrollContainer.new()
  scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -103,16 +96,18 @@ func _ready() -> void:
  detail_icon.hide()
  building_detail_row.add_child(detail_icon)
  detail_title = _label(building_detail_row, "", 16, Color("#f0dfae"))
+ detail_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+ detail_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  detail_description = _label(overview, "", 13, Color("#bfd0d9"))
  detail_description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+ supply_button = _button(overview, "", func(): supply_requested.emit(shortage_resource, shortage_amount))
+ supply_button.hide()
  built_list = VBoxContainer.new()
  built_list.add_theme_constant_override("separation", 3)
  overview.add_child(built_list)
- stock_view = VBoxContainer.new()
- content.add_child(stock_view)
  stock_panel = Stock.new()
- stock_view.add_child(stock_panel)
- stock_view.hide()
+ layout.add_child(stock_panel)
+ layout.move_child(stock_panel, 1)
  logistics_view = VBoxContainer.new()
  logistics_view.add_theme_constant_override("separation", 10)
  content.add_child(logistics_view)
@@ -131,7 +126,6 @@ func _ready() -> void:
  message.clip_text = true
  message.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
  colonize_button = _button(layout, "Колонизировать Луну", func(): pass)
- freight_button = _button(layout, "Грузовик", func(): pass)
  line_holder = VBoxContainer.new()
  line_holder.add_theme_constant_override("separation", 3)
  logistics_view.add_child(line_holder)
@@ -161,7 +155,6 @@ func _button(parent: Node, text_value: String, callback: Callable) -> Button:
 func _switch_page(next_page: String) -> void:
  page = next_page
  overview.visible = page == "overview"
- stock_view.visible = page == "stock"
  logistics_view.visible = page == "logistics"
  scroll.scroll_vertical = 0
 
@@ -172,10 +165,6 @@ func clear_facility_selection() -> void:
 
 func select_overview() -> void:
  _switch_page("overview")
-
-func open_stock() -> void:
- if stock_panel.get_parent() == stock_view:
-  _switch_page("stock")
 
 func open_logistics() -> void:
  _switch_page("logistics")
@@ -204,10 +193,6 @@ func show_colony(next_body: String, name_ru: String,
  production_data = production
  heading.text = name_ru
  population.text = "%d жителей" % residents if bool(warehouse.get("present", false)) else "Без колонии"
- var supply: Dictionary = warehouse.get("supply", {})
- metal.text = ("Металл на складе: %s" %
-  Model.batch_amount(float(supply.get("metals", 0)))) if bool(
-  warehouse.get("present", false)) else "Нет местного склада"
  stock_panel.show_inventory(name_ru, warehouse)
  var site_line: String = "Строек нет"
  for site in current_sites:
@@ -319,6 +304,8 @@ func _set_built(items: Array) -> void:
    var readable: String = str(item.get("name", kind))
    if int(totals.get(kind, 0)) > 1:
     readable += " · №%d" % int(ordinal[kind])
+   if kind == "shipyard":
+    readable += " · заказ корабля"
    var pick := _button(row, readable, _pick.bind(facility_id))
    pick.alignment = HORIZONTAL_ALIGNMENT_LEFT
    built_buttons[facility_id] = pick
@@ -345,6 +332,7 @@ func _show_selected_detail() -> void:
  detail_title.hide()
  detail_description.hide()
  detail_icon.hide()
+ supply_button.hide()
  for facility_id in built_buttons:
   var button: Button = built_buttons[facility_id]
   if not is_instance_valid(button):
@@ -373,17 +361,33 @@ func _show_selected_detail() -> void:
     if not changes.is_empty():
      lines.append("Фактическая партия: " + changes)
    else:
-    lines.append("Последняя партия: ещё не выпускалась (нет подтверждённых данных)")
+    lines.append("Выпуска ещё не было")
    lines.append("Прогноз следующего выпуска: +%s %s" % [
     Model.batch_amount(float(data.get("forecast", 0))),
     Model.resource_label(str(data.get("product", "")))])
    var idle: String = str(data.get("idle_reason", ""))
-   if not idle.is_empty():
-    lines.append(idle)
+   var missing: Dictionary = data.get("missing", {})
+   if not missing.is_empty():
+    for resource in missing:
+     lines.append("%s: не хватает %s %s" % [
+      "Простой" if idle.contains("не хватает") else "Следующая партия",
+      Model.batch_amount(missing[resource]), Model.batch_unit(resource)])
+    shortage_resource = str(missing.keys()[0])
+    shortage_amount = float(missing[shortage_resource])
+    if body_id in ["earth", "luna"]:
+     supply_button.text = "Доставить: " + Model.resource_label(shortage_resource)
+     supply_button.show()
+   elif not idle.is_empty():
+    lines.append(idle if not idle.contains("не хватает") else "Сырьё есть · ждёт следующего цикла")
+   for shipment in data.get("incoming", []):
+    lines.append("%s: +%s %s%s" % [shipment.mode,
+     Model.batch_amount(shipment.amount), Model.batch_unit(shipment.resource),
+     " · " + Calendar.calendar_text(shipment.arrival) if is_finite(shipment.arrival) else ""])
    var next_batch: float = float(data.get("next_native", INF))
    if is_finite(next_batch):
     lines.append("%s: %s · через %d дн." % [
-     "Следующая попытка" if not idle.is_empty() else "Следующая партия (план)",
+     "Приём сырья" if str(data.get("delivery", "")).begins_with("Сырьё в пути") else (
+      "Следующая попытка" if not idle.is_empty() or not missing.is_empty() else "Следующая партия"),
      Calendar.calendar_text(next_batch),
      Calendar.days_remaining(displayed_native, next_batch)])
    else:
@@ -400,8 +404,7 @@ func _show_selected_detail() -> void:
   detail_icon.kind = kind
   detail_icon.show()
   detail_icon.queue_redraw()
-  detail_title.text = str(facility.get("name", kind)) + " · " + str(
-   facility.get("id", "")).right(4)
+  detail_title.text = built_buttons[selected_facility].text
   detail_description.text = "\n".join(lines)
   detail_title.show()
   detail_description.show()

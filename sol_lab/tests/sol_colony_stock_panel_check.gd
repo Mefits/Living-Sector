@@ -16,7 +16,7 @@ func _make_runtime() -> Variant:
 
 func _amount(panel: Variant, resource: String) -> String:
  var label: Variant = panel.amount_labels.get(resource, null)
- return str(label.text) if label is Label else ""
+ return str(label.text).get_slice(" ", 0) if label is Label else ""
 
 func _initialize() -> void:
  var ok := true

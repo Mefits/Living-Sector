@@ -39,7 +39,8 @@ func run() -> void:
 	r.advance_to(r.freight_status().arrival)
 	assert(r.freight_status().location == "luna" and not r.freight_line_wait().is_empty())
 	g.native_time = r.now_native
-	g._activate_facility(yard)
+	g._show_selected()
+	g.colony_panel.built_buttons[yard].pressed.emit()
 	assert(g.yard_controls.visible and not g.yard_order.disabled)
 	g.yard_order.pressed.emit()
 	assert(earth.metals == 30)

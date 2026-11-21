@@ -26,9 +26,15 @@ var native_time: float = 0.0
 var visual_tick_count: int = 0
 var visual_clock = NativeClock.new()
 var colony_button: Button
-var freight_button: Button
 var manual_freight_dialog: AcceptDialog
 var manual_ship: OptionButton
+var supply_destination := ""
+var supply_resource := ""
+var stock_detail: AcceptDialog
+var stock_totals: Label
+var stock_links: VBoxContainer
+var stock_flight: Button
+var inspected_resource := ""
 var yard_controls: VBoxContainer
 var yard_status: Label
 var yard_order: Button
@@ -89,6 +95,7 @@ func _ready() -> void:
     _build_ui()
     _make_native_map()
     _make_browser()
+    _make_stock_detail()
     _dock_colony_stock()
     resized.connect(_layout_right_side)
     _layout_right_side()
@@ -170,8 +177,6 @@ func _build_ui() -> void:
     message_line = colony_panel.message
     colony_button = colony_panel.colonize_button
     colony_button.pressed.connect(_colonize_luna)
-    freight_button = colony_panel.freight_button
-    freight_button.hide()
     colony_panel.build_requested.connect(_open_build)
     colony_panel.ship_requested.connect(func(slot: int):
         if slot == 1 and construction.freight_line().enabled:
@@ -180,6 +185,8 @@ func _build_ui() -> void:
             _open_manual_freight(slot))
     colony_panel.line_requested.connect(_open_colony_logistics)
     colony_panel.facility_requested.connect(_colony_facility_selected)
+    colony_panel.supply_requested.connect(_request_supply)
+    colony_panel.stock_panel.resource_requested.connect(_inspect_resource)
     yard_controls = VBoxContainer.new()
     colony_panel.overview.add_child(yard_controls)
     colony_panel.overview.move_child(yard_controls, colony_panel.built_list.get_index())
@@ -365,7 +372,8 @@ func _build_freight_line_controls(parent: Control) -> void:
     manual_freight_dialog.confirmed.connect(_submit_manual_freight)
     add_child(manual_freight_dialog)
     var manual_form := VBoxContainer.new()
-    manual_form.custom_minimum_size.x = 340.0
+    manual_form.custom_minimum_size.x = 400.0
+    manual_freight_dialog.max_size = Vector2i(550, 560)
     manual_freight_dialog.add_child(manual_form)
     manual_ship = OptionButton.new()
     manual_form.add_child(manual_ship)
@@ -391,7 +399,7 @@ func _build_freight_line_controls(parent: Control) -> void:
     manual_resource.item_selected.connect(
         func(_index: int): _preview_manual_freight())
     var amount_label := Label.new()
-    amount_label.text = "Количество (0 — пустой возврат на Землю)"
+    amount_label.text = "Количество груза"
     manual_form.add_child(amount_label)
     manual_amount = SpinBox.new()
     manual_amount.min_value = 0
@@ -453,8 +461,12 @@ func _build_freight_line_controls(parent: Control) -> void:
         grid.add_child(policy)
         freight_line_fields[destination] = {"policy": policy,"resource": resource, "amount": amount, "reserve": reserve}
 
-func _open_manual_freight(preferred_slot: int = 0) -> void:
+func _open_manual_freight(preferred_slot: int = 0, destination := "", resource := "", amount := 1.0) -> void:
+    supply_destination = destination
+    supply_resource = resource
+    manual_destination.disabled = not destination.is_empty()
     manual_empty.button_pressed = false
+    manual_empty.disabled = not resource.is_empty()
     var previous := preferred_slot if preferred_slot > 0 else _manual_ship_slot()
     manual_ship.clear()
     for slot in [1, 2]:
@@ -467,11 +479,16 @@ func _open_manual_freight(preferred_slot: int = 0) -> void:
         var busy: bool = location in ["transit", "loading"] or (slot == 1 and construction.freight_line().enabled)
         manual_ship.add_item("Грузовик %d · %s%s" % [slot, status, " · линия" if slot == 1 and construction.freight_line().enabled else ""], slot)
         var index := manual_ship.item_count - 1
+        var wrong_port := not destination.is_empty() and location == destination
+        busy = busy or wrong_port
         manual_ship.set_item_disabled(index, busy)
         if not busy and (manual_ship.selected < 0 or manual_ship.is_item_disabled(manual_ship.selected) or slot == previous):
             manual_ship.select(index)
     _manual_ship_changed()
-    manual_freight_dialog.popup_centered()
+    if not resource.is_empty():
+        manual_amount.value = clampf(amount, 0.01, ConstructionRuntime.FREIGHT_CAPACITY)
+        _preview_manual_freight()
+    manual_freight_dialog.popup_centered(Vector2i(460, 440))
 
 
 func _manual_ship_slot() -> int:
@@ -480,7 +497,8 @@ func _manual_ship_slot() -> int:
 
 func _manual_ship_changed() -> void:
     var location: String = construction.freight_status(_manual_ship_slot()).get("location", "earth")
-    var wanted: String = "earth" if location == "luna" else "luna"
+    var wanted: String = supply_destination if not supply_destination.is_empty() else (
+        "earth" if location == "luna" else "luna")
     for index in manual_destination.item_count:
         if str(manual_destination.get_item_metadata(index)) == wanted:
             manual_destination.select(index)
@@ -495,8 +513,9 @@ func _manual_route_changed(_index: int) -> void:
         manual_resource.add_item(Model.resource_label(resource))
         manual_resource.set_item_metadata(
             manual_resource.item_count - 1, resource)
+    var wanted: String = supply_resource if not supply_resource.is_empty() else construction.freight_order(destination).resource
     for index in manual_resource.item_count:
-        if manual_resource.get_item_metadata(index) == construction.freight_order(destination).resource:
+        if manual_resource.get_item_metadata(index) == wanted:
             manual_resource.select(index)
             break
     manual_amount.min_value = 0 if destination == "earth" else 0.01
@@ -515,6 +534,9 @@ func _preview_manual_freight() -> void:
     var shipment: Dictionary = construction.freight_order(destination)
     var reason: String = construction.manual_freight_reason(
         destination, resource, amount, _manual_ship_slot())
+    if not supply_destination.is_empty() and (manual_ship.selected < 0 or
+            manual_ship.is_item_disabled(manual_ship.selected)):
+        reason = "Нет свободного грузовика в пункте отправления"
     var cargo := "Без груза" if amount == 0 else "%s %s" % [Model.batch_amount(amount), Model.resource_label(resource)]
     manual_preview.text = "%s → %s\n%s%s" % [
         Model.PLANET_NAMES[shipment.source],
@@ -611,7 +633,6 @@ func _show_selected() -> void:
             items.insert(1, "Население: %d" % int(expedition.settlers.population_count))
         var order: Dictionary = construction.freight_order(selected)
         var freight: Dictionary = construction.freight_status()
-        freight_button.hide()
         freight_line_buttons.visible = not order.is_empty()
         if freight_line_buttons.visible:
             var line: Dictionary = construction.freight_line()
@@ -652,7 +673,7 @@ func _show_selected() -> void:
             built.append(facility)
             var problem: String = str(facility.get("production_status", ""))
             if idle.is_empty() and problem.begins_with("Простой"):
-                idle = str(facility.get("name", "")) + " · " + problem
+                idle = str(facility.get("name", "")) + " · " + problem.trim_prefix("Простой: ")
         var line_status: String = "Линия выкл."
         if construction.freight_line().enabled:
             line_status = "Линия активна"
@@ -669,9 +690,100 @@ func _show_selected() -> void:
         colony_panel.show_food(construction.colony_food(selected))
         colony_panel.show_logistics(construction.freight_line(),
             freight, construction.freight_line_wait(), construction.freight_status(2))
+        if stock_detail != null and stock_detail.visible:
+            _update_stock_detail(warehouse)
         if browser != null and browser.visible:
             browser.set_colony_summary(name_ru, population_count, warehouse)
         return
+
+func _make_stock_detail() -> void:
+    stock_detail = AcceptDialog.new()
+    stock_detail.ok_button_text = "Закрыть"
+    stock_detail.max_size = Vector2i(570, 570)
+    add_child(stock_detail)
+    var content := VBoxContainer.new()
+    content.custom_minimum_size = Vector2(380, 305)
+    stock_detail.add_child(content)
+    stock_totals = Label.new()
+    stock_totals.custom_minimum_size.x = 370
+    stock_totals.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    content.add_child(stock_totals)
+    stock_flight = _button(content, "Доставить в эту колонию", func():
+        stock_detail.hide()
+        _request_supply(inspected_resource, _needed_stock(inspected_resource)))
+    var resources := ScrollContainer.new()
+    resources.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+    resources.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    content.add_child(resources)
+    stock_links = VBoxContainer.new()
+    stock_links.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    resources.add_child(stock_links)
+
+
+func _needed_stock(resource: String) -> float:
+    var needed := 0.0
+    for entry in colony_panel.production_data.values():
+        needed = maxf(needed, float(entry.get("missing", {}).get(resource, 0.0)))
+    return needed if needed > 0.0 else 1.0
+
+
+func _request_supply(resource: String, amount: float) -> void:
+    if selected in ["earth", "luna"]:
+        _open_manual_freight(0, selected, resource, amount)
+
+
+func _inspect_resource(resource: String) -> void:
+    inspected_resource = resource
+    stock_detail.title = "%s · %s" % [Model.PLANET_NAMES[selected], Model.resource_label(resource)]
+    for child in stock_links.get_children():
+        stock_links.remove_child(child)
+        child.queue_free()
+    for facility in colony_panel.built_facilities:
+        var kind := SurfaceSites.facility_kind(facility)
+        var recipe := Model.find_building(kind)
+        if recipe.get("product") != resource and not recipe.get("inputs", {}).has(resource):
+            continue
+        var action := _button(stock_links, str(facility.name), func():
+            stock_detail.hide()
+            _activate_facility(str(facility.id)))
+        action.alignment = HORIZONTAL_ALIGNMENT_LEFT
+        if colony_panel.production_data.get(facility.id, {}).get("missing", {}).has(resource):
+            action.text += " · не хватает " + Model.batch_unit(resource)
+    _update_stock_detail(construction.colony_inventory(selected))
+    stock_detail.popup_centered(Vector2i(486, 450))
+
+
+func _update_stock_detail(warehouse: Dictionary) -> void:
+    var flow: Dictionary = warehouse.get("movement", {}).get(inspected_resource, {})
+    var totals := PackedStringArray()
+    totals.append("Доступно: %s · резерв: %s" % [
+        Model.batch_amount(warehouse.get("supply", {}).get(inspected_resource, 0)),
+        Model.batch_amount(flow.get("reserved", 0))])
+    totals.append("За 30 дней: приход %s · расход %s" % [
+        Model.batch_amount(flow.get("in", 0)), Model.batch_amount(flow.get("out", 0))])
+    totals.append("%s: %s · использовано в партиях: %s" % [
+        "Добыто" if inspected_resource == "ore" else "Произведено",
+        Model.batch_amount(flow.get("mined", 0) + flow.get("produced", 0)),
+        Model.batch_amount(flow.get("consumed", 0))])
+    totals.append("Принято с дороги: %s · с рейсов: %s · списано на рейсы: %s" % [
+        Model.batch_amount(flow.get("road_received", 0)), Model.batch_amount(flow.get("received", 0)),
+        Model.batch_amount(flow.get("sent", 0))])
+    var pending := 0.0
+    for cargo in warehouse.get("incoming", []):
+        if cargo.resource == inspected_resource:
+            pending += cargo.amount
+    if pending > 0:
+        totals.append("Ожидается на складе: %s" % Model.batch_amount(pending))
+        for cargo in warehouse.get("incoming", []):
+            if cargo.resource == inspected_resource:
+                totals.append("%s · %s%s" % [cargo.mode, Model.batch_amount(cargo.amount),
+                    " · " + Calendar.calendar_text(cargo.arrival) if is_finite(cargo.arrival) else ""])
+                if totals.size() >= 8:
+                    break
+    stock_totals.text = "
+".join(totals)
+    stock_flight.visible = inspected_resource in ConstructionRuntime.FREIGHT_RESOURCES.get(selected, [])
+
 
 func _input(event: InputEvent) -> void:
     if event is InputEventKey and event.pressed and not event.echo:
@@ -735,7 +847,6 @@ func _make_browser() -> void:
     browser.placement_confirmed.connect(_order_build)
     browser.placement_cancelled.connect(_cancel_placement)
     browser.cancel_requested.connect(_cancel_build)
-    browser.stock_requested.connect(_open_stock_from_browser)
     browser.save_game_requested.connect(_save_game)
     browser.load_game_requested.connect(_load_game)
     browser.new_game_requested.connect(_new_game)
@@ -744,11 +855,6 @@ func _make_browser() -> void:
 
 func _open_build() -> void:
     _open_browser(false)
-
-func _open_stock_from_browser() -> void:
-    _close_browser()
-    _show_selected()
-    colony_panel.open_stock()
 
 func _open_browser(admin: bool) -> void:
     browser.configure(world, config, selected, admin)

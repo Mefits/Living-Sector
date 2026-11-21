@@ -1,5 +1,7 @@
 extends PanelContainer
 ## Compact, read-only view of a real colony market (never a second inventory).
+signal resource_requested(resource: String)
+
 const Model = preload("res://scripts/sol_building_model.gd")
 const Icons = preload("res://scripts/view/sol_icon_atlas.gd")
 const ORDER: Array[String] = [
@@ -13,6 +15,7 @@ const EXTRA_LABELS: Dictionary = {
 }
 var heading: Label
 var columns: HBoxContainer
+var resource_buttons: Dictionary = {}
 var amount_labels: Dictionary = {}
 var _visible_keys: Array[String] = []
 
@@ -44,7 +47,11 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
  if not visible:
   return
  heading.text = "Склад колонии · " + planet
- var supply: Dictionary = warehouse.get("supply", {})
+ heading.tooltip_text = "Доступный остаток и изменение за 30 дней. Нажмите на название ресурса."
+ var supply: Dictionary = warehouse.get("supply", {}).duplicate()
+ for resource in ["ore", "fuel"]:
+  if not supply.has(resource):
+   supply[resource] = 0.0
  var movement: Dictionary = warehouse.get("movement", {})
  var keys: Array[String] = []
  for resource in ORDER:
@@ -68,6 +75,7 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
   columns.remove_child(child)
   child.queue_free()
  amount_labels.clear()
+ resource_buttons.clear()
  if keys.is_empty():
   var empty := Label.new()
   empty.text = "Склад пуст"
@@ -89,7 +97,12 @@ func show_inventory(planet: String, warehouse: Dictionary) -> void:
   var resource_icon: TextureRect = Icons.make_icon(resource, false, 20)
   if resource_icon != null:
    line.add_child(resource_icon)
-  var resource_name := Label.new()
+  var resource_name := Button.new()
+  resource_name.flat = true
+  resource_name.alignment = HORIZONTAL_ALIGNMENT_LEFT
+  resource_name.clip_text = true
+  resource_name.pressed.connect(resource_requested.emit.bind(resource))
+  resource_buttons[resource] = resource_name
   resource_name.text = str(EXTRA_LABELS.get(resource,
    Model.resource_label(resource)))
   resource_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -152,7 +152,7 @@ func _run() -> void:
   "First batch absent and forecast/next date explicitly known")
  choose_from_list(earth_2)
  verify(game.colony_panel.detail_description.text.contains(
-  "ещё не выпускалась") and game.colony_panel.detail_description.text.contains(
+  "Выпуска ещё не было") and game.colony_panel.detail_description.text.contains(
   "Прогноз"), "Before first batch card does not pretend output is actual")
  deliver_steps(float(never.get("next_native",0))+0.01)
  var actual_a: Dictionary = actual(earth_1)
@@ -244,8 +244,8 @@ func _run() -> void:
   "Ground port opens ONE shared logistics panel")
  var logistics: String = game.colony_panel.logistics_status.text
  verify(logistics.contains("Регулярная линия: включена") and
-  logistics.contains("Грузовик: в пути") and
-  logistics.contains("На борту: 10") and logistics.contains(
+  game.colony_panel.ship_rows[0].text.contains("В пути") and
+  game.colony_panel.ship_rows[0].text.contains("10") and logistics.contains(
   "Земля") and logistics.contains("Луна"),
   "Port shows line, direction, hold and truck status")
  verify(game.freight_line_buttons.is_ancestor_of(
@@ -270,7 +270,7 @@ func _run() -> void:
   "finish_native",0)))
  choose_from_list(luna_2)
  verify(game.colony_panel.detail_description.text.contains(
-  "ещё не выпускалась"), "Newly built second lunar mine has no fake receipt")
+  "Выпуска ещё не было"), "Newly built second lunar mine has no fake receipt")
  var lunar_first_due: float = float(actual(luna_2).get("next_native",0))
  deliver_steps(lunar_first_due)
  verify(bool(actual(luna_1).get("last_present",false)) and
@@ -290,21 +290,14 @@ func _run() -> void:
  verify(game.browser.visible and game.browser.body_id == "luna" and
   game.browser.queue_panel != null,
   "Lunar AC opens existing construction and queue")
- var stock_button: Button = null
- for button in game.browser.find_children("*","Button",true,false):
-  if button.text == "Склад":
-   stock_button = button
-   break
- verify(stock_button != null, "AC construction has one-click stock")
- if stock_button != null:
-  stock_button.pressed.emit()
- verify(not game.browser.visible and
-  game.colony_stock_panel.is_visible_in_tree(),
-  "AC stock opens same existing colony stock panel")
+ verify(game.colony_stock_panel.is_visible_in_tree() and
+  game.colony_stock_panel.get_parent() == game.browser.dock_layout,
+  "The existing warehouse stays visible in construction")
+ game._close_browser()
  # Quick entry returns to SAME logistics panel used by port click.
  game._open_colony_logistics()
  verify(game.colony_panel.logistics_view.visible and
-  game.colony_panel.logistics_status.text.contains("Грузовик"),
+  game.colony_panel.ship_rows[0].text.contains("Грузовик"),
   "Quick logistics and port click share an identical panel")
 
  game._save_game()
@@ -317,7 +310,7 @@ func _run() -> void:
   "Changing planets clears selected Moon enterprise")
  choose_from_list(earth_2)
  verify(game.colony_panel.selected_facility == earth_2 and
-  game.colony_panel.detail_title.text.contains(earth_2.right(4)),
+  game.colony_panel.detail_title.text.contains("№2"),
   "Earth instance selection remains stable after Moon and save/load")
  print("SOL_FACILITY_CONTROL_RESULT ",JSON.stringify({
   "earth":[earth_1,earth_2],"moon":[luna_1,luna_2],

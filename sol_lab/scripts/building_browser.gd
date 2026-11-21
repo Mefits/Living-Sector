@@ -8,7 +8,6 @@ signal build_requested(body_id: String, building_id: String)
 signal placement_confirmed(body_id: String, building_id: String, site_id: String)
 signal placement_cancelled
 signal cancel_requested(site_id: String)
-signal stock_requested
 signal save_game_requested
 signal load_game_requested
 signal new_game_requested
@@ -77,14 +76,10 @@ func _ready() -> void:
  layout.add_child(navigation)
  _button(navigation, "Колония", func(): close_requested.emit())
  _button(navigation, "Строительство", _navigate.bind("build"))
- _button(navigation, "Склад", func(): stock_requested.emit())
  var stock_bar := HBoxContainer.new()
  stock_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
  stock_bar.add_theme_constant_override("separation", 5)
  layout.add_child(stock_bar)
- var stock_icon: TextureRect = Icons.make_icon("metals", false, 20)
- if stock_icon != null:
-  stock_bar.add_child(stock_icon)
  colony_line = _label(stock_bar, "", 14, Color("#e1d1a4"))
  colony_line.custom_minimum_size = Vector2(190, 24)
  colony_line.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -157,10 +152,7 @@ func select_planet(new_id: String) -> void:
 
 func set_colony_summary(name_ru: String, residents: int,
         inventory: Dictionary) -> void:
- var supply: Dictionary = inventory.get("supply", {})
- var state: String = ("%s · %d жителей · металл %s" % [
-  name_ru, residents,
-  Model.batch_amount(float(supply.get("metals", 0)))]) if bool(
+ var state: String = ("%s · %d жителей" % [name_ru, residents]) if bool(
   inventory.get("present", false)) else name_ru + " · нет колонии"
  if colony_line != null:
   colony_line.text = state

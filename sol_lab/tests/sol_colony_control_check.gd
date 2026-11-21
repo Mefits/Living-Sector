@@ -73,8 +73,6 @@ func _run() -> void:
  await scene_changed
  game = current_scene
  game._pause()
- check(game.freight_button != null and not game.freight_button.visible,
-  "no one-off delivery button on main planet card")
  check(find_button(game.colony_panel,"Разовый рейс") != null,
   "manual flight action beside scheduled line")
  var old_metals: float = stock("earth")
@@ -367,7 +365,10 @@ func _run() -> void:
  game._open_manual_freight()
  check(game.manual_freight_dialog.visible,
   "one-off order opens after port built")
- game.manual_resource.select(1) # "food" follows "metals" on lunar legs
+ for index in game.manual_resource.item_count:
+  if game.manual_resource.get_item_metadata(index) == "food":
+   game.manual_resource.select(index)
+   break
  game.manual_amount.value = 5
  game._preview_manual_freight()
  check(game.manual_preview.text.contains("5") and
