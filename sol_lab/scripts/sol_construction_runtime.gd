@@ -18,7 +18,10 @@ const FREIGHT_ORDERS := {
  "luna": {"source": "earth", "destination": "luna", "resource": "metals", "amount": 10},
  "earth": {"source": "luna", "destination": "earth", "resource": "ore", "amount": 10}
 }
-const FREIGHT_RESOURCES := {"luna": ["metals", "food", "ore"], "earth": ["ore"]}
+const CARGO_TYPES := ["ore", "metals", "food", "fuel", "water", "ice", "gas", "components",
+ "polymers", "energy_cells", "rare_ore", "crystal_ore", "electronics", "tools", "medical", "luxury"]
+const FREIGHT_RESOURCES := {"luna": CARGO_TYPES, "earth": CARGO_TYPES}
+const LOAD_POLICIES := {"full": "Ждать партию", "partial": "Брать доступное", "empty": "Лететь пустым"}
 var world: Dictionary = {}
 var settings: Dictionary = {}
 var now_native: float = 0.0
@@ -222,7 +225,7 @@ func configure_freight_line(legs: Dictionary) -> bool:
  for destination in FREIGHT_ORDERS:
   var leg: Dictionary = legs[destination]
   _line_legs[destination] = {"resource": leg.resource, "amount": int(leg.amount),
-   "reserve": float(leg.reserve)}
+   "reserve": float(leg.reserve), "policy": leg.get("policy", "full")}
  return true
 
 static func _valid_line_legs(legs: Variant) -> bool:
@@ -231,6 +234,8 @@ static func _valid_line_legs(legs: Variant) -> bool:
  for destination in FREIGHT_ORDERS:
   var leg: Variant = legs.get(destination)
   if not leg is Dictionary or not _valid_cargo(leg, destination) or not _whole_number(leg.get("amount")):
+   return false
+  if leg.get("policy", "full") not in LOAD_POLICIES:
    return false
   if not _whole_number(leg.get("reserve")) or leg.reserve < 0:
    return false
@@ -253,13 +258,27 @@ func _next_line_order() -> Dictionary:
  var leg: Dictionary = _line_legs[destination]
  shipment.resource = leg.resource
  shipment.amount = leg.amount
+ match leg.get("policy", "full"):
+  "partial":
+   var stock := float(_market_for(shipment.source).get("supply", {}).get(leg.resource, 0))
+   shipment.amount = clampf(stock - float(leg.reserve), 0.0, float(leg.amount))
+  "empty":
+   shipment.amount = 0
  return shipment
+
+func _line_block_reason(shipment: Dictionary) -> String:
+ var leg: Dictionary = _line_legs[shipment.destination]
+ var empty: bool = leg.get("policy", "full") == "empty"
+ var reason := _shipment_block_reason(shipment, 0.0 if empty else float(leg.reserve))
+ if reason.is_empty() and not empty and shipment.amount <= 0:
+  return "Нет груза сверх резерва"
+ return reason
 
 func freight_line_wait() -> String:
  if not _line_enabled or _freighter.location in ["transit", "loading"]:
   return ""
  var shipment := _next_line_order()
- var reason := _shipment_block_reason(shipment, _line_legs[shipment.destination].reserve)
+ var reason := _line_block_reason(shipment)
  if reason.is_empty():
   return ""
  return "Ждёт (%s) · %s" % [Model.PLANET_NAMES[shipment.source], reason]
@@ -268,7 +287,7 @@ func _dispatch_line() -> bool:
  if not _line_enabled or _freighter.location in ["transit", "loading"]:
   return false
  var shipment := _next_line_order()
- if not _shipment_block_reason(shipment, _line_legs[shipment.destination].reserve).is_empty():
+ if not _line_block_reason(shipment).is_empty():
   return false
  _launch_freighter(shipment)
  return true
@@ -1098,5 +1117,6 @@ func inventory_summary(body: String) -> String:
    str(entry.recipe.name),
    str(entry.facility.get("production_status", "Ожидается первый выпуск"))])
  return "\n".join(lines)
+
 
 

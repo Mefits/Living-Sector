@@ -56,7 +56,7 @@ static func batch_amount(value: float) -> String:
  var whole: int = roundi(number)
  return str(whole) if is_equal_approx(number, float(whole)) else str(number)
 
-const LABELS: Dictionary = {"ore":"Руда","ice":"Лёд","gas":"Газ","rare_ore":"Редкая руда","crystal_ore":"Кристаллы","water":"Вода","food":"Еда","metals":"Металлы","components":"Компоненты","fuel":"Топливо","polymers":"Полимеры","energy_cells":"Энергия","none":"—"}
+const LABELS: Dictionary = {"ore":"Руда","ice":"Лёд","gas":"Газ","rare_ore":"Редкая руда","crystal_ore":"Кристаллы","water":"Вода","food":"Еда","metals":"Металлы","components":"Компоненты","fuel":"Топливо","polymers":"Полимеры","energy_cells":"Энергия","electronics":"Электроника","tools":"Инструменты","medical":"Медтовары","luxury":"Роскошь","none":"—"}
 static func resource_label(id: String) -> String:
  return str(LABELS.get(id,id))
 static func building_defaults(recipes: Dictionary = {}) -> Dictionary:
@@ -173,3 +173,4 @@ static func construction_days(building: Dictionary,
 static func minimum_construction_shifts(_building: Dictionary,
         _settings: Dictionary) -> int:
  return -1
+

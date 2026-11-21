@@ -261,7 +261,35 @@ func unload_in_district(game: Control) -> void:
   check(flight.location == "transit" and flight.order.amount == 0, "Empty ship stays empty across reload")
   advance(game, flight.arrival)
   check(sim.freight_status().location == destination, "Empty ship reaches the requested port")
+ check_supply_line(game)
  print("SOL_EARTH_DISTRICT_LIVE_UNLOAD_PASS")
+
+func check_supply_line(game: Control) -> void:
+ var sim = game.construction
+ # Fixture: the reserve leaves exactly three units available on the Moon.
+ var moon: Dictionary = sim._market_for("luna").supply
+ sim._set_ship(2, {"location": "earth"})
+ var legs := {"luna": {"resource": "food", "amount": 10, "reserve": 0, "policy": "empty"},
+  "earth": {"resource": "ore", "amount": 10, "reserve": 2, "policy": "partial"}}
+ check(sim.configure_freight_line(legs), "Partial return and empty outbound accepted")
+ sim.set_freight_line_enabled(true)
+ advance(game, sim.now_native + 0.01)
+ check(sim.freight_status().order.amount == 0, "Outbound leg repositions empty")
+ check(sim.depart_manual_freight("luna", "fuel", 1, 2), "Free ship accepts an independent fuel delivery")
+ var outbound_eta: float = sim.freight_status().arrival
+ advance(game, outbound_eta - 0.01)
+ moon.ore = 5.0
+ advance(game, outbound_eta)
+ var back: Dictionary = sim.freight_status()
+ check(back.order.amount == 3 and moon.ore == 2, "Partial shipment preserves two units of reserve")
+ sim.set_freight_line_enabled(false)
+ game._save_game()
+ game._load_game()
+ check(not sim.freight_line().enabled and sim.freight_line().legs.earth.policy == "partial",
+  "Stopped line and partial policy survive reload")
+ advance(game, back.arrival)
+ check(sim.freight_status().location == "earth" and sim.freight_status(2).location == "luna",
+  "Both ships finish their own orders and stay docked")
 
 func ore_chain(game: Control) -> void:
  var sim = game.construction
@@ -305,4 +333,5 @@ func capture(count := 1) -> void:
   var frame := root.get_texture().get_image()
   check(frame.save_png(capture_folder.path_join("%04d.png" % frame_index)) == OK, "Video frame saved")
   frame_index += 1
+
 

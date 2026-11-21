@@ -173,6 +173,11 @@ func _build_ui() -> void:
     freight_button = colony_panel.freight_button
     freight_button.hide()
     colony_panel.build_requested.connect(_open_build)
+    colony_panel.ship_requested.connect(func(slot: int):
+        if slot == 1 and construction.freight_line().enabled:
+            _open_freight_line()
+        else:
+            _open_manual_freight(slot))
     colony_panel.line_requested.connect(_open_colony_logistics)
     colony_panel.facility_requested.connect(_colony_facility_selected)
     yard_controls = VBoxContainer.new()
@@ -414,11 +419,11 @@ func _build_freight_line_controls(parent: Control) -> void:
     freight_line_dialog.confirmed.connect(_apply_freight_line)
     add_child(freight_line_dialog)
     var grid := GridContainer.new()
-    grid.columns = 4
+    grid.columns = 5
     grid.add_theme_constant_override("h_separation", 12)
     grid.add_theme_constant_override("v_separation", 8)
     freight_line_dialog.add_child(grid)
-    for heading in ["Направление", "Груз", "Партия", "Мин. остаток"]:
+    for heading in ["Направление", "Груз", "Партия", "Мин. остаток", "При отправке"]:
         var label := Label.new()
         label.text = heading
         grid.add_child(label)
@@ -441,11 +446,16 @@ func _build_freight_line_controls(parent: Control) -> void:
         reserve.max_value = 100000
         reserve.allow_greater = true
         grid.add_child(reserve)
-        freight_line_fields[destination] = {"resource": resource, "amount": amount, "reserve": reserve}
+        var policy := OptionButton.new()
+        for key in ConstructionRuntime.LOAD_POLICIES:
+            policy.add_item(ConstructionRuntime.LOAD_POLICIES[key])
+            policy.set_item_metadata(policy.item_count - 1, key)
+        grid.add_child(policy)
+        freight_line_fields[destination] = {"policy": policy,"resource": resource, "amount": amount, "reserve": reserve}
 
-func _open_manual_freight() -> void:
+func _open_manual_freight(preferred_slot: int = 0) -> void:
     manual_empty.button_pressed = false
-    var previous := _manual_ship_slot()
+    var previous := preferred_slot if preferred_slot > 0 else _manual_ship_slot()
     manual_ship.clear()
     for slot in [1, 2]:
         var ship: Dictionary = construction.freight_status(slot)
@@ -485,6 +495,10 @@ func _manual_route_changed(_index: int) -> void:
         manual_resource.add_item(Model.resource_label(resource))
         manual_resource.set_item_metadata(
             manual_resource.item_count - 1, resource)
+    for index in manual_resource.item_count:
+        if manual_resource.get_item_metadata(index) == construction.freight_order(destination).resource:
+            manual_resource.select(index)
+            break
     manual_amount.min_value = 0 if destination == "earth" else 0.01
     manual_amount.value = clampf(manual_amount.value,
         manual_amount.min_value, manual_amount.max_value)
@@ -507,6 +521,11 @@ func _preview_manual_freight() -> void:
         Model.PLANET_NAMES[shipment.destination],
         cargo,
         "" if reason.is_empty() else "\n" + reason]
+    if amount > 0:
+        var stock: float = construction.colony_inventory(shipment.source).get("supply", {}).get(resource, 0.0)
+        manual_preview.text += "\nСклад отправителя: %s" % Model.batch_amount(stock)
+        if stock >= amount:
+            manual_preview.text += " → " + Model.batch_amount(stock - amount)
     manual_freight_dialog.get_ok_button().disabled = not reason.is_empty()
 
 
@@ -542,6 +561,9 @@ func _open_freight_line() -> void:
             if resource.get_item_metadata(index) == leg.resource:
                 resource.select(index)
                 break
+        for index in fields.policy.item_count:
+            if fields.policy.get_item_metadata(index) == leg.get("policy", "full"):
+                fields.policy.select(index)
         fields.amount.value = leg.amount
         fields.reserve.value = leg.reserve
     freight_line_dialog.popup_centered()
@@ -553,7 +575,7 @@ func _apply_freight_line() -> void:
         fields.amount.apply()
         fields.reserve.apply()
         legs[destination] = {"resource": fields.resource.get_selected_metadata(),
-            "amount": fields.amount.value, "reserve": fields.reserve.value}
+            "amount": fields.amount.value, "reserve": fields.reserve.value, "policy": fields.policy.get_selected_metadata()}
     if construction.configure_freight_line(legs):
         _show_selected()
 
@@ -1244,6 +1266,7 @@ func _load_game() -> void:
     _refresh_construction_ui()
     _show_selected()
     _notice("Игра загружена: " + Calendar.calendar_text(native_time))
+
 
 
 

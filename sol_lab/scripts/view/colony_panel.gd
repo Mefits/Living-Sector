@@ -1,6 +1,7 @@
 extends PanelContainer
 ## Fixed-header colony control; stock/list/detail are views of one real world.
 signal build_requested
+signal ship_requested(slot: int)
 signal line_requested
 signal facility_requested(facility_id: String)
 
@@ -22,6 +23,7 @@ var message: Label
 var stock_panel: PanelContainer
 var colonize_button: Button
 var freight_button: Button
+var ship_rows: Array[Button] = []
 var line_holder: VBoxContainer
 var built_list: VBoxContainer
 var detail_title: Label
@@ -119,6 +121,10 @@ func _ready() -> void:
  logistics_status = _label(logistics_view, "", 13,
   Color("#bfd2dc"))
  logistics_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+ for slot in [1, 2]:
+  var row := _button(logistics_view, "", ship_requested.emit.bind(slot))
+  row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+  ship_rows.append(row)
  logistics_view.hide()
 
  message = _label(layout, "", 12, Color("#e5cb92"))
@@ -234,45 +240,37 @@ func show_logistics(line: Dictionary, freight: Dictionary,
  for destination in ["luna", "earth"]:
   var leg: Dictionary = legs.get(destination, {})
   var origin: String = "earth" if destination == "luna" else "luna"
+  if leg.get("policy") == "empty":
+   sentences.append("%s → %s · пустой рейс" % [destination_names[origin], destination_names[destination]])
+   continue
   sentences.append("%s → %s: %d %s · резерв %s" % [
    destination_names.get(origin, origin),
    destination_names.get(destination, destination),
    int(leg.get("amount", 0)),
    Model.resource_label(str(leg.get("resource", ""))),
    Model.batch_amount(float(leg.get("reserve", 0)))])
- var location: String = str(freight.get("location", ""))
- if location == "loading":
-  sentences.append("Грузовик: погрузка · %s руды → Луна" % Model.batch_amount(freight.order.amount))
- elif location == "transit":
-  var order: Dictionary = freight.get("order", {})
-  var source: String = str(order.get("source", ""))
-  var target: String = str(order.get("destination", ""))
-  var amount: float = float(order.get("amount", 0))
-  var manifest: String = ("%s %s" % [
-   Model.batch_amount(amount), Model.resource_label(str(order.get("resource", "")))]) if (
-   amount > 0) else "пустой трюм"
-  sentences.append("Грузовик: в пути · %s → %s" % [
-   destination_names.get(source, source), destination_names.get(target, target)])
-  sentences.append("На борту: " + manifest)
-  sentences.append("Прибытие: " + Calendar.calendar_text(
-   float(freight.get("arrival", 0))))
- else:
-  sentences.append("Грузовик: у %s · трюм пуст" % (
-   "Земли" if location == "earth" else (
-   "Луны" if location == "luna" else "нет корабля")))
+  if leg.get("policy") == "partial":
+   sentences[-1] += " · брать доступное"
+ for index in ship_rows.size():
+  var ship := freight if index == 0 else second
+  var row := ship_rows[index]
+  row.visible = not ship.is_empty()
+  if ship.is_empty():
+   continue
+  var assigned := index == 0 and enabled
+  var active: bool = ship.location in ["loading", "transit"]
+  var status: String = destination_names.get(ship.location, "")
+  if active:
+   var cargo: Dictionary = ship.order
+   var payload := "пустой" if cargo.amount == 0 else "%s %s" % [
+    Model.batch_amount(cargo.amount), Model.batch_unit(cargo.resource)]
+   status = "%s → %s · %s" % ["Погрузка" if ship.location == "loading" else "В пути",
+    destination_names[cargo.destination], payload]
+  row.text = "Грузовик %d · %s\n%s" % [index + 1, status,
+   "Регулярная линия" if assigned else ("После рейса остановится" if active else "Свободен · назначить рейс")]
+  row.disabled = active and not assigned
  if enabled and not waiting_reason.is_empty():
   sentences.append(waiting_reason)
- if not second.is_empty():
-  if second.location == "transit":
-   var cargo: Dictionary = second.order
-   sentences.append("Грузовик 2 · %s → %s · %s %s" % [
-    destination_names[cargo.source], destination_names[cargo.destination],
-    Model.batch_amount(cargo.amount), Model.batch_unit(cargo.resource)])
-   sentences.append("Прибытие: " + Calendar.calendar_text(second.arrival))
-  elif second.location == "loading":
-   sentences.append("Грузовик 2: погрузка · %s руды → Луна" % Model.batch_amount(second.order.amount))
-  else:
-   sentences.append("Грузовик 2 · %s · свободен" % destination_names[second.location])
  logistics_status.text = "\n".join(sentences)
 
 
@@ -430,4 +428,5 @@ func _purpose(kind: String, item: Dictionary) -> String:
   "orbital_platform":
    return "Орбитальная инфраструктура"
  return str(item.get("name", "Объект колонии"))
+
 
