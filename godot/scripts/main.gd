@@ -16,6 +16,7 @@ const ENABLE_DEBUG_MANUAL_FLEET_UI: bool = false
 const SystemMap = preload("res://scripts/system_map.gd")
 const StarSystemView = preload("res://scripts/star_system_view.gd")
 const ObserverPanel = preload("res://scripts/observer_panel.gd")
+const ColonyProjection = preload("res://scripts/view/colony_globe_projection.gd")
 const UIFrameProfiler = preload("res://scripts/ui_frame_profiler.gd")
 const WorkerN158 = preload("res://scripts/sim/phase2/n158_real_owner_thread_probe.gd")
 const ReadOnlyWorldModel = preload("res://scripts/sim/world_model.gd")
@@ -26,6 +27,7 @@ var _seed: Dictionary = {}
 var _cached_seed_stats: Dictionary = {}
 var _selected_system: String = "system-sol"
 var _selected_body_id: String = ""
+var _selected_colony_facility_id: String = ""
 var _in_system: bool = false
 var _notice: String = ""
 var _startup_error: String = ""
@@ -287,9 +289,10 @@ func _ready() -> void:
     _system_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _system_view.connect("body_selected", _on_body_selected)
     _system_view.connect("body_open_requested", _on_body_open_requested)
+    _system_view.connect("colony_facility_selected", _on_colony_facility_selected)
 
     var details_panel := PanelContainer.new()
-    details_panel.custom_minimum_size = Vector2(355, 0)
+    details_panel.custom_minimum_size = Vector2(440, 0)
     details_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
     columns.add_child(details_panel)
 
@@ -1403,6 +1406,53 @@ func _select_world(world: Dictionary, shared_economy: Dictionary = {}) -> void:
     lines.append("Флот N46/N14 подключён, но автономный ИИ и контракты ещё не работают.")
     _details.text = "\n".join(lines)
 
+## Only on a focused globe, replacing the verbose debug dump with a small
+## actual N39 read-only inspector. No second N39 snapshot or economy model.
+func _show_colony_inspector(body: Dictionary, globe: Dictionary,
+        economy: Dictionary) -> void:
+    var nodes: Array = globe.get("nodes", [])
+    var orbit: Array = globe.get("orbit", [])
+    var lines: Array[String] = [
+        "КОЛОНИЯ · " + str(body.get("name", "?")),
+        "Поверхность — схематическая, позиции не являются географическими.",
+        "Дороги показывают связи; точки — недавний оплаченный труд.",
+        "Это не подтверждения физической доставки.", ""
+    ]
+    var selected: Dictionary = {}
+    for entry in nodes + orbit:
+        if str(entry.get("id", "")) == _selected_colony_facility_id:
+            selected = entry
+            break
+    if not selected.is_empty():
+        lines.append(str(selected.get("name", selected.get("id", "?"))))
+        lines.append("Тип: %s" % str(selected.get("type", "?")))
+        lines.append("Расположение: %s" % (
+            "орбитальная инфраструктура" if orbit.has(selected) else "наземное предприятие"))
+        var fac: Dictionary = economy.get("facilities", {}).get(str(selected["id"]), {})
+        lines.append("Состояние: %s" % (
+            "заброшено" if bool(fac.get("abandoned", false)) else "существует"))
+        lines.append("Кредитов: %d CR" % int(fac.get("credits", 0)))
+        lines.append("Оплаченных работников (недавняя смена): %d" % int(selected.get("workers", 0)))
+        lines.append("Условная активность: %d / 9" % int(selected.get("activity", 0)))
+        lines.append("")
+        lines.append("ЛКМ по пустой поверхности — вернуться к обзору.")
+    else:
+        var total_workers: int = 0
+        var running: int = 0
+        for node in nodes:
+            total_workers += int(node.get("workers", 0))
+            if int(node.get("activity", 0)) > 0:
+                running += 1
+        lines.append("Наземных объектов: %d · орбитальных: %d" % [nodes.size(), orbit.size()])
+        lines.append("Предприятий с недавней оплаченной сменой: %d" % running)
+        lines.append("Работников в этих сменах: %d" % total_workers)
+        lines.append("")
+        lines.append("Центр дорог — условный узел связанной станции,")
+        lines.append("не отдельное построенное здание АЦ.")
+        lines.append("ЛКМ по предприятию или станции — подробности.")
+    _details.text = "\n".join(lines)
+
+
 func _open_selected_system() -> void:
     if _model == null:
         return
@@ -1420,6 +1470,7 @@ func _open_world(world: Dictionary) -> void:
         return
     _selected_system = sid
     _selected_body_id = ""
+    _selected_colony_facility_id = ""
     _in_system = true
     _map.visible = false
     _system_view.visible = true
@@ -1437,6 +1488,7 @@ func _return_to_sector() -> void:
     # Three semantic map levels: globe -> orbital system -> sector.
     # Do not reset or duplicate the running world on a UI-only transition.
     if _in_system and _system_view != null and _system_view.is_body_focused():
+        _selected_colony_facility_id = ""
         _system_view.unfocus_body()
         _back_button.text = "← К сектору"
         return
@@ -1466,10 +1518,20 @@ func _on_body_open_requested(body: Dictionary) -> void:
     if id.is_empty() or not _system_view.focus_body(id):
         return
     _selected_body_id = id
+    _selected_colony_facility_id = ""
     _back_button.text = "← К системе"
     var current: Dictionary = _model.system_by_id(_selected_system)
     if not current.is_empty():
         _show_body_details(current)
+
+
+func _on_colony_facility_selected(facility_id: String) -> void:
+    if not _in_system or not _system_view.is_body_focused():
+        return
+    _selected_colony_facility_id = facility_id
+    var world: Dictionary = _model.system_by_id(_selected_system)
+    if not world.is_empty():
+        _show_body_details(world)
 
 
 func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> void:
@@ -1539,6 +1601,14 @@ func _show_body_details(world: Dictionary, shared_economy: Dictionary = {}) -> v
         elif _runner != null:
             economic = _runner.economy_snapshot()
     var live_facilities: Dictionary = economic.get("facilities", {})
+    if _system_view != null and _system_view.is_body_focused():
+        var current_tick: int = _worker_tick if _worker_mode else (
+            _runner.tick_count if _runner != null else 0)
+        var globe: Dictionary = ColonyProjection.build(_selected_body_id,
+            world.get("facilities", []), economic, current_tick)
+        _system_view.set_colony_projection(globe)
+        _show_colony_inspector(chosen, globe, economic)
+        return
     var locations: Dictionary = {}
     var count: int = 0
     for facility in world.get("facilities", []):

@@ -1,0 +1,83 @@
+name: P2 Colony short GDScript parse diagnostic
+
+on:
+  push:
+    branches:
+      - feature/colony-live-globe-ui-20261117
+    paths:
+      - .github/workflows/p2-colony-short-parse.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot 4.7.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/godot/bin"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 150 --silent --show-error \
+            "https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip" \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/godot/bin"
+          mv "$RUNNER_TEMP/godot/bin/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/godot/bin/godot"
+          chmod +x "$RUNNER_TEMP/godot/bin/godot"
+          echo "$RUNNER_TEMP/godot/bin" >> "$GITHUB_PATH"
+      - name: Check referenced script paths
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root=Path("godot")
+          missing=[]
+          for p in root.rglob("*.gd"):
+              for name in re.findall(r'preload\("res://([^"]+)"\)',p.read_text(encoding="utf-8-sig")):
+                  if not (root/name).is_file():
+                      missing.append(f"{p}: {name}")
+          print("MISSING_PRELOADS",len(missing))
+          print("\n".join(missing[:40]))
+          if missing:
+              raise SystemExit(1)
+          PY
+      - name: Import project and show first parser errors
+        shell: bash
+        run: |
+          set +e
+          timeout 100s godot --headless --path godot --editor --import --quit > import.log 2>&1
+          result=$?
+          grep -n -B 3 -A 5 -E 'SCRIPT ERROR:|Parse Error:|Could not resolve|Cannot find|ERROR:' import.log | head -n 200 || true
+          test "$result" -eq 0 || { tail -n 150 import.log; exit "$result"; }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script' import.log; then
+            echo 'PARSER_ERRORS_FOUND'
+            exit 1
+          fi
+          echo 'GODOT_PROJECT_IMPORT_PASS'
+      - name: Compile unified runtime and colony UI
+        shell: bash
+        run: |
+          set +e
+          timeout 75s godot --headless --path godot --script res://tests/colony_globe_projection_check.gd > compile.log 2>&1
+          result=$?
+          cat compile.log | tail -n 120
+          test "$result" -eq 0 || exit "$result"
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:|Could not resolve script' compile.log; then
+            exit 1
+          fi
+          grep -q 'COLONY_GLOBE_PROJECTION_PASS' compile.log
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colony-short-parse-diagnostic
+          path: |
+            import.log
+            compile.log
+          if-no-files-found: ignore
+          retention-days: 3
