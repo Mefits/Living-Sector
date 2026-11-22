@@ -12,7 +12,9 @@ static func _bad(reason: String) -> Dictionary:
     return {"ok": false, "reason": "n21_fifo_" + reason}
 
 static func _queue(fac: Dictionary) -> Array:
-    return fac.get("dock_queue", []).duplicate(true)
+    # N21 queues contain scalar ship IDs; a detached array is sufficient.
+    # Never expose the mutable queue itself to callers.
+    return fac.get("dock_queue", []).duplicate()
 
 static func _occupants(world: Dictionary, fid: String) -> int:
     var count: int = 0
@@ -68,21 +70,26 @@ static func _prune(world: Dictionary, fid: String) -> bool:
     var fac: Dictionary = world["facilities"][fid]
     var before: Array = _queue(fac)
     var after: Array = []
+    # Preserve first occurrence/FIFO order without a growing linear
+    # after.has() scan for every queued ship (quadratic on late ticks).
+    var seen: Dictionary = {}
     for sid in before:
-        if _valid_waiter(world, fid, str(sid)) and not after.has(sid):
+        if not seen.has(sid) and _valid_waiter(world, fid, str(sid)):
+            seen[sid] = true
             after.append(sid)
     if after == before:
         return false
     fac["dock_queue"] = after
     return true
 
-static func _fee(world: Dictionary, fid: String, ship_id: String) -> int:
+static func _fee(world: Dictionary, fid: String, ship_id: String,
+        occupancy: Dictionary = {}) -> int:
     var fac: Dictionary = world["facilities"][fid]
     var ship: Dictionary = world["ships"][ship_id]
     var cap: int = int(fac.get("docking_capacity", 0))
     if cap <= 0:
         return -1
-    var occupied: int = _occupants(world, fid)
+    var occupied: int = int(occupancy[fid]) if occupancy.has(fid) else _occupants(world, fid)
     var raw_condition: Variant = fac.get("condition", 1.0)
     if not (raw_condition is int or raw_condition is float) or (
             not is_finite(float(raw_condition))):
@@ -100,25 +107,33 @@ static func _fee(world: Dictionary, fid: String, ship_id: String) -> int:
         float(treaty.get("fee_factor", 1.0)))
     return discounted if discounted >= 0 else -1
 
-static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
-        sid: String, tick: int, cause: String) -> Dictionary:
+static func _admit(world: Dictionary, ledger: Variant, fid: String,
+        sid: String, tick: int, cause: String,
+        occupancy: Dictionary = {}, quoted_fee: int = -2) -> Dictionary:
     var fac: Dictionary = world["facilities"][fid]
     var ship: Dictionary = world["ships"][sid]
-    if int(fac.get("docking_capacity", 0)) <= _occupants(world, fid) or (
+    if int(fac.get("docking_capacity", 0)) <= (int(occupancy[fid]) if occupancy.has(fid) else _occupants(world, fid)) or (
             not str(ship.get("docked_at", "")).is_empty() or
             str(ship.get("location", "")) != str(fac.get("location", ""))):
         return _bad("source_dock_not_really_available")
-    var price: int = _fee(world, fid, sid)
+    # The caller has just computed this fee against the same detached stage.
+    # Avoid a second relations/occupancy calculation for every paid FIFO head.
+    # -2 means no quote supplied; -1 remains a genuine invalid quote.
+    var price: int = quoted_fee if quoted_fee != -2 else _fee(world, fid, sid, occupancy)
     if price < 0 or int(ship.get("credits", -1)) < price or (
             int(fac.get("credits", -1)) > MAX_I64 - price):
         return _bad("source_dock_fee_unaffordable")
     var op_id: String = "n21:dock:" + sid + ":" + str(tick)
     if world.get("dock_receipts", {}).has(op_id):
         return _bad("duplicate_real_dock_receipt")
-    var paid: Dictionary = ledger.duplicate(true)
+    # Only the zero-fee path needs a detached dictionary copy here.
+    # A paid dictionary ledger is restored into Bank and snapshotted below.
+    var paid: Variant = ledger
+    if price == 0 and ledger is Dictionary:
+        paid = ledger.duplicate(true)
     if price > 0:
-        var bank := Bank.new()
-        if not bank.restore(ledger):
+        var bank: RefCounted = Bank.new() if ledger is Dictionary else ledger
+        if ledger is Dictionary and not bank.restore(ledger):
             return _bad("n9_original_bank_restore_failed")
         # N39 Schema.facility_account(fid) is "facility/" + fid.
         # A colon key is NOT a real wallet and wrongly rejected every
@@ -127,14 +142,22 @@ static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
             "facility/" + fid, price, tick, "native_n21_dock")
         if not moved.get("ok", false):
             return _bad("n9_original_dock_debit_rejected")
-        paid = bank.snapshot()
+        paid = bank.snapshot() if ledger is Dictionary else bank
     ship["credits"] = int(ship["credits"]) - price
     ship["docked_at"] = fid
+    if occupancy.has(fid):
+        occupancy[fid] = int(occupancy[fid]) + 1
     ship["dock_attempt_start_tick"] = null
     fac["credits"] = int(fac["credits"]) + price
     fac["dirty"] = true
-    var queued: Array = _queue(fac)
-    queued.erase(sid)
+    # _stage_world owns this queue; mutation cannot alias the source World.
+    # FIFO admits the head, while a request fast path may remove any member.
+    # Never duplicate the whole queue for every successful paid admission.
+    var queued: Array = fac.get("dock_queue", [])
+    if not queued.is_empty() and str(queued[0]) == sid:
+        queued.pop_front()
+    else:
+        queued.erase(sid)
     fac["dock_queue"] = queued
     var receipt: Dictionary = {
         "operation_id": op_id, "action": "dock", "ship_id": sid,
@@ -146,7 +169,7 @@ static func _admit(world: Dictionary, ledger: Dictionary, fid: String,
         "world": world, "ledger_snapshot": paid,
         "receipt": receipt, "fee": price}
 
-static func request(world: Dictionary, ledger: Dictionary,
+static func request(world: Dictionary, ledger: Variant,
         ship_id: String, location: String, tick: int,
         preferred_type: String = "", preferred_id: String = "") -> Dictionary:
     if tick < 1 or ship_id.is_empty() or location.is_empty() or (
@@ -160,42 +183,52 @@ static func request(world: Dictionary, ledger: Dictionary,
             not current["transit"].is_empty() or
             not str(current.get("docked_at", "")).is_empty()):
         return _bad("request_ship_not_waiting_at_actual_location")
-    var staged: Dictionary = world.duplicate(true)
-    var options: Array = _candidates(staged, location, preferred_type, preferred_id)
+    # Candidate discovery only reads facility metadata. On the common
+    # no-dock path, avoid copying the entire growing World/N9 history.
+    # Keep the same source candidate ordering and stage before any writes.
+    var options: Array = _candidates(world, location, preferred_type, preferred_id)
     if options.is_empty():
         return {"ok": true, "changed": false, "status": "no_real_dock",
             "world": world, "ledger_snapshot": ledger}
+    var staged: Dictionary = _stage_world(world, ledger)
     for fid in options:
         if not staged["facilities"][fid].has("dock_queue"):
             # Genuine legacy P2 checkpoint or original N154 site with
             # FacilityStorage default not serialized yet.
             staged["facilities"][fid]["dock_queue"] = []
         _prune(staged, str(fid))
+    # Request can inspect many dock candidates. Build occupancy once instead
+    # of rescanning every ship for each candidate and its fee calculation.
+    var occupancy: Dictionary = {}
+    for candidate_ship in staged["ships"].values():
+        var dock_id: String = str(candidate_ship.get("docked_at", ""))
+        if not dock_id.is_empty():
+            occupancy[dock_id] = int(occupancy.get(dock_id, 0)) + 1
     for fid in options:
         var q: Array = _queue(staged["facilities"][fid])
         if not q.has(ship_id):
             continue
-        if str(q[0]) != ship_id or _occupants(staged, str(fid)) >= int(
+        if str(q[0]) != ship_id or int(occupancy.get(str(fid), 0)) >= int(
                 staged["facilities"][fid]["docking_capacity"]):
             return {"ok": true, "changed": staged != world,
                 "status": "queued", "world": staged,
                 "ledger_snapshot": ledger}
-        var fee: int = _fee(staged, str(fid), ship_id)
+        var fee: int = _fee(staged, str(fid), ship_id, occupancy)
         if fee < 0 or int(staged["ships"][ship_id]["credits"]) < fee:
             staged["facilities"][fid]["dock_queue"].erase(ship_id)
             staged["ships"][ship_id]["dock_attempt_start_tick"] = null
             return {"ok": true, "changed": true, "status": "evicted_insolvent",
                 "world": staged, "ledger_snapshot": ledger}
-        return _admit(staged, ledger, str(fid), ship_id, tick, "request_head")
+        return _admit(staged, ledger, str(fid), ship_id, tick, "request_head", occupancy, fee)
     for fid in options:
         var fac: Dictionary = staged["facilities"][fid]
         var q: Array = _queue(fac)
-        var occupied: int = _occupants(staged, str(fid))
+        var occupied: int = int(occupancy.get(str(fid), 0))
         if occupied + q.size() >= int(fac["docking_capacity"]):
             continue
-        var fee: int = _fee(staged, str(fid), ship_id)
+        var fee: int = _fee(staged, str(fid), ship_id, occupancy)
         if fee >= 0 and int(staged["ships"][ship_id]["credits"]) >= fee:
-            return _admit(staged, ledger, str(fid), ship_id, tick, "request_fast_path")
+            return _admit(staged, ledger, str(fid), ship_id, tick, "request_fast_path", occupancy, fee)
     var shortest: String = ""
     var shortest_count: int = MAX_I64
     for fid in options:
@@ -212,7 +245,7 @@ static func request(world: Dictionary, ledger: Dictionary,
         "facility_id": shortest, "world": staged,
         "ledger_snapshot": ledger}
 
-static func release(world: Dictionary, ledger: Dictionary,
+static func release(world: Dictionary, ledger: Variant,
         ship_id: String, location: String, tick: int) -> Dictionary:
     if tick < 1 or not world.get("ships", {}).has(ship_id):
         return _bad("unknown_source_release_actor")
@@ -222,7 +255,7 @@ static func release(world: Dictionary, ledger: Dictionary,
             str(ship.get("location", "")) != location or
             str(world["facilities"][fid].get("location", "")) != location):
         return _bad("no_real_physical_dock_to_release")
-    var staged: Dictionary = world.duplicate(true)
+    var staged: Dictionary = _stage_world(world, ledger)
     staged["ships"][ship_id]["docked_at"] = ""
     staged["ships"][ship_id]["dock_attempt_start_tick"] = null
     var op_id: String = "n21:undock:" + ship_id + ":" + str(tick)
@@ -234,10 +267,10 @@ static func release(world: Dictionary, ledger: Dictionary,
         "fee": 0, "financial_receipt": ""}
     staged["dock_receipts"][op_id] = receipt.duplicate(true)
     return {"ok": true, "changed": true, "status": "undocked",
-        "world": staged, "ledger_snapshot": ledger.duplicate(true),
+        "world": staged, "ledger_snapshot": ledger.duplicate(true) if ledger is Dictionary else ledger,
         "receipt": receipt}
 
-static func advance(world: Dictionary, ledger: Dictionary,
+static func advance(world: Dictionary, ledger: Variant,
         tick: int) -> Dictionary:
     if tick < 1 or not (world.get("facilities") is Dictionary) or (
             not (world.get("ships") is Dictionary)):
@@ -245,33 +278,56 @@ static func advance(world: Dictionary, ledger: Dictionary,
     # A clean finite Galaxy has no queued arrivals most ticks. Do not
     # deep-copy all markets/factions/ships/receipts or N9 just to perform
     # an empty Rust tick_dock_queue_advance pass.
-    var has_waiters: bool = false
-    for facility in world["facilities"].values():
+    # Collect only occupied queue owners in the source's lexical order.
+    # The old stage sorted *every* facility even when one dock had waiters.
+    # The roster is invocation-local: a later request/undock/N38 load
+    # rebuilds it from authoritative queues, never from stale cache state.
+    var queued_facilities: Array = []
+    for fid in world["facilities"]:
+        var facility: Variant = world["facilities"][fid]
         if facility is Dictionary and facility.get("dock_queue", []) is Array and (
                 not facility.get("dock_queue", []).is_empty()):
-            has_waiters = true
-            break
-    if not has_waiters:
+            queued_facilities.append(str(fid))
+    if queued_facilities.is_empty():
         return {"ok": true, "changed": false, "world": world,
             "ledger_snapshot": ledger, "events": [], "tick": tick,
             "status": "SOURCE_N21_FIFO_EMPTY"}
-    var staged: Dictionary = world.duplicate(true)
-    var bank: Dictionary = ledger.duplicate(true)
+    var staged: Dictionary = _stage_world(world, ledger)
+    # A paid queue can admit multiple ships in one tick. Restore N9 once,
+    # retain its authoritative in-stage receipt order, and snapshot once at
+    # the return boundary. Previously every admitted ship deep-copied the
+    # growing receipt journal and restored/snapshotted the entire ledger.
+    var bank: Variant = ledger
+    var bank_restored: bool = false
     var events: Array = []
     var changed: bool = false
-    var keys: Array = staged["facilities"].keys()
-    keys.sort()
-    for fid in keys:
-        if _queue(staged["facilities"][fid]).is_empty():
+    # Count occupied docks once per paid tick. The old queue loop scanned
+    # every ship for each admission and fee calculation (Q * ships).
+    # This cache is invocation-local, never persisted across N38/World changes.
+    # Count only docks whose queues are actually being serviced.
+    # Preseed zeroes so _fee/_admit never fall back to O(all ships).
+    # Other dock occupancy cannot change: N21 admits only to these fids.
+    var occupancy: Dictionary = {}
+    for fid in queued_facilities:
+        occupancy[fid] = 0
+    for ship in staged["ships"].values():
+        var dock_id: String = str(ship.get("docked_at", ""))
+        if occupancy.has(dock_id):
+            occupancy[dock_id] = int(occupancy[dock_id]) + 1
+    queued_facilities.sort()
+    for fid in queued_facilities:
+        var fac: Dictionary = staged["facilities"][fid]
+        # The stage already owns a detached facility queue. Avoid
+        # recursively copying the remaining FIFO for every head read.
+        if fac.get("dock_queue", []).is_empty():
             continue
         changed = _prune(staged, str(fid)) or changed
-        while not _queue(staged["facilities"][fid]).is_empty():
-            var fac: Dictionary = staged["facilities"][fid]
-            if _occupants(staged, str(fid)) >= int(fac.get(
+        while not fac["dock_queue"].is_empty():
+            if int(occupancy.get(str(fid), 0)) >= int(fac.get(
                     "docking_capacity", 0)):
                 break
-            var head: String = str(_queue(fac)[0])
-            var fee: int = _fee(staged, str(fid), head)
+            var head: String = str(fac["dock_queue"][0])
+            var fee: int = _fee(staged, str(fid), head, occupancy)
             if fee < 0 or int(staged["ships"][head].get("credits", -1)) < fee:
                 fac["dock_queue"].pop_front()
                 staged["ships"][head]["dock_attempt_start_tick"] = null
@@ -279,14 +335,38 @@ static func advance(world: Dictionary, ledger: Dictionary,
                     "ship_id": head, "facility_id": str(fid), "tick": tick})
                 changed = true
                 continue
+            # Restore the growing N9 history only if a real paid
+            # admission is about to occur. All-invalid/insolvent queues
+            # retain the previous no-ledger-read behavior.
+            if ledger is Dictionary and fee > 0 and not bank_restored:
+                var staged_bank: RefCounted = Bank.new()
+                if not staged_bank.restore(ledger):
+                    return _bad("n9_original_bank_restore_failed")
+                bank = staged_bank
+                bank_restored = true
             var placed: Dictionary = _admit(
-                staged, bank, str(fid), head, tick, "fifo_tick")
+                staged, bank, str(fid), head, tick, "fifo_tick", occupancy, fee)
             if not placed.get("ok", false):
                 return placed
             staged = placed["world"]
             bank = placed["ledger_snapshot"]
             events.append(placed["receipt"].duplicate(true))
             changed = true
+    # Preserve the public N21 dictionary snapshot contract. No mutable
+    # Bank instance escapes to N39 or the next paid tick.
+    var committed_ledger: Variant = bank.snapshot() if bank_restored else (
+        ledger.duplicate(true) if ledger is Dictionary else bank)
     return {"ok": true, "changed": changed, "world": staged,
-        "ledger_snapshot": bank, "events": events, "tick": tick,
+        "ledger_snapshot": committed_ledger, "events": events, "tick": tick,
         "status": "SOURCE_N21_FIFO_DOCK_QUEUE"}
+
+## Owned N39 staging writes only these domains. Public snapshot callers
+## keep the original detached full-world contract. Unrelated domains are
+## read-only inside this module and checked again by N39 before commit.
+static func _stage_world(world: Dictionary, ledger: Variant) -> Dictionary:
+    if ledger is Dictionary:
+        return world.duplicate(true)
+    var staged: Dictionary = world.duplicate()
+    for domain in ["ships", "facilities", "dock_receipts"]:
+        staged[domain] = world[domain].duplicate(true)
+    return staged

@@ -15,6 +15,23 @@ const SHORTAGE_SUPPLY_RATIO: float = 0.1
 const SHORTAGE_MIN_FLOOR: float = 10.0
 const ORDER_EXPIRY_MIN: int = 50
 
+# Opt-in paid-path probe: no World references retained and no timing calls
+# unless explicitly enabled. Counters measure the actual owned market copy.
+static var _copy_probe_enabled: bool = false
+static var _copy_probe_calls: int = 0
+static var _copy_probe_us: int = 0
+static var _copy_probe_trend_rows: int = 0
+
+static func configure_copy_probe(enabled: bool) -> void:
+	_copy_probe_enabled = enabled
+	_copy_probe_calls = 0
+	_copy_probe_us = 0
+	_copy_probe_trend_rows = 0
+
+static func copy_probe_snapshot() -> Dictionary:
+	return {"enabled": _copy_probe_enabled, "calls": _copy_probe_calls,
+		"copy_us": _copy_probe_us, "trend_rows": _copy_probe_trend_rows}
+
 static func _fail(reason: String) -> Dictionary:
 	return {"ok": false, "reason": reason}
 
@@ -82,7 +99,12 @@ static func record_consumption(flow: Dictionary, commodity: String, quantity: fl
 	if quantity <= 0.0:
 		return {"ok": true, "flow": next}
 	var window: Dictionary = next["consumption_window"]
-	var entries: Array = window.get(commodity, []).duplicate(true)
+	# next is already a deep-owned copy of flow, including nested samples.
+	# Avoid copying this growing commodity window a second time on append.
+	var existing: Variant = window.get(commodity, [])
+	if not (existing is Array):
+		return _fail("invalid_consumption_window_entries")
+	var entries: Array = existing
 	entries.append({"tick": tick, "qty": quantity})
 	window[commodity] = entries
 	return {"ok": true, "flow": next}
@@ -104,9 +126,23 @@ static func posted_price_or_base(pricing: Dictionary, commodity: String,
 		return _fail("missing_authoritative_commodity_base_price")
 	return {"ok":true, "price":float(base)}
 
-static func _retain_orders(orders: Array, tick: int, expiry: int) -> Dictionary:
-	var remaining: Array = []
-	for order in orders:
+static func _retain_orders(orders: Array, tick: int, expiry: int, already_owned: bool = false) -> Dictionary:
+	# tick_one_market already owns a deep duplicate of the entire market.
+	# Recopying each retained order there is redundant and grows with the
+	# complete pending-order history. Standalone callers keep detached output.
+	# The paid N150 path owns the entire market snapshot already. Compact
+	# retained orders in-place, preserving source order without allocating
+	# another array proportional to the growing pending-order list.
+	# Standalone callers still receive an independently deep-owned array.
+	# Empty order books dominate quiet markets: avoid entering the compaction
+	# loop or allocating a second empty Array. Owned results remain detached
+	# by tick_one_market; standalone empty output has no mutable elements.
+	if orders.is_empty():
+		return {"ok": true, "orders": orders if already_owned else []}
+	var remaining: Array = [] if not already_owned else orders
+	var write_at: int = 0
+	for read_at in range(orders.size()):
+		var order: Variant = orders[read_at]
 		if not (order is Dictionary) or not (order.get("agent_id") is String) or 				typeof(order.get("placed_at_tick")) != TYPE_INT:
 			return _fail("invalid_actual_order")
 		if str(order["agent_id"]).begins_with("market-"):
@@ -118,8 +154,88 @@ static func _retain_orders(orders: Array, tick: int, expiry: int) -> Dictionary:
 		# Godot int64 overflow in pathological malformed snapshots.
 		var age: int = tick - placed
 		if age < 0 or age < expiry:
-			remaining.append(order.duplicate(true))
+			if already_owned:
+				remaining[write_at] = order
+				write_at += 1
+			else:
+				remaining.append(order.duplicate(true))
+	if already_owned:
+		remaining.resize(write_at)
 	return {"ok": true, "orders": remaining}
+
+static func _owned_market_for_tick(market: Dictionary, tick: int) -> Dictionary:
+	# On sampling boundaries Rust retains only the newest 200 trend rows
+	# AFTER appending the new sample. A restored/legacy history may contain
+	# thousands of older rows: do not deep-copy rows that this very tick
+	# will discard. On all other ticks retain the full source history.
+	if tick % MARKET_TREND_SAMPLE_INTERVAL_BASE != 0:
+		return market.duplicate(true)
+	var source_history: Dictionary = market["history"]
+	var source_trends: Array = source_history["trend_samples"]
+	if source_trends.size() < MARKET_TREND_KEEP:
+		return market.duplicate(true)
+	# Preserve all unknown extension fields and their ownership exactly as
+	# Dictionary.duplicate(true) does; only the doomed trend prefix is skipped.
+	var owned: Dictionary = {}
+	for field in market:
+		if field != "history":
+			var value: Variant = market[field]
+			owned[field] = value.duplicate(true) if value is Dictionary or value is Array else value
+	var history: Dictionary = {}
+	for field in source_history:
+		if field != "trend_samples":
+			var value: Variant = source_history[field]
+			history[field] = value.duplicate(true) if value is Dictionary or value is Array else value
+	# Append below brings 199 rows to 200; source order is unchanged.
+	history["trend_samples"] = source_trends.slice(
+		source_trends.size() - (MARKET_TREND_KEEP - 1)).duplicate(true)
+	owned["history"] = history
+	return owned
+
+# Construct a detached flow while omitting consumption samples which the
+# same paid tick would immediately discard. Validate even discarded samples:
+# malformed old data must still reject instead of silently disappearing.
+# The returned windows retain source order and independently owned rows.
+static func _owned_flow_without_expired(flow: Dictionary, cutoff: int) -> Dictionary:
+	var owned: Dictionary = {}
+	for key in flow:
+		if key != "consumption_window":
+			var value: Variant = flow[key]
+			owned[key] = value.duplicate(true) if value is Dictionary or value is Array else value
+	var windows: Dictionary = {}
+	var observed: Dictionary = {}
+	var source: Dictionary = flow["consumption_window"]
+	var slugs: Array = source.keys()
+	slugs.sort()
+	for slug in slugs:
+		var entries: Variant = source[slug]
+		if not (entries is Array):
+			return _fail("invalid_native_consumption_window")
+		# Validate every row, including expired ones, before taking the fast
+		# path. The common bounded-window case retains every row: one native
+		# deep Array duplicate is cheaper than a GDScript duplicate per sample.
+		# Mixed/expired windows still copy only survivors. Never borrow rows.
+		var kept: Array = []
+		var amount: float = 0.0
+		var all_retained: bool = true
+		for entry in entries:
+			if not (entry is Dictionary) or typeof(entry.get("tick")) != TYPE_INT or not _num(entry.get("qty")):
+				return _fail("invalid_consumption_sample")
+			if int(entry["tick"]) < cutoff:
+				all_retained = false
+			else:
+				amount += float(entry["qty"])
+		if all_retained:
+			kept = entries.duplicate(true)
+		else:
+			for entry in entries:
+				if int(entry["tick"]) >= cutoff:
+					kept.append(entry.duplicate(true))
+		windows[slug] = kept
+		if amount > 0.0:
+			observed[slug] = amount
+	owned["consumption_window"] = windows
+	return {"ok": true, "flow": owned, "observed": observed}
 
 static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		native_price_recalculate: Callable) -> Dictionary:
@@ -133,16 +249,39 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		return _fail("invalid_market_tick")
 	if not native_price_recalculate.is_valid():
 		return _fail("missing_original_price_engine")
-	var result: Dictionary = market.duplicate(true)
+	# N150's owned compaction drops expired rows immediately after copying.
+	# Build the retained flow before the full-market duplicate, so a restored
+	# oversized consumption history is not deeply cloned just to be discarded.
+	var cutoff_for_copy: int = maxi(0, tick - DEMAND_WINDOW_BASE * tick_multiplier)
+	var staged_flow: Dictionary = _owned_flow_without_expired(market["flow"], cutoff_for_copy)
+	if not staged_flow.get("ok", false):
+		return staged_flow
+	var copy_start_us: int = Time.get_ticks_usec() if _copy_probe_enabled else 0
+	# The order books can grow for hundreds of paid ticks. Do not clone
+	# orders that the same tick will expire. Borrow them only until the
+	# original late order-validation phase, after price calculations.
+	# This also preserves error precedence against invalid price results.
+	var market_without_flow_or_orders: Dictionary = {}
+	for field in market:
+		if field != "flow" and field != "orders":
+			market_without_flow_or_orders[field] = market[field]
+	var result: Dictionary = _owned_market_for_tick(market_without_flow_or_orders, tick)
+	result["flow"] = staged_flow["flow"]
+	if _copy_probe_enabled:
+		_copy_probe_us += Time.get_ticks_usec() - copy_start_us
+		_copy_probe_calls += 1
+		_copy_probe_trend_rows += market["history"]["trend_samples"].size()
 	var pricing: Dictionary = result["pricing"]
 	var flow: Dictionary = result["flow"]
-	var orders: Dictionary = result["orders"]
 	var history: Dictionary = result["history"]
 	# Rust spawned_at_tick, seed_demand initialised ONLY on first tick.
 	if history["spawned_at_tick"] == null:
 		history["spawned_at_tick"] = tick
 		if flow["seed_demand"].is_empty():
-			flow["seed_demand"] = pricing["demand"].duplicate(true)
+			# pricing is already detached by the market deep copy above.
+			# Transfer its demand map into seed_demand; pricing.demand is
+			# replaced below, so no mutable alias survives the tick.
+			flow["seed_demand"] = pricing["demand"]
 	history["last_tick"] = tick
 	# No production/consumption or speculative market order matching:
 	# those operations were removed from actual frozen Rust runtime.
@@ -150,28 +289,10 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 	var demand_warmup: int = DEMAND_WARMUP_BASE * tick_multiplier
 	var cutoff: int = maxi(0, tick - demand_window)
 	var warming: bool = maxi(0,tick - int(history["spawned_at_tick"])) < demand_warmup
-	var observed := {}
-	var windows: Dictionary = flow["consumption_window"]
-	var window_slugs := windows.keys()
-	window_slugs.sort()
-	for slug in window_slugs:
-		var entries = windows[slug]
-		if not (entries is Array):
-			return _fail("invalid_native_consumption_window")
-		var kept: Array = []
-		var amount: float = 0.0
-		for entry in entries:
-			# Native source stores (tick, quantity) tuple. Adapter projects
-			# {tick:int,qty:float} without fabricating history entries.
-			if not (entry is Dictionary) or typeof(entry.get("tick")) != TYPE_INT or 					not _num(entry.get("qty")):
-				return _fail("invalid_consumption_sample")
-			if int(entry["tick"]) < cutoff:
-				continue
-			kept.append(entry.duplicate(true))
-			amount += float(entry["qty"])
-		windows[slug] = kept
-		if amount > 0.0:
-			observed[slug] = amount
+	# The detached window builder already validated, filtered and summed each
+	# retained row in original order. Reusing its scalar totals avoids a second
+	# full traversal of the growing consumption history on every paid tick.
+	var observed: Dictionary = staged_flow["observed"]
 	var all_commodities := {}
 	for slug in flow["seed_demand"]:
 		all_commodities[slug] = true
@@ -212,14 +333,28 @@ static func tick_one_market(market: Dictionary, tick: int, tick_multiplier: int,
 		var trends: Array = history["trend_samples"]
 		trends.append({"tick": tick, "prices": pricing["prices"].duplicate(true),
 			"supply": pricing["supply"].duplicate(true)})
-		while trends.size() > MARKET_TREND_KEEP:
-			trends.pop_front()
-	var expiry: int = maxi(ORDER_EXPIRY_MIN, int(orders["order_expiry_ticks"]))
+		# Retain the exact newest source samples without repeatedly shifting
+		# the entire Array for every discarded historical row. Restored
+		# markets may contain more than MARKET_TREND_KEEP older samples.
+		if trends.size() > MARKET_TREND_KEEP:
+			history["trend_samples"] = trends.slice(trends.size() - MARKET_TREND_KEEP)
+	# Preserve the source order and validation sequence (buys then sells).
+	# _retain_orders validates EVERY source row, even one being discarded,
+	# and duplicates only retained records when already_owned=false.
+	# No source order book is modified; rejected ticks remain atomic.
+	var source_orders: Dictionary = market["orders"]
+	var expiry: int = maxi(ORDER_EXPIRY_MIN, int(source_orders["order_expiry_ticks"]))
+	var orders: Dictionary = {}
+	for key in source_orders:
+		if key != "pending_buys" and key != "pending_sells":
+			var value: Variant = source_orders[key]
+			orders[key] = value.duplicate(true) if value is Dictionary or value is Array else value
 	for side in ["pending_buys", "pending_sells"]:
-		var filtered := _retain_orders(orders[side], tick, expiry)
+		var filtered := _retain_orders(source_orders[side], tick, expiry, false)
 		if not bool(filtered.get("ok", false)):
 			return filtered
 		orders[side] = filtered["orders"]
+	result["orders"] = orders
 	# Original does NOT release reservations: reserve TTL is explicitly
 	# a frozen Rust placeholder. Keep exact existing reserved map.
 	history["dirty"] = true
@@ -256,11 +391,13 @@ static func wire_snapshot(market: Dictionary) -> Dictionary:
 		return _fail(problem)
 	var pricing: Dictionary = market["pricing"]
 	var history: Dictionary = market["history"]
-	var trends: Array = []
-	for item in history["trend_samples"]:
+	# Validate before detaching the entire array in one deep-copy operation.
+	# Preserve source order and reject malformed rows without returning aliases.
+	var source_trends: Array = history["trend_samples"]
+	for item in source_trends:
 		if not (item is Dictionary):
 			return _fail("invalid_trend_sample")
-		trends.append(item.duplicate(true))
+	var trends: Array = source_trends.duplicate(true)
 	return {"ok": true, "snapshot": {
 		"id": market["id"], "facility_location": market["facility_location"],
 		"prices": pricing["prices"].duplicate(true),

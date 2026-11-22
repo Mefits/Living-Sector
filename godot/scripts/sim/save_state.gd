@@ -274,6 +274,179 @@ static func _physical_stock_matches(original: Dictionary, decoded: Dictionary) -
             return false
     return true
 
+## Exact UTF-8 byte measurement of the actual N38 v1 envelope. This is
+## diagnostic only: no file I/O, no archive migration and no limit increase.
+## The same encoder is used by save_runner, including tabs and final newline.
+static func encoded_checkpoint_bytes(snapshot: Dictionary) -> int:
+    return _encode_checkpoint_text(snapshot).to_utf8_buffer().size()
+
+static func _encode_checkpoint_text(snapshot: Dictionary) -> String:
+    return JSON.stringify(_wrap(snapshot), "\t", true, true) + "\n"
+
+static func encoded_checkpoint_budget(snapshot: Dictionary) -> Dictionary:
+    var count: int = encoded_checkpoint_bytes(snapshot)
+    return {"encoded_bytes": count, "max_bytes": MAX_SAVE_BYTES,
+        "remaining_bytes": maxi(0, MAX_SAVE_BYTES - count),
+        "within_limit": count <= MAX_SAVE_BYTES}
+
+## Last actual save attempt's serialized UTF-8 size. Updated from the SAME
+## buffer that is written to .pending; no second checkpoint traversal.
+## -1 means no encoding attempt in this process. Diagnostic only.
+static var _last_save_encoded_bytes: int = -1
+# Actual CPU-side UTF-8 encoding wall duration of the last attempted save.
+# This measures only the real N38 encode, not checkpoint() or disk/validation.
+# -1 means no encoding has been attempted; diagnostics do not reserialize.
+static var _last_save_encode_usec: int = -1
+
+static func last_save_encoded_bytes() -> int:
+    return _last_save_encoded_bytes
+
+static func last_save_encode_usec() -> int:
+    return _last_save_encode_usec
+
+## Preserve the previous known-good backup until the new primary is safely
+## promoted. The old path deleted .bak BEFORE renaming primary to .bak; a
+## failed rename could therefore destroy the only usable recovery checkpoint.
+## .bak.previous is an interrupted-rotation recovery candidate, not a new
+## checkpoint format. Never overwrite an orphaned previous backup blindly.
+## Repair a crash between parking the old backup and completing rotation.
+## Only the already-verified N38 checkpoints can authorize deletion. A valid
+## .bak takes precedence over the older .bak.previous; if .bak is corrupt,
+## restore the older verified copy before attempting another save.
+## Called only after the new .pending has passed full roundtrip validation.
+static func _reconcile_parked_backup(absolute_path: String,
+        primary_valid: bool, backup_valid: bool,
+        previous_valid: bool) -> Error:
+    var backup: String = absolute_path + ".bak"
+    var previous: String = absolute_path + ".bak.previous"
+    if not FileAccess.file_exists(previous):
+        return OK
+    if backup_valid:
+        # The current backup is already a verified recoverable checkpoint.
+        return DirAccess.remove_absolute(previous)
+    if previous_valid:
+        # Never remove the last valid recovery copy before promotion.
+        # A failed rename leaves the verified .previous intact.
+        if FileAccess.file_exists(backup):
+            var remove_bad: Error = DirAccess.remove_absolute(backup)
+            if remove_bad != OK:
+                return remove_bad
+        return DirAccess.rename_absolute(previous, backup)
+    if not primary_valid:
+        # All three candidates are invalid: keep every byte for diagnosis.
+        return ERR_FILE_CORRUPT
+    # Primary is verified; both recovery copies are invalid. Discard them
+    # before rotating the healthy primary, never park corrupt .bak again.
+    var remove_previous: Error = DirAccess.remove_absolute(previous)
+    if remove_previous != OK:
+        return remove_previous
+    if FileAccess.file_exists(backup):
+        return DirAccess.remove_absolute(backup)
+    return OK
+
+
+static func _promote_verified_pending(absolute_path: String,
+        primary_is_valid: bool, verify_installed: bool = false) -> Error:
+    var pending: String = absolute_path + ".pending"
+    var backup: String = absolute_path + ".bak"
+    var previous: String = absolute_path + ".bak.previous"
+    var had_primary: bool = FileAccess.file_exists(absolute_path)
+    var parked_backup: bool = false
+    if had_primary and primary_is_valid:
+        if FileAccess.file_exists(previous):
+            return ERR_ALREADY_EXISTS
+        if FileAccess.file_exists(backup):
+            var park_error: Error = DirAccess.rename_absolute(backup, previous)
+            if park_error != OK:
+                return park_error
+            parked_backup = true
+        var rotate_error: Error = DirAccess.rename_absolute(absolute_path, backup)
+        if rotate_error != OK:
+            if parked_backup:
+                DirAccess.rename_absolute(previous, backup)
+            return rotate_error
+    elif had_primary:
+        # A corrupt primary may still contain the only diagnostic bytes for
+        # a failed N38 restore. Never unlink it before a verified .pending
+        # checkpoint has been installed. Reuse the recovery candidate already
+        # recognized by load_runner, and refuse to overwrite an older orphan.
+        var rejected: String = absolute_path + ".recovery-rejected"
+        if FileAccess.file_exists(rejected):
+            return ERR_ALREADY_EXISTS
+        var park_invalid: Error = DirAccess.rename_absolute(
+            absolute_path, rejected)
+        if park_invalid != OK:
+            return park_invalid
+    var promote_error: Error = DirAccess.rename_absolute(pending, absolute_path)
+    if promote_error != OK:
+        if had_primary and primary_is_valid:
+            DirAccess.rename_absolute(backup, absolute_path)
+            if parked_backup:
+                DirAccess.rename_absolute(previous, backup)
+        elif had_primary:
+            # Restore the original invalid primary if promotion failed.
+            # If the rollback rename also fails, the original remains in
+            # .recovery-rejected and is never silently destroyed.
+            DirAccess.rename_absolute(
+                absolute_path + ".recovery-rejected", absolute_path)
+        return promote_error
+    # Only the real save entry point requests this second authenticated
+    # check. A filesystem rename is not proof that the installed primary
+    # remains readable. Keep the previous backup until this gate succeeds.
+    # Legacy helper callers can still exercise rotation with opaque fixture
+    # bytes; they do not authorize a production checkpoint.
+    if verify_installed and not _trusted_for_backup_rotation(
+            _read_checkpoint(absolute_path)):
+        # Preserve the rejected promoted bytes as pending for diagnosis.
+        # If this rename fails, leave all other recovery files untouched.
+        var undo_new: Error = DirAccess.rename_absolute(
+            absolute_path, pending)
+        if undo_new != OK:
+            return undo_new
+        if had_primary and primary_is_valid:
+            var restore_primary: Error = DirAccess.rename_absolute(
+                backup, absolute_path)
+            if restore_primary != OK:
+                return restore_primary
+            if parked_backup:
+                var restore_backup: Error = DirAccess.rename_absolute(
+                    previous, backup)
+                if restore_backup != OK:
+                    return restore_backup
+        elif had_primary:
+            var restore_rejected: Error = DirAccess.rename_absolute(
+                absolute_path + ".recovery-rejected", absolute_path)
+            if restore_rejected != OK:
+                return restore_rejected
+        return ERR_FILE_CORRUPT
+    # An interrupted cleanup is safe: a validated primary and backup
+    # remain available. Never remove the old backup before validation.
+    if parked_backup:
+        DirAccess.remove_absolute(previous)
+    return OK
+
+
+## A crash may leave .pending as the sole intact checkpoint. Never open it
+## with WRITE (which truncates immediately) until another independently
+## recoverable checkpoint exists. This is a conservative preflight: it does
+## not assert that a SHA-valid snapshot is accepted by the live Runner.
+## If no trusted sibling exists, the user must first load/recover pending.
+static func _pending_is_only_recoverable_checkpoint(absolute_path: String) -> bool:
+    var pending: String = absolute_path + ".pending"
+    if not FileAccess.file_exists(pending):
+        return false
+    if not _trusted_for_backup_rotation(_read_checkpoint(pending)):
+        return false
+    for candidate in [absolute_path, absolute_path + ".bak",
+            absolute_path + ".bak.previous",
+            absolute_path + ".recovery-displaced",
+            absolute_path + ".recovery-rejected"]:
+        if FileAccess.file_exists(candidate) and \\
+                _trusted_for_backup_rotation(_read_checkpoint(candidate)):
+            return false
+    return true
+
+
 static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) -> Error:
     if not runner.is_started():
         return ERR_INVALID_DATA
@@ -293,15 +466,32 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
     if mkdir_result != OK:
         return mkdir_result
 
+    # A previously interrupted load promotion must not indefinitely block
+    # later verified pending saves. Only a trusted primary can authorize
+    # discarding its displaced predecessor.
+    var displaced_result: Error = _reconcile_recovery_displaced(absolute_path, false)
+    if displaced_result != OK:
+        return displaced_result
+    # Opening .pending for WRITE truncates a previous interrupted save.
+    # If it is the last structurally recoverable checkpoint, do not replace
+    # it with a newer snapshot before the real Runner has restored it.
+    if _pending_is_only_recoverable_checkpoint(absolute_path):
+        return ERR_BUSY
     var tmp: String = absolute_path + ".pending"
     var backup: String = absolute_path + ".bak"
-    var encoded: String = JSON.stringify(_wrap(snapshot), "\t", true, true) + "\n"
-    if encoded.to_utf8_buffer().size() > MAX_SAVE_BYTES:
+    # Encode the actual on-disk UTF-8 payload once. The N38 size limit
+    # applies to bytes, not String length; reuse the measured buffer for
+    # writing instead of allocating a second full UTF-8 copy.
+    var encode_started_usec: int = Time.get_ticks_usec()
+    var encoded_bytes: PackedByteArray = _encode_checkpoint_text(snapshot).to_utf8_buffer()
+    _last_save_encode_usec = Time.get_ticks_usec() - encode_started_usec
+    _last_save_encoded_bytes = encoded_bytes.size()
+    if encoded_bytes.size() > MAX_SAVE_BYTES:
         return ERR_OUT_OF_MEMORY
     var file := FileAccess.open(tmp, FileAccess.WRITE)
     if file == null:
         return FileAccess.get_open_error()
-    file.store_string(encoded)
+    file.store_buffer(encoded_bytes)
     file.flush()
     var write_error: Error = file.get_error()
     file.close()
@@ -322,35 +512,105 @@ static func save_runner(runner: RefCounted, save_path: String = DEFAULT_PATH) ->
         DirAccess.remove_absolute(tmp)
         return ERR_FILE_CORRUPT
 
-    var had_primary: bool = FileAccess.file_exists(absolute_path)
     var primary_is_valid: bool = false
-    if had_primary:
+    if FileAccess.file_exists(absolute_path):
         primary_is_valid = _trusted_for_backup_rotation(
             _read_checkpoint(absolute_path))
-    # Never overwrite a known-good backup with a damaged primary.
-    if had_primary and primary_is_valid:
-        if FileAccess.file_exists(backup):
-            var remove_result: Error = DirAccess.remove_absolute(backup)
-            if remove_result != OK:
-                DirAccess.remove_absolute(tmp)
-                return remove_result
-        var backup_result: Error = DirAccess.rename_absolute(absolute_path, backup)
-        if backup_result != OK:
-            DirAccess.remove_absolute(tmp)
-            return backup_result
-    elif had_primary:
-        # Invalid primary is not a usable recovery point.
-        var remove_primary: Error = DirAccess.remove_absolute(absolute_path)
-        if remove_primary != OK:
-            DirAccess.remove_absolute(tmp)
-            return remove_primary
-
-    var promote_result: Error = DirAccess.rename_absolute(tmp, absolute_path)
+    # A previous interrupted rotation must not permanently block saves.
+    # Validate both recovery candidates using the same N38 restore preflight
+    # as primary rotation. No unchecked file is promoted or deleted.
+    var previous_path: String = absolute_path + ".bak.previous"
+    if FileAccess.file_exists(previous_path):
+        var backup_valid: bool = FileAccess.file_exists(backup) and (
+            _trusted_for_backup_rotation(_read_checkpoint(backup)))
+        var previous_valid: bool = _trusted_for_backup_rotation(
+            _read_checkpoint(previous_path))
+        var recovery_result: Error = _reconcile_parked_backup(
+            absolute_path, primary_is_valid, backup_valid, previous_valid)
+        if recovery_result != OK:
+            return recovery_result
+    var promote_result: Error = _promote_verified_pending(
+        absolute_path, primary_is_valid, true)
     if promote_result != OK:
-        if had_primary and primary_is_valid:
-            DirAccess.rename_absolute(backup, absolute_path)
+        # The verified pending checkpoint remains available for recovery.
+        # Never discard it after a failed filesystem rotation.
         return promote_result
     return OK
+
+
+## Recovery promotion must not delete an existing primary before the
+## recovered checkpoint is installed. A failed rename restores the original
+## bytes, and a crash after parking remains recoverable on the next launch.
+## This path is used only after the real Runner accepted the candidate.
+## Recover an interrupted recovery promotion without losing the only good
+## checkpoint. A displaced original is retained until the promoted primary
+## has been accepted by the actual runner, not merely by its SHA envelope.
+static func _reconcile_recovery_displaced(absolute_path: String,
+        primary_accepted_by_runner: bool) -> Error:
+    var displaced: String = absolute_path + ".recovery-displaced"
+    if not FileAccess.file_exists(displaced):
+        return OK
+    # Structural/envelope validation is insufficient: a checksum-correct
+    # checkpoint may still be rejected by the real runner. During save, do
+    # not rotate any checkpoint while an interrupted recovery is unresolved.
+    # A successful load of the primary is the only cleanup authorization.
+    if not primary_accepted_by_runner:
+        return ERR_BUSY
+    if not FileAccess.file_exists(absolute_path):
+        return ERR_FILE_NOT_FOUND
+    if not _trusted_for_backup_rotation(_read_checkpoint(absolute_path)):
+        return ERR_FILE_CORRUPT
+    return DirAccess.remove_absolute(displaced)
+
+
+## Recovery promotion must not delete an existing primary before the
+## recovered checkpoint is installed. A failed rename restores the original
+## bytes, and a crash after parking remains recoverable on the next launch.
+## This path is used only after the real Runner accepted the candidate.
+static func _promote_recovered_checkpoint(absolute_path: String,
+        candidate: String) -> bool:
+    var displaced: String = absolute_path + ".recovery-displaced"
+    var rejected: String = absolute_path + ".recovery-rejected"
+    if candidate == absolute_path or not FileAccess.file_exists(candidate):
+        return false
+    var candidate_is_displaced: bool = candidate == displaced
+    # A normal pending/previous promotion cannot overwrite an interrupted
+    # prior recovery. Its orphan remains an independent load candidate.
+    if not candidate_is_displaced and FileAccess.file_exists(displaced):
+        return false
+    # When promoting the orphan itself, park the rejected primary elsewhere.
+    # Never overwrite an earlier rejected file without explicit recovery.
+    var parking: String = rejected if candidate_is_displaced else displaced
+    if FileAccess.file_exists(parking):
+        return false
+    var had_primary: bool = FileAccess.file_exists(absolute_path)
+    if had_primary:
+        if DirAccess.rename_absolute(absolute_path, parking) != OK:
+            return false
+    var promotion: Error = DirAccess.rename_absolute(candidate, absolute_path)
+    if promotion != OK:
+        if had_primary:
+            # A failed rollback still leaves the original in a recoverable
+            # named file, never silently deletes its bytes.
+            DirAccess.rename_absolute(parking, absolute_path)
+        return false
+    # Confirm the promoted file still passes the same authenticated N38
+    # preflight. A successful filesystem rename alone is not durability.
+    if not _trusted_for_backup_rotation(_read_checkpoint(absolute_path)):
+        # Keep the promoted bytes under their original candidate name when
+        # possible, and restore the parked primary. No recovery file is
+        # unlinked on this failure path.
+        DirAccess.rename_absolute(absolute_path, candidate)
+        if had_primary:
+            DirAccess.rename_absolute(parking, absolute_path)
+        return false
+    if had_primary and not candidate_is_displaced:
+        # Keep the displaced original until a SECOND launch accepts the
+        # promoted primary through the actual Runner. A SHA-valid promotion
+        # alone is not a durable restart proof. save_runner refuses to
+        # rotate unresolved displaced recovery files.
+        pass
+    return true
 
 static func load_runner(runner: RefCounted, seed: Dictionary,
         save_path: String = DEFAULT_PATH) -> Dictionary:
@@ -365,7 +625,10 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
     # The .pending file may be the only intact checkpoint if a process died
     # between writing it and promoting it to the primary path. Never prefer
     # an uncommitted pending save over a healthy primary or known-good backup.
-    for candidate in [absolute_path, absolute_path + ".bak", absolute_path + ".pending"]:
+    for candidate in [absolute_path, absolute_path + ".bak",
+            absolute_path + ".bak.previous", absolute_path + ".pending",
+            absolute_path + ".recovery-displaced",
+            absolute_path + ".recovery-rejected"]:
         var parsed: Dictionary = _read_checkpoint(candidate)
         if parsed.is_empty() or not NativeTimeline.validate(parsed).get("ok", false):
             continue
@@ -375,22 +638,53 @@ static func load_runner(runner: RefCounted, seed: Dictionary,
             # otherwise a subsequent restart may load the older .bak instead.
             # Never touch a valid primary or the last good backup.
             var promoted_pending: bool = false
+            var promoted_previous: bool = false
+            var promoted_displaced: bool = false
+            var promotion_attempted: bool = false
             if candidate == absolute_path + ".pending":
-                # Reaching pending means neither primary nor backup was
-                # successfully restored by the actual Runner. A primary can
-                # have a valid SHA yet fail seed/schema/N39 restore. Never
-                # let that unusable primary block recovered pending data.
-                var can_promote: bool = true
-                if FileAccess.file_exists(absolute_path):
-                    can_promote = DirAccess.remove_absolute(absolute_path) == OK
-                if can_promote:
-                    promoted_pending = DirAccess.rename_absolute(candidate, absolute_path) == OK
+                promotion_attempted = true
+                promoted_pending = _promote_recovered_checkpoint(
+                    absolute_path, candidate)
+            elif candidate == absolute_path + ".bak.previous":
+                promotion_attempted = true
+                promoted_previous = _promote_recovered_checkpoint(
+                    absolute_path, candidate)
+            elif candidate == absolute_path + ".recovery-displaced":
+                promotion_attempted = true
+                promoted_displaced = _promote_recovered_checkpoint(
+                    absolute_path, candidate)
+            elif candidate == absolute_path + ".recovery-rejected":
+                # A rejected original can still be the last valid save after
+                # an interrupted promotion. Restore it without overwriting
+                # any other candidate until the next verified save.
+                pass
+            var cleanup_result: Error = OK
+            if candidate == absolute_path:
+                # The real Runner accepted primary. Only now can its
+                # displaced predecessor be retired. Surface IO failures.
+                cleanup_result = _reconcile_recovery_displaced(
+                    absolute_path, true)
+            var promotion_succeeded: bool = promoted_pending or \
+                promoted_previous or promoted_displaced
+            # A recovered in-memory world is not necessarily durable on disk:
+            # collision, denied rename or invalid post-rename verification
+            # must be visible to callers before they rely on another restart.
             return {
                 "ok": true,
                 "source": candidate,
                 "tick": runner.tick_count,
                 "recovered_pending": candidate == absolute_path + ".pending",
-                "promoted_pending": promoted_pending
+                "promoted_pending": promoted_pending,
+                "promoted_previous": promoted_previous,
+                "promoted_displaced": promoted_displaced,
+                "promotion_attempted": promotion_attempted,
+                "restart_safe": (not promotion_attempted or promotion_succeeded) and cleanup_result == OK,
+                "persistence_warning": (
+                    "Recovered state was not promoted; retry recovery before next restart"
+                    if promotion_attempted and not promotion_succeeded else
+                    "Restored primary but could not retire displaced recovery checkpoint"
+                    if cleanup_result != OK else ""),
+                "recovery_cleanup_error": cleanup_result
             }
         if not runner.restore_checkpoint(baseline, seed):
             return {

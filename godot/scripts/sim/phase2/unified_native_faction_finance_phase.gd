@@ -65,14 +65,26 @@ static func propose(world: Dictionary, tick: int, multiplier: int) -> Dictionary
     var population_wealth: Dictionary = {}
     var population_ids: Array = world["populations"].keys()
     population_ids.sort()
+    # Preserve the complete population balance projection for N39, but
+    # Relief.apply only ever requests aid for a live faction with
+    # 0 <= wealth < HOUSEHOLD_MINIMUM. Avoid building and deep-copying
+    # five-field DTOs for all other households in its growing registry.
+    # This roster is capture-local; owner/wealth changes are visible on
+    # the next paid call. Canonical ID order is retained for tie breaks.
     var households: Array = []
     for id in population_ids:
         var p: Dictionary = world["populations"][id]
-        population_wealth[id] = int(p.get("wealth", -1))
+        var wealth: int = int(p.get("wealth", -1))
+        population_wealth[id] = wealth
+        if not relief_due or wealth < 0 or wealth >= Relief.HOUSEHOLD_MINIMUM:
+            continue
+        var faction_id: String = str(p.get("faction", ""))
+        if not factions.has(faction_id):
+            continue
         households.append({"id": str(id),
-            "faction_id": str(p.get("faction", "")),
+            "faction_id": faction_id,
             "location": str(p.get("location", "")),
-            "wealth": int(p.get("wealth", -1)),
+            "wealth": wealth,
             "food_satisfaction": int(p.get("food_satisfaction", 50))})
     if relief_due:
         var market_rows: Array = []
@@ -90,14 +102,39 @@ static func propose(world: Dictionary, tick: int, multiplier: int) -> Dictionary
                 "credits": int(facilities[owner]["credits"]),
                 "food": float(m.get("supply", {}).get("food", 0.0)),
                 "water": float(m.get("supply", {}).get("water", 0.0))})
+        # Relief only requests help for essential, cash-starved producers
+        # at a same-faction market. Build this read-only eligible roster once
+        # rather than deep-copying every facility a second time in Relief.apply.
+        # Keep facility_ids' canonical order; Relief sorts final requests by
+        # (priority, faction, location, id), not by producer array index.
+        var market_by_location: Dictionary = {}
+        for market_row in market_rows:
+            market_by_location[str(market_row["location"])] = market_row
         var producers: Array = []
         for id in facility_ids:
             var fac: Dictionary = facilities[id]
+            var credits: int = int(fac["credits"])
+            if credits < 0 or credits >= Relief.PRODUCER_MINIMUM:
+                continue
+            var faction_id: String = str(fac["faction_id"])
+            if not factions.has(faction_id):
+                continue
+            var location: String = str(fac["location"])
+            if not market_by_location.has(location):
+                continue
+            var market_row: Dictionary = market_by_location[location]
+            if str(market_row["faction_id"]) != faction_id:
+                continue
+            var facility_type: String = str(fac["facility_type"])
+            var essential: bool = (facility_type == "farm" and float(
+                market_row["food"]) < 20.0) or (facility_type == "refinery" and float(
+                market_row["water"]) < 20.0)
+            if not essential:
+                continue
             producers.append({
-                "id": str(id), "faction_id": str(fac["faction_id"]),
-                "location": str(fac["location"]),
-                "type": str(fac["facility_type"]),
-                "credits": int(fac["credits"])})
+                "id": str(id), "faction_id": faction_id,
+                "location": location, "type": facility_type,
+                "credits": credits})
         var help: Dictionary = Relief.apply({
             "factions": factions, "households": households,
             "markets": market_rows, "producers": producers},

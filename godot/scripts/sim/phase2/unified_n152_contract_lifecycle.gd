@@ -18,6 +18,25 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int) -> Dictionary:
     var ledger := Ledger.new()
     if not ledger.restore(bank):
         return _bad("invalid_live_n9_ledger")
+    var result: Dictionary = _stage(world, ledger, tick)
+    if result.get("ok", false):
+        result["ledger_snapshot"] = ledger.snapshot()
+        result.erase("owned_ledger")
+    return result
+
+## Trusted canonical N9 only; imported snapshots still use stage/restore.
+static func stage_owned(world: Dictionary, bank: RefCounted, tick: int) -> Dictionary:
+    if tick < 0 or not (world.get("contract_board", null) is Dictionary):
+        return _bad("missing_single_n104_board")
+    if not (world.get("escrow_balances", null) is Dictionary):
+        return _bad("missing_canonical_escrow_accounts")
+    if not (world["contract_board"].get("contracts", null) is Dictionary):
+        return _bad("invalid_n104_contracts")
+    return _stage(world, bank.fork(), tick)
+
+static func _stage(world: Dictionary, ledger: RefCounted, tick: int) -> Dictionary:
+    var original: Dictionary = world["contract_board"]
+    var bank: Dictionary = {"balances": ledger.balances_snapshot()}
     var original_total: int = ledger.total()
     var board := ContractBoard.new(ledger)
     if not board.restore(original):
@@ -38,18 +57,17 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int) -> Dictionary:
     for entry in aging.get("expired", []):
         expired.append(str(entry.get("id", "")))
     var aged: bool = aged_board["contracts"] != original["contracts"]
-    var ids: Array = original["contracts"].keys()
-    ids.sort()
+    # Filter the growing immutable audit history BEFORE sorting/copying.
+    # Paid/expired contracts with zero escrow remain in the canonical board
+    # and N38 snapshot; they simply cannot generate another refund.
+    var ids: Array = _refundable_ids(aged_board["contracts"])
     var refunds: Array = []
     var blocked: Array = []
     for id in ids:
-        var status: String = str(board.get_contract(str(id)).get("status", ""))
-        if status not in ["paid", "expired"]:
-            continue
+        # Exactly one detached contract copy per actionable refund, rather
+        # than two copies for every historical row on every paid tick.
         var current: Dictionary = board.get_contract(str(id))
         var amount: int = int(current.get("reserved", 0))
-        if amount <= 0:
-            continue
         var payer: String = str(current.get("requestor_id", ""))
         var escrow: String = str(current.get("escrow_account", ""))
         if not bank.get("balances", {}).has(payer):
@@ -76,10 +94,21 @@ static func stage(world: Dictionary, bank: Dictionary, tick: int) -> Dictionary:
         return _bad("n9_money_conservation_failed")
     return {"ok": true, "tick": tick,
         "board_snapshot": board.snapshot(),
-        "ledger_snapshot": ledger.snapshot(),
+        "owned_ledger": ledger,
         "expired": expired, "renewed": renewed, "aged": aged,
         "refunded": refunds, "blocked": blocked,
         "changed": aged or not refunds.is_empty()}
+
+## Pure prefilter. Sorting the candidate subset preserves the old lexical
+## refund/blocked order and deterministic N9 receipt sequence.
+static func _refundable_ids(contracts: Dictionary) -> Array:
+    var ids: Array = []
+    for id in contracts:
+        var c: Dictionary = contracts[id]
+        if str(c.get("status", "")) in ["paid", "expired"] and int(c.get("reserved", 0)) > 0:
+            ids.append(id)
+    ids.sort()
+    return ids
 
 static func _bad(reason: String) -> Dictionary:
     return {"ok": false, "reason": reason}

@@ -16,54 +16,275 @@ const Transit = preload("res://scripts/sim/ship_transit.gd")
 static func _blocked_ship(reasons: Dictionary, name: String) -> void:
     reasons[name] = int(reasons.get(name, 0)) + 1
 
+## Only immutable-for-this-proposal ship fields are cached. A fresh root is
+## allocated by propose() on every paid tick and after every N38 restore.
+## Keep the source rejection order: busy -> location -> dock -> cargo -> capacity.
+static func _ship_static_readiness(world: Dictionary, ship_id: String,
+        cache: Dictionary) -> Dictionary:
+    if cache.has(ship_id):
+        return cache[ship_id]
+    var ship: Dictionary = world["ships"][ship_id]
+    var result: Dictionary = {"ok": true}
+    if str(ship.get("active_contract_id", "")) != "" or not (ship.get("transit", {}) as Dictionary).is_empty():
+        result = {"ok": false, "reason": "ship_busy"}
+    elif str(ship.get("location", "")).is_empty():
+        result = {"ok": false, "reason": "ship_not_at_real_location"}
+    else:
+        var dock_id: String = str(ship.get("docked_at", ""))
+        if not dock_id.is_empty() and (not world["facilities"].has(dock_id) or
+                str(world["facilities"][dock_id].get("location", "")) != str(ship["location"])):
+            result = {"ok": false, "reason": "invalid_idle_dock"}
+        elif not (ship.get("cargo") is Dictionary) or not ship["cargo"].is_empty():
+            result = {"ok": false, "reason": "ship_cargo_not_empty"}
+    cache[ship_id] = result
+    return result
+
+## Resolve immutable ship fitting once per proposal, but only after route
+## success, preserving the source order of route versus class/fuel errors.
+static func _ship_flight_fitting(ship: Dictionary, ship_id: String,
+        cache: Dictionary) -> Dictionary:
+    if cache.has(ship_id):
+        return cache[ship_id]
+    var ship_class: String = str(ship.get("class", ""))
+    var spec: Dictionary = Catalog.spec(ship_class)
+    var fitting: Dictionary = {
+        "speed": float(ship.get("speed_modifier",
+            Catalog.effective_speed(ship_class, str(ship.get("size", ""))))),
+        "rate": float(spec.get("fuel_consumption_base", 0.0))
+    }
+    cache[ship_id] = fitting
+    return fitting
+
+## Shared only inside a synchronous proposal. Directed legs with equal scalar
+## distances and fittings have equal N14 physical tick counts; no World or
+## mutable route rows are retained. Invalid geometry is never memoized.
+static func _physical_leg_ticks(distance: float, speed: float,
+        tick_scale: float, cache: Dictionary) -> int:
+    var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
+    if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
+        return 0
+    var key: Array = [distance, speed, tick_scale]
+    if not cache.has(key):
+        cache[key] = maxi(1, ceili(distance / velocity))
+    return int(cache[key])
+
 static func _ready_ship(world: Dictionary, ship_id: String, contract: Dictionary,
         graph: RefCounted, positions: Dictionary, resolver: RefCounted,
-        tick_scale: float, route_index: Dictionary = {}) -> Dictionary:
+        tick_scale: float, route_index: Dictionary = {},
+        shared_routes: Dictionary = {}, readiness_cache: Dictionary = {},
+        fitting_cache: Dictionary = {}, leg_ticks_cache: Dictionary = {}) -> Dictionary:
     var ship: Dictionary = world["ships"][ship_id]
-    if str(ship.get("active_contract_id", "")) != "" or not (ship.get("transit", {}) as Dictionary).is_empty():
-        return {"ok": false, "reason": "ship_busy"}
-    if str(ship.get("location", "")).is_empty():
-        return {"ok": false, "reason": "ship_not_at_real_location"}
-    var dock_id: String = str(ship.get("docked_at", ""))
-    if not dock_id.is_empty():
-        if not world["facilities"].has(dock_id) or str(world["facilities"][dock_id].get("location", "")) != str(ship["location"]):
-            return {"ok": false, "reason": "invalid_idle_dock"}
-        # Starting already docked is legal: original GOAP plans the real
-        # N21 Undock before travelling on the next assignment.
-    if not (ship.get("cargo") is Dictionary) or not ship["cargo"].is_empty():
-        return {"ok": false, "reason": "ship_cargo_not_empty"}
+    var static_gate: Dictionary = _ship_static_readiness(world, ship_id, readiness_cache)
+    if not static_gate.get("ok", false):
+        return static_gate
     var quantity: int = int(contract.get("quantity", 0))
     if quantity < 1 or int(ship.get("cargo_capacity", 0)) < quantity:
         return {"ok": false, "reason": "cargo_capacity"}
     var source: String = str(contract.get("source_location", ""))
     var dest: String = str(contract.get("destination_location", ""))
     var here: String = str(ship.get("location", ""))
-    var route: Dictionary = EligibilityIndex.legs(route_index, here, source, dest, graph, positions)
+    var route: Dictionary = EligibilityIndex.legs(route_index, here, source, dest, graph, positions, false, shared_routes)
     if route.has("error"):
         return {"ok": false, "reason": str(route["error"])}
-    var spec: Dictionary = Catalog.spec(str(ship.get("class", "")))
-    var speed: float = float(ship.get("speed_modifier",
-            Catalog.effective_speed(str(ship.get("class", "")),
-                str(ship.get("size", "")))))
-    var rate: float = float(spec.get("fuel_consumption_base", 0.0))
+    var fitting: Dictionary = _ship_flight_fitting(ship, ship_id, fitting_cache)
+    var speed: float = float(fitting["speed"])
+    var rate: float = float(fitting["rate"])
     if speed <= 0.0 or rate <= 0.0 or float(ship.get("fuel", 0.0)) <= 0.0:
         return {"ok": false, "reason": "invalid_fuel_or_class"}
     # N14 advances one physical directed edge per tick. Check the COMPLETE
     # source+destination trip from real moving world positions before an AI
     # accepts an obligation; otherwise we could strand a ship with cargo.
+    # Many ships bid on the same posted offer from the same location.
+    # Geometry is immutable during this N153 proposal. Cache only the
+    # computed fuel requirement (including invalid geometry), keyed by
+    # the actual ship speed and fuel rate; never cache ship eligibility.
+    # The route index is proposal-local and rebuilt after every paid tick.
+    # Distinct fittings can share a route and velocity but have different
+    # consumption rates. Cache the integer edge tick counts once per
+    # origin/speed/tick-scale, then retain the original per-edge floating
+    # summation for each fuel rate (no reordered arithmetic).
+    var travel_key: Array = [here, speed, tick_scale]
+    var travel_cache: Dictionary = route_index.get(-2, {})
+    var travel: Dictionary = travel_cache.get(travel_key, {})
+    if travel.is_empty():
+        var counts: Array = []
+        var geometry_error: String = ""
+        for leg in route["steps"]:
+            if not bool(leg["present"]):
+                geometry_error = "missing_leg_world_position"
+                break
+            var edge_ticks: int = _physical_leg_ticks(float(leg["distance"]),
+                speed, tick_scale, leg_ticks_cache)
+            if edge_ticks == 0:
+                geometry_error = "invalid_flight_geometry"
+                break
+            counts.append(edge_ticks)
+        travel = {"error": geometry_error} if not geometry_error.is_empty() else {"counts": counts}
+        travel_cache[travel_key] = travel
+        route_index[-2] = travel_cache
+    if travel.has("error"):
+        return {"ok": false, "reason": str(travel["error"])}
+    var fuel_key: Array = [here, speed, rate, tick_scale]
+    var fuel_cache: Dictionary = route_index.get(-1, {})
     var flight_cost: float = 0.0
-    for leg in route["steps"]:
-        if not bool(leg["present"]):
-            return {"ok": false, "reason": "missing_leg_world_position"}
-        var distance: float = float(leg["distance"])
-        var velocity: float = Transit.BASE_VELOCITY * speed * tick_scale
-        if velocity <= 0.0 or not is_finite(distance) or distance <= 0.0:
-            return {"ok": false, "reason": "invalid_flight_geometry"}
-        flight_cost += float(maxi(1, ceili(distance / velocity))) * rate * tick_scale
+    if fuel_cache.has(fuel_key):
+        flight_cost = float(fuel_cache[fuel_key])
+    else:
+        for edge_ticks in travel["counts"]:
+            flight_cost += float(edge_ticks) * rate * tick_scale
+        fuel_cache[fuel_key] = flight_cost
+        route_index[-1] = fuel_cache
     if float(ship["fuel"]) + 0.0001 < flight_cost:
         return {"ok": false, "reason": "insufficient_native_full_route_fuel"}
+    # Geometry steps are read-only within this call. Detach only the two
+    # paths that escape into the winning contract proposal.
     return {"ok": true, "path_to_source": route["inbound"],
         "source_to_destination": route["outbound"]}
+
+## Read-only N154 funding proof. This value is invariant across bidders
+## for one posted offer, even when comms bonuses change the required top-up.
+## Preserve -1 for unproven payer ownership and missing treasuries.
+static func _offer_payer_balance(world: Dictionary, contract: Dictionary,
+        contract_id: String, buyer_faction: String, buyer_market: Dictionary,
+        buyer: Dictionary) -> int:
+    var real_payer: String = str(contract.get("requestor_id", ""))
+    if str(contract.get("funding_source", "")) == "faction":
+        if (world.get("construction_contracts", {}).has(contract_id) or
+                world.get("native_htn_contracts", {}).has(contract_id)) and real_payer == Schema.faction_account(buyer_faction):
+            return int(world.get("faction_treasuries", {}).get(buyer_faction, -1))
+    elif str(contract.get("funding_source", "")) == "facility":
+        if real_payer == Schema.facility_account(str(buyer_market["owner"])):
+            return int(buyer["credits"])
+    return -1
+
+## Offer-local price result, keyed by posture multiplier. No cross-offer state.
+static func _purchase_quote(cache: Dictionary, multiplier: float,
+        quantity: int, source_price: float) -> Dictionary:
+    if cache.has(multiplier):
+        return cache[multiplier]
+    var amount: float = ceil(float(quantity) * source_price * multiplier)
+    var valid: bool = is_finite(amount) and amount > 0.0 and amount <= 9007199254740991.0
+    var result: Dictionary = {"valid": valid, "cost": int(amount) if valid else 0}
+    cache[multiplier] = result
+    return result
+
+## Ship observations are proposal-local. No mutable ship row escapes.
+static func _bid_observation(cache: Dictionary, ship_id: String,
+        ship: Dictionary) -> Dictionary:
+    if cache.has(ship_id):
+        return cache[ship_id]
+    var sensor: Variant = ship.get("sensor_range_au", null)
+    if not (sensor is int or sensor is float) or not is_finite(float(sensor)) or float(sensor) < 0.0:
+        sensor = 2.0 if str(ship.get("size", "")) in ["huge", "massive"] else 1.0
+    var result: Dictionary = {"sensor": float(sensor),
+        "bonus": float(ship.get("comms_bonus", 0.0))}
+    cache[ship_id] = result
+    return result
+
+## Immutable-for-this-proposal bidder roster. Do not copy or mutate World ship
+## rows: the canonical World cannot change during a synchronous propose().
+## Assignment remains offer-order dependent and is checked separately.
+static func _bidder_rows(world: Dictionary, ids: Array, factions: Dictionary) -> Array:
+    var rows: Array = []
+    for ship_id in ids:
+        var ship: Dictionary = world["ships"][ship_id]
+        var faction_id: String = str(ship.get("faction_id", ""))
+        var exists: bool = factions.has(faction_id)
+        var outlaw: bool = exists and str(factions[faction_id].get("type", "")) == "outlaw"
+        rows.append({"id": str(ship_id), "ship": ship,
+            "faction": faction_id, "exists": exists, "outlaw": outlaw})
+    return rows
+
+## Seller-specific reputation gates are invariant across posted offers in
+## this one proposal. Cache rejection as well as acceptance; never cache a
+## contract-specific quote, assignment, cargo or payment decision.
+static func _seller_bidder_gate(row: Dictionary, seller_faction: String,
+        buyer_faction: String, posture_cache: Dictionary,
+        gate_cache: Dictionary) -> Dictionary:
+    var seller_cache: Dictionary = gate_cache.get(seller_faction, {})
+    var buyer_cache: Dictionary = seller_cache.get(buyer_faction, {})
+    var ship_id: String = str(row["id"])
+    if buyer_cache.has(ship_id):
+        return buyer_cache[ship_id]
+    var result: Dictionary = {"ok": true}
+    var faction_id: String = str(row["faction"])
+    if not bool(row["exists"]):
+        result = {"ok": false, "reason": "ship_faction_missing_or_already_assigned"}
+    elif bool(row["outlaw"]) and (faction_id != buyer_faction or faction_id != seller_faction):
+        result = {"ok": false, "reason": "outlaw_source_commerce_restricted"}
+    else:
+        var ship: Dictionary = row["ship"]
+        var reputation: Dictionary = ship.get("faction_reputation", {})
+        var posture: Dictionary = EligibilityIndex.posture(posture_cache,
+            faction_id, seller_faction, int(reputation.get(seller_faction, 0)))
+        if not posture.get("ok", false):
+            result = {"ok": false, "reason": "source_reputation_posture_rejected"}
+        else:
+            result = {"ok": true, "multiplier": float(posture["multiplier"])}
+    buyer_cache[ship_id] = result
+    seller_cache[buyer_faction] = buyer_cache
+    gate_cache[seller_faction] = seller_cache
+    return result
+
+## Source-market knowledge is an immutable read-only view during one N153
+## proposal. Reuse the same shallow overlay for repeated posted offers; the
+## source quote and ship memory are still keyed independently. Never persist
+## this overlay in World, a contract, or a saved ship.
+static func _bid_price_observations(cache: Dictionary, ship_id: String,
+        ship: Dictionary, here: String, source: String, good: String,
+        price: float) -> Dictionary:
+    var memory: Dictionary = ship.get("price_knowledge", {}) if ship.get("price_knowledge") is Dictionary else {}
+    if here != source:
+        return memory
+    var key: Array = [ship_id, source, good, price]
+    if cache.has(key):
+        return cache[key]
+    var overlay: Dictionary = memory.duplicate()
+    overlay[source] = {good: {"price": price}}
+    cache[key] = overlay
+    return overlay
+
+## Resolve each ship/offer system tuple once; the native selector reads this
+## map without modifying it. Missing endpoints remain empty (never invented).
+static func _bid_system_context(cache: Dictionary, ship_location: String,
+        source: String, dest: String, resolved: Dictionary) -> Dictionary:
+    var key: Array = [ship_location, source, dest]
+    if cache.has(key):
+        return cache[key]
+    var result: Dictionary = {ship_location: resolved.get(ship_location, ""),
+        source: resolved.get(source, ""), dest: resolved.get(dest, "")}
+    cache[key] = result
+    return result
+
+## Proposal-local immutable selector envelopes. N153.select_contract only reads
+## offers/controllers/commerce; keep a separate context shell for each bid.
+## Reusing a shell or quote dictionary would alias bid-specific funding.
+static func _offer_commerce_view(cache: Dictionary, ship_faction: String,
+        base_commerce: Dictionary) -> Dictionary:
+    if cache.has(ship_faction):
+        return cache[ship_faction]
+    var view: Dictionary = base_commerce.duplicate()
+    view[ship_faction] = true
+    cache[ship_faction] = view
+    return view
+
+static func _selector_bid_context(offer_rows: Array, controllers: Dictionary,
+        commerce: Dictionary, ship_id: String, ship_faction: String,
+        here: String, ship: Dictionary, sensor: float,
+        systems: Dictionary, quote: Dictionary, contract_id: String,
+        observations: Dictionary, tick: int) -> Dictionary:
+    # The outer context and nested per-bid quote/memory wrappers are owned.
+    # All shared inputs are read-only for the synchronous selector call.
+    return {
+        "offers": offer_rows, "ship_id": ship_id,
+        "ship_faction": ship_faction, "ship_location": here,
+        "cargo_capacity": int(ship["cargo_capacity"]),
+        "credits": int(ship.get("credits", 0)),
+        "sensor_range_au": sensor, "system_by_location": systems,
+        "controllers": controllers, "commerce_allowed": commerce,
+        "quotes": {contract_id: quote},
+        "memory": {"price_knowledge": observations}, "tick": tick
+    }
 
 static func propose(world: Dictionary, graph: RefCounted,
         positions: Dictionary, resolver: RefCounted, tick: int,
@@ -76,12 +297,24 @@ static func propose(world: Dictionary, graph: RefCounted,
     if not (world.get("markets") is Dictionary) or not (world.get("facilities") is Dictionary):
         return {"ok": false, "reason": "missing_actual_markets"}
     var ships: Array = EligibilityIndex.ship_ids(world)
+    var bidder_rows: Array = _bidder_rows(world, ships, factions)
+    var seller_gate_cache: Dictionary = {} # seller/buyer/ship, proposal-local
     var ids: Array = EligibilityIndex.offer_ids(contracts)
     var posture_cache: Dictionary = {} # Call-scoped; never survives N38 restore.
     var system_cache: Dictionary = {} # Resolver IDs for one proposal only.
     var candidates: Array = []
     var blocked: Array = []
     var already_assigned: Dictionary = {}
+    # Per-proposal geometry: contracts sharing source/destination can reuse
+    # the same here->legs index. Never persists across World/tick/N38 load.
+    var route_indices: Dictionary = {} # source -> destination -> here -> legs
+    var shared_routes: Dictionary = {} # inbound/endpoint preflight, one proposal
+    var readiness_cache: Dictionary = {} # ship -> stable rejection or ok
+    var fitting_cache: Dictionary = {} # ship -> speed and fuel rate
+    var leg_ticks_cache: Dictionary = {} # scalar distance/speed/scale -> N14 ticks
+    var observation_cache: Dictionary = {} # ship -> sensor and comms observations
+    var price_observation_cache: Dictionary = {} # ship/source/good/price -> overlay
+    var system_context_cache: Dictionary = {} # here/source/dest -> read-only map
     for contract_id in ids:
         var c: Dictionary = contracts[contract_id]
         if str(c.get("status", "")) != "posted" or str(c.get("contract_type", "")) != "delivery":
@@ -125,32 +358,45 @@ static func propose(world: Dictionary, graph: RefCounted,
             continue
         var winner: Dictionary = {}
         var ship_blockers: Dictionary = {}
-        var route_index: Dictionary = {} # This offer only.
+        var route_index: Dictionary = EligibilityIndex.offer_route_index(route_indices, source, dest)
         var fixed_offer: Dictionary = {}
         var fixed_controllers: Dictionary = {}
-        for ship_id in ships:
-            var ship: Dictionary = world["ships"][ship_id]
-            var ship_faction: String = str(ship.get("faction_id", ""))
-            if not factions.has(ship_faction) or already_assigned.has(str(ship_id)):
+        var fixed_offer_rows: Array = []
+        var commerce_view_cache: Dictionary = {} # faction -> read-only offer view
+        # The payer, original reserved amount and owning treasury belong to
+        # the posted offer, not to each bidding ship. Resolve their proof once
+        # per offer; the ship's boosted payment and top-up remain per-bid.
+        var payer_balance: int = _offer_payer_balance(world, c, str(contract_id),
+            buyer_faction, buyer_market, buyer)
+        var reserved_amount: int = int(c["reserved"])
+        var base_commerce: Dictionary = {buyer_faction: true, seller_faction: true}
+        var fixed_systems: Dictionary = {}
+        # A posture multiplier and source quote are fixed for this offer.
+        # Keep this local: a later offer can change quantity, price or payer.
+        var purchase_quotes: Dictionary = {}
+        for bidder in bidder_rows:
+            var ship_id: String = str(bidder["id"])
+            var ship: Dictionary = bidder["ship"]
+            var ship_faction: String = str(bidder["faction"])
+            # Assignment is mutable across offers; never cache it. The old
+            # rejection priority checks it before outlaw/reputation gates.
+            if already_assigned.has(ship_id):
                 _blocked_ship(ship_blockers, "ship_faction_missing_or_already_assigned")
                 continue
-            if str(factions[ship_faction].get("type", "")) == "outlaw" and (ship_faction != buyer_faction or ship_faction != seller_faction):
-                _blocked_ship(ship_blockers, "outlaw_source_commerce_restricted")
+            var bidder_gate: Dictionary = _seller_bidder_gate(bidder,
+                seller_faction, buyer_faction, posture_cache, seller_gate_cache)
+            if not bool(bidder_gate["ok"]):
+                _blocked_ship(ship_blockers, str(bidder_gate["reason"]))
                 continue
-            var reputation: Dictionary = ship.get("faction_reputation", {})
-            var posture: Dictionary = EligibilityIndex.posture(
-                posture_cache, ship_faction, seller_faction,
-                int(reputation.get(seller_faction, 0)))
-            if not posture.get("ok", false):
-                _blocked_ship(ship_blockers, "source_reputation_posture_rejected")
-                continue
-            var quoted_cost: float = ceil(float(qty) * float(source_price) * float(posture["multiplier"]))
-            if not is_finite(quoted_cost) or quoted_cost <= 0.0 or quoted_cost > 9007199254740991.0:
+            var posture_multiplier: float = float(bidder_gate["multiplier"])
+            var quote_result: Dictionary = _purchase_quote(purchase_quotes, posture_multiplier, qty, float(source_price))
+            if not bool(quote_result["valid"]):
                 _blocked_ship(ship_blockers, "invalid_source_purchase_quote")
                 continue
-            var source_purchase: int = int(quoted_cost)
+            var source_purchase: int = int(quote_result["cost"])
             var readiness: Dictionary = _ready_ship(world, str(ship_id), c, graph, positions, resolver,
-                tick_scale, route_index)
+                tick_scale, route_index, shared_routes, readiness_cache, fitting_cache,
+                leg_ticks_cache)
             if not readiness.get("ok", false):
                 _blocked_ship(ship_blockers, "n14_" + str(
                     readiness.get("reason", "unavailable")))
@@ -158,29 +404,27 @@ static func propose(world: Dictionary, graph: RefCounted,
             var here: String = str(ship["location"])
             # Source-market quote is genuinely available ONLY to ships at
             # that market. No fabricated omniscient price_knowledge in AI.
-            var observations: Dictionary = {}
-            # Original N153 only reads its passed memory; pass the real
-            # N80 knowledge without deep-copying every known market.
-            # At the source override ONLY a shallow top-level copy, so
-            # the native ship memory (including its nested rows) is safe.
-            if ship.get("price_knowledge") is Dictionary:
-                observations = ship["price_knowledge"]
-            if here == source:
-                observations = observations.duplicate()
-                observations[source] = {good: {"price": float(source_price)}}
-            var systems: Dictionary = {}
-            systems[here] = EligibilityIndex.system_for(system_cache, here, resolver)
-            systems[source] = EligibilityIndex.system_for(system_cache, source, resolver)
-            systems[dest] = EligibilityIndex.system_for(system_cache, dest, resolver)
-            if systems.values().has(""):
+            var observations: Dictionary = _bid_price_observations(
+                price_observation_cache, ship_id, ship, here, source, good,
+                float(source_price))
+            # Resolve each offer endpoint lazily, after a ready bidder.
+            if fixed_systems.is_empty():
+                fixed_systems[source] = EligibilityIndex.system_for(system_cache, source, resolver)
+                fixed_systems[dest] = EligibilityIndex.system_for(system_cache, dest, resolver)
+            var system_key: Array = [here, source, dest]
+            var systems: Dictionary = system_context_cache.get(system_key, {})
+            if systems.is_empty():
+                var resolved: Dictionary = fixed_systems.duplicate()
+                resolved[here] = EligibilityIndex.system_for(system_cache, here, resolver)
+                systems = _bid_system_context(system_context_cache,
+                    here, source, dest, resolved)
+            if str(systems[here]).is_empty() or str(systems[source]).is_empty() or str(systems[dest]).is_empty():
                 _blocked_ship(ship_blockers, "missing_system_for_market")
                 continue
-            var sensor: Variant = ship.get("sensor_range_au", null)
-            if not (sensor is int or sensor is float) or not is_finite(float(sensor)) or float(sensor) < 0.0:
-                # Frozen ShipFitting::new_for_size: Huge/Massive always T2
-                # (2.0 AU), Tiny/Small/Medium T1 (1.0 AU). Large has
-                # a source-hash 50% T2 roll not yet ported; use T1.
-                sensor = 2.0 if str(ship.get("size", "")) in ["huge", "massive"] else 1.0
+            # Per-ship sensor and comms fields cannot change inside propose().
+            # Compute lazily after route/system gates, preserving reject order.
+            var observation: Dictionary = _bid_observation(observation_cache, str(ship_id), ship)
+            var sensor: float = float(observation["sensor"])
             # The selector does not mutate the offer or controller DTO.
             # Reuse them only within this contract, after a real ready ship.
             if fixed_offer.is_empty():
@@ -191,7 +435,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                     "commodity": good, "quantity": qty, "may_accept": true}
                 fixed_controllers[source] = seller_faction
                 fixed_controllers[dest] = buyer_faction
-            var bonus: float = float(ship.get("comms_bonus", 0.0))
+                fixed_offer_rows = [fixed_offer]
+            var bonus: float = float(observation["bonus"])
             if not is_finite(bonus) or bonus < 0.0 or bonus > 0.10:
                 _blocked_ship(ship_blockers, "invalid_native_comms_bonus")
                 continue
@@ -200,37 +445,17 @@ static func propose(world: Dictionary, graph: RefCounted,
                 _blocked_ship(ship_blockers, "invalid_native_payment_quote")
                 continue
             var quoted_payment: int = int(boosted)
-            var top_up: int = maxi(0, quoted_payment - int(c["reserved"]))
-            # N154 is paid by the original faction treasury. N104
-            # delivery type is preserved for physical cargo proof.
-            var real_payer: String = str(c.get("requestor_id", ""))
-            var real_balance: int = -1
-            if str(c.get("funding_source", "")) == "faction":
-                if (world.get("construction_contracts", {}).has(str(contract_id)) or
-                        world.get("native_htn_contracts", {}).has(str(contract_id))) and real_payer == Schema.faction_account(buyer_faction):
-                    real_balance = int(world.get("faction_treasuries", {}).get(buyer_faction, -1))
-            elif str(c.get("funding_source", "")) == "facility":
-                if real_payer == Schema.facility_account(str(buyer_market["owner"])):
-                    real_balance = int(buyer["credits"])
-            var quotes: Dictionary = {}
-            quotes[str(contract_id)] = {"valid": real_balance >= top_up and real_balance >= 0,
+            var top_up: int = maxi(0, quoted_payment - reserved_amount)
+            var quote: Dictionary = {"valid": payer_balance >= top_up and payer_balance >= 0,
                 "quoted_payment": quoted_payment, "top_up": top_up,
-                "payer_balance": real_balance,
-                "reserved": int(c["reserved"]), "source_purchase_cost": source_purchase}
-            var commerce: Dictionary = {}
-            commerce[buyer_faction] = true
-            commerce[seller_faction] = true
-            commerce[ship_faction] = true
-            var context: Dictionary = {
-                "offers": [fixed_offer], "ship_id": str(ship_id),
-                "ship_faction": ship_faction, "ship_location": here,
-                "cargo_capacity": int(ship["cargo_capacity"]), "credits": int(ship.get("credits", 0)),
-                "sensor_range_au": float(sensor), "system_by_location": systems,
-                "controllers": fixed_controllers,
-                "commerce_allowed": commerce,
-                "quotes": quotes,
-                "memory": {"price_knowledge": observations},
-                "tick": tick}
+                "payer_balance": payer_balance,
+                "reserved": reserved_amount, "source_purchase_cost": source_purchase}
+            var commerce: Dictionary = _offer_commerce_view(
+                commerce_view_cache, ship_faction, base_commerce)
+            var context: Dictionary = _selector_bid_context(
+                fixed_offer_rows, fixed_controllers, commerce, ship_id,
+                ship_faction, here, ship, sensor, systems, quote,
+                str(contract_id), observations, tick)
             var choice: Dictionary = N153.select_contract(context)
             if str(choice.get("id", "")) == str(contract_id):
                 # Source winner tie-break is strictly profit > (not >=).
@@ -256,8 +481,8 @@ static func propose(world: Dictionary, graph: RefCounted,
                     continue
                 var row: Dictionary = {"contract_id": str(contract_id), "ship_id": str(ship_id),
                     "profit": int(choice["profit"]), "source": source,
-                    "destination": dest, "path_to_source": readiness["path_to_source"],
-                    "path_to_destination": readiness["source_to_destination"],
+                    "destination": dest, "path_to_source": (readiness["path_to_source"] as Array).duplicate(),
+                    "path_to_destination": (readiness["source_to_destination"] as Array).duplicate(),
                     "source_purchase_cost": source_purchase,
                     "ai_bt": candidate_plan["ai_bt"],
                     "n80_score": candidate_plan["n80_score"],

@@ -1,0 +1,136 @@
+name: P2 PERF 262 plain F5 worker and legacy smoke
+
+on:
+  push:
+    branches:
+      - integration/perf-astra-5-workers-20261116
+    paths:
+      - .github/workflows/p2-perf-262-worker-gui-short.yml
+      - godot/scripts/main.gd
+      - godot/project.godot
+      - godot/scripts/sim/phase2/n158_real_owner_thread_probe.gd
+      - godot/tests/p2_perf_e_real_owner_n158_parity_check.gd
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p2-worker-gui-smoke-short
+  cancel-in-progress: true
+
+jobs:
+  parser-and-real-f5:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot 4.7.2 for project
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p2worker"
+          curl --fail --location --retry 2 --connect-timeout 15 --max-time 150 --silent --show-error \
+            https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip \
+            -o "$RUNNER_TEMP/godot.zip"
+          unzip -q -j "$RUNNER_TEMP/godot.zip" -d "$RUNNER_TEMP/p2worker"
+          mv "$RUNNER_TEMP/p2worker/Godot_v4.7.2-stable_linux.x86_64" "$RUNNER_TEMP/p2worker/godot"
+          chmod +x "$RUNNER_TEMP/p2worker/godot"
+          echo "$RUNNER_TEMP/p2worker" >> "$GITHUB_PATH"
+      - name: Import all scripts and compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p godot/logs/p2-worker-gui
+          timeout --signal=TERM --kill-after=5s 80s \
+            godot --headless --path godot --editor --import --quit \
+            >godot/logs/p2-worker-gui/import.log 2>&1 || {
+              tail -n 150 godot/logs/p2-worker-gui/import.log; exit 1;
+            }
+          timeout --signal=TERM --kill-after=5s 80s \
+            godot --headless --path godot \
+            --script res://tests/p2_unified_script_compile_check.gd \
+            >godot/logs/p2-worker-gui/compile.log 2>&1 || {
+              tail -n 150 godot/logs/p2-worker-gui/compile.log; exit 1;
+            }
+      - name: Two real paid ticks in opt-in threaded F5 UI plus N38 restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p2-worker-gui-user"
+          timeout --signal=TERM --kill-after=5s 75s \
+            env XDG_DATA_HOME="$RUNNER_TEMP/p2-worker-gui-user" \
+            godot --headless --path godot -- --p2-worker-gui-check \
+            >godot/logs/p2-worker-gui/f5-worker.log 2>&1 || {
+              tail -n 160 godot/logs/p2-worker-gui/f5-worker.log; exit 1;
+            }
+          grep -q P2_WORKER_GUI_BOOT_CHECK_PASS godot/logs/p2-worker-gui/f5-worker.log || {
+            echo "Real worker GUI PASS marker missing"
+            tail -n 160 godot/logs/p2-worker-gui/f5-worker.log
+            exit 1
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/p2-worker-gui/f5-worker.log; then
+            tail -n 160 godot/logs/p2-worker-gui/f5-worker.log
+            exit 1
+          fi
+          tail -n 45 godot/logs/p2-worker-gui/f5-worker.log
+      - name: Real worker frame-delta oracle vs direct N158 and N38
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 90s \
+            godot --headless --path godot \
+            --script res://tests/p2_perf_e_real_owner_n158_parity_check.gd \
+            > godot/logs/p2-worker-gui/threaded-frame-parity.log 2>&1 || {
+              tail -n 130 godot/logs/p2-worker-gui/threaded-frame-parity.log; exit 1;
+            }
+          grep -q P2_PERF_E_REAL_OWNER_N158_PARITY_PASS \
+            godot/logs/p2-worker-gui/threaded-frame-parity.log || {
+              tail -n 130 godot/logs/p2-worker-gui/threaded-frame-parity.log; exit 1;
+            }
+          tail -n 18 godot/logs/p2-worker-gui/threaded-frame-parity.log
+      - name: Original default F5 boot/save-load remains unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p2-default-user"
+          timeout --signal=TERM --kill-after=5s 60s \
+            env XDG_DATA_HOME="$RUNNER_TEMP/p2-default-user" \
+            LS_N158_WORKER_GUI=0 \
+            godot --headless --path godot -- --p2-boot-check \
+            > godot/logs/p2-worker-gui/original-f5.log 2>&1 || {
+              tail -n 130 godot/logs/p2-worker-gui/original-f5.log; exit 1;
+            }
+          grep -q P2_BOOT_CHECK_PASS godot/logs/p2-worker-gui/original-f5.log || {
+            tail -n 130 godot/logs/p2-worker-gui/original-f5.log; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/p2-worker-gui/original-f5.log; then
+            tail -n 130 godot/logs/p2-worker-gui/original-f5.log; exit 1;
+          fi
+          tail -n 18 godot/logs/p2-worker-gui/original-f5.log
+      - name: Real asynchronous F5 UI keeps rendering through 32 paid ticks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/p2-live-worker-user"
+          timeout --signal=TERM --kill-after=5s 75s \
+            env XDG_DATA_HOME="$RUNNER_TEMP/p2-live-worker-user" \
+            godot --headless --path godot -- --p2-worker-gui-run-check \
+            >godot/logs/p2-worker-gui/f5-worker-live.log 2>&1 || {
+              tail -n 130 godot/logs/p2-worker-gui/f5-worker-live.log; exit 1;
+            }
+          grep -q P2_WORKER_GUI_32_TICK_LIVE_PASS godot/logs/p2-worker-gui/f5-worker-live.log || {
+            tail -n 130 godot/logs/p2-worker-gui/f5-worker-live.log; exit 1;
+          }
+          if grep -Eq 'SCRIPT ERROR:|Parse Error:' godot/logs/p2-worker-gui/f5-worker-live.log; then
+            tail -n 130 godot/logs/p2-worker-gui/f5-worker-live.log; exit 1;
+          fi
+          grep P2_WORKER_GUI_32_TICK_LIVE_PASS godot/logs/p2-worker-gui/f5-worker-live.log
+      - name: Preserve short-run diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p2-perf-worker-gui-f5-smoke
+          path: godot/logs/p2-worker-gui/
+          if-no-files-found: warn
+          retention-days: 7

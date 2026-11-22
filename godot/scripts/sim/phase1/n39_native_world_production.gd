@@ -171,6 +171,10 @@ func _record_timing(bucket: Dictionary, site: String, elapsed: int) -> void:
     row["min_usec"] = mini(int(row["min_usec"]), elapsed)
     var samples: Array = row["samples_usec"]
     samples.append(elapsed)
+    # Diagnostic-only rolling window: exact lifetime totals remain in row.
+    # Bound retention and percentile sorting independently of tick count.
+    if samples.size() > 256:
+        samples.pop_front()
     bucket[site] = row
 
 func _measured_schema_validate(site: String, world: Dictionary) -> String:
@@ -314,7 +318,59 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         _world, tick, tick_scale, tick_multiplier)
     if not initial.get("ok", false):
         return {"ok": false, "reason": "facility_lifecycle_" + str(initial.get("reason", "rejected"))}
-    var lifecycle_world: Dictionary = _copy_world("L196", true)
+    # N156/N130 stage owns only facilities, markets and populations.
+    # Payroll.pay_shift may update household wealth, while N130 restock
+    # updates market supply; all three must be detached BEFORE any writes.
+    # Other World domains are read-only here and remain authoritative.
+    var lifecycle_world: Dictionary = _copy_world("L196_owned_root", false)
+    # N130 can write arbitrary buyer/seller rows in stable ID order, so its
+    # paid cadence retains a fully detached facilities domain. On ordinary
+    # N156 ticks only repair candidates and lifecycle deltas may be written.
+    # Copy the registry, then detach each row BEFORE Payroll._blocked,
+    # Payroll.pay_shift or lifecycle condition/reserves writes touch it.
+    var restock_due: bool = bool(initial["due"]["restock"])
+    var lifecycle_owned_rows: Dictionary = {}
+    # Even on N130 cadence, N156 only changes repair candidates and its
+    # lifecycle deltas. N130 buyers/sellers are detached AFTER those changes,
+    # so eligibility reflects the actual post-repair, post-abandonment World.
+    lifecycle_world["facilities"] = _world["facilities"].duplicate(false)
+    for candidate in initial["repair_candidates"]:
+        var repair_id: String = str(candidate.get("facility_id", ""))
+        if lifecycle_world["facilities"].has(repair_id) and not lifecycle_owned_rows.has(repair_id):
+            lifecycle_world["facilities"][repair_id] = _world["facilities"][repair_id].duplicate(true)
+            lifecycle_owned_rows[repair_id] = true
+    # N130 only writes markets on its 20x cadence; N156 Payroll only
+    # writes populations when a paid repair candidate exists. The
+    # off-cadence stages are read-only for these authoritative domains.
+    # Detach before either writer, never expose a mutable canonical alias.
+    # N130 market rows are detached just before ServiceRestock.apply, after
+    # lifecycle has established the final eligible set.
+    if not initial["repair_candidates"].is_empty():
+        # Payroll.pay_shift selects households by the producer's faction and
+        # location, in sorted population-ID order. Only those households can
+        # receive wages/employment writes; unrelated colonies are read-only.
+        # Build the complete union BEFORE the first payment, since an earlier
+        # paid repair changes occupied() and later assignments. Do not filter
+        # by available workers or wallet: those values can change mid-stage.
+        var payroll_locations: Dictionary = {}
+        for candidate in initial["repair_candidates"]:
+            var repair_id: String = str(candidate.get("facility_id", ""))
+            if not _world["facilities"].has(repair_id):
+                return {"ok": false, "reason": "unknown_repair_candidate"}
+            var employer: Dictionary = _world["facilities"][repair_id]
+            var faction: String = str(employer.get("faction", ""))
+            var location: String = str(employer.get("location", ""))
+            if not payroll_locations.has(faction):
+                payroll_locations[faction] = {}
+            payroll_locations[faction][location] = true
+        var payroll_populations: Dictionary = _world["populations"].duplicate(false)
+        for population_id in _world["populations"]:
+            var household: Dictionary = _world["populations"][population_id]
+            var faction: String = str(household.get("faction", ""))
+            var location: String = str(household.get("location", ""))
+            if payroll_locations.has(faction) and payroll_locations[faction].has(location):
+                payroll_populations[population_id] = household.duplicate(true)
+        lifecycle_world["populations"] = payroll_populations
     # Receipts accumulate indefinitely; cloning the whole N9 history on
     # every no-op orbit tick would make long-term simulation quadratic.
     # No new maintenance payments are possible unless there is a paid
@@ -360,6 +416,12 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     for facility_id in lifecycle["changes"]:
         if not lifecycle_world["facilities"].has(facility_id):
             return {"ok": false, "reason": "lifecycle_unknown_facility"}
+        # The second proposal can differ after a paid repair. Detach any
+        # newly affected row before writing; do not mutate the canonical
+        # World if a later Schema/ledger/restock guard rejects this stage.
+        if not lifecycle_owned_rows.has(facility_id):
+            lifecycle_world["facilities"][facility_id] = _world["facilities"][facility_id].duplicate(true)
+            lifecycle_owned_rows[facility_id] = true
         var updated: Dictionary = lifecycle_world["facilities"][facility_id]
         var delta: Dictionary = lifecycle["changes"][facility_id]
         updated["condition"] = float(delta["condition"])
@@ -369,6 +431,42 @@ func run_tick(tick: int, tick_multiplier: int = 1,
         # N156 household-derived crew morale doesn't debit Food a second time.
         if delta.has("morale"):
             updated["morale"] = float(delta["morale"])
+    if restock_due:
+        # ServiceRestock.apply iterates all facilities in sorted ID order and
+        # can mutate ONLY a same-faction, live buyer and its market owner.
+        # Compute this conservative union from the POST-lifecycle stage,
+        # before the first N9 payment. All changed rows are detached before
+        # any restock mutation, including a later failed payment/guard.
+        var restock_markets: Dictionary = lifecycle_world["markets"].duplicate()
+        var restock_owned_markets: Dictionary = {}
+        var restock_ids: Array = lifecycle_world["facilities"].keys()
+        restock_ids.sort()
+        for buyer_id in restock_ids:
+            var buyer_view: Dictionary = lifecycle_world["facilities"][buyer_id]
+            if bool(buyer_view.get("abandoned", false)):
+                continue
+            var market_id: String = str(buyer_view.get("location", ""))
+            if not restock_markets.has(market_id):
+                # Let the original N130 validation reject an absent market
+                # (or skip a valid construction dock) without any writes.
+                continue
+            var market_view: Dictionary = restock_markets[market_id]
+            var seller_id: String = str(market_view.get("owner", ""))
+            if not lifecycle_world["facilities"].has(seller_id):
+                continue
+            var seller_view: Dictionary = lifecycle_world["facilities"][seller_id]
+            if str(buyer_view.get("faction", "")) != str(seller_view.get("faction", "")) or (
+                    bool(seller_view.get("abandoned", false))) or (
+                    str(seller_view.get("location", "")) != market_id):
+                continue
+            for owner_id in [buyer_id, seller_id]:
+                if not lifecycle_owned_rows.has(owner_id):
+                    lifecycle_world["facilities"][owner_id] = lifecycle_world["facilities"][owner_id].duplicate(true)
+                    lifecycle_owned_rows[owner_id] = true
+            if not restock_owned_markets.has(market_id):
+                restock_markets[market_id] = market_view.duplicate(true)
+                restock_owned_markets[market_id] = true
+        lifecycle_world["markets"] = restock_markets
     var restocked: Dictionary = ServiceRestock.apply(
         lifecycle_world, lifecycle_ledger, tick, tick_multiplier)
     if not restocked.get("ok", false):
@@ -395,12 +493,37 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             return {"ok": false, "reason": "n18_station_administration_" +
                 str(station_admin.get("reason", "rejected"))}
         if station_admin.get("due", false):
-            var staffed: Dictionary = _copy_world("L277", true)
-            for facility_id in staffed["facilities"]:
-                if not station_admin["assignments"].has(facility_id):
+            # Only facilities and the administration projection are written here.
+            # Detach facilities before staffing; every other World domain is
+            # read-only during this stage and the full Schema oracle remains.
+            # Validate the complete assignment read-set before allocating any
+            # mutable rows. N18 never writes facility money, inventory or crew
+            # state: only assigned_workers can differ from the previous World.
+            var assignments: Dictionary = station_admin["assignments"]
+            var previous_facilities: Dictionary = _world["facilities"]
+            if assignments.size() != previous_facilities.size():
+                return {"ok": false, "reason": "n18_incomplete_station_staffing"}
+            for facility_id in previous_facilities:
+                if not assignments.has(facility_id) or (
+                        typeof(assignments[facility_id]) != TYPE_INT):
                     return {"ok": false, "reason": "n18_incomplete_station_staffing"}
-                staffed["facilities"][facility_id]["assigned_workers"] = int(
-                    station_admin["assignments"][facility_id])
+            # The root and facilities map are new. Unchanged facility rows
+            # are read-only through this stage and may safely be shared with
+            # the old World; changed rows detach their complete nested graph.
+            # This avoids cloning every market-sized reserves/dock_queue graph
+            # on a staffing tick when only a few worker counts change.
+            var staffed: Dictionary = _copy_world("n18_staffing_root", false)
+            var staffed_facilities: Dictionary = previous_facilities.duplicate()
+            for facility_id in previous_facilities:
+                var assigned: int = int(assignments[facility_id])
+                var previous_row: Dictionary = previous_facilities[facility_id]
+                if assigned == int(previous_row.get("assigned_workers", 0)) and (
+                        previous_row.has("assigned_workers")):
+                    continue
+                var owned_row: Dictionary = previous_row.duplicate(true)
+                owned_row["assigned_workers"] = assigned
+                staffed_facilities[facility_id] = owned_row
+            staffed["facilities"] = staffed_facilities
             staffed["station_administration"] = station_admin["snapshots"].duplicate(true)
             staffed["station_administration_last_tick"] = tick
             var staffing_error: String = _measured_schema_validate("L285", staffed)
@@ -413,6 +536,12 @@ func run_tick(tick: int, tick_multiplier: int = 1,
     var ids: Array = _world["facilities"].keys()
     ids.sort()
     var lod_fired: Dictionary = {}
+    # N18 may have published a row-owned facilities map: unchanged rows can
+    # still be shared with its pre-staffing World. LOD is the next writer.
+    # Decide all due firings from the unchanged read view first, then detach
+    # ONLY the rows whose cursor advances. This preserves source iteration
+    # and prevents an in-place LOD write from escaping across an owned stage.
+    var lod_cursor_updates: Dictionary = {}
     for id in ids:
         var f: Dictionary = _world["facilities"][id]
         # Rust AgentLod::try_fire advances every tick, not just work cadence.
@@ -420,13 +549,57 @@ func run_tick(tick: int, tick_multiplier: int = 1,
             lod_fired[id] = true
         elif tick >= int(f.get("lod_next_tick", 0)):
             lod_fired[id] = true
-            f["lod_next_tick"] = tick + int(f["lod_divisor"])
+            lod_cursor_updates[id] = tick + int(f["lod_divisor"])
+    if not lod_cursor_updates.is_empty():
+        var lod_world: Dictionary = _copy_world("n39_lod_cursor_root", false)
+        var lod_facilities: Dictionary = _world["facilities"].duplicate()
+        for id in ids:
+            if not lod_cursor_updates.has(id):
+                continue
+            var detached: Dictionary = lod_facilities[id].duplicate(true)
+            detached["lod_next_tick"] = int(lod_cursor_updates[id])
+            lod_facilities[id] = detached
+        lod_world["facilities"] = lod_facilities
+        # This cursor transition is money-neutral; retain the complete
+        # production Schema oracle before publishing any owned row.
+        if _measured_schema_validate("n39_lod_cursor_owned", lod_world) != "":
+            return {"ok": false, "reason": "n39_lod_cursor_schema_rejected"}
+        _world = lod_world
     var receipts: Array = []
     var failures: Dictionary = {}
     var recipe_due: bool = tick % (RECIPE_INTERVAL_BASE * tick_multiplier) == 0
     var mining_due: bool = tick % (MINING_INTERVAL_BASE * tick_multiplier) == 0
     if recipe_due:
-        Payroll.refresh_employment(_world, tick, external_workers)
+        # Payroll.refresh_employment writes every household in place. The
+        # authoritative World must not be mutated before validation: a later
+        # failed recipe/Schema guard must not leak employment changes through
+        # shared population rows. Compute the exact source occupied() view
+        # once, then detach only households whose employed_fraction changes.
+        # Do not change the recipe cadence, occupancy order or wage rules.
+        var occupied_workers: Dictionary = Payroll.occupied(_world, tick, external_workers)
+        var employment_world: Dictionary = _copy_world("n39_employment_root", false)
+        var employment_populations: Dictionary = _world["populations"].duplicate()
+        var employment_changed: bool = false
+        for population_id in _world["populations"]:
+            var previous_household: Dictionary = _world["populations"][population_id]
+            var capacity: float = maxf(1.0, float(previous_household["count"]) * 0.6)
+            var fraction: float = clampf(
+                float(occupied_workers.get(population_id, 0)) / capacity, 0.0, 1.0)
+            if previous_household.has("employed_fraction") and (
+                    float(previous_household["employed_fraction"]) == fraction):
+                continue
+            var detached_household: Dictionary = previous_household.duplicate(true)
+            detached_household["employed_fraction"] = fraction
+            employment_populations[population_id] = detached_household
+            employment_changed = true
+        if employment_changed:
+            employment_world["populations"] = employment_populations
+            var employment_error: String = _measured_schema_validate(
+                "n39_employment_owned", employment_world)
+            if not employment_error.is_empty():
+                return {"ok": false, "reason":
+                    "n39_employment_invalid_world:" + employment_error}
+            _world = employment_world
         for id in ids:
             if lod_fired.has(id):
                 var result: Dictionary = _run_recipes(str(id), tick, external_workers)
@@ -542,7 +715,7 @@ func apply_native_shipyard_refit(tick: int, ship_id: String,
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n108_invalid_native_ship_after_refit:" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L423", stage)
-    var balances: Dictionary = staged_money.snapshot().get("balances", {})
+    var balances: Dictionary = staged_money.balances_snapshot()
     if accounts.size() != balances.size() or staged_money.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n108_native_money_was_created"}
     for account in accounts:
@@ -555,6 +728,36 @@ func apply_native_shipyard_refit(tick: int, ship_id: String,
         "receipt": receipt_id, "event": next.get("events", []).duplicate(true),
         "authority": "one_native_n39_n9_refit_apply"}
 
+
+## N14 owned publication: all mutable rows are detached, unchanged rows
+## are read-only aliases. Validation happens before constructing the stage.
+## The full Schema and N9 account oracles remain in apply_ship_phase.
+static func _n14_owned_ship_phase_stage(world: Dictionary,
+        proposed_ships: Dictionary, next_token: int) -> Dictionary:
+    if not (world.get("ships") is Dictionary):
+        return {}
+    var previous: Dictionary = world["ships"]
+    if proposed_ships.size() != previous.size():
+        return {}
+    var frozen_fields: Array[String] = ["id", "name", "class",
+        "faction_id", "size", "cargo_capacity", "fuel_capacity",
+        "crew_size", "crew_roles", "cargo", "credits", "docked_at"]
+    var owned: Dictionary = previous.duplicate()
+    for ship_id in previous:
+        if not proposed_ships.has(ship_id) or not (previous[ship_id] is Dictionary) or (
+                not (proposed_ships[ship_id] is Dictionary)):
+            return {}
+        var old: Dictionary = previous[ship_id]
+        var candidate: Dictionary = proposed_ships[ship_id]
+        for field in frozen_fields:
+            if candidate.get(field, null) != old.get(field, null):
+                return {}
+        if candidate != old:
+            owned[ship_id] = candidate.duplicate(true)
+    var staged: Dictionary = world.duplicate()
+    staged["ships"] = owned
+    staged["ship_next_token"] = next_token
+    return staged
 
 ## Single authoritative fleet commit. Called by the N158 ships phase
 ## (before facilities), or by a validated explicit departure command between
@@ -574,25 +777,13 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
     var new_ships: Dictionary = proposal["ships"]
     if new_ships.size() != _world["ships"].size() or typeof(proposal.get("next_token", null)) != TYPE_INT:
         return false
-    var previous: Dictionary = _world["ships"]
-    var frozen_fields: Array[String] = ["id", "name", "class",
-        "faction_id", "size", "cargo_capacity", "fuel_capacity",
-        "crew_size", "crew_roles", "cargo", "credits", "docked_at"]
-    for ship_id in previous:
-        if not new_ships.has(ship_id) or not (new_ships[ship_id] is Dictionary):
-            return false
-        var old: Dictionary = previous[ship_id]
-        var candidate: Dictionary = new_ships[ship_id]
-        for field in frozen_fields:
-            if candidate.get(field, null) != old.get(field, null):
-                return false
-    # This authority only replaces ships and a scalar transit cursor.
-    # Stage a detached top-level map plus a deep copied ship domain:
-    # copying all markets, contracts and historical receipts here made
-    # N14 transit cost proportional to unrelated World history.
-    var staged: Dictionary = _copy_world("L472", false)
-    staged["ships"] = new_ships.duplicate(true)
-    staged["ship_next_token"] = int(proposal["next_token"])
+    # N14 may advance only a small subset of ships per paid tick. Preserve
+    # frozen physical fields and detach every changed nested ship row; never
+    # deep-copy the entire fleet or mutate the source proposal in place.
+    var staged: Dictionary = _n14_owned_ship_phase_stage(
+        _world, new_ships, int(proposal["next_token"]))
+    if staged.is_empty():
+        return false
     if _measured_schema_validate("L475", staged) != "":
         return false
     # No fleet transition is allowed to mint or move cash; all 24 source
@@ -604,6 +795,55 @@ func apply_ship_phase(tick: int, proposal: Dictionary,
     _world = staged
     return true
 
+
+
+## II-B N108: stage publication with owned rows, not copied historical World.
+## Called only after the complete proposal Schema/N9 validation. Recheck
+## equality with the proposal so a changed/unexpected domain cannot vanish.
+static func _n108_owned_gate_publication(source: Dictionary,
+        proposed: Dictionary, changed_facilities: Array,
+        changed_ship: String, receipt_domain: String,
+        receipt_id: String) -> Dictionary:
+    if receipt_id.is_empty() or not (source.get("facilities") is Dictionary) or (
+            not (proposed.get("facilities") is Dictionary)) or (
+            not (proposed.get(receipt_domain) is Dictionary)) or (
+            not (source.get(receipt_domain, {}) is Dictionary)):
+        return {}
+    if proposed.size() != source.size() + (0 if source.has(receipt_domain) else 1):
+        return {}
+    var old_receipts: Dictionary = source.get(receipt_domain, {})
+    var new_receipts: Dictionary = proposed[receipt_domain]
+    if old_receipts.has(receipt_id) or not new_receipts.has(receipt_id) or (
+            new_receipts.size() != old_receipts.size() + 1) or (
+            not (new_receipts[receipt_id] is Dictionary)):
+        return {}
+    var owned: Dictionary = source.duplicate()
+    var facilities: Dictionary = source["facilities"].duplicate()
+    var selected: Dictionary = {}
+    for fid in changed_facilities:
+        if selected.has(fid) or not source["facilities"].has(fid) or (
+                not proposed["facilities"].has(fid)) or (
+                not (proposed["facilities"][fid] is Dictionary)):
+            return {}
+        selected[fid] = true
+        facilities[fid] = proposed["facilities"][fid].duplicate(true)
+    owned["facilities"] = facilities
+    if not changed_ship.is_empty():
+        if not (source.get("ships") is Dictionary) or (
+                not (proposed.get("ships") is Dictionary)) or (
+                not source["ships"].has(changed_ship)) or (
+                not proposed["ships"].has(changed_ship)) or (
+                not (proposed["ships"][changed_ship] is Dictionary)):
+            return {}
+        var ships: Dictionary = source["ships"].duplicate()
+        ships[changed_ship] = proposed["ships"][changed_ship].duplicate(true)
+        owned["ships"] = ships
+    var receipts: Dictionary = old_receipts.duplicate()
+    receipts[receipt_id] = new_receipts[receipt_id].duplicate(true)
+    owned[receipt_domain] = receipts
+    if owned != proposed:
+        return {}
+    return owned
 
 
 ## Explicit native admin pairing of two ALREADY REAL N154/seed gates.
@@ -671,7 +911,16 @@ func apply_native_n108_gate_pair(tick: int, gate_a: String,
             _ledger.snapshot() != previous_money):
         return {"ok": false, "fatal": true,
             "reason": "n108_pair_minted_or_moved_real_n9_money"}
-    _world = future
+    var owned_pair: Dictionary = _n108_owned_gate_publication(_world,
+        future, ids, "", "native_gate_pair_receipts", id)
+    if owned_pair.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_owned_publication_rejected"}
+    var owned_pair_error: String = _measured_schema_validate("L545", owned_pair)
+    if not owned_pair_error.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n108_pair_owned_schema_" + owned_pair_error}
+    _world = owned_pair
     return {"ok": true, "status": "N108_REAL_EXPLICIT_GATE_PAIR",
         "pair_id": id, "receipt": proposal.get("receipt", {}).duplicate(true),
         "tick": tick}
@@ -788,11 +1037,60 @@ func apply_native_n108_gate_jump(tick: int, ship_id: String,
     for account in accounts:
         if money["balances"].get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true, "reason": "n108_wallet_not_backed_by_real_n9"}
-    _world = future
+    var owned_jump: Dictionary = _n108_owned_gate_publication(_world,
+        future, [source_gate], ship_id, "native_gate_jump_receipts", op)
+    if owned_jump.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n108_jump_owned_publication_rejected"}
+    var owned_jump_error: String = _measured_schema_validate("L661", owned_jump)
+    if not owned_jump_error.is_empty() or (
+            _measured_schema_accounts("L664", owned_jump) != accounts):
+        return {"ok": false, "fatal": true,
+            "reason": "n108_jump_owned_schema_or_accounts_" + owned_jump_error}
+    _world = owned_jump
     _ledger = original_bank
     return {"ok": true, "tick": tick, "ship_id": ship_id,
         "source": from_loc, "destination": to_loc, "fee": fee,
         "receipt": receipt.duplicate(true)}
+
+
+## II-B: publish only detached rows written by N97/N83, never a full
+## historical fleet/market/receipt copy. The source proposal has already
+## passed the complete Schema/N9 oracle before this function is called.
+## Empty result means a rejected ownership boundary, not a no-op World.
+static func _n97_n83_owned_physical_publication(original: Dictionary,
+        proposed: Dictionary, ship_id: String, changed_rows: Dictionary,
+        receipt_id: String, applied: bool) -> Dictionary:
+    if proposed.size() != original.size() or not original.get("ships", {}).has(ship_id):
+        return {}
+    var published: Dictionary = original.duplicate()
+    for domain in ["ships", "facilities", "markets", "bodies", "cargo_receipts"]:
+        if not (original.get(domain) is Dictionary) or not (proposed.get(domain) is Dictionary):
+            return {}
+        var old_rows: Dictionary = original[domain]
+        var new_rows: Dictionary = proposed[domain]
+        var is_receipts: bool = domain == "cargo_receipts"
+        if new_rows.size() != old_rows.size() + (1 if is_receipts and applied else 0):
+            return {}
+        var permitted: Dictionary = changed_rows.get(domain, {})
+        var owned: Dictionary = old_rows.duplicate()
+        for key in old_rows:
+            if not new_rows.has(key) or not (old_rows[key] is Dictionary) or not (new_rows[key] is Dictionary):
+                return {}
+            if new_rows[key] != old_rows[key]:
+                if not permitted.has(str(key)) or is_receipts:
+                    return {}
+                owned[key] = (new_rows[key] as Dictionary).duplicate(true)
+        if is_receipts and applied:
+            if old_rows.has(receipt_id) or not new_rows.has(receipt_id) or not (new_rows[receipt_id] is Dictionary):
+                return {}
+            owned[receipt_id] = (new_rows[receipt_id] as Dictionary).duplicate(true)
+        published[domain] = owned
+    for domain in original:
+        if domain not in ["ships", "facilities", "markets", "bodies", "cargo_receipts"]:
+            if not proposed.has(domain) or proposed[domain] != original[domain]:
+                return {}
+    return published
 
 
 ## Frozen Rust N97 Refuel/Mine single-owner Apply. A genuine N90
@@ -926,7 +1224,21 @@ func apply_native_n97_ship_service(tick: int, ship_id: String,
     for account in accounts:
         if money["balances"].get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true, "reason": "n97_service_real_n9_wallet_disagreed"}
-    _world = staged
+    var n97_rows: Dictionary = {"ships": {ship_id: true},
+        "facilities": {}, "markets": {}, "bodies": {}}
+    if paid:
+        n97_rows["facilities"][str(staged["cargo_receipts"][receipt_id].get("facility_id", ""))] = true
+        n97_rows["markets"][str(staged["cargo_receipts"][receipt_id].get("location", ""))] = true
+    if mined:
+        n97_rows["bodies"][str(staged["cargo_receipts"][receipt_id].get("body_id", ""))] = true
+    var owned_n97: Dictionary = _n97_n83_owned_physical_publication(
+        old_world, staged, ship_id, n97_rows, receipt_id, source_status == "applied")
+    if owned_n97.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n97_owned_publication_rejected"}
+    var owned_n97_error: String = _measured_schema_validate("L799-owned", owned_n97)
+    if not owned_n97_error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n97_owned_schema_" + owned_n97_error}
+    _world = owned_n97
     _ledger = canonical
     return {"ok": true, "tick": tick, "status": source_status,
         "ship_id": ship_id, "request_id": request_id, "kind": source_kind,
@@ -1067,7 +1379,19 @@ func apply_native_n83_free_trade(tick: int, ship_id: String,
         if next_bank["balances"].get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true,
                 "reason": "n83_true_n9_balance_mismatch"}
-    _world = next_world
+    var n83_rows: Dictionary = {"ships": {ship_id: true},
+        "facilities": {}, "markets": {}, "bodies": {}}
+    if paid:
+        n83_rows["facilities"][str(next_world["cargo_receipts"][receipt_id].get("facility_id", ""))] = true
+        n83_rows["markets"][str(next_world["cargo_receipts"][receipt_id].get("location", ""))] = true
+    var owned_n83: Dictionary = _n97_n83_owned_physical_publication(
+        before_world, next_world, ship_id, n83_rows, receipt_id, paid)
+    if owned_n83.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n83_owned_publication_rejected"}
+    var owned_n83_error: String = _measured_schema_validate("L937-owned", owned_n83)
+    if not owned_n83_error.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n83_owned_schema_" + owned_n83_error}
+    _world = owned_n83
     _ledger = restored
     return {"ok": true, "status": status, "tick": tick,
         "ship_id": ship_id, "request_id": request_id,
@@ -1135,6 +1459,30 @@ func apply_native_n148_ship_lifecycle(tick: int, multiplier: int,
 ## Rust ship/mod.rs::observe_prices (Pass 2, after N14 motion and
 ## before N149 crew). Only the real per-ship ShipMemory may change;
 ## actual markets/price history, N104, N9 wallets and N14 remain frozen.
+## II-B: stage only changed ship rows. A candidate from a source module is
+## not authoritative until Schema and N9 accept it; deep-detach every changed
+## row so nested memory/crew/cargo cannot alias the source proposal or World.
+## Unchanged rows remain read-only shared entries in the unpublished stage.
+static func _owned_fleet_publication_stage(world: Dictionary,
+        proposed_ships: Dictionary, allowed: Dictionary) -> Dictionary:
+    if not (world.get("ships") is Dictionary):
+        return {}
+    var current: Dictionary = world["ships"]
+    if proposed_ships.size() != current.size():
+        return {}
+    var staged: Dictionary = world.duplicate()
+    var owned_ships: Dictionary = current.duplicate()
+    for sid in current:
+        if not proposed_ships.has(sid) or not (current[sid] is Dictionary) or not (proposed_ships[sid] is Dictionary):
+            return {}
+        if proposed_ships[sid] != current[sid]:
+            if not allowed.has(sid):
+                return {}
+            owned_ships[sid] = (proposed_ships[sid] as Dictionary).duplicate(true)
+    staged["ships"] = owned_ships
+    return staged
+
+
 func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
         fired: Dictionary) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick + 1:
@@ -1165,8 +1513,9 @@ func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
             "active_count": int(candidate.get("active_count", 0))}
     # N150 touches only ShipMemory; other domains are read-only and the
     # proposed fleet is detached before the authoritative validation.
-    var next_world: Dictionary = _copy_world("L1047", false)
-    next_world["ships"] = updated_ships.duplicate(true)
+    var next_world: Dictionary = _owned_fleet_publication_stage(_world, updated_ships, fired)
+    if next_world.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n150_invalid_owned_fleet_stage"}
     var invalid: String = _measured_schema_validate("L1049", next_world)
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n150_invalid_native_memory_" + invalid}
@@ -1190,6 +1539,21 @@ func apply_native_ship_price_observation(tick: int, resolver: RefCounted,
 ## existing N84 executor. No unconditional per-tick XP or fake mission.
 ## The original ShipCrewSkills is in the one N39 ship record; immutable
 ## receipt keeps N38 replay deterministic without a second XP wallet.
+## N128 append-only receipt stage. Do not mutate existing receipt rows:
+## they remain shared until the full Schema/accounts oracle accepts the stage.
+## The caller must not publish the stage or leak its registries on rejection.
+static func _n128_owned_grant_stage(world: Dictionary, ship_id: String,
+        skills: Dictionary) -> Dictionary:
+    var stage: Dictionary = world.duplicate()
+    stage["ships"] = world["ships"].duplicate()
+    var ship: Dictionary = world["ships"][ship_id].duplicate(true)
+    ship["crew_skills"] = skills.duplicate(true)
+    stage["ships"][ship_id] = ship
+    stage["native_crew_xp_receipts"] = world.get(
+        "native_crew_xp_receipts", {}).duplicate()
+    return stage
+
+
 func apply_native_n128_crew_xp(tick: int, source_command: Dictionary,
         command_ordinal: int) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick + 1 or command_ordinal < 1:
@@ -1220,12 +1584,17 @@ func apply_native_n128_crew_xp(tick: int, source_command: Dictionary,
     var credited: int = int(outcome["skills"][skill]) - int(before["crew_skills"][skill])
     if credited < 0 or credited > int(amount):
         return {"ok": false, "fatal": true, "reason": "n128_skill_grant_overflow"}
-    var stage: Dictionary = _copy_world("L1102", true)
-    stage["ships"][ship_id]["crew_skills"] = outcome["skills"].duplicate(true)
-    if not (stage.get("native_crew_xp_receipts", {}) is Dictionary):
+    # N128 owns only the ship skill record and its immutable receipt map.
+    # Detach both domains before mutation; unrelated World history stays shared
+    # only inside this private, unpublished stage (never returned to callers).
+    if _world.has("native_crew_xp_receipts") and (
+            not (_world["native_crew_xp_receipts"] is Dictionary)):
         return {"ok": false, "fatal": true, "reason": "n128_corrupt_prior_receipts"}
-    if not stage.has("native_crew_xp_receipts"):
-        stage["native_crew_xp_receipts"] = {}
+    # Existing receipt rows are immutable append-only provenance. Detach the
+    # registry root, not its entire growing history; the new receipt is owned
+    # by this unpublished stage. Ship data is independently row-detached.
+    var stage: Dictionary = _n128_owned_grant_stage(
+        _world, ship_id, outcome["skills"])
     stage["native_crew_xp_receipts"][receipt_id] = {
         "id": receipt_id, "tick": tick, "ship_id": ship_id,
         "skill": skill, "amount": int(amount), "applied": credited,
@@ -1255,9 +1624,15 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
     if not _ready or tick != _last_tick + 1 or tick < 1:
         return {"ok": false, "reason": "n149_not_native_ship_phase"}
     var before_world: Dictionary = _world
-    var before_bank: Dictionary = _ledger.snapshot()
-    var result: Dictionary = NativeN149Crew.stage(
-        before_world, before_bank, tick, tick_scale, multiplier, n140_fired)
+    var legacy: bool = OS.get_environment("LS_LATE_CREW_LEGACY") == "1"
+    var before_bank: Dictionary = _ledger.snapshot() if legacy else {}
+    var result: Dictionary
+    if legacy:
+        result = NativeN149Crew.stage(before_world, before_bank,
+            tick, tick_scale, multiplier, n140_fired)
+    else:
+        result = NativeN149Crew.stage_owned(before_world, _ledger,
+            tick, tick_scale, multiplier, n140_fired)
     if not result.get("ok", false):
         return result
     var after_ships: Dictionary = result["ships"]
@@ -1284,15 +1659,20 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
     # Crew wages settle in a separate staged Ledger, while the World
     # proposal modifies only ships. No unrelated World domain is written
     # before Schema and N9 consistency checks complete.
-    var next_world: Dictionary = before_world.duplicate()
-    next_world["ships"] = after_ships.duplicate(true)
+    var next_world: Dictionary = _owned_fleet_publication_stage(before_world, after_ships, n140_fired)
+    if next_world.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n149_invalid_owned_fleet_stage"}
     var invalid: String = _measured_schema_validate("L1168", next_world)
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n149_schema_" + invalid}
-    var new_bank: Dictionary = result["ledger_snapshot"]
-    var staged_ledger := Ledger.new()
-    if not staged_ledger.restore(new_bank):
-        return {"ok": false, "fatal": true, "reason": "n149_invalid_single_n9_receipts"}
+    var staged_ledger: RefCounted
+    if legacy:
+        staged_ledger = Ledger.new()
+        if not staged_ledger.restore(result["ledger_snapshot"]):
+            return {"ok": false, "fatal": true, "reason": "n149_invalid_single_n9_receipts"}
+    else:
+        staged_ledger = result["owned_ledger"]
+    var new_balances: Dictionary = staged_ledger.balances_snapshot()
     var wages: int = int(result.get("wages_total", -1))
     if wages < 0 or staged_ledger.total() != _ledger.total() - wages:
         return {"ok": false, "fatal": true, "reason": "n149_wage_total_not_source_accrual"}
@@ -1301,19 +1681,21 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
         if int(record.get("wages", 0)) > 0:
             due_receipts += 1
             var wage_id: String = "n149:crew:" + str(record["ship_id"]) + ":" + str(tick)
-            var receipt: Variant = new_bank["receipts"].get(wage_id, null)
+            var receipt: Variant = staged_ledger.receipt_copy(wage_id)
             if not (receipt is Dictionary) or str(receipt.get("kind", "")) != "native_ship_crew_wages" or int(receipt.get("wages_credits_accrued", -1)) != int(record["wages"]):
                 return {"ok": false, "fatal": true, "reason": "n149_missing_native_paid_crew_evidence"}
-    if new_bank["receipts"].size() != before_bank["receipts"].size() + due_receipts:
+    if staged_ledger.receipt_count() != _ledger.receipt_count() + due_receipts:
         return {"ok": false, "fatal": true, "reason": "n149_expected_wage_receipts_missing"}
-    for rid in before_bank["receipts"]:
-        if new_bank["receipts"].get(rid, null) != before_bank["receipts"][rid]:
+    if legacy:
+        if not _ledger.retains_receipts(result["ledger_snapshot"]["receipts"]):
             return {"ok": false, "fatal": true, "reason": "n149_mutated_existing_n9_receipt"}
+    elif not staged_ledger.retains_owned_receipts(_ledger):
+        return {"ok": false, "fatal": true, "reason": "n149_mutated_existing_n9_receipt"}
     var accounts: Dictionary = _measured_schema_accounts("L1191", next_world)
-    if accounts.size() != new_bank["balances"].size():
+    if accounts.size() != new_balances.size():
         return {"ok": false, "fatal": true, "reason": "n149_added_unauthorized_wallet"}
     for account in accounts:
-        if new_bank["balances"].get(account, null) != accounts[account]:
+        if new_balances.get(account, null) != accounts[account]:
             return {"ok": false, "fatal": true, "reason": "n149_n9_ship_wallet_mismatch"}
     _world = next_world
     _ledger = staged_ledger
@@ -1329,7 +1711,7 @@ func apply_native_n149_ship_crew(tick: int, tick_scale: float,
 ## facilities, ships or N9 by itself. N38 owns snapshot of these fields.
 ## Optional diagnostic only; no timing work or branching of native
 ## economy when LS_PROFILE_NATIVE_PHASES is disabled.
-func _commit_native_n21(proposal: Dictionary) -> Dictionary:
+func _commit_native_n21(proposal: Dictionary, owned: RefCounted = null) -> Dictionary:
     # Explicit callers may opt into stale-proposal prevention; the original
     # Rust N21 staged apply (without expected_n21_version) is untouched.
     if proposal.has("expected_n21_version") and (
@@ -1337,7 +1719,7 @@ func _commit_native_n21(proposal: Dictionary) -> Dictionary:
             int(proposal["expected_n21_version"]) != n21_write_version()):
         return {"ok": false, "reason": "n21_stale_write_version"}
     if not _profile_copy_enabled:
-        var original: Dictionary = _commit_native_n21_unprofiled(proposal)
+        var original: Dictionary = _commit_native_n21_unprofiled(proposal, owned)
         if original.get("ok", false):
             _n21_commit_generation += 1
         return original
@@ -1348,7 +1730,7 @@ func _commit_native_n21(proposal: Dictionary) -> Dictionary:
             _world, proposal["world"], proposal["ledger_snapshot"])
         _n21_shadow_checks += 1
     var began: int = Time.get_ticks_usec()
-    var outcome: Dictionary = _commit_native_n21_unprofiled(proposal)
+    var outcome: Dictionary = _commit_native_n21_unprofiled(proposal, owned)
     _profile_n21_commit_calls += 1
     _profile_n21_commit_usec += maxi(0, Time.get_ticks_usec() - began)
     # A local validator is never allowed to change original N21 refusal
@@ -1361,12 +1743,59 @@ func _commit_native_n21(proposal: Dictionary) -> Dictionary:
         _n21_commit_generation += 1
     return outcome
 
-func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
+## Called ONLY after the complete N21 Schema, N9 and dock delta oracles.
+## Copy roots and changed rows; retain authoritative unchanged rows rather
+## than cloning the ever-growing fleet, facilities and paid receipt archive.
+## New/changed proposal rows are detached recursively before publication.
+static func _n21_owned_commit_rows(source: Dictionary,
+        proposed: Dictionary) -> Dictionary:
+    for domain in ["ships", "facilities", "dock_receipts"]:
+        if not (source.get(domain) is Dictionary) or not (
+                proposed.get(domain) is Dictionary):
+            return {}
+    if source["ships"].size() != proposed["ships"].size() or (
+            source["facilities"].size() != proposed["facilities"].size()) or (
+            proposed["dock_receipts"].size() < source["dock_receipts"].size()):
+        return {}
+    var committed: Dictionary = source.duplicate()
+    for domain in ["ships", "facilities"]:
+        var rows: Dictionary = source[domain].duplicate()
+        for id in source[domain]:
+            if not proposed[domain].has(id) or not (
+                    source[domain][id] is Dictionary) or not (
+                    proposed[domain][id] is Dictionary):
+                return {}
+            if proposed[domain][id] != source[domain][id]:
+                rows[id] = proposed[domain][id].duplicate(true)
+        committed[domain] = rows
+    var receipts: Dictionary = source["dock_receipts"].duplicate()
+    for id in source["dock_receipts"]:
+        if not proposed["dock_receipts"].has(id) or (
+                proposed["dock_receipts"][id] != source["dock_receipts"][id]):
+            return {}
+    for id in proposed["dock_receipts"]:
+        if not source["dock_receipts"].has(id):
+            if not (proposed["dock_receipts"][id] is Dictionary):
+                return {}
+            receipts[id] = proposed["dock_receipts"][id].duplicate(true)
+    committed["dock_receipts"] = receipts
+    return committed
+
+func _commit_native_n21_unprofiled(proposal: Dictionary, owned: RefCounted = null) -> Dictionary:
     if not proposal.get("ok", false) or not (proposal.get("world") is Dictionary) or (
-            not (proposal.get("ledger_snapshot") is Dictionary)):
+            (owned == null and not (proposal.get("ledger_snapshot") is Dictionary))):
         return {"ok": false, "reason": "n21_invalid_staged_source_world"}
+    if owned != null and not is_same(proposal.get("ledger_snapshot"), owned):
+        return {"ok": false, "reason": "n21_invalid_owned_transaction"}
     var future: Dictionary = proposal["world"]
-    var money: Dictionary = proposal["ledger_snapshot"]
+    var money: Dictionary = proposal["ledger_snapshot"] if owned == null else {
+        "balances": owned.balances_snapshot(), "receipts": {}}
+    if owned != null:
+        # The provenance validator needs only NEW dock payment IDs. Existing
+        # N9 history is proved independently by immutable COW retention below.
+        for op in future.get("dock_receipts", {}):
+            if not _world.get("dock_receipts", {}).has(op) and owned.has_receipt(str(op)):
+                money["receipts"][op] = owned.receipt_copy(str(op))
     if future.size() != _world.size():
         return {"ok": false, "reason": "n21_changed_world_domain"}
     for key in _world:
@@ -1411,16 +1840,16 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     for op in _world.get("dock_receipts", {}):
         if future["dock_receipts"].get(op, null) != _world["dock_receipts"][op]:
             return {"ok": false, "reason": "n21_rewrote_paid_dock_receipt"}
-    var checked := Ledger.new()
-    if not checked.restore(money) or checked.total() != _ledger.total():
+    var checked: RefCounted = Ledger.new() if owned == null else owned
+    if (owned == null and not checked.restore(money)) or checked.total() != _ledger.total():
         return {"ok": false, "reason": "n21_ledger_money_not_conservative"}
     # The external proposal is still validated by checked.restore().
     # Compare EVERY previous immutable N9 receipt in-place instead of
     # duplicating the old history only to inspect it for equality.
-    if not (money.get("receipts") is Dictionary) or (
-            money["receipts"].size() < _ledger.receipt_count()):
+    if not (money.get("receipts") is Dictionary) or checked.receipt_count() < _ledger.receipt_count():
         return {"ok": false, "reason": "n21_paid_receipt_missing"}
-    if not _ledger.retains_receipts(money["receipts"]):
+    if (owned == null and not _ledger.retains_receipts(money["receipts"])) or (
+            owned != null and not checked.retains_owned_receipts(_ledger)):
         return {"ok": false, "reason": "n21_replayed_or_edited_n9_receipt"}
     var schema_error: String = _measured_schema_validate("L1281", future)
     if not schema_error.is_empty():
@@ -1449,11 +1878,11 @@ func _commit_native_n21_unprofiled(proposal: Dictionary) -> Dictionary:
     # FIFO/receipt and N39/N9 guard above. Retain canonical references
     # for unrelated domains, and deep-detach every changed domain from
     # the external proposal before atomic World + Ledger publication.
-    var committed: Dictionary = _copy_world("L1295", false)
-    for domain in ["ships", "facilities", "dock_receipts"]:
-        committed[domain] = future[domain].duplicate(true)
+    var committed: Dictionary = _n21_owned_commit_rows(_world, future)
+    if committed.is_empty():
+        return {"ok": false, "reason": "n21_invalid_owned_publication"}
     _world = committed
-    _ledger = checked
+    _ledger = checked.fork() if owned != null else checked
     return {"ok": true, "status": str(proposal.get("status", "")),
         "changed": bool(proposal.get("changed", false)),
         "receipt": proposal.get("receipt", {}).duplicate(true),
@@ -1464,12 +1893,14 @@ func apply_native_n21_request(tick: int, ship_id: String,
         preferred_type: String = "", preferred_id: String = "") -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1:
         return {"ok": false, "reason": "n21_not_current_single_ship_phase"}
+    var owned: RefCounted = null if OS.get_environment("LS_LATE_DOCK_LEGACY") == "1" else _ledger.fork()
+    var bank: Variant = _ledger.snapshot() if owned == null else owned
     var proposed: Dictionary = {}
     if operation == "dock":
-        proposed = N21Source.request(_world, _ledger.snapshot(), ship_id,
+        proposed = N21Source.request(_world, bank, ship_id,
             location, tick, preferred_type, preferred_id)
     elif operation == "undock":
-        proposed = N21Source.release(_world, _ledger.snapshot(),
+        proposed = N21Source.release(_world, bank,
             ship_id, location, tick)
     else:
         return {"ok": false, "reason": "n21_unknown_source_dock_action"}
@@ -1478,7 +1909,7 @@ func apply_native_n21_request(tick: int, ship_id: String,
     # do not pass an unsuccessful proposal into the paid commit gate.
     if not proposed.get("ok", false):
         return proposed
-    return _commit_native_n21(proposed)
+    return _commit_native_n21(proposed, owned)
 
 ## Manual UI Dock is an explicit command in the current committed
 ## native tick, not an arbitrary N15 cargo transfer. No free port may
@@ -1504,14 +1935,86 @@ func apply_native_n21_manual_dock(tick: int, ship_id: String,
 func apply_native_n21_dock_queue(tick: int) -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1:
         return {"ok": false, "reason": "n21_not_original_dock_queue_phase"}
-    return _commit_native_n21(N21Source.advance(
-        _world, _ledger.snapshot(), tick))
+    var owned: RefCounted = null if OS.get_environment("LS_LATE_DOCK_LEGACY") == "1" else _ledger.fork()
+    var bank: Variant = _ledger.snapshot() if owned == null else owned
+    return _commit_native_n21(N21Source.advance(_world, bank, tick), owned)
 
 
 ## Frozen Rust SimCommand::ReleaseContract (N146) is applied AFTER
 ## N84 ship intent was saved. Only accepted+matching fulfiller may
 ## return to Posted; N9 reserved escrow and all real N15 cargo remain.
 ## N39 is the ONLY publisher. No parallel Board/ledger/ship registry.
+## N104 release is a bounded mutation: only the releasing ship, one paid
+## contract, and changed diplomatic rows may be published. Keep untouched
+## growing registries read-only; detach all changed nested containers.
+## Called only AFTER the full source Schema/N9/contract write-set oracle.
+static func _n104_owned_release_publication(before: Dictionary,
+        proposed: Dictionary, ship_id: String, contract_id: String) -> Dictionary:
+    for domain in ["ships", "contract_board", "faction_relations"]:
+        if not (before.get(domain) is Dictionary) or not (
+                proposed.get(domain) is Dictionary):
+            return {}
+    var old_ships: Dictionary = before["ships"]
+    var new_ships: Dictionary = proposed["ships"]
+    if not old_ships.has(ship_id) or not new_ships.has(ship_id) or (
+            not (new_ships[ship_id] is Dictionary)) or (
+            old_ships.size() != new_ships.size()):
+        return {}
+    for id in old_ships:
+        if not new_ships.has(id) or not (new_ships[id] is Dictionary) or (
+                str(id) != ship_id and new_ships[id] != old_ships[id]):
+            return {}
+    var old_board: Dictionary = before["contract_board"]
+    var new_board: Dictionary = proposed["contract_board"]
+    if not (old_board.get("contracts") is Dictionary) or not (
+            new_board.get("contracts") is Dictionary):
+        return {}
+    var old_contracts: Dictionary = old_board["contracts"]
+    var new_contracts: Dictionary = new_board["contracts"]
+    if not old_contracts.has(contract_id) or not (
+            new_contracts.get(contract_id) is Dictionary) or (
+            old_contracts.size() != new_contracts.size()):
+        return {}
+    for id in old_contracts:
+        if not new_contracts.has(id) or not (new_contracts[id] is Dictionary) or (
+                str(id) != contract_id and new_contracts[id] != old_contracts[id]):
+            return {}
+    if old_board.size() != new_board.size():
+        return {}
+    for key in old_board:
+        if not new_board.has(key):
+            return {}
+    var published: Dictionary = before.duplicate()
+    var ships: Dictionary = old_ships.duplicate()
+    ships[ship_id] = (new_ships[ship_id] as Dictionary).duplicate(true)
+    published["ships"] = ships
+    var board: Dictionary = old_board.duplicate()
+    var contracts: Dictionary = old_contracts.duplicate()
+    contracts[contract_id] = (new_contracts[contract_id] as Dictionary).duplicate(true)
+    board["contracts"] = contracts
+    for key in old_board:
+        if key != "contracts" and new_board[key] != old_board[key]:
+            if new_board[key] is Dictionary or new_board[key] is Array:
+                board[key] = new_board[key].duplicate(true)
+            else:
+                board[key] = new_board[key]
+    published["contract_board"] = board
+    var old_relations: Dictionary = before["faction_relations"]
+    var new_relations: Dictionary = proposed["faction_relations"]
+    var relations: Dictionary = old_relations.duplicate()
+    for key in old_relations:
+        if not new_relations.has(key):
+            return {}
+    for key in new_relations:
+        if not old_relations.has(key) or new_relations[key] != old_relations[key]:
+            if new_relations[key] is Dictionary or new_relations[key] is Array:
+                relations[key] = new_relations[key].duplicate(true)
+            else:
+                relations[key] = new_relations[key]
+    published["faction_relations"] = relations
+    return published
+
+
 func apply_native_n104_release_contract(tick: int, ship_id: String,
         contract_id: String, reason: String) -> Dictionary:
     if not _ready or tick != _last_tick + 1 or tick < 1:
@@ -1575,7 +2078,17 @@ func apply_native_n104_release_contract(tick: int, ship_id: String,
     if expected_accounts != actual_money.get("balances", {}):
         return {"ok": false, "fatal": true,
             "reason": "n104_release_changed_prepaid_n9_escrow"}
-    _world = next.duplicate(true)
+    # The source stage has passed full Schema and the explicit N104 write-set
+    # check above. Reuse authoritative untouched domains rather than cloning
+    # the entire growing World; detach every domain the stage may own/write.
+    # Never publish a mutable container borrowed from candidate["world"].
+    var committed: Dictionary = _n104_owned_release_publication(
+        _world, next, ship_id, contract_id)
+    if committed.is_empty() or _measured_schema_validate(
+            "L1413_owned", committed) != "":
+        return {"ok": false, "fatal": true,
+            "reason": "n104_release_owned_publication_invalid"}
+    _world = committed
     return {"ok": true, "changed": true, "tick": tick,
         "contract_id": contract_id, "ship_id": ship_id,
         "status": "N104_SOURCE_REPOSTED_FOR_N153",
@@ -1748,8 +2261,62 @@ func apply_fleet_logistics(tick: int, proposal: Dictionary,
     for account in balances:
         if _ledger.balance(str(account)) != int(balances[account]):
             return false
-    _world = staged.duplicate(true)
+    # Publish the N15 write set, not the entire growing ship/market/receipt
+    # history. The source proposal remains caller-owned and cannot alias a
+    # published mutable ship, market or new receipt.
+    var committed: Dictionary = _n15_owned_logistics_publication(
+        _world, staged, ship_id, str(r.get("location_id", "")),
+        action, receipt_key, op_id)
+    if committed.is_empty():
+        return false
+    _world = committed
     return true
+
+
+## Only call after the full N15 delta checks, Schema and N9 account oracle.
+## Existing untouched rows are authoritative; staged rows are untrusted.
+## Deep-detach the one mutable ship, one affected market, and new receipt.
+## No full-history duplicate on each paid cargo operation.
+static func _n15_owned_logistics_publication(source: Dictionary,
+        proposed: Dictionary, ship_id: String, location: String,
+        action: String, receipt_domain: String, op_id: String) -> Dictionary:
+    if action not in ["load", "unload", "undock"] or (
+            receipt_domain not in ["dock_receipts", "cargo_receipts"]):
+        return {}
+    if (receipt_domain == "cargo_receipts") != (action in ["load", "unload"]):
+        return {}
+    if not (source.get("ships") is Dictionary) or not (
+            proposed.get("ships") is Dictionary) or not (
+            source.get("markets") is Dictionary) or not (
+            proposed.get("markets") is Dictionary):
+        return {}
+    if not (source.get(receipt_domain) is Dictionary) or not (
+            proposed.get(receipt_domain) is Dictionary):
+        return {}
+    if not source["ships"].has(ship_id) or not (
+            proposed["ships"].get(ship_id) is Dictionary):
+        return {}
+    if source[receipt_domain].has(op_id) or not (
+            proposed[receipt_domain].get(op_id) is Dictionary):
+        return {}
+    if proposed["ships"].size() != source["ships"].size() or (
+            proposed["markets"].size() != source["markets"].size()) or (
+            proposed[receipt_domain].size() != source[receipt_domain].size() + 1):
+        return {}
+    if action in ["load", "unload"] and (
+            not source["markets"].has(location) or not (
+            proposed["markets"].get(location) is Dictionary)):
+        return {}
+    var committed: Dictionary = source.duplicate()
+    committed["ships"] = source["ships"].duplicate()
+    committed["ships"][ship_id] = proposed["ships"][ship_id].duplicate(true)
+    if action in ["load", "unload"]:
+        committed["markets"] = source["markets"].duplicate()
+        committed["markets"][location] = proposed["markets"][location].duplicate(true)
+    # For undock, no market mutation is permitted by the caller's oracle.
+    committed[receipt_domain] = source[receipt_domain].duplicate()
+    committed[receipt_domain][op_id] = proposed[receipt_domain][op_id].duplicate(true)
+    return committed
 
 
 
@@ -1905,7 +2472,12 @@ func post_native_passenger_migration(tick: int, ready: Dictionary,
             if current.is_empty():
                 return {"ok": false, "fatal": true,
                     "reason": "n113_pending_missing_original_director"}
-            var next_world: Dictionary = _copy_world("L1751", true)
+            # Only the Director memory is written on the unpaid N113 path.
+            # Detach that domain before mutation; no mutable World value is
+            # returned to the caller and the full Schema/accounts oracle stays.
+            var next_world: Dictionary = _copy_world("L1751", false)
+            next_world["research_directors"] = _world[
+                "research_directors"].duplicate(true)
             next_world["research_directors"][faction][
                 "strategic"] = grant["strategy"].duplicate(true)
             var invalid: String = _measured_schema_validate("L1754", next_world)
@@ -2162,7 +2734,19 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         return {"ok": false, "reason": "n91_not_canonical_faction_tick"}
     if not _world.has("construction_sites"):
         return {"ok": true, "status": "N91_LEGACY_DISABLED", "assigned": []}
-    var staged: Dictionary = _copy_world("L2008", true)
+    # N91 has no write-set when the source selector supplies no proposals.
+    # Avoid copying growing World histories and running Schema/accounts on
+    # every idle tick. The authoritative World was validated at its last
+    # commit; no mutable reference escapes and no N9 receipt is produced.
+    # Preserve the source success payload, including tick and status.
+    if proposals.is_empty():
+        return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
+            "tick": tick, "assigned": []}
+    # Only selected ship planning fields are writable in this stage.
+    # Unrelated growing histories remain canonical and read-only.
+    var staged: Dictionary = _copy_world("L2008", false)
+    staged["ships"] = _world["ships"].duplicate()
+    var funding: Dictionary = native_construction_funding_snapshot()
     var updated: Array = []
     var used_sites: Dictionary = {}
     var used_ships: Dictionary = {}
@@ -2176,8 +2760,9 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         if not staged["ships"].has(ship_id) or not staged["construction_sites"].has(site_id):
             return {"ok": false, "fatal": true, "reason": "n91_phantom_actor_or_site"}
         var site: Dictionary = staged["construction_sites"][site_id]
-        var ship: Dictionary = staged["ships"][ship_id]
-        if not N91SourceDispatch.physical_site_funded(staged, _ledger.snapshot(), site_id):
+        var ship: Dictionary = staged["ships"][ship_id].duplicate(true)
+        staged["ships"][ship_id] = ship
+        if not N91SourceDispatch.physical_site_funded(staged, funding, site_id):
             return {"ok": false, "fatal": true, "reason": "n91_unpaid_site_materials_cannot_dispatch"}
         var loc: String = str(site.get("location_name", ""))
         if bool(site.get("completed", false)) or int(site.get("progress_delivered", 0)) != int(site.get("progress_required", -1)) or int(site.get("labor", {}).get("completed", 0)) >= int(site.get("labor", {}).get("required", 0)):
@@ -2237,7 +2822,7 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
     if not issue.is_empty():
         return {"ok": false, "fatal": true, "reason": "n91_invalid_world_" + issue}
     var balances: Dictionary = _measured_schema_accounts("L2082", staged)
-    if balances.size() != _ledger.snapshot().get("balances", {}).size():
+    if balances.size() != _ledger.balances_snapshot().size():
         return {"ok": false, "fatal": true, "reason": "n91_wallet_count_changed"}
     for account in balances:
         if _ledger.balance(str(account)) != int(balances[account]):
@@ -2246,6 +2831,24 @@ func apply_native_construction_assignments(tick: int, proposals: Array,
         _world = staged
     return {"ok": true, "status": "N91_NATIVE_ENGINEERS_ASSIGNED",
         "tick": tick, "assigned": updated}
+
+
+## N144/N151 approvals append only a site and its receipt. The two
+## registries are owned at the root, while all existing nested rows remain
+## read-only. N144 additionally updates exactly one director's strategic
+## memory, so only that director is detached. This must not be reused for
+## edits to an existing construction site or receipt.
+static func _colony_approval_owned_stage(world: Dictionary,
+        director_id: String = "") -> Dictionary:
+    var staged: Dictionary = world.duplicate(false)
+    staged["construction_sites"] = world["construction_sites"].duplicate(false)
+    staged["construction_receipts"] = world["construction_receipts"].duplicate(false)
+    if not director_id.is_empty():
+        staged["research_directors"] = world["research_directors"].duplicate(false)
+        if staged["research_directors"].has(director_id):
+            staged["research_directors"][director_id] = (
+                world["research_directors"][director_id].duplicate(true))
+    return staged
 
 
 ## Miro B1 — the REAL frozen N134/N144 "found_colony" HeadDecision
@@ -2282,7 +2885,11 @@ func apply_native_n144_found_colony(tick: int, faction: String,
         _world, baseline_live, source, faction, tick, multiplier)
     if not grant.get("ok", false):
         return grant
-    var staged: Dictionary = _copy_world("L2128", true)
+    # N144 writes only these three domains. Detach them before any mutation;
+    # unrelated growing World history remains read-only and unmodified.
+    var memory: Dictionary = grant.get("memory", {})
+    var staged: Dictionary = _colony_approval_owned_stage(
+        _world, faction if not memory.is_empty() else "")
     var authorized: bool = bool(grant.get("authorized", false))
     var candidate: Dictionary = source.get("candidate", {})
     var site: Dictionary = candidate.get("site", {})
@@ -2311,7 +2918,6 @@ func apply_native_n144_found_colony(tick: int, faction: String,
             "destination_location": str(source["plan"]["destination"]),
             "body_id": str(source["plan"]["body_id"]),
             "capital": 0, "n9_receipt_id": ""}
-    var memory: Dictionary = grant.get("memory", {})
     if not memory.is_empty():
         if not staged.get("research_directors", {}).has(faction):
             return {"ok": false, "fatal": true,
@@ -2386,7 +2992,9 @@ func apply_native_colony_foundation(tick: int, faction: String,
     if _world["construction_receipts"].has(receipt_id) or _ledger.has_receipt(receipt_id):
         return {"ok": false, "reason": "n151_colony_approval_replayed"}
     var original_money: Dictionary = _ledger.snapshot()
-    var staged: Dictionary = _copy_world("L2232", true)
+    # N151 approval writes only the site registry and its receipt registry.
+    # Detach both nested domains before mutation; other World domains stay read-only.
+    var staged: Dictionary = _colony_approval_owned_stage(_world)
     staged["construction_sites"][site_id] = site.duplicate(true)
     staged["construction_receipts"][receipt_id] = {
         "id": receipt_id, "kind": "colony_approved",
@@ -2443,7 +3051,10 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
     if not approved.get("ok", false):
         return approved
     var head_memory: Dictionary = approved.get("memory", {})
-    var staged: Dictionary = _copy_world("L2289", true)
+    # The authorized branch replaces this stage with the detached paid proposal.
+    # On a head-only tick only this faction director may change; never clone
+    # the growing ships/markets/contract history just to store head memory.
+    var staged: Dictionary = _copy_world("L2289_head_root", false)
     var ledger: RefCounted = _ledger.fork()
     var posted: Dictionary = {}
     if approved.get("authorized", false):
@@ -2467,6 +3078,9 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
                 str(c.get("mission_category", "")) != NativeColonyOrders.PROJECT_TAG):
             return {"ok": false, "fatal": true, "reason": "n144_forged_source_colony_contract"}
     if not head_memory.is_empty() and staged.get("research_directors", {}).has(faction):
+        if not posted.get("ok", false):
+            staged["research_directors"] = _world["research_directors"].duplicate()
+            staged["research_directors"][faction] = _world["research_directors"][faction].duplicate(true)
         staged["research_directors"][faction]["strategic"] = head_memory.duplicate(true)
     if staged.size() != _world.size():
         return {"ok": false, "fatal": true, "reason": "n144_added_noncanonical_world_domain"}
@@ -2530,7 +3144,7 @@ func apply_native_n144_colony_passengers(tick: int, faction: String,
         if new_receipts.get(receipt_id, null) != prior_receipts[receipt_id]:
             return {"ok": false, "fatal": true, "reason": "n144_modified_existing_payment"}
     var expected: Dictionary = _measured_schema_accounts("L2375", staged)
-    var actual: Dictionary = ledger.snapshot().get("balances", {})
+    var actual: Dictionary = ledger.balances_snapshot()
     if expected.size() != actual.size():
         return {"ok": false, "fatal": true, "reason": "n144_n9_wrong_wallet_count"}
     for wallet in expected:
@@ -2793,7 +3407,7 @@ func apply_native_colony_prepare_docks(tick: int, graph: RefCounted) -> Dictiona
         return {"ok": false, "fatal": true,
             "reason": "n151_dock_changed_real_economy"}
     var accounts: Dictionary = _measured_schema_accounts("L2638", staged)
-    var balances: Dictionary = staged_ledger.snapshot().get("balances", {})
+    var balances: Dictionary = staged_ledger.balances_snapshot()
     if accounts.size() != balances.size():
         return {"ok": false, "fatal": true,
             "reason": "n151_dock_money_account_cardinality"}
@@ -2811,6 +3425,23 @@ func apply_native_colony_prepare_docks(tick: int, graph: RefCounted) -> Dictiona
 ## already employed by N39 facilities, N143 Director and other N141 sites.
 ## This phase does not invent completed facilities: N154 materialization and
 ## builder AI authorization are separate gated native operations.
+## Ordinary N141 only replaces paid site rows, appends receipts, removes
+## completed site/contract keys, inserts new facilities and changes scalar
+## treasuries. None of those writes mutates a pre-existing nested row.
+## B3 colony establishment is different: its source stage can inspect and
+## update nested facility/site/market graphs, so retain the deep oracle path.
+## This is also the ownership boundary exercised by the N141 regression.
+static func _n141_owned_construction_domains(source: Dictionary,
+        colony_stage: bool) -> Dictionary:
+    var staged: Dictionary = source.duplicate(false)
+    for domain in ["construction_sites", "construction_receipts",
+            "construction_contracts", "faction_treasuries",
+            "facilities", "markets"]:
+        staged[domain] = source[domain].duplicate(colony_stage)
+    staged["populations"] = source["populations"].duplicate(colony_stage)
+    return staged
+
+
 func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 1:
         return {"ok": false, "reason": "not_current_native_construction_tick"}
@@ -2825,7 +3456,20 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     if site_ids.is_empty():
         return {"ok": true, "status": "N141_NO_ACTIVE_SITES",
             "paid": [], "blocked": []}
-    var staged: Dictionary = _copy_world("L2671", true)
+    # N141 writes only these owned domains. Keep all other registries as
+    # read-only inputs to labor/colony proposals and strict Schema oracle.
+    # B3 colony establishment performs its own detached full proposal.
+    # B3 colony establishment inspects the entire population graph.
+    # Retain the original deep-owned path whenever any site can establish
+    # a colony; ordinary N141 shifts only write the paid household rows.
+    var colony_stage: bool = false
+    for site_id in site_ids:
+        var site_view: Dictionary = _world["construction_sites"][site_id]
+        if site_view.get("labor", {}).get("colony_source", null) != null:
+            colony_stage = true
+            break
+    staged = _n141_owned_construction_domains(_world, colony_stage)
+    var owned_households: Dictionary = {}
     var ledger: RefCounted = _ledger.fork()
     var paid: Array = []
     var blocked: Array = []
@@ -2886,6 +3530,12 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
                 return {"ok": false, "fatal": true, "reason": "n141_original_household_missing"}
             if int(source_household["total_wealth"]) != ledger.balance(Schema.household_account(pid)):
                 return {"ok": false, "fatal": true, "reason": "n141_household_receipt_mismatch"}
+            # The proposal is read-only; detach a household before its first
+            # authoritative write, even if a later site/receipt is rejected.
+            # Multiple paid sites share the same detached row in this stage.
+            if not colony_stage and not owned_households.has(pid):
+                staged["populations"][pid] = staged["populations"][pid].duplicate(true)
+                owned_households[pid] = true
             staged["populations"][pid]["wealth"] = ledger.balance(Schema.household_account(pid))
             staged["populations"][pid]["employed_fraction"] = float(source_household["employed_fraction"])
         staged["construction_sites"][site_id] = site.duplicate(true)
@@ -3098,7 +3748,7 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "n141_invalid_world_" + error}
     var expected: Dictionary = _measured_schema_accounts("L2943", staged)
-    var wallet_values: Dictionary = ledger.snapshot()["balances"]
+    var wallet_values: Dictionary = ledger.balances_snapshot()
     if wallet_values.size() != expected.size() or ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n141_money_supply_modified"}
     for id in expected:
@@ -3118,6 +3768,42 @@ func apply_native_construction_labor(tick: int, multiplier: int) -> Dictionary:
 ## no second Director resource, no default player mandate, no money.
 ## This adapter is available for the eventual source command gateway;
 ## untrusted UI data must still arrive through an explicit caller action.
+## N109/N110 optional policy maps are independent. Clone only the root
+## selected by the command and its target row. The other two maps remain
+## immutable aliases until publication; Schema and N9 still validate ALL.
+static func _n110_policy_domain(operation: String) -> String:
+    match operation:
+        "set_research_mandate", "clear_research_mandate":
+            return "research_mandates"
+        "set_faction_charter":
+            return "faction_charters"
+        "set_economic_mandate", "clear_economic_mandate":
+            return "economic_mandates"
+    return ""
+
+
+static func _n110_owned_policy_stage(world: Dictionary,
+        active_domain: String, faction: String = "") -> Dictionary:
+    if active_domain not in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
+        return {}
+    for key in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
+        if world.has(key) and not (world[key] is Dictionary):
+            return {}
+    var staged: Dictionary = world.duplicate()
+    for key in ["research_mandates", "faction_charters",
+            "economic_mandates"]:
+        if not staged.has(key):
+            staged[key] = {}
+    staged[active_domain] = staged[active_domain].duplicate()
+    if not faction.is_empty() and staged[active_domain].has(faction):
+        if not (staged[active_domain][faction] is Dictionary):
+            return {}
+        staged[active_domain][faction] = staged[active_domain][faction].duplicate(true)
+    return staged
+
+
 func apply_native_player_research_policy(tick: int, faction: String,
         operation: String, incoming: Dictionary = {}) -> Dictionary:
     if not _ready or tick != _last_tick or tick < 0:
@@ -3141,16 +3827,13 @@ func apply_native_player_research_policy(tick: int, faction: String,
         return {"ok": true, "tick": tick, "faction_id": faction,
             "operation": operation, "changed": false,
             "status": "N110_ECONOMIC_DIRECTIVE_ALREADY_ABSENT"}
-    var next_world: Dictionary = _copy_world("L2987", true)
-    # Rust's original optional Director maps are independent. A legacy
-    # checkpoint may contain neither OR only one: do not erase a
-    # genuine existing charter while installing the first mandate.
-    for key in ["research_mandates", "faction_charters",
-            "economic_mandates"]:
-        if next_world.has(key) and not (next_world[key] is Dictionary):
-            return {"ok": false, "reason": "invalid_original_policy_map:" + key}
-        if not next_world.has(key):
-            next_world[key] = {}
+    # One policy command owns exactly one optional registry. The other
+    # two registries are read-only through the full Schema/N9 oracle.
+    # No existing nested policy row may be mutated through an alias.
+    var policy_key: String = _n110_policy_domain(operation)
+    var next_world: Dictionary = _n110_owned_policy_stage(_world, policy_key, faction)
+    if next_world.is_empty():
+        return {"ok": false, "reason": "invalid_original_policy_map"}
     var operation_result: Dictionary = {}
     match operation:
         "set_research_mandate":
@@ -3252,7 +3935,19 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
             "tick": tick, "paid": [], "blocked": []}
     if not (proposed.get("heads") is Dictionary) or not (proposed.get("shifts") is Array):
         return {"ok": false, "fatal": true, "reason": "invalid_n143_source_intents"}
-    var staged: Dictionary = _copy_world("L3098", true)
+    # N143 replaces director/research/receipt/policy rows, and treasury
+    # values are scalar. Only paid market/facility/household rows are mutated
+    # in place. Own their roots and detach each actor once, before first write.
+    # No nested reference to the authoritative World may be modified on a
+    # rejected late shift. The full Schema/accounts and N9 oracle remain below.
+    var staged: Dictionary = _copy_world("L3098_owned_root", false)
+    for domain in ["research_directors", "research", "research_receipts",
+            "research_mandates", "faction_charters", "faction_treasuries",
+            "facilities", "populations", "markets"]:
+        staged[domain] = _world[domain].duplicate(false)
+    var owned_research_markets: Dictionary = {}
+    var owned_research_facilities: Dictionary = {}
+    var owned_research_households: Dictionary = {}
     if proposed["heads"].size() != staged["research_directors"].size():
         return {"ok": false, "fatal": true, "reason": "missing_native_research_head"}
     for fid in proposed["heads"]:
@@ -3336,6 +4031,21 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
         if not validated.get("ok", false):
             return {"ok": false, "fatal": true,
                 "reason": "n143_receipt_" + str(validated.get("reason", "invalid"))}
+        # Commit has succeeded and receipt verification passed. Detach all
+        # mutable rows before the first write; repeated paid shifts reuse the
+        # same owned row and see the previous shift's updated balances/stock.
+        if not owned_research_markets.has(location):
+            market = market.duplicate(true)
+            staged["markets"][location] = market
+            owned_research_markets[location] = true
+        if not owned_research_facilities.has(facility_id):
+            facility = facility.duplicate(true)
+            staged["facilities"][facility_id] = facility
+            owned_research_facilities[facility_id] = true
+        if not owned_research_households.has(population_id):
+            person = person.duplicate(true)
+            staged["populations"][population_id] = person
+            owned_research_households[population_id] = true
         market["supply"]["electronics"] = float(market["supply"]["electronics"]) - 1.0
         staged["faction_treasuries"][fid] = staged_ledger.balance(faction_account)
         facility["credits"] = staged_ledger.balance(facility_account)
@@ -3377,7 +4087,7 @@ func apply_native_research_phase(tick: int, source_factions: Dictionary,
     if not error.is_empty():
         return {"ok": false, "fatal": true, "reason": "research_world_" + error}
     var expected: Dictionary = _measured_schema_accounts("L3222", staged)
-    var actual: Dictionary = staged_ledger.snapshot().get("balances", {})
+    var actual: Dictionary = staged_ledger.balances_snapshot()
     if expected.size() != actual.size() or staged_ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "research_money_not_conserved"}
     for account in expected:
@@ -3505,13 +4215,17 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
         tick, expiry, "faction")
     if not posted.get("ok", false):
         return posted
-    var after: Dictionary = _copy_world("L3351", true)
-    if new_site:
-        after["construction_sites"][id] = site.duplicate(true)
-    after["construction_contracts"][contract_id] = id
-    after["faction_treasuries"][faction] = next_money.balance(payer)
-    after["contract_board"] = board.snapshot()
-    after["escrow_balances"][escrow] = next_money.balance(escrow)
+    # N154 commission writes only six owned registries. Keep the canonical
+    # ships/markets/facilities and growing history read-only; publishing a
+    # whole deep World here scales with unrelated accumulated state.
+    # Each writable registry is detached recursively before the first write.
+    var after: Dictionary = _n154_owned_commission_stage(
+        _world, id, site, new_site, contract_id, faction, escrow,
+        next_money.balance(payer), next_money.balance(escrow),
+        board.snapshot())
+    if after.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "construction_owned_commission_stage_invalid"}
     var receipt_id: String = "native_site_commission:" + contract_id
     after["construction_receipts"][receipt_id] = {
         "id": receipt_id, "tick": tick, "kind": "commission",
@@ -3521,7 +4235,7 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
     if not reason.is_empty():
         return {"ok": false, "fatal": true, "reason": "construction_world_" + reason}
     var expected: Dictionary = _measured_schema_accounts("L3366", after)
-    var balances: Dictionary = next_money.snapshot()["balances"]
+    var balances: Dictionary = next_money.balances_snapshot()
     if expected.size() != balances.size() or next_money.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "construction_money_not_conserved"}
     for acc in expected:
@@ -3534,6 +4248,49 @@ func post_authorized_native_construction(tick: int, staged_native: Dictionary) -
         "site_id": id, "contract_id": contract_id, "tick": tick,
         "n9_receipt_id": "contract:" + contract_id + ":post",
         "payer": payer, "payment": 10000}
+
+
+# N154 commission is append-only for sites/contracts/receipts and changes
+# scalar balances in treasuries/escrows. Existing nested rows are read-only.
+# Own only the six registry roots, and detach the replacement board snapshot
+# because ContractBoard's snapshot may contain mutable nested contract rows.
+# A rejected stage never mutates source; Schema/N9 oracle stays at the caller.
+static func _n154_owned_commission_stage(source: Dictionary,
+        site_id: String, site: Dictionary, new_site: bool,
+        contract_id: String, faction: String, escrow: String,
+        treasury_after: int, escrow_after: int,
+        board_after: Dictionary) -> Dictionary:
+    var domains: Array = ["construction_sites", "construction_contracts",
+        "faction_treasuries", "contract_board", "escrow_balances",
+        "construction_receipts"]
+    if site_id.is_empty() or contract_id.is_empty() or faction.is_empty() or escrow.is_empty():
+        return {}
+    if not (board_after.get("contracts") is Dictionary):
+        return {}
+    if not board_after["contracts"].has(contract_id):
+        return {}
+    for domain in domains:
+        if not (source.get(domain) is Dictionary):
+            return {}
+    if source["construction_contracts"].has(contract_id) or source["construction_receipts"].has("native_site_commission:" + contract_id) or source["escrow_balances"].has(escrow):
+        return {}
+    if not source["faction_treasuries"].has(faction):
+        return {}
+    if new_site:
+        if source["construction_sites"].has(site_id) or site.is_empty():
+            return {}
+    elif not source["construction_sites"].has(site_id) or source["construction_sites"][site_id] != site:
+        return {}
+    var staged: Dictionary = source.duplicate()
+    for domain in domains:
+        staged[domain] = source[domain].duplicate()
+    if new_site:
+        staged["construction_sites"][site_id] = site.duplicate(true)
+    staged["construction_contracts"][contract_id] = site_id
+    staged["faction_treasuries"][faction] = treasury_after
+    staged["contract_board"] = board_after.duplicate(true)
+    staged["escrow_balances"][escrow] = escrow_after
+    return staged
 
 
 ## P2 Gate 3: atomic N135 live need -> N104 prepaid delivery.
@@ -3606,10 +4363,16 @@ func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
     var board_next := ContractBoard.new(ledger_next)
     if not board_next.restore(next_board):
         return {"ok": false, "fatal": true, "reason": "staged_contract_board_rejected"}
-    var world_next: Dictionary = _copy_world("L3452", true)
+    # N135 owns only board, escrow and the payer facility row. Never clone
+    # unrelated growing ships/markets/history for a single funded posting.
+    # Detach each writable container before validation; failed postings must
+    # not mutate the authoritative World or leak a proposed board alias.
+    var world_next: Dictionary = _copy_world("L3452_owned_root", false)
     world_next["contract_board"] = next_board.duplicate(true)
     world_next["escrow_balances"] = escrows_before.duplicate(true)
     world_next["escrow_balances"][escrow] = int(next_money["balances"][escrow])
+    world_next["facilities"] = _world["facilities"].duplicate()
+    world_next["facilities"][buyer] = _world["facilities"][buyer].duplicate(true)
     world_next["facilities"][buyer]["credits"] = int(next_money["balances"][payer])
     var world_error: String = _measured_schema_validate("L3457", world_next)
     if not world_error.is_empty():
@@ -3635,6 +4398,27 @@ func post_funded_contract(tick: int, demand: Dictionary) -> Dictionary:
 ## N15 receipts and N121 dispatch keys remain stored for reconciliation.
 ## A detached quote is published ONLY if every wallet, Board and World
 ## invariant succeeds together; no second ledger and no magic refund.
+# N152 refund wallets are scalar fields inside mutable facility/household rows.
+# Detach the registry roots once, then only each actually credited payer row.
+# All original rows remain read-only until the full Schema/N9 publication gate.
+static func _n152_owned_refund_wallet_stage(world: Dictionary) -> Dictionary:
+    var staged: Dictionary = world.duplicate()
+    for domain in ["escrow_balances", "facilities", "populations"]:
+        staged[domain] = world[domain].duplicate()
+    staged["faction_treasuries"] = world.get("faction_treasuries", {}).duplicate()
+    return staged
+
+
+static func _n152_detach_refund_wallet_row(staged: Dictionary,
+        original: Dictionary, domain: String, row_id: String,
+        detached: Dictionary) -> void:
+    var key: String = domain + "/" + row_id
+    if detached.has(key):
+        return
+    staged[domain][row_id] = original[domain][row_id].duplicate(true)
+    detached[key] = true
+
+
 func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick:
         return {"ok": false, "reason": "n152_not_the_canonical_post_facility_tick"}
@@ -3643,14 +4427,21 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
             "blocked": [], "status": "LEGACY_NO_CONTRACT_BOARD"}
     if not _world.has("contract_board") or not _world.has("escrow_balances"):
         return {"ok": false, "fatal": true, "reason": "n152_partial_contract_authority"}
-    var old_bank: Dictionary = _ledger.snapshot()
-    var proposal: Dictionary = NativeN152.stage(_world, old_bank, tick)
+    var legacy: bool = OS.get_environment("LS_LATE_CONTRACT_LEGACY") == "1"
+    var old_bank: Dictionary = _ledger.snapshot() if legacy else {}
+    var proposal: Dictionary = (NativeN152.stage(_world, old_bank, tick) if legacy
+        else NativeN152.stage_owned(_world, _ledger, tick))
     if not proposal.get("ok", false):
         return {"ok": false, "fatal": true, "reason": "n152_" + str(proposal.get("reason", "stage_rejected"))}
     if not bool(proposal.get("changed", false)):
         return {"ok": true, "tick": tick, "expired": [], "renewed": [],
             "refunded": [], "blocked": proposal.get("blocked", []).duplicate(true),
             "status": "NO_DUE_CONTRACT_CLOSURES"}
+    # No-change ticks above do not export or restore historical receipts.
+    # Actual changes still pass every original complete publication guard.
+    if not legacy:
+        old_bank = _ledger.snapshot()
+        proposal["ledger_snapshot"] = proposal["owned_ledger"].snapshot()
     var next_board: Dictionary = proposal["board_snapshot"]
     var next_bank: Dictionary = proposal["ledger_snapshot"]
     var old_board: Dictionary = _world["contract_board"]
@@ -3750,8 +4541,14 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
     var board_next := ContractBoard.new(ledger_next)
     if not board_next.restore(next_board):
         return {"ok": false, "fatal": true, "reason": "n152_board_restore_rejected"}
-    var staged: Dictionary = _copy_world("L3596", true)
+    # N152 owns only the contract board and refunded wallet domains.  A full
+    # World clone here grows with unrelated ships, markets and history.
+    # Detach wallet domains before any writes, including rejected refunds.
+    var staged: Dictionary = _copy_world("L3596_owned_root", false)
     staged["contract_board"] = next_board.duplicate(true)
+    var detached_refund_payers: Dictionary = {}
+    if not proposal["refunded"].is_empty():
+        staged = _n152_owned_refund_wallet_stage(staged)
     for item in proposal["refunded"]:
         var id: String = str(item["contract_id"])
         var escrow: String = str(item["escrow"])
@@ -3762,11 +4559,13 @@ func apply_native_n152_contract_lifecycle(tick: int) -> Dictionary:
             var facility_id: String = payer.substr(9)
             if not staged["facilities"].has(facility_id):
                 return {"ok": false, "fatal": true, "reason": "n152_refund_missing_facility"}
+            _n152_detach_refund_wallet_row(staged, _world, "facilities", facility_id, detached_refund_payers)
             staged["facilities"][facility_id]["credits"] = payer_balance
         elif payer.begins_with("population/"):
             var population_id: String = payer.substr(11)
             if not staged["populations"].has(population_id):
                 return {"ok": false, "fatal": true, "reason": "n152_refund_missing_household"}
+            _n152_detach_refund_wallet_row(staged, _world, "populations", population_id, detached_refund_payers)
             staged["populations"][population_id]["wealth"] = payer_balance
         elif payer.begins_with("faction/"):
             var faction_id: String = payer.substr(8)
@@ -4039,7 +4838,45 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
         var expected_balance: int = before_balance - top_up if str(account) == payer else (before_balance + top_up if str(account) == escrow else before_balance)
         if int(after_money["balances"][account]) != expected_balance:
             return {"ok": false, "fatal": true, "reason": "n104_unrelated_balance_changed"}
-    var staged: Dictionary = _copy_world("L3885", true)
+## N104 acceptance changes exactly one ship, one escrow scalar and one
+## payer wallet. The other rows are shared READ-ONLY until the atomic commit.
+## Never mutate nested authoritative rows before Schema and N9 agree.
+func _n104_owned_accept_stage(source: Dictionary, escrow: String,
+        faction_id: String, facility_id: String, ship_id: String,
+        faction_payer: bool) -> Dictionary:
+    for domain in ["escrow_balances", "faction_treasuries", "facilities", "ships"]:
+        if not (source.get(domain) is Dictionary):
+            return {}
+    if not source["escrow_balances"].has(escrow) or (
+            not source["ships"].has(ship_id)) or (
+            not (source["ships"][ship_id] is Dictionary)):
+        return {}
+    if faction_payer:
+        if not source["faction_treasuries"].has(faction_id):
+            return {}
+    elif not source["facilities"].has(facility_id) or (
+            not (source["facilities"][facility_id] is Dictionary)):
+        return {}
+    var stage: Dictionary = source.duplicate()
+    stage["escrow_balances"] = source["escrow_balances"].duplicate()
+    stage["faction_treasuries"] = source["faction_treasuries"].duplicate()
+    stage["facilities"] = source["facilities"].duplicate()
+    stage["ships"] = source["ships"].duplicate()
+    stage["ships"][ship_id] = source["ships"][ship_id].duplicate(true)
+    if not faction_payer:
+        stage["facilities"][facility_id] = source["facilities"][facility_id].duplicate(true)
+    return stage
+
+
+    # N104 accept owns only these domains. Detach each mutable write-set
+    # before editing; all other World domains remain untouched. Keep the
+    # full Schema and N9 account oracles below before the atomic publish.
+    var staged: Dictionary = _n104_owned_accept_stage(
+        _world, escrow, buyer_faction, str(buyer_market["owner"]),
+        sid, native_site_contract)
+    if staged.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "n104_accept_invalid_owned_write_set"}
     staged["contract_board"] = board.snapshot()
     staged["escrow_balances"][escrow] = staged_ledger.balance(escrow)
     if native_site_contract:
@@ -4079,6 +4916,26 @@ func accept_autonomous_delivery(tick: int, proposal: Dictionary, source_factions
 ## No new households, ships, contracts, or credits can be fabricated here.
 ## N39 recomputes N151 from its current World; N9 transfers real household
 ## wealth in the SAME validated commit, with N38 persistent receipt.
+static func _n151_owned_migration_stage(world: Dictionary, source_id: String,
+        destination_id: String) -> Dictionary:
+    # Only two household records can change in an N151 migration. Keep the
+    # registry shallow, but detach both nested records before ANY write.
+    # A failed ledger/Schema check discards this stage without touching World.
+    if source_id == destination_id or not (world.get("populations") is Dictionary):
+        return {}
+    var populations: Dictionary = world["populations"]
+    if not populations.has(source_id) or not populations.has(destination_id):
+        return {}
+    if not (populations[source_id] is Dictionary) or not (
+            populations[destination_id] is Dictionary):
+        return {}
+    var stage: Dictionary = world.duplicate()
+    var rows: Dictionary = populations.duplicate()
+    rows[source_id] = populations[source_id].duplicate(true)
+    rows[destination_id] = populations[destination_id].duplicate(true)
+    stage["populations"] = rows
+    return stage
+
 func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary:
     if not _ready or tick < 1 or tick != _last_tick or multiplier < 1 or multiplier > 10000:
         return {"ok": false, "reason": "n151_noncanonical_migration_tick"}
@@ -4104,7 +4961,11 @@ func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary
     var amount: int = int(candidate.get("wealth", -1))
     if amount < 0 or from.is_empty() or to.is_empty() or from == to or not _world["populations"].has(from) or not _world["populations"].has(to):
         return {"ok": false, "fatal": true, "reason": "n151_invalid_migrant_economy"}
-    var next_world: Dictionary = _copy_world("L3950", true)
+    # Preserve the authoritative rollback boundary while avoiding a full
+    # deep copy of every household on the 200*mult paid migration cadence.
+    var next_world: Dictionary = _n151_owned_migration_stage(_world, from, to)
+    if next_world.is_empty():
+        return {"ok": false, "fatal": true, "reason": "n151_invalid_owned_migration_stage"}
     var next_ledger = Ledger.new()
     var before_money: Dictionary = _ledger.snapshot()
     if not next_ledger.restore(before_money):
@@ -4159,7 +5020,7 @@ func apply_native_population_migration(tick: int, multiplier: int) -> Dictionary
     if next_ledger.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n151_unbalanced_migration_money"}
     var accounts: Dictionary = _measured_schema_accounts("L4004", next_world)
-    if accounts.size() != next_ledger.snapshot()["balances"].size():
+    if accounts.size() != next_ledger.balances_snapshot().size():
         return {"ok": false, "fatal": true, "reason": "n151_new_or_missing_migration_accounts"}
     for account in accounts:
         if int(accounts[account]) != next_ledger.balance(str(account)):
@@ -4313,7 +5174,15 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
         return false
     if proposed["populations"].size() != _world["populations"].size():
         return false
-    var staged: Dictionary = _copy_world("L4144", true)
+    # N151 writes only paid buyers/sellers/markets and changed sentiment rows.
+    # Detach registry maps first, then rows immediately before their first write.
+    # A failed ticket cannot mutate any nested authoritative World container.
+    var staged: Dictionary = _copy_world("L4144_owned_root", false)
+    for domain in ["populations", "facilities", "markets"]:
+        staged[domain] = _world[domain].duplicate()
+    var owned_populations: Dictionary = {}
+    var owned_facilities: Dictionary = {}
+    var owned_markets: Dictionary = {}
     var ledger_next: RefCounted = _ledger.fork()
     var purchases: Array = native_result["purchases"]
     for index in range(purchases.size()):
@@ -4352,6 +5221,19 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
         var new_stock: float = float(after.get("market_supply", -1.0))
         if new_stock < 0.0 or not is_finite(new_stock) or absf((current_stock - quantity) - new_stock) > maxf(0.0005, absf(current_stock) * 0.000001):
             return false
+        # All preflight checks above are read-only. Copy each row once, so
+        # repeated purchases observe earlier staged stock and ledger balances.
+        if not owned_populations.has(pid):
+            staged["populations"][pid] = pop.duplicate(true)
+            owned_populations[pid] = true
+        if not owned_facilities.has(fid):
+            staged["facilities"][fid] = staged["facilities"][fid].duplicate(true)
+            owned_facilities[fid] = true
+        if not owned_markets.has(location):
+            staged["markets"][location] = market.duplicate(true)
+            owned_markets[location] = true
+        pop = staged["populations"][pid]
+        market = staged["markets"][location]
         var receipt_id: String = "n151/consumption/%d/%d/%s/%s" % [tick, index, pid, commodity]
         var receipt: Dictionary = ledger_next.transfer(receipt_id,
             Schema.household_account(pid), Schema.facility_account(fid),
@@ -4372,7 +5254,13 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
         var real_market: Dictionary = staged["markets"][location]
         if pm.get("id") != real_market.get("id") or pm.get("supply") != real_market["supply"] or pm.get("prices") != real_market["prices"]:
             return false
-        real_market["consumption_window"] = pm.get("consumption_window", {}).duplicate(true)
+        var next_window: Variant = pm.get("consumption_window", {})
+        if real_market.get("consumption_window", {}) != next_window:
+            if not owned_markets.has(location):
+                staged["markets"][location] = real_market.duplicate(true)
+                owned_markets[location] = true
+                real_market = staged["markets"][location]
+            real_market["consumption_window"] = next_window.duplicate(true)
     var matched: Dictionary = {}
     for projected_pop in proposed["populations"]:
         if not (projected_pop is Dictionary):
@@ -4388,7 +5276,12 @@ func apply_population_phase(tick: int, native_result: Dictionary) -> bool:
                 "overall_sentiment", "unrest", "migration_pressure"]:
             if not projected_pop.has(field):
                 return false
-            real_pop[field] = projected_pop[field]
+            if real_pop.get(field) != projected_pop[field]:
+                if not owned_populations.has(id):
+                    staged["populations"][id] = real_pop.duplicate(true)
+                    owned_populations[id] = true
+                    real_pop = staged["populations"][id]
+                real_pop[field] = projected_pop[field]
     for fid in staged["facilities"]:
         if not proposed["facilities"].has(fid) or int(proposed["facilities"][fid].get("credits", -1)) != int(staged["facilities"][fid]["credits"]):
             return false
@@ -4567,6 +5460,45 @@ func _grant_xp(fac: Dictionary, recipes_run: int) -> void:
         fac["xp"] = int(fac["xp"]) - int(fac["level"]) * 100
         fac["level"] = int(fac["level"]) + 1
 
+## N154 Payroll.pay_shift may mutate both facility rows (including _blocked),
+## and only households in the producer faction/location. Manufacturing later
+## changes the local market history/supply. Detach all possible write targets
+## before calling either routine, even when the wage payment is rejected.
+## Keep the remaining growing registries shared and read-only for Schema.
+static func _n154_owned_shipyard_payroll_stage(source: Dictionary,
+        producer_id: String, owner_id: String, location: String) -> Dictionary:
+    for domain in ["facilities", "populations", "markets"]:
+        if not (source.get(domain) is Dictionary):
+            return {}
+    var facilities: Dictionary = source["facilities"]
+    var populations: Dictionary = source["populations"]
+    var markets: Dictionary = source["markets"]
+    if not facilities.has(producer_id) or not facilities.has(owner_id):
+        return {}
+    if not markets.has(location) or not (markets[location] is Dictionary):
+        return {}
+    if not (facilities[producer_id] is Dictionary) or not (facilities[owner_id] is Dictionary):
+        return {}
+    var producer: Dictionary = facilities[producer_id]
+    if str(producer.get("location", "")) != location:
+        return {}
+    var staged: Dictionary = source.duplicate()
+    staged["facilities"] = facilities.duplicate()
+    staged["populations"] = populations.duplicate()
+    staged["markets"] = markets.duplicate()
+    staged["facilities"][producer_id] = facilities[producer_id].duplicate(true)
+    if owner_id != producer_id:
+        staged["facilities"][owner_id] = facilities[owner_id].duplicate(true)
+    staged["markets"][location] = markets[location].duplicate(true)
+    for pid in populations:
+        if not (populations[pid] is Dictionary):
+            return {}
+        var person: Dictionary = populations[pid]
+        if str(person.get("faction", "")) == str(producer.get("faction", "")) and str(person.get("location", "")) == location:
+            staged["populations"][pid] = person.duplicate(true)
+    return staged
+
+
 ## Native facility/mod.rs: produce exactly one N132 T2/T3 module per
 ## real shipyard per 15×mult cycle. Same physical markets, shifts, and N9.
 ## There are NO shipyards in the clean frozen 0.6.7 starting seed;
@@ -4618,7 +5550,14 @@ func _run_shipyard_modules(tick: int, multiplier: int,
         var plan: Dictionary = candidate["plan"]
         # The source checks stock and input prices BEFORE paying workers.
         # Never deduct goods or award a module on an unfunded wage shift.
-        var staged: Dictionary = _copy_world("L4449", true)
+        # N154 paid module write set: payroll touches facility shifts/credits
+        # and household wealth/employment; manufacturing touches the local
+        # market supply/history. Keep every other authoritative domain shared
+        # for read-only Schema inspection, never expose mutable aliases to pay_shift.
+        var staged: Dictionary = _n154_owned_shipyard_payroll_stage(
+            _world, str(id), owner, location)
+        if staged.is_empty():
+            return {"ok": false, "reason": "n154_invalid_owned_payroll_stage"}
         var ledger_copy: RefCounted = _ledger.fork()
         var shift: Dictionary = Payroll.pay_shift(staged, ledger_copy,
             str(id), owner, tick, external_workers,
@@ -4649,7 +5588,7 @@ func _run_shipyard_modules(tick: int, multiplier: int,
         if not error.is_empty():
             return {"ok": false, "reason": "n154_paid_module_invalid_world:" + error}
         var accounts: Dictionary = _measured_schema_accounts("L4479", staged)
-        var balances: Dictionary = ledger_copy.snapshot().get("balances", {})
+        var balances: Dictionary = ledger_copy.balances_snapshot()
         if balances.size() != accounts.size() or ledger_copy.total() != _ledger.total():
             return {"ok": false, "reason": "n154_module_wages_destroyed_money"}
         for account in accounts:
@@ -4708,10 +5647,20 @@ func apply_native_n121_execution(tick: int, faction: String,
         return {"ok": false, "fatal": true, "reason": "n121_pending_without_n98_ledger"}
     if str(pending["ledger"].get("faction_id", "")) != faction:
         return {"ok": false, "fatal": true, "reason": "n121_mismatched_planner_faction"}
+    # N98 prepare/acknowledge mutate the pending ledger. Detach it from
+    # authoritative native_execution before ANY potentially rejected step.
+    pending = pending.duplicate(true)
     var gate: Dictionary = NativeN98.next_gate(pending["ledger"])
     var kind: String = str(gate.get("kind", ""))
     var ledger_next: RefCounted = _ledger.fork()
-    var staged: Dictionary = _copy_world("L4542", true)
+    # N121 may publish only its execution/planner state and, on paid
+    # delivery, the N104 contract/escrow/treasury registries. No other
+    # World domain is writable. Keep full Schema and N9 oracles below.
+    var staged: Dictionary = _copy_world("L4542_owned_root", false)
+    for domain in ["native_execution", "native_planner_records",
+            "contract_board", "escrow_balances", "faction_treasuries",
+            "native_htn_contracts"]:
+        staged[domain] = _world[domain].duplicate(true)
     var next_state: Dictionary = state.duplicate(true)
     var event: Dictionary = {"ok": true, "due": true, "tick": tick,
         "faction_id": faction, "kind": kind, "status": "awaiting_source_step",
@@ -4938,7 +5887,7 @@ func apply_native_n121_execution(tick: int, faction: String,
         return {"ok": false, "fatal": true,
             "reason": "n121_canonical_n39_schema_" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L4768", staged)
-    var balances: Dictionary = ledger_next.snapshot().get("balances", {})
+    var balances: Dictionary = ledger_next.balances_snapshot()
     if accounts.size() != balances.size() or ledger_next.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n121_fabricated_n9_wallet"}
     for account in accounts:
@@ -4991,7 +5940,11 @@ func apply_native_hybrid_planning(tick: int, faction: String,
         _world, faction, head, tick, mode)
     if not candidate.get("ok", false):
         return candidate
-    var staged: Dictionary = _copy_world("L4822", true)
+    # N100 only publishes one planner record and its tick marker.
+    # Detach the owned registry before writing; all other World domains
+    # remain read-only and retain their authoritative identity.
+    var staged: Dictionary = _copy_world("L4822_owned_root", false)
+    staged["native_planner_records"] = _world["native_planner_records"].duplicate(true)
     var record: Dictionary = {
         "faction_id": faction, "tick": tick,
         "status": str(candidate.get("status", "")),
@@ -5049,7 +6002,10 @@ func apply_native_b4_colony_aftercare(tick: int, faction: String,
         return {"ok": true, "due": true, "promoted": false,
             "accepted": false, "faction_id": faction, "tick": tick,
             "status": str(proposed.get("reason", "b4_no_actual_colony_goal"))}
-    var prior: Dictionary = _copy_world("L4880", true)
+    # N100 owns only native_planner_records + its scalar tick. It publishes a
+    # detached registry via an owned root, never mutating previous World rows.
+    # Keep the prior root for rollback without copying growing histories.
+    var prior: Dictionary = _copy_world("b4_n100_prior_owned_root", false)
     var money: Dictionary = _ledger.snapshot()
     var planned: Dictionary = apply_native_hybrid_planning(
         tick, faction, proposed["head"], multiplier)
@@ -5099,7 +6055,18 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
         return {"ok": true, "due": false, "tick": tick, "transfers": []}
     if tick <= int(_world["faction_finance_last_tick"]):
         return {"ok": false, "reason": "n129_duplicate_faction_accounting_tick"}
-    var staged: Dictionary = _copy_world("L4930", true)
+    # N129 owns only the three wallet-backed domains. Preserve the full
+    # Schema/N9 oracle, but do not clone unrelated growing ship/contract data.
+    # Every nested facility/household row written below is detached first.
+    var staged: Dictionary = _copy_world("L4930_owned_root", false)
+    # Treasury entries are scalar credits; shallow copy is fully detached.
+    # Facility/household rows are immutable during transfer validation and
+    # detached individually below, only when their wallet balance changes.
+    # Deep-copying both entire registries here made the row detach below a
+    # second deep copy of every paid wallet, including unrelated nested data.
+    staged["faction_treasuries"] = _world["faction_treasuries"].duplicate(false)
+    staged["facilities"] = _world["facilities"].duplicate(false)
+    staged["populations"] = _world["populations"].duplicate(false)
     var wallets: RefCounted = _ledger.fork()
     var records: Array = plan.get("transfers", [])
     if records.size() > 10000:
@@ -5148,26 +6115,37 @@ func apply_native_faction_finance(tick: int, multiplier: int) -> Dictionary:
         if not proposed_treasuries.has(id):
             return {"ok": false, "fatal": true, "reason": "n129_unknown_source_faction"}
         staged["faction_treasuries"][id] = int(proposed_treasuries[id])
+    # Detach each changed wallet row before any mutation. The shallow domain
+    # dictionaries retain untouched rows as read-only references; rejected
+    # transfers and failed Schema/N9 checks cannot leak writes into _world.
+    # An unchanged wallet retains its existing dirty/sentiment flags.
     for id in staged["facilities"]:
         if not proposed_facilities.has(id):
             return {"ok": false, "fatal": true, "reason": "n129_missing_native_facility"}
-        if int(proposed_facilities[id]) != int(_world["facilities"][id]["credits"]):
-            staged["facilities"][id]["dirty"] = true
-        staged["facilities"][id]["credits"] = int(proposed_facilities[id])
+        var next_credits: int = int(proposed_facilities[id])
+        var original_facility: Dictionary = _world["facilities"][id]
+        if next_credits != int(original_facility["credits"]):
+            var owned_facility: Dictionary = original_facility.duplicate(true)
+            owned_facility["dirty"] = true
+            owned_facility["credits"] = next_credits
+            staged["facilities"][id] = owned_facility
     for id in staged["populations"]:
         if not proposed_households.has(id):
             return {"ok": false, "fatal": true, "reason": "n129_missing_native_household"}
-        if int(proposed_households[id]) != int(_world["populations"][id]["wealth"]):
-            # Rust relief.rs marks PopSentiment dirty when giving an
-            # actual household wallet support transfer.
-            staged["populations"][id]["sentiment_dirty"] = true
-        staged["populations"][id]["wealth"] = int(proposed_households[id])
+        var next_wealth: int = int(proposed_households[id])
+        var original_household: Dictionary = _world["populations"][id]
+        if next_wealth != int(original_household["wealth"]):
+            var owned_household: Dictionary = original_household.duplicate(true)
+            # Rust relief.rs marks PopSentiment dirty on actual support.
+            owned_household["sentiment_dirty"] = true
+            owned_household["wealth"] = next_wealth
+            staged["populations"][id] = owned_household
     staged["faction_finance_last_tick"] = tick
     var invalid: String = _measured_schema_validate("L4994", staged)
     if not invalid.is_empty():
         return {"ok": false, "fatal": true, "reason": "n129_world_schema:" + invalid}
     var accounts: Dictionary = _measured_schema_accounts("L4997", staged)
-    var actual: Dictionary = wallets.snapshot().get("balances", {})
+    var actual: Dictionary = wallets.balances_snapshot()
     if accounts.size() != actual.size() or wallets.total() != _ledger.total():
         return {"ok": false, "fatal": true, "reason": "n129_native_total_not_conserved"}
     for account in accounts:
@@ -5203,7 +6181,9 @@ func apply_native_body_territory(tick: int, multiplier: int,
     var native: Dictionary = NativeDiplomacy.territory(_world, orbits)
     if not native.get("ok", false):
         return native
-    var staged: Dictionary = _copy_world("L5034", true)
+    # Only the detached territory map and scalar cadence are written. Other
+    # domains remain read-only throughout validation and atomic publication.
+    var staged: Dictionary = _copy_world("L5034", false)
     staged["body_territory"] = native["bodies"].duplicate(true)
     staged["territory_last_tick"] = tick
     var invalid: String = _measured_schema_validate("L5037", staged)
@@ -5239,7 +6219,9 @@ func apply_native_faction_relations(tick: int, multiplier: int) -> Dictionary:
     var last: int = int(_world["faction_relations_last_tick"])
     if tick <= last:
         return {"ok": false, "reason": "n150_duplicate_or_replayed_relations_pass"}
-    var staged: Dictionary = _copy_world("L5070", true)
+    # The proposal is detached before publication; Schema and accounts
+    # inspect shared domains but never mutate them. No World-wide deep copy.
+    var staged: Dictionary = _copy_world("L5070", false)
     staged["faction_relations"] = plan["pairs"].duplicate(true)
     staged["faction_relations_last_tick"] = tick
     var invalid: String = _measured_schema_validate("L5073", staged)
@@ -5257,8 +6239,40 @@ func apply_native_faction_relations(tick: int, multiplier: int) -> Dictionary:
         "authority": "n39_one_faction_relations_matrix"}
 
 
+## Shared by recipe and extraction failure paths. A blocked attempt is a
+## physical facility-status transition, never permission to mutate a row
+## still reachable from the previous authoritative World generation.
+## Keep this stage independent of payroll and market stock: a rejected
+## recipe/mining attempt must not publish any proposed inventory or N9 leg.
+func _stage_blocked_facility(source: Dictionary, id: String,
+        reason: String) -> Dictionary:
+    if not source.has("facilities") or not (source["facilities"] is Dictionary):
+        return {}
+    if not source["facilities"].has(id) or not (source["facilities"][id] is Dictionary):
+        return {}
+    var before: Dictionary = source["facilities"][id]
+    if str(before.get("work_blocked_reason", "")) == reason:
+        return source
+    var staged: Dictionary = source.duplicate()
+    staged["facilities"] = source["facilities"].duplicate()
+    var owned: Dictionary = before.duplicate(true)
+    owned["work_blocked_reason"] = reason
+    staged["facilities"][id] = owned
+    return staged
+
 func _blocked(id: String, reason: String) -> Dictionary:
-    _world["facilities"][id]["work_blocked_reason"] = reason
+    var staged: Dictionary = _stage_blocked_facility(_world, id, reason)
+    if staged.is_empty():
+        return {"ok": false, "fatal": true,
+            "reason": "blocked_facility_missing:" + id}
+    if not is_same(staged, _world):
+        var invalid: String = _measured_schema_validate("blocked_production", staged)
+        if not invalid.is_empty():
+            return {"ok": false, "fatal": true,
+                "reason": "blocked_production_invalid_world:" + invalid}
+        # No wallet or market delta is permitted on the failure path.
+        # Full Schema validation is retained; the stage owns only one row.
+        _world = staged
     return {"ok": false, "reason": reason}
 
 ## Complete physical checkpoint including N9 balances and receipts, labor
@@ -5367,7 +6381,7 @@ func restore(saved: Dictionary) -> bool:
                 {"account": Schema.household_account(to), "delta": quantity}]
             if str(receipt.get("id", "")) != transfer_id or int(receipt.get("tick", -1)) != int(last_migration["tick"]) or str(receipt.get("kind", "")) != "native_population_migration" or receipt.get("legs", []) != expected_legs:
                 return false
-    if staged_ledger.snapshot()["balances"].size() != expected.size():
+    if staged_ledger.balances_snapshot().size() != expected.size():
         return false
     for id in staged_world["facilities"]:
         var shift: Dictionary = staged_world["facilities"][id].get("work_shift", {})
@@ -5384,3 +6398,131 @@ func restore(saved: Dictionary) -> bool:
     _last_tick = int(saved["tick"])
     _ready = true
     return true
+
+## N91 needs only original N9 receipts named by current construction
+## deliveries. Missing evidence stays missing; the source funding predicate
+## still performs all N15/contract/quantity checks on the same World.
+func native_construction_funding_snapshot() -> Dictionary:
+    if OS.get_environment("LS_LATE_FUNDING_LEGACY") == "1":
+        return ledger_snapshot()
+    var receipts: Dictionary = {}
+    for row in _world.get("construction_receipts", {}).values():
+        if str(row.get("kind", "")) != "delivery" or not _world.get("construction_sites", {}).has(str(row.get("site_id", ""))):
+            continue
+        var id: String = str(row.get("n9_receipt_id", ""))
+        if not receipts.has(id) and _ledger.has_receipt(id):
+            receipts[id] = _ledger.receipt_copy(id)
+    return {"receipts": receipts}
+
+## Fresh detached runtime projections. No cache, no cross-commit reuse,
+## and no reference into canonical World escapes. Unknown/malformed rows
+## are preserved for the same downstream validators, not repaired here.
+## LS_RUNTIME_FULL_WORLD_READS=1 is the full-copy oracle for replay tests.
+func native_runtime_read_snapshot(kind: String) -> Dictionary:
+    if not _ready:
+        return {}
+    if OS.get_environment("LS_RUNTIME_FULL_WORLD_READS") == "1":
+        return world_snapshot()
+    var domains: Array = []
+    var row_fields: Dictionary = {}
+    match kind:
+        "ship_motion":
+            domains = ["ships", "ship_next_token"]
+        "market_tick", "market_crisis":
+            domains = ["markets", "facilities"]
+        "population":
+            domains = ["populations", "markets", "facilities"]
+            row_fields = {
+                "markets": ["id", "owner", "supply", "prices", "consumption_window"],
+                "facilities": ["credits"]}
+        "station_demand":
+            domains = ["markets", "facilities"]
+            row_fields = {
+                "markets": ["owner", "supply", "prices", "consumption_window"],
+                "facilities": ["location", "credits", "faction"]}
+        "engineer_dispatch":
+            domains = ["ships", "construction_sites", "construction_receipts",
+                "cargo_receipts", "contract_board", "facilities", "markets"]
+        "faction_ids":
+            domains = ["faction_treasuries"]
+        _:
+            # An unrecognized caller cannot silently receive an empty World.
+            return world_snapshot()
+    var began: int = Time.get_ticks_usec() if _profile_copy_enabled else 0
+    var result: Dictionary = {}
+    for domain in domains:
+        if not _world.has(domain):
+            continue
+        var value: Variant = _world[domain]
+        if row_fields.has(domain) and value is Dictionary:
+            var rows: Dictionary = {}
+            for id in value:
+                rows[id] = _runtime_read_row(value[id], row_fields[domain])
+            result[domain] = rows
+        else:
+            result[domain] = _runtime_read_copy(value)
+    if _profile_copy_enabled:
+        _record_timing(_profile_copy_sites, "runtime_read:" + kind,
+            maxi(0, Time.get_ticks_usec() - began))
+    return result
+
+func _runtime_read_copy(value: Variant) -> Variant:
+    if value is Dictionary or value is Array:
+        return value.duplicate(true)
+    return value
+
+func _runtime_read_row(value: Variant, fields: Array) -> Variant:
+    if not (value is Dictionary):
+        return _runtime_read_copy(value)
+    # Keep malformed/incomplete rows intact, including nonempty-row checks.
+    for field in fields:
+        if not value.has(field):
+            return value.duplicate(true)
+    var row: Dictionary = {}
+    for field in fields:
+        if value.has(field):
+            row[field] = _runtime_read_copy(value[field])
+    return row
+
+## N146 checks one ship/contract plus physical dock facts, not every
+## historical market sample, cargo receipt and unrelated ship memory.
+## Called anew for EACH command, including after earlier command commits.
+func native_dock_read_snapshot(ship_id: String, contract_id: String) -> Dictionary:
+    if not _ready:
+        return {}
+    if OS.get_environment("LS_RUNTIME_FULL_WORLD_READS") == "1":
+        return world_snapshot()
+    var began: int = Time.get_ticks_usec() if _profile_copy_enabled else 0
+    var result: Dictionary = {}
+    if _world.has("ships"):
+        result["ships"] = {}
+        if _world["ships"].has(ship_id):
+            result["ships"][ship_id] = _world["ships"][ship_id].duplicate(true)
+    var contracts: Dictionary = _world.get("contract_board", {}).get("contracts", {})
+    result["contract_board"] = {"contracts": {}}
+    if contracts.has(contract_id):
+        result["contract_board"]["contracts"][contract_id] = contracts[contract_id].duplicate(true)
+    for domain in ["facilities", "markets"]:
+        if not _world.has(domain):
+            continue
+        var rows: Dictionary = {}
+        var fields: Array = (["owner"] if domain == "markets"
+            else ["location", "type", "docking_capacity", "abandoned"])
+        for id in _world[domain]:
+            rows[id] = _runtime_read_row(_world[domain][id], fields)
+        result[domain] = rows
+    # Passenger colony docking scans all current sites; retain that scan
+    # and its exact named construction-dock receipts, without the archive.
+    if _world.has("construction_sites"):
+        result["construction_sites"] = _world["construction_sites"].duplicate(true)
+    var evidence: Dictionary = {}
+    var receipts: Dictionary = _world.get("construction_receipts", {})
+    for site_id in _world.get("construction_sites", {}):
+        var proof_id: String = "n151_colony_dock:" + str(site_id)
+        if receipts.has(proof_id):
+            evidence[proof_id] = _runtime_read_copy(receipts[proof_id])
+    result["construction_receipts"] = evidence
+    if _profile_copy_enabled:
+        _record_timing(_profile_copy_sites, "runtime_read:dock_command",
+            maxi(0, Time.get_ticks_usec() - began))
+    return result
